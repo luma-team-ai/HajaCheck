@@ -16,7 +16,7 @@ export interface ReportSummary {
 
 export interface DefectDetailItem {
   // 실제 Defect.id — ai-server가 confirmed_defects의 id를 그대로 echo한다. 프론트가 사진·bbox를
-  // 배열 인덱스가 아니라 이 값으로 매칭한다(#1375). 구버전 저장분(이 필드 도입 전 생성)엔 없을 수
+  // 배열 인덱스가 아니라 이 값으로 매칭한다(#1379). 구버전 저장분(이 필드 도입 전 생성)엔 없을 수
   // 있어 optional — 없으면 기존 인덱스 매칭으로 폴백한다.
   defect_id?: number;
   defect_type: string;

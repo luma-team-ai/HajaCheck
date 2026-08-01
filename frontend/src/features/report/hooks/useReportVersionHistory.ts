@@ -23,7 +23,7 @@ export function generateMockVersionHistory(report: ReportListItem): ReportSummar
       status: isCurrent ? report.status : isInitial ? 'DRAFT' : 'FINALIZED',
       groundingCheckPassed: true,
       createdAt: isValidDate ? date.toISOString() : report.updatedAt,
-      createdByName: isInitial ? '시스템' : v % 2 === 0 ? '김관리' : '이점검',
+      createdByName: '개발용 이력',
     });
   }
 

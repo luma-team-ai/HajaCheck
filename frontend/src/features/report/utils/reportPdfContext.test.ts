@@ -111,6 +111,21 @@ describe("buildReportPdfContext — 하자 박스", () => {
     expect(images[0].boxes).toEqual([]);
   });
 
+  it("사진 경계를 벗어나는 좌표는 그리지 않는다", () => {
+    const outOfBounds = [
+      { ...CRACK_A, id: 11, bboxX: -0.01 },
+      { ...CRACK_A, id: 12, bboxY: -0.01 },
+      { ...CRACK_A, id: 13, bboxX: 0.95, bboxW: 0.1 },
+      { ...CRACK_A, id: 14, bboxY: 0.95, bboxH: 0.1 },
+    ];
+    const images =
+      buildReportPdfContext(buildReport(outOfBounds), null, true)
+        .defectImages ?? [];
+
+    expect(images).toHaveLength(4);
+    expect(images.every((image) => image.boxes.length === 0)).toBe(true);
+  });
+
   it("mediaId가 없는 하자는 서로 묶지 않는다", () => {
     // 묶을 기준이 없으므로 하자 id로 각자 독립 그룹이 되어야 한다 — 잘못 묶으면 서로 다른
     // 사진의 박스가 한 장에 섞인다.

@@ -446,7 +446,9 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
-    expect(await screen.findByRole('alert')).toBeTruthy();
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('보고서를 발행하지 못했습니다. 보고서 내용과 검증 상태를 확인해 주세요.');
+    expect(alert.textContent).not.toContain('근거 재검증 실패');
     fireEvent.click(screen.getByRole('menuitem', { name: '발행' }));
 
     await waitFor(() => expect(detailCount).toBe(2));
@@ -494,6 +496,27 @@ describe('ReportListPage', () => {
     expect(await screen.findByText(/알 수 없음/)).toBeTruthy();
   });
 
+  it('변경 이력 폴백은 실사용자처럼 보이는 작성자 목 이름을 노출하지 않는다', async () => {
+    server.use(
+      http.get('/api/inspections/:id/reports', () =>
+        HttpResponse.json({
+          success: true,
+          data: [],
+        }),
+      ),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '변경 이력' }));
+
+    const panel = (await screen.findByText('변경 이력')).closest('.w-72') as HTMLElement;
+    await within(panel).findAllByText('개발용 이력');
+    expect(within(panel).queryAllByText(/김관리|이점검|시스템/)).toHaveLength(0);
+  });
+
   it('변경 이력 비교 결과는 패널 내부가 아니라 공용 모달로 열고 내부 key를 한글 라벨로 표시한다', async () => {
     server.use(
       http.get('/api/reports/:id', ({ params }) => {
@@ -538,5 +561,79 @@ describe('ReportListPage', () => {
     expect(within(dialog).getByText('이전 시설물 개요')).toBeTruthy();
     expect(within(dialog).queryByText('overview.facility_summary')).toBeNull();
     expect(within(panelRoot).queryByLabelText('보고서 버전 비교 결과')).toBeNull();
+  });
+
+  it('변경 이력 비교 결과는 sectionOrder/manualSections 저장용 내부값을 그대로 노출하지 않는다', async () => {
+    server.use(
+      http.get('/api/reports/:id', ({ params }) => {
+        const id = Number(params.id);
+        const isSelectedVersion = id === 102;
+        return HttpResponse.json({
+          success: true,
+          data: {
+            id,
+            inspectionId: 1,
+            version: isSelectedVersion ? 2 : 3,
+            status: 'FINALIZED',
+            groundingCheckPassed: true,
+            pdfUrl: `/api/reports/${id}/pdf/storage-key`,
+            content: {
+              ...reportContent,
+              ...(isSelectedVersion
+                ? {
+                    manualSections: [
+                      {
+                        id: 'manual-submission-msa49gv2-f1z0dm',
+                        type: 'submission',
+                        title: '제출문',
+                        data: {
+                          recipient: '서울특별시장 귀하',
+                          contractDate: '2026년 08월 01일',
+                          companyName: '개발팀 공용 테스트',
+                          companyAddress: '서울시 강남구',
+                          representativeName: '홍길동',
+                        },
+                      },
+                    ],
+                    sectionOrder: [
+                      'manual-submission-msa49gv2-f1z0dm',
+                      'overview',
+                      'summary',
+                      'detail',
+                      'recommendation',
+                      'photos',
+                    ],
+                  }
+                : {
+                    sectionOrder: ['overview', 'summary', 'detail', 'recommendation', 'photos'],
+                    manualSections: [],
+                  }),
+            },
+            createdBy: 1,
+            createdAt: '2026-07-24T14:30:00',
+          },
+        });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '변경 이력' }));
+
+    const compareButtons = await screen.findAllByRole<HTMLButtonElement>('button', { name: '비교' });
+    fireEvent.click(compareButtons.find((button) => !button.disabled)!);
+
+    const dialog = await screen.findByRole('dialog', { name: '현재 버전 ↔ v2' });
+    expect(within(dialog).getByText('섹션 순서 1')).toBeTruthy();
+    expect(within(dialog).getAllByText('기본현황').length).toBeGreaterThan(0);
+    expect(within(dialog).getByText('제출문')).toBeTruthy();
+    expect(within(dialog).getByText('수동 서식 섹션 > 제출문 > 수신자')).toBeTruthy();
+    expect(within(dialog).getByText('서울특별시장 귀하')).toBeTruthy();
+    expect(within(dialog).queryByText(/manual-submission-/)).toBeNull();
+    expect(within(dialog).queryByText('["overview","summary","detail","recommendation","photos"]')).toBeNull();
+    expect(within(dialog).queryByText('manualSections')).toBeNull();
+    expect(within(dialog).queryByText('sectionOrder')).toBeNull();
   });
 });

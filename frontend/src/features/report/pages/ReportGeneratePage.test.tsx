@@ -649,6 +649,45 @@ describe('ReportGeneratePage', () => {
     expect(finalizeButton.disabled).toBe(true);
   });
 
+  it('제출문은 회사명만 있어도 필수값 누락이면 저장과 최종 확정을 막는다', async () => {
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content: {
+        ...mockContent,
+        manualSections: [
+          {
+            id: 'manual-submission',
+            type: 'submission',
+            title: '제출문',
+            data: {
+              recipient: '',
+              contractDate: '',
+              companyName: '개발팀 공용 테스트',
+              companyAddress: '',
+              representativeName: '',
+            },
+          },
+        ],
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '제출문 누락 저장 방지' } });
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(screen.getByText('저장할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(/필수값이 누락된 추가 섹션.*제출문/)).toBeTruthy();
+    expect(updateReportCallCount).toBe(0);
+  });
+
   it('서식 섹션 추가 메뉴에 표준서식 수동 입력 항목을 모두 노출한다', async () => {
     renderPage();
 
@@ -981,7 +1020,7 @@ describe('ReportGeneratePage', () => {
     revokeObjectURLSpy.mockRestore();
   });
 
-  // 회귀 테스트(#1375) — detail.items 순서가 실제 defects 목록 순서와 다를 때(AI 재생성 등으로
+  // 회귀 테스트(#1379) — detail.items 순서가 실제 defects 목록 순서와 다를 때(AI 재생성 등으로
   // 흔히 발생) defect_id로 정확히 매칭해야 한다. 예전엔 배열 인덱스로만 짝지어서, 순서가 어긋나면
   // 엉뚱한 하자의 사진·bbox가 표시됐다.
   it('detail.items 순서가 defects 순서와 달라도 defect_id로 올바른 사진과 매칭한다', async () => {
@@ -1027,6 +1066,40 @@ describe('ReportGeneratePage', () => {
       '/img/e-grade.jpg',
       '/img/a-grade.jpg',
     ]);
+  });
+
+  it('detail.items에 defect_id가 있으면 매칭 실패 시 인덱스 사진으로 폴백하지 않는다', async () => {
+    server.use(
+      http.get('/api/inspections/1/defects', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              id: 5, inspectionId: 1, type: 'CRACK', grade: 'A', status: 'DETECTED', confidence: 0.9,
+              isReviewed: false, bboxX: 0.1, bboxY: 0.1, bboxW: 0.1, bboxH: 0.1,
+              mediaId: 100, imageUrl: '/img/a-grade.jpg', createdAt: '2026-07-22T10:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    reportState = {
+      ...mockReport,
+      content: {
+        ...mockContent,
+        detail: {
+          items: [
+            { defect_id: 999, defect_type: '균열', location: '삭제된 하자', severity_grade: 'A', description: '', cause: '' },
+          ],
+        },
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    expect(screen.getByText('이미지 없음')).toBeTruthy();
+    expect(screen.queryByRole('img', { name: /현장 이미지/ })).toBeNull();
   });
 });
 

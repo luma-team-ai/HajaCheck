@@ -92,11 +92,10 @@ export function ReportListPage() {
     ]);
   }
 
-  function actionErrorMessage(error: unknown): string {
-    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
-      return error.message;
-    }
-    return '처리하지 못했습니다. 다시 시도해 주세요.';
+  function actionErrorMessage(type: 'clone' | 'submit' | 'delete'): string {
+    if (type === 'clone') return '보고서를 복사하지 못했습니다.';
+    if (type === 'submit') return '보고서를 발행하지 못했습니다. 보고서 내용과 검증 상태를 확인해 주세요.';
+    return '보고서 초안을 삭제하지 못했습니다.';
   }
 
   async function handleCloneReport(row: ReportListItem) {
@@ -108,7 +107,7 @@ export function ReportListPage() {
       await refreshReportQueries(response.data.inspectionId);
       navigate(`/reports/${response.data.id}`);
     } catch (error) {
-      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('clone') }));
     } finally {
       setPendingAction(null);
     }
@@ -147,7 +146,7 @@ export function ReportListPage() {
       await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);
       await refreshReportQueries(report.inspectionId);
     } catch (error) {
-      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('submit') }));
     } finally {
       setPendingAction(null);
     }
@@ -177,7 +176,7 @@ export function ReportListPage() {
       }
       await refreshReportQueries(row.inspectionId);
     } catch (error) {
-      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('delete') }));
     } finally {
       setPendingAction(null);
     }

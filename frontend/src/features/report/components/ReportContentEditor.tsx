@@ -49,7 +49,7 @@ const EMPTY_SUBMISSION: SubmissionSectionData = {
 const EMPTY_PARTICIPANTS: ParticipantsSectionData = { entries: [] };
 
 // 제출문의 발신 업체명은 매번 수동 입력하지 않아도 되는 값이라 로그인 세션(companyName)에서
-// 기본값을 채운다(#1375). 계약 체결일은 "오늘"로 자동 채우면 빈 섹션 검증(#1323 P3, 아무 필드도
+// 기본값을 채운다(#1379). 계약 체결일은 "오늘"로 자동 채우면 빈 섹션 검증(#1323 P3, 아무 필드도
 // 안 채운 섹션은 저장을 막는 기능)이 항상 무력화되므로 일부러 자동 채우지 않는다 — 수신자·업체
 // 주소·대표자명과 마찬가지로 앱에 안정적인 조회 소스도 없어 수동 입력으로 남긴다.
 function defaultManualData(type: ManualSectionType, companyName?: string | null): ManualSection['data'] {

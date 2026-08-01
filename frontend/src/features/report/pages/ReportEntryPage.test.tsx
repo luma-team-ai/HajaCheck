@@ -423,11 +423,19 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.queryByText('완료')).toBeNull();
   });
 
-  it('하자가 0건(totalCount=0)이면 완료율 배지와 "보고서 생성 시작" 버튼이 둘 다 완료로 취급된다(#945)', async () => {
+  it('하자가 0건(totalCount=0)이면 완료 배지는 유지하되 생성 클릭 시 모달로 안내하고 요청하지 않는다(#945)', async () => {
+    let posted = false;
     server.use(
       http.get('/api/inspections/:id/defects', () =>
         HttpResponse.json({ success: true, data: [] }),
       ),
+      http.post('/api/inspections/:id/reports', () => {
+        posted = true;
+        return HttpResponse.json({
+          success: true,
+          data: { id: 77, inspectionId: 1, version: 1, content: {}, status: 'DRAFT', createdBy: 1, createdAt: '2026-07-22T10:00:00Z' },
+        });
+      }),
     );
     renderPage();
     await screen.findByText(/점검 회차 요약/);
@@ -435,8 +443,19 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     // 배지: "완료"(0/0은 검수할 게 없으니 완료 취급)
     expect(screen.getByText('완료')).not.toBeNull();
     expect(screen.queryByText('진행 중')).toBeNull();
-    // 버튼: 배지와 같은 결론 — 비활성화되면 안 된다
-    expect(screen.getByRole('button', { name: '보고서 생성 시작' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByText('표시할 데이터가 없습니다.')).not.toBeNull();
+    expect(screen.getByRole('status', { name: '하자 등급별 분포' })).not.toBeNull();
+    for (const grade of ['A', 'B', 'C', 'D', 'E']) {
+      expect(screen.queryByText(`${grade} (0)`)).toBeNull();
+    }
+    // 버튼은 눌리지만 AI 생성 요청 대신 사용자가 이해할 수 있는 안내를 띄운다.
+    const generateButton = screen.getByRole('button', { name: '보고서 생성 시작' });
+    expect(generateButton.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(generateButton);
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('보고서 생성 대상 하자가 없습니다')).toBeTruthy();
+    expect(posted).toBe(false);
   });
 
   it('생성에 성공하면 백엔드가 반환한 실제 reportId 쿼리로 이동한다', async () => {

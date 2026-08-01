@@ -375,7 +375,7 @@ def _detail_matches_confirmed(items: list[DefectDetailItem], confirmed_defects: 
     이전에는 confirmed_defects에 안정적인 식별자(id)가 없어 defect_type+severity_grade 조합의
     멀티셋(Counter)으로만 비교했다 — 개수·내용은 맞아도 "어떤 detail item이 실제로 어떤 확정 하자를
     가리키는지"는 알 수 없었고, 프론트가 이걸 배열 인덱스로 재조립하다 순서가 어긋나면(재생성 등으로
-    LLM이 순서를 바꾸면) 엉뚱한 하자의 사진·bbox가 표시되는 버그로 이어졌다(#1375). 이제 백엔드가
+    LLM이 순서를 바꾸면) 엉뚱한 하자의 사진·bbox가 표시되는 버그로 이어졌다(#1379). 이제 백엔드가
     항상 실제 Defect.id를 함께 보내므로, id로 1:1 매칭하고 그 id에 대응하는 유형/등급까지 일치하는지
     확인한다 — 없는 id를 지어내거나 중복 echo하면 그대로 불일치로 판정된다.
     """

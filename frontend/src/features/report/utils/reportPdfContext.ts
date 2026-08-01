@@ -44,7 +44,8 @@ function toPdfBox(
   ) {
     return null;
   }
-  if (width <= 0 || height <= 0) return null;
+  if (x < 0 || y < 0 || width <= 0 || height <= 0) return null;
+  if (x + width > 1 || y + height > 1) return null;
   return { x, y, width, height };
 }
 

@@ -221,6 +221,7 @@ export function ReportEntryPage() {
     },
     {} as Record<string, number>,
   );
+  const hasConfirmedDefects = confirmedDefects.length > 0;
 
   // 유형별 최고 등급 계산 (심각도 순: E > D > C > B > A)
   const defectTypeStats = DEFECT_TYPES.map((typeInfo) => {
@@ -255,6 +256,15 @@ export function ReportEntryPage() {
 
   const handleGenerateReport = useCallback(async () => {
     if (!data || data.reviewedCount !== data.totalCount || isGenerating || !hasSelectedSections) return;
+
+    if (data.reviewedCount === 0) {
+      setAlertModal({
+        open: true,
+        title: '보고서 생성 대상 하자가 없습니다',
+        message: '확정된 하자가 없어 보고서를 생성할 수 없습니다.',
+      });
+      return;
+    }
 
     setIsGenerating(true);
     try {
@@ -380,44 +390,56 @@ export function ReportEntryPage() {
         <div className="rounded-[20px] border border-border bg-white p-6">
           <div className="mb-3 text-xs font-medium tracking-wide text-text-muted">등급별 분포</div>
 
-          {/* 분포 바 — 공용 DistributionBar 재사용. 다만 이 컴포넌트의 기본 범례는 "라벨 (퍼센트%)"라
-              Figma의 "A (13)"(건수) 표기와 달라서, 범례만 끄고 아래에서 직접 렌더한다. */}
-          <div className="mb-4">
-            <DistributionBar
-              ariaLabel="하자 등급별 분포"
-              height={16}
-              showLegend={false}
-              segments={GRADE_ORDER.map((grade) => ({
-                key: grade,
-                label: grade,
-                // 분자(gradeDistribution)가 확정 하자 기준이므로 분모도 맞춘다 —
-                // totalCount로 나누면 미검수분만큼 막대가 100%를 못 채운다.
-                percent: ((gradeDistribution[grade] || 0) / (confirmedDefects.length || 1)) * 100,
-                color: CHART_GRADE_COLORS[grade],
-              }))}
-            />
-          </div>
+          {hasConfirmedDefects ? (
+            // 분포 바 — 공용 DistributionBar 재사용. 다만 이 컴포넌트의 기본 범례는 "라벨 (퍼센트%)"라
+            // Figma의 "A (13)"(건수) 표기와 달라서, 범례만 끄고 아래에서 직접 렌더한다.
+            <div className="mb-4">
+              <DistributionBar
+                ariaLabel="하자 등급별 분포"
+                height={16}
+                showLegend={false}
+                segments={GRADE_ORDER.map((grade) => ({
+                  key: grade,
+                  label: grade,
+                  // 분자(gradeDistribution)가 확정 하자 기준이므로 분모도 맞춘다 —
+                  // totalCount로 나누면 미검수분만큼 막대가 100%를 못 채운다.
+                  percent: ((gradeDistribution[grade] || 0) / confirmedDefects.length) * 100,
+                  color: CHART_GRADE_COLORS[grade],
+                }))}
+              />
+            </div>
+          ) : (
+            <div
+              className="flex min-h-20 w-full items-center justify-center rounded-lg border border-dashed border-border bg-surface-muted px-4 text-sm text-text-muted"
+              role="status"
+              aria-label="하자 등급별 분포"
+            >
+              표시할 데이터가 없습니다.
+            </div>
+          )}
 
           {/* 범례 */}
-          <div className="flex flex-wrap gap-2">
-            {GRADE_ORDER.map((grade) => {
-              const count = gradeDistribution[grade] || 0;
-              return (
-                <div
-                  key={grade}
-                  className="flex items-center gap-2 rounded-full border border-border bg-surface-muted px-3 py-1.5"
-                >
+          {hasConfirmedDefects && (
+            <div className="flex flex-wrap gap-2">
+              {GRADE_ORDER.map((grade) => {
+                const count = gradeDistribution[grade] || 0;
+                return (
                   <div
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: CHART_GRADE_COLORS[grade] }}
-                  />
-                  <span className="text-xs font-medium text-black">
-                    {grade} ({count})
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                    key={grade}
+                    className="flex items-center gap-2 rounded-full border border-border bg-surface-muted px-3 py-1.5"
+                  >
+                    <div
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: CHART_GRADE_COLORS[grade] }}
+                    />
+                    <span className="text-xs font-medium text-black">
+                      {grade} ({count})
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* 유형별 카드 — 5칸 고정 균등폭 그리드(Figma 180:5127, #925) */}
