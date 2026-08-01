@@ -194,14 +194,17 @@ class InspectionServiceTest {
     }
 
     @Test
-    void createInspection_점검일이시설물등록일이전_예외전파되고저장안됨() {
+    void createInspection_점검일이시설물등록일보다훨씬이전이어도_정상생성됨() {
+        // 팀 피드백(2026-08-01)으로 시설물 등록일 하한을 없앴다 — 시설물이 시스템에 "등록된" 시점과
+        // "실제로 존재하기 시작한" 시점은 다르므로, 과거 이력(마이그레이션·소급 입력 등)을 막지 않는다.
         InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2019, 12, 31), 200L);
         when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(0);
+        when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThatThrownBy(() -> service.createInspection(request, 100L, 300L))
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.INSPECTION_DATE_INVALID));
-        verify(inspectionRepository, never()).saveAndFlush(any());
+        InspectionResponse response = service.createInspection(request, 100L, 300L);
+
+        assertThat(response.roundNo()).isEqualTo(1);
     }
 
     @Test

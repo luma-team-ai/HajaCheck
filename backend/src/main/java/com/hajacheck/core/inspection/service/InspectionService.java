@@ -10,7 +10,6 @@ import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.InspectionDefectCountProjection;
 import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
-import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionCreateRequest;
 import com.hajacheck.core.inspection.dto.InspectionListFilterRequest;
@@ -61,7 +60,7 @@ public class InspectionService {
         companyScopeGuard.requireEffectiveMembership(creatorUserId, companyId);
         // 시설물 선택 검증 — 요청자 회사 소유 시설물만 회차 생성 가능.
         // FacilityService.get()이 미존재/타회사 소유 모두 FACILITY_NOT_FOUND로 던지므로 그대로 검증에 사용한다.
-        FacilityResponse facility = facilityService.get(creatorUserId, companyId, request.facilityId());
+        facilityService.get(creatorUserId, companyId, request.facilityId());
 
         // 플랜 하향으로 한도를 넘긴 시설물은 읽기 전용이다(#890) — 조회·기존 점검 이력은 그대로 두고
         // 신규 점검 생성만 막는다. 상태 컬럼 없이 "id 오름차순 한도 초과분"으로 계산 판정하므로,
@@ -73,7 +72,7 @@ public class InspectionService {
         // 담당자 배정 검증 — users.status=ACTIVE AND role IN (INSPECTOR, ADMIN) + 요청자와 동일 회사(table_design.md §inspections).
         authService.validateAssignableInspector(creatorUserId, request.assignedInspectorId());
 
-        validateInspectionDateBounds(request.inspectionDate(), facility);
+        validateInspectionDateBounds(request.inspectionDate());
 
         // 회차 채번 동시성 경쟁 방지 — 같은 시설물에 대한 동시 생성 요청을 행 잠금으로 직렬화한 뒤 max+1 을 읽는다.
         // code-reviewer P1(#1291) — "기존 최신 회차보다 이전 날짜 금지" 검증(validateInspectionDateNotBeforeLatestRound)도
@@ -336,10 +335,13 @@ public class InspectionService {
     // 업로드해 AI 분석까지 이어지는 흐름) — 미래 날짜는 애초에 의미가 없어 전부 거부한다. PRD가
     // 사전 예약 스케줄링을 명시하지 않는 한(기존 12개월 여유폭은 "정식 정책 확정 전 임시 여유폭"
     // 이었을 뿐, 실제 예약 기능은 아니었음) 오늘까지만 허용한다.
-    private void validateInspectionDateBounds(LocalDate inspectionDate, FacilityResponse facility) {
-        if (inspectionDate.isBefore(facility.createdAt().toLocalDate())) {
-            throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
-        }
+    //
+    // 하한(시설물 등록일 이전 거부)은 팀 피드백으로 제거했다(2026-08-01) — 시설물이 시스템에
+    // "등록된" 시점과 그 시설물이 "실제로 존재하기 시작한" 시점은 다른데, 등록일을 하한으로 쓰면
+    // 최근에 등록한 시설물은 과거 점검 이력(마이그레이션·소급 입력 등)을 전혀 못 넣는다. 과거
+    // 날짜는 이제 전부 허용하고, 회차 간 시간 순서 정합성은 validateInspectionDateNotBeforeLatestRound
+    // (#1291, "기존 최신 회차보다 이전 금지")가 별도로 보장한다 — 그건 이번 변경과 무관하게 유지.
+    private void validateInspectionDateBounds(LocalDate inspectionDate) {
         if (inspectionDate.isAfter(LocalDate.now())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
         }
