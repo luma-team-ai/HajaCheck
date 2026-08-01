@@ -3,9 +3,10 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { Modal } from '../../../shared/components/Modal';
 import { Button } from '../../../shared/components/Button';
 import { reportApi } from '../api/reportApi';
-import { isReportContent } from '../types';
+import { isReportContent, type ManualSection, type ReportContent } from '../types';
 import { useReportVersionHistory } from '../hooks/useReportVersionHistory';
 import type { ReportListItem } from '../types';
+import { sectionLabel, resolveSectionOrder } from '../utils/sectionOrder';
 
 type Props = {
   activeReport: ReportListItem | null;
@@ -58,7 +59,7 @@ const DIFF_PATH_LABELS: Record<string, string> = {
   'recommendation.items': '보수ㆍ보강(안) > 권고 조치',
   'recommendation.monitoring_points': '보수ㆍ보강(안) > 지속 관찰 부위',
   reportOptions: '보고서 옵션',
-  manualSections: '수동 서식 섹션',
+  manualSectionValues: '수동 서식 섹션',
   sectionOrder: '섹션 순서',
 };
 
@@ -78,7 +79,32 @@ const DIFF_SEGMENT_LABELS: Record<string, string> = {
   data: '내용',
   body: '본문',
   entries: '참여자',
+  recipient: '수신자',
+  contractDate: '계약 체결일',
+  companyName: '발신 업체명',
+  companyAddress: '업체 주소',
+  representativeName: '대표자',
 };
+
+const IGNORED_DIFF_KEYS = new Set(['reportOptions']);
+
+function manualSectionComparableValue(section: ManualSection): Record<string, unknown> {
+  return section.data as unknown as Record<string, unknown>;
+}
+
+function normalizeContentForCompare(content: ReportContent): Record<string, unknown> {
+  const manualSections = content.manualSections ?? [];
+  return {
+    overview: content.overview,
+    summary: content.summary,
+    detail: content.detail,
+    recommendation: content.recommendation,
+    manualSectionValues: Object.fromEntries(
+      manualSections.map((section) => [section.title, manualSectionComparableValue(section)]),
+    ),
+    sectionOrder: resolveSectionOrder(content).map((key) => sectionLabel(key, manualSections)),
+  };
+}
 
 function formatDiffPath(path: string): string {
   if (DIFF_PATH_LABELS[path]) return DIFF_PATH_LABELS[path];
@@ -103,13 +129,26 @@ function collectDiffs(current: unknown, selected: unknown, path = ''): DiffEntry
       collectDiffs(current[index], selected[index], `${path}[${index}]`),
     ).flat();
   }
-  if (typeof current === 'object' && current !== null && typeof selected === 'object' && selected !== null) {
-    const keys = new Set([...Object.keys(current), ...Object.keys(selected)]);
-    return [...keys].flatMap((key) => collectDiffs(
-      (current as Record<string, unknown>)[key],
-      (selected as Record<string, unknown>)[key],
-      path ? `${path}.${key}` : key,
-    ));
+  if (
+    (typeof current === 'object' && current !== null) ||
+    (typeof selected === 'object' && selected !== null)
+  ) {
+    const currentRecord =
+      typeof current === 'object' && current !== null && !Array.isArray(current)
+        ? (current as Record<string, unknown>)
+        : {};
+    const selectedRecord =
+      typeof selected === 'object' && selected !== null && !Array.isArray(selected)
+        ? (selected as Record<string, unknown>)
+        : {};
+    const keys = new Set([...Object.keys(currentRecord), ...Object.keys(selectedRecord)]);
+    return [...keys]
+      .filter((key) => !IGNORED_DIFF_KEYS.has(key))
+      .flatMap((key) => collectDiffs(
+        currentRecord[key],
+        selectedRecord[key],
+        path ? `${path}.${key}` : key,
+      ));
   }
   return [{ path: path || 'content', current: displayValue(current), selected: displayValue(selected) }];
 }
@@ -139,7 +178,10 @@ export function ReportVersionHistoryPanel({ activeReport, onClose, onReverted }:
       }
       setCompareState({
         version,
-        diffs: collectDiffs(currentResponse.data.content, selectedResponse.data.content),
+        diffs: collectDiffs(
+          normalizeContentForCompare(currentResponse.data.content),
+          normalizeContentForCompare(selectedResponse.data.content),
+        ),
       });
     } catch {
       setActionModal({ title: '비교 실패', message: '비교할 보고서 버전을 불러오지 못했습니다.' });

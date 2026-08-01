@@ -1,12 +1,12 @@
-import notoBoldUrl from '../../../assets/fonts/NotoSansKR-Bold.subset.ttf?url';
-import notoRegularUrl from '../../../assets/fonts/NotoSansKR-Regular.subset.ttf?url';
+import notoBoldUrl from "../../../assets/fonts/NotoSansKR-Bold.subset.ttf?url";
+import notoRegularUrl from "../../../assets/fonts/NotoSansKR-Regular.subset.ttf?url";
 import type {
   GenericManualSectionData,
   ParticipantsSectionData,
   ReportContent,
   SubmissionSectionData,
-} from '../types';
-import { isFixedSectionKey, resolveSectionOrder } from './sectionOrder';
+} from "../types";
+import { isFixedSectionKey, resolveSectionOrder } from "./sectionOrder";
 
 // ---------------------------------------------------------------------------
 // 관공서 정밀안전진단 표준서식(한컴오피스 산출물) 조판 정합
@@ -31,9 +31,9 @@ import { isFixedSectionKey, resolveSectionOrder } from './sectionOrder';
 // 페이지를 쓴다(전/후 모두 새 페이지).
 // ---------------------------------------------------------------------------
 
-const FONT_NAME = 'NotoSansKR';
-const REGULAR_FONT_FILE = 'NotoSansKR-Regular.ttf';
-const BOLD_FONT_FILE = 'NotoSansKR-Bold.ttf';
+const FONT_NAME = "NotoSansKR";
+const REGULAR_FONT_FILE = "NotoSansKR-Regular.ttf";
+const BOLD_FONT_FILE = "NotoSansKR-Bold.ttf";
 
 const PAGE_WIDTH = 210;
 const PAGE_HEIGHT = 297;
@@ -94,7 +94,7 @@ export interface ReportPdfImage {
   summary?: string;
   /** 이 사진에서 탐지된 하자 박스(#1333). 비어 있으면 사진만 그린다. */
   boxes?: ReportPdfBox[];
-  /** 한 사진에 하자가 여러 건일 때 캡션에 건수를 덧붙이기 위한 값. */
+  /** 하위호환 필드. PDF는 하자별·등급별 항목으로 분리하므로 캡션 합산에는 쓰지 않는다. */
   defectCount?: number;
 }
 
@@ -106,16 +106,15 @@ const PHOTO_CAPTION_SUMMARY_MAX = 40;
  * 그대로 짝지어 넘어옴) 오표기 위험 없이 안전하게 붙일 수 있다.
  */
 function formatPhotoCaption(image: ReportPdfImage): string {
-  const type = image.defectType || '부위';
-  const gradeSuffix = image.grade ? `(${image.grade}등급)` : '';
-  // 사진 단위로 묶으면서(#1333) 한 장에 하자가 여러 건일 수 있다 — 캡션은 대표 1건 기준이므로
-  // 나머지를 "외 N건"으로 밝혀 캡션과 박스 개수가 어긋나 보이지 않게 한다.
-  const countSuffix = (image.defectCount ?? 1) > 1 ? ` 외 ${(image.defectCount ?? 1) - 1}건` : '';
-  const summary = (image.summary ?? '').trim();
-  if (!summary) return `${type}${gradeSuffix}${countSuffix}`;
+  const type = image.defectType || "부위";
+  const gradeSuffix = image.grade ? `(${image.grade}등급)` : "";
+  const summary = (image.summary ?? "").trim();
+  if (!summary) return `${type}${gradeSuffix}`;
   const truncated =
-    summary.length > PHOTO_CAPTION_SUMMARY_MAX ? `${summary.slice(0, PHOTO_CAPTION_SUMMARY_MAX)}…` : summary;
-  return `${type}${gradeSuffix}${countSuffix} — ${truncated}`;
+    summary.length > PHOTO_CAPTION_SUMMARY_MAX
+      ? `${summary.slice(0, PHOTO_CAPTION_SUMMARY_MAX)}…`
+      : summary;
+  return `${type}${gradeSuffix} — ${truncated}`;
 }
 
 /**
@@ -125,7 +124,7 @@ function formatPhotoCaption(image: ReportPdfImage): string {
  * 그 자리에 이미지를 겹쳐 그리는 용도다.
  */
 interface AutoTableCellHookData {
-  section: 'head' | 'body' | 'foot';
+  section: "head" | "body" | "foot";
   row: { index: number };
   cell: { x: number; y: number; width: number; height: number };
 }
@@ -135,7 +134,7 @@ async function toBase64(blob: Blob): Promise<string> {
     const reader = new FileReader();
     reader.onloadend = () => {
       const result = reader.result as string;
-      resolve(result.slice(result.indexOf(',') + 1));
+      resolve(result.slice(result.indexOf(",") + 1));
     };
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(blob);
@@ -143,14 +142,17 @@ async function toBase64(blob: Blob): Promise<string> {
 }
 
 function formatDate(date: Date): string {
-  return `${date.getFullYear()}년 ${String(date.getMonth() + 1).padStart(2, '0')}월 ${String(date.getDate()).padStart(2, '0')}일`;
+  return `${date.getFullYear()}년 ${String(date.getMonth() + 1).padStart(2, "0")}월 ${String(date.getDate()).padStart(2, "0")}일`;
 }
 
 function formatOptionalDate(date?: Date): string {
-  return date ? formatDate(date) : '-';
+  return date ? formatDate(date) : "-";
 }
 
-function normalizeGradeCount(countByGrade: Record<string, number>, grade: string): string {
+function normalizeGradeCount(
+  countByGrade: Record<string, number>,
+  grade: string,
+): string {
   return String(countByGrade[grade] ?? 0);
 }
 
@@ -161,31 +163,44 @@ function normalizeGradeCount(countByGrade: Record<string, number>, grade: string
  */
 function toMemberGrade(grade: string): string {
   const normalized = grade.trim();
-  return /^[A-Ea-e]$/.test(normalized) ? normalized.toLowerCase() : normalized || '-';
+  return /^[A-Ea-e]$/.test(normalized)
+    ? normalized.toLowerCase()
+    : normalized || "-";
 }
 
 /** 등급별 건수에서 최악(가장 심각) 등급을 뽑아 "상태평가 결과"로 쓴다. E가 가장 심각. */
 function worstGrade(countByGrade: Record<string, number>): string {
-  const worst = (['E', 'D', 'C', 'B', 'A'] as const).find((grade) => (countByGrade[grade] ?? 0) > 0);
-  return worst ? worst.toLowerCase() : '-';
+  const worst = (["E", "D", "C", "B", "A"] as const).find(
+    (grade) => (countByGrade[grade] ?? 0) > 0,
+  );
+  return worst ? worst.toLowerCase() : "-";
 }
 
 function legalBasisLabel(legalBasis: string, verified: boolean): string {
-  const basis = legalBasis || '관련 근거 없음';
+  const basis = legalBasis || "관련 근거 없음";
   return verified ? basis : `${basis} (미검증)`;
 }
 
 /** 셀 안의 목록은 원본처럼 `ㆍ` 불릿을 붙여 줄바꿈으로 나열한다(번호 없음). */
 function toBulletCell(values: string[], fallback: string): string {
-  return values.length > 0 ? values.map((value) => `ㆍ${value}`).join('\n') : fallback;
+  return values.length > 0
+    ? values.map((value) => `ㆍ${value}`).join("\n")
+    : fallback;
 }
 
-async function loadPdfImage(imageUrl: string): Promise<{ dataUrl: string; format: 'JPEG' | 'PNG' } | null> {
+async function loadPdfImage(
+  imageUrl: string,
+): Promise<{ dataUrl: string; format: "JPEG" | "PNG" } | null> {
   try {
-    const response = await fetch(imageUrl, { credentials: 'include' });
+    const response = await fetch(imageUrl, { credentials: "include" });
     if (!response.ok) return null;
     const blob = await response.blob();
-    const format = blob.type === 'image/png' ? 'PNG' : blob.type === 'image/jpeg' ? 'JPEG' : null;
+    const format =
+      blob.type === "image/png"
+        ? "PNG"
+        : blob.type === "image/jpeg"
+          ? "JPEG"
+          : null;
     if (!format) return null;
     return {
       dataUrl: await new Promise((resolve, reject) => {
@@ -204,8 +219,8 @@ async function loadPdfImage(imageUrl: string): Promise<{ dataUrl: string; format
 export function buildReportPdfFileName(inspectionId: number): string {
   const today = new Date();
   const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const dd = String(today.getDate()).padStart(2, "0");
   return `점검보고서_${inspectionId}_${yyyy}${mm}${dd}.pdf`;
 }
 
@@ -217,9 +232,14 @@ export async function exportReportToPdf(
   content: ReportContent,
   context: ReportPdfContext = {},
 ): Promise<Blob> {
-  const [{ default: jsPDF }, { default: autoTable }, regularFontResponse, boldFontResponse] = await Promise.all([
-    import('jspdf'),
-    import('jspdf-autotable'),
+  const [
+    { default: jsPDF },
+    { default: autoTable },
+    regularFontResponse,
+    boldFontResponse,
+  ] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
     fetch(notoRegularUrl),
     fetch(notoBoldUrl),
   ]);
@@ -228,19 +248,24 @@ export async function exportReportToPdf(
     toBase64(await boldFontResponse.blob()),
   ]);
 
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
   doc.addFileToVFS(REGULAR_FONT_FILE, regularFontBase64);
-  doc.addFont(REGULAR_FONT_FILE, FONT_NAME, 'normal');
+  doc.addFont(REGULAR_FONT_FILE, FONT_NAME, "normal");
   doc.addFileToVFS(BOLD_FONT_FILE, boldFontBase64);
-  doc.addFont(BOLD_FONT_FILE, FONT_NAME, 'bold');
-  doc.setFont(FONT_NAME, 'normal');
+  doc.addFont(BOLD_FONT_FILE, FONT_NAME, "bold");
+  doc.setFont(FONT_NAME, "normal");
   doc.setTextColor(...BLACK);
   doc.setDrawColor(...BLACK);
   // 원본은 줄간격이 좁다(10pt 본문에 행높이 약 17pt).
   doc.setLineHeightFactor(1.35);
 
-  const facilityName = context.facilityName || content.overview.facility_summary || '시설물명 미기재';
-  const inspectionLabel = context.inspectionRound ? `제${context.inspectionRound}회차` : '-';
+  const facilityName =
+    context.facilityName ||
+    content.overview.facility_summary ||
+    "시설물명 미기재";
+  const inspectionLabel = context.inspectionRound
+    ? `제${context.inspectionRound}회차`
+    : "-";
   const loadedDefectImages = await Promise.all(
     (context.defectImages ?? []).map(async (image) => {
       const loaded = await loadPdfImage(image.imageUrl);
@@ -250,34 +275,42 @@ export async function exportReportToPdf(
   // 사진은 점검 API가 준 축소본만 쓴다(새로 만들지 않음). 렌더 순서(sectionOrder)와 무관하게
   // 필요하므로 다른 섹션 render 함수들보다 먼저 확정해 둔다.
   const photoEntries = loadedDefectImages.filter(
-    (image): image is ReportPdfImage & { dataUrl: string; format: 'JPEG' | 'PNG' } => image !== null,
+    (
+      image,
+    ): image is ReportPdfImage & { dataUrl: string; format: "JPEG" | "PNG" } =>
+      image !== null,
   );
 
   const tableDefaults = {
-    theme: 'grid' as const,
-    margin: { left: MARGIN_X, right: MARGIN_X, top: MARGIN_X, bottom: MARGIN_X },
-    rowPageBreak: 'avoid' as const,
-    showHead: 'everyPage' as const,
+    theme: "grid" as const,
+    margin: {
+      left: MARGIN_X,
+      right: MARGIN_X,
+      top: MARGIN_X,
+      bottom: MARGIN_X,
+    },
+    rowPageBreak: "avoid" as const,
+    showHead: "everyPage" as const,
     // 외곽 테두리를 내부 괘선의 3배로 — 관공서 표의 인상을 만드는 핵심 대비.
     tableLineColor: BLACK,
     tableLineWidth: LINE_OUTER,
     styles: {
       font: FONT_NAME,
-      fontStyle: 'normal' as const,
+      fontStyle: "normal" as const,
       fontSize: FONT_SIZE.table,
       cellPadding: { top: 1.3, right: 1.6, bottom: 1.3, left: 1.6 },
       lineColor: BLACK,
       lineWidth: LINE_INNER,
       textColor: BLACK,
-      valign: 'middle' as const,
-      overflow: 'linebreak' as const,
+      valign: "middle" as const,
+      overflow: "linebreak" as const,
     },
     headStyles: {
       font: FONT_NAME,
-      fontStyle: 'bold' as const,
+      fontStyle: "bold" as const,
       fillColor: HEAD_FILL,
       textColor: BLACK,
-      halign: 'center' as const,
+      halign: "center" as const,
       lineWidth: LINE_INNER,
     },
   };
@@ -285,34 +318,41 @@ export async function exportReportToPdf(
   /** 회색 배경 + Bold 중앙정렬 라벨열 스타일(원본의 좌측 구분열). */
   const labelColumn = (cellWidth: number) => ({
     cellWidth,
-    fontStyle: 'bold' as const,
+    fontStyle: "bold" as const,
     fillColor: HEAD_FILL,
-    halign: 'center' as const,
+    halign: "center" as const,
   });
 
   /** 소절 표는 본문보다 들여쓰고 그만큼 폭을 줄인다. */
   const subTable = {
-    margin: { left: MARGIN_X + SUB_TABLE_INDENT, right: MARGIN_X, top: MARGIN_X, bottom: MARGIN_X },
+    margin: {
+      left: MARGIN_X + SUB_TABLE_INDENT,
+      right: MARGIN_X,
+      top: MARGIN_X,
+      bottom: MARGIN_X,
+    },
     tableWidth: CONTENT_WIDTH - SUB_TABLE_INDENT,
   };
 
-  const lastTableY = () => (doc as typeof doc & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
+  const lastTableY = () =>
+    (doc as typeof doc & { lastAutoTable: { finalY: number } }).lastAutoTable
+      .finalY;
 
   /** 절 제목 — `1. 기본현황` Bold 14pt. 원본에는 하단 구분선이 없다. */
   const sectionTitle = (label: string, y: number) => {
-    doc.setFont(FONT_NAME, 'bold');
+    doc.setFont(FONT_NAME, "bold");
     doc.setFontSize(FONT_SIZE.sectionTitle);
     doc.text(label, MARGIN_X, y);
-    doc.setFont(FONT_NAME, 'normal');
+    doc.setFont(FONT_NAME, "normal");
     return y + 6;
   };
 
   /** 소절 제목 — `가. 일반현황` Bold 11pt. */
   const subsectionTitle = (label: string, y: number) => {
-    doc.setFont(FONT_NAME, 'bold');
+    doc.setFont(FONT_NAME, "bold");
     doc.setFontSize(FONT_SIZE.subsectionTitle);
     doc.text(label, MARGIN_X + SUB_TABLE_INDENT, y);
-    doc.setFont(FONT_NAME, 'normal');
+    doc.setFont(FONT_NAME, "normal");
     return y + 4.2;
   };
 
@@ -326,7 +366,7 @@ export async function exportReportToPdf(
   // ── 1. 기본현황 ──────────────────────────────────────────────────────────
   const renderOverviewBlock = (label: string, startY: number): number => {
     let y = sectionTitle(label, startY);
-    y = subsectionTitle('가. 일반현황', y);
+    y = subsectionTitle("가. 일반현황", y);
 
     // 원본의 2단 라벨-값 표(`구 분 | 내 용 | 구 분 | 내 용`) — 지면을 절약하는 서식 관용구.
     // 라벨 텍스트에 넣은 공백은 원본이 글자수를 맞추는 방식이라 그대로 따른다.
@@ -335,28 +375,33 @@ export async function exportReportToPdf(
       ...subTable,
       startY: y,
       body: [
-        ['시 설 물 명', facilityName, '점검 회차', inspectionLabel],
-        ['작성 기준일', formatOptionalDate(context.issuedAt), '확인 결함', `${content.summary.total_count}건`],
+        ["시 설 물 명", facilityName, "점검 회차", inspectionLabel],
+        [
+          "작성 기준일",
+          formatOptionalDate(context.issuedAt),
+          "확인 결함",
+          `${content.summary.total_count}건`,
+        ],
       ],
       columnStyles: {
         0: labelColumn(28),
         1: { cellWidth: 55 },
         2: labelColumn(24),
-        3: { cellWidth: 'auto' },
+        3: { cellWidth: "auto" },
       },
     });
 
-    y = subsectionTitle('나. 점검 개요', lastTableY() + 6);
+    y = subsectionTitle("나. 점검 개요", lastTableY() + 6);
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: y,
       body: [
-        ['점검 목적', content.overview.purpose || '-'],
-        ['시설물 개요', content.overview.facility_summary || '-'],
-        ['점검 범위', content.overview.scope || '-'],
+        ["점검 목적", content.overview.purpose || "-"],
+        ["시설물 개요", content.overview.facility_summary || "-"],
+        ["점검 범위", content.overview.scope || "-"],
       ],
-      columnStyles: { 0: labelColumn(28), 1: { cellWidth: 'auto' } },
+      columnStyles: { 0: labelColumn(28), 1: { cellWidth: "auto" } },
     });
     return lastTableY();
   };
@@ -364,43 +409,55 @@ export async function exportReportToPdf(
   // ── 2. 결과 요약 ─────────────────────────────────────────────────────────
   const renderSummaryBlock = (label: string, startY: number): number => {
     let y = sectionTitle(label, startY);
-    y = subsectionTitle('가. 책임기술자 종합의견', y);
+    y = subsectionTitle("가. 책임기술자 종합의견", y);
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: y,
-      body: [[content.summary.overall_opinion || '종합의견이 작성되지 않았습니다.']],
-      bodyStyles: { minCellHeight: 40, valign: 'top', halign: 'left' },
+      body: [
+        [content.summary.overall_opinion || "종합의견이 작성되지 않았습니다."],
+      ],
+      bodyStyles: { minCellHeight: 40, valign: "top", halign: "left" },
     });
 
-    y = subsectionTitle('나. 결함 등급별 현황', ensureSpace(lastTableY() + 6, 30));
+    y = subsectionTitle(
+      "나. 결함 등급별 현황",
+      ensureSpace(lastTableY() + 6, 30),
+    );
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: y,
-      head: [['구  분', 'a', 'b', 'c', 'd', 'e', '합  계']],
+      head: [["구  분", "a", "b", "c", "d", "e", "합  계"]],
       body: [
         [
-          '건  수',
-          normalizeGradeCount(content.summary.count_by_grade, 'A'),
-          normalizeGradeCount(content.summary.count_by_grade, 'B'),
-          normalizeGradeCount(content.summary.count_by_grade, 'C'),
-          normalizeGradeCount(content.summary.count_by_grade, 'D'),
-          normalizeGradeCount(content.summary.count_by_grade, 'E'),
+          "건  수",
+          normalizeGradeCount(content.summary.count_by_grade, "A"),
+          normalizeGradeCount(content.summary.count_by_grade, "B"),
+          normalizeGradeCount(content.summary.count_by_grade, "C"),
+          normalizeGradeCount(content.summary.count_by_grade, "D"),
+          normalizeGradeCount(content.summary.count_by_grade, "E"),
           String(content.summary.total_count),
         ],
       ],
-      styles: { ...tableDefaults.styles, halign: 'center' },
-      columnStyles: { 0: labelColumn(28), 6: { fontStyle: 'bold' } },
+      styles: { ...tableDefaults.styles, halign: "center" },
+      columnStyles: { 0: labelColumn(28), 6: { fontStyle: "bold" } },
     });
 
-    y = subsectionTitle('다. 주요 발견사항', ensureSpace(lastTableY() + 6, 30));
+    y = subsectionTitle("다. 주요 발견사항", ensureSpace(lastTableY() + 6, 30));
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: y,
-      body: [[toBulletCell(content.summary.key_findings, '주요 발견사항이 없습니다.')]],
-      bodyStyles: { valign: 'top', halign: 'left' },
+      body: [
+        [
+          toBulletCell(
+            content.summary.key_findings,
+            "주요 발견사항이 없습니다.",
+          ),
+        ],
+      ],
+      bodyStyles: { valign: "top", halign: "left" },
     });
     return lastTableY();
   };
@@ -414,34 +471,48 @@ export async function exportReportToPdf(
       ...tableDefaults,
       ...subTable,
       startY: y,
-      body: [['상태평가 결과 및 보수ㆍ보강', `상태평가 결과 : ${worstGrade(content.summary.count_by_grade)}`]],
-      bodyStyles: { fillColor: HEAD_FILL, fontStyle: 'bold', halign: 'center' },
-      columnStyles: { 0: { cellWidth: 96 }, 1: { cellWidth: 'auto' } },
+      body: [
+        [
+          "상태평가 결과 및 보수ㆍ보강",
+          `상태평가 결과 : ${worstGrade(content.summary.count_by_grade)}`,
+        ],
+      ],
+      bodyStyles: { fillColor: HEAD_FILL, fontStyle: "bold", halign: "center" },
+      columnStyles: { 0: { cellWidth: 96 }, 1: { cellWidth: "auto" } },
     });
 
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: lastTableY(),
-      head: [['연번', '결함발생 부재', '상태\n평가', '결함종류', '조사 결과', '추정 원인']],
+      head: [
+        [
+          "연번",
+          "결함발생 부재",
+          "상태\n평가",
+          "결함종류",
+          "조사 결과",
+          "추정 원인",
+        ],
+      ],
       body:
         content.detail.items.length > 0
           ? content.detail.items.map((item, index) => [
               String(index + 1),
-              item.location || '-',
+              item.location || "-",
               toMemberGrade(item.severity_grade),
-              item.defect_type || '-',
-              item.description || '-',
-              item.cause || '-',
+              item.defect_type || "-",
+              item.description || "-",
+              item.cause || "-",
             ])
-          : [['-', '-', '-', '-', '확인된 결함이 없습니다.', '-']],
+          : [["-", "-", "-", "-", "확인된 결함이 없습니다.", "-"]],
       // 좁은 열은 원본처럼 9pt로 강등한다.
       columnStyles: {
-        0: { cellWidth: 11, halign: 'center', fontSize: FONT_SIZE.tableNarrow },
+        0: { cellWidth: 11, halign: "center", fontSize: FONT_SIZE.tableNarrow },
         1: { cellWidth: 26 },
-        2: { cellWidth: 12, halign: 'center' },
+        2: { cellWidth: 12, halign: "center" },
         3: { cellWidth: 24 },
-        4: { cellWidth: 'auto' },
+        4: { cellWidth: "auto" },
         5: { cellWidth: 38 },
       },
     });
@@ -451,38 +522,50 @@ export async function exportReportToPdf(
   // ── 4. 보수ㆍ보강(안) ────────────────────────────────────────────────────
   const renderRecommendationBlock = (label: string, startY: number): number => {
     let y = sectionTitle(label, startY);
-    y = subsectionTitle('가. 보수ㆍ보강(안)', y);
+    y = subsectionTitle("가. 보수ㆍ보강(안)", y);
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: y,
-      head: [['연번', '대상 부위', '보수ㆍ보강(안)', '조치\n우선순위', '적용 근거']],
+      head: [
+        ["연번", "대상 부위", "보수ㆍ보강(안)", "조치\n우선순위", "적용 근거"],
+      ],
       body:
         content.recommendation.items.length > 0
           ? content.recommendation.items.map((item, index) => [
               String(index + 1),
-              item.target || '-',
-              item.method || '-',
-              item.priority || '-',
+              item.target || "-",
+              item.method || "-",
+              item.priority || "-",
               legalBasisLabel(item.legal_basis, item.legal_basis_verified),
             ])
-          : [['-', '-', '권고 조치가 없습니다.', '-', '-']],
+          : [["-", "-", "권고 조치가 없습니다.", "-", "-"]],
       columnStyles: {
-        0: { cellWidth: 11, halign: 'center', fontSize: FONT_SIZE.tableNarrow },
+        0: { cellWidth: 11, halign: "center", fontSize: FONT_SIZE.tableNarrow },
         1: { cellWidth: 30 },
-        2: { cellWidth: 'auto' },
-        3: { cellWidth: 18, halign: 'center', fontSize: FONT_SIZE.tableNarrow },
+        2: { cellWidth: "auto" },
+        3: { cellWidth: 18, halign: "center", fontSize: FONT_SIZE.tableNarrow },
         4: { cellWidth: 44 },
       },
     });
 
-    y = subsectionTitle('나. 지속 관찰 부위', ensureSpace(lastTableY() + 6, 30));
+    y = subsectionTitle(
+      "나. 지속 관찰 부위",
+      ensureSpace(lastTableY() + 6, 30),
+    );
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: y,
-      body: [[toBulletCell(content.recommendation.monitoring_points, '지속 관찰이 필요한 부위가 없습니다.')]],
-      bodyStyles: { valign: 'top', halign: 'left' },
+      body: [
+        [
+          toBulletCell(
+            content.recommendation.monitoring_points,
+            "지속 관찰이 필요한 부위가 없습니다.",
+          ),
+        ],
+      ],
+      bodyStyles: { valign: "top", halign: "left" },
     });
     return lastTableY();
   };
@@ -492,66 +575,84 @@ export async function exportReportToPdf(
   // 사용자가 직접 입력한 값을 그대로 배치한다. 원본 관용구: 24pt Bold 중앙 제목, 수신자
   // 좌측 상단, 본문 좌측, 발신 정보는 우측 정렬. 늘 단독 페이지(커버 페이지 관용구)이므로
   // startY는 항상 페이지 시작점(MARGIN_X)이다.
-  const renderSubmissionBlock = (data: SubmissionSectionData, startY: number): number => {
-    doc.setFont(FONT_NAME, 'bold');
+  const renderSubmissionBlock = (
+    data: SubmissionSectionData,
+    startY: number,
+  ): number => {
+    doc.setFont(FONT_NAME, "bold");
     doc.setFontSize(FONT_SIZE.submissionTitle);
-    doc.text('제  출  문', PAGE_WIDTH / 2, startY + 6, { align: 'center' });
-    doc.setFont(FONT_NAME, 'normal');
+    doc.text("제  출  문", PAGE_WIDTH / 2, startY + 6, { align: "center" });
+    doc.setFont(FONT_NAME, "normal");
 
     let y = startY + 28;
-    doc.setFont(FONT_NAME, 'bold');
+    doc.setFont(FONT_NAME, "bold");
     doc.setFontSize(FONT_SIZE.recipient);
-    doc.text(data.recipient || '수신자 미기재', MARGIN_X, y);
-    doc.setFont(FONT_NAME, 'normal');
+    doc.text(data.recipient || "수신자 미기재", MARGIN_X, y);
+    doc.setFont(FONT_NAME, "normal");
 
     y += 14;
     doc.setFontSize(FONT_SIZE.body);
     const paragraph =
-      `귀 기관과 ${data.contractDate || '-'} 계약 체결한 "${facilityName} 정밀안전점검"에 대한 ` +
-      '결과를 본 보고서에 수록하여 제출합니다.';
+      `귀 기관과 ${data.contractDate || "-"} 계약 체결한 "${facilityName} 정밀안전점검"에 대한 ` +
+      "결과를 본 보고서에 수록하여 제출합니다.";
     const wrapped = doc.splitTextToSize(paragraph, CONTENT_WIDTH) as string[];
     doc.text(wrapped, MARGIN_X, y);
     y += wrapped.length * 6.5 + 50;
 
     doc.setFontSize(FONT_SIZE.table + 2);
-    doc.text(formatOptionalDate(context.issuedAt), PAGE_WIDTH - MARGIN_X, y, { align: 'right' });
+    doc.text(formatOptionalDate(context.issuedAt), PAGE_WIDTH - MARGIN_X, y, {
+      align: "right",
+    });
 
     y += 16;
-    doc.text(data.companyAddress || '-', PAGE_WIDTH - MARGIN_X, y, { align: 'right' });
+    doc.text(data.companyAddress || "-", PAGE_WIDTH - MARGIN_X, y, {
+      align: "right",
+    });
 
     y += 8;
-    doc.setFont(FONT_NAME, 'bold');
-    doc.text(data.companyName || '-', PAGE_WIDTH - MARGIN_X, y, { align: 'right' });
+    doc.setFont(FONT_NAME, "bold");
+    doc.text(data.companyName || "-", PAGE_WIDTH - MARGIN_X, y, {
+      align: "right",
+    });
 
     y += 8;
-    doc.text(`대표자  ${data.representativeName || '-'} (인)`, PAGE_WIDTH - MARGIN_X, y, { align: 'right' });
-    doc.setFont(FONT_NAME, 'normal');
+    doc.text(
+      `대표자  ${data.representativeName || "-"} (인)`,
+      PAGE_WIDTH - MARGIN_X,
+      y,
+      { align: "right" },
+    );
+    doc.setFont(FONT_NAME, "normal");
     return y;
   };
 
   // ── 참여기술진 명단(수동 섹션) ───────────────────────────────────────────
   // 참여자 실명·자격은 마찬가지로 도메인 밖 값. 원본은 표 형태(구분/성명/자격 및 주요경력/기간).
-  const renderParticipantsBlock = (label: string, data: ParticipantsSectionData, startY: number): number => {
+  const renderParticipantsBlock = (
+    label: string,
+    data: ParticipantsSectionData,
+    startY: number,
+  ): number => {
     const y = sectionTitle(label, startY);
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: y,
-      head: [['구  분', '성  명', '자격 및 주요경력', '과업 참여기간']],
+      head: [["구  분", "성  명", "자격 및 주요경력", "과업 참여기간"]],
       body:
         data.entries.length > 0
           ? data.entries.map((entry) => [
-              entry.role || '-',
-              entry.name || '-',
-              entry.qualification || '-',
-              entry.period || '-',
+              entry.role || "-",
+              entry.name || "-",
+              entry.qualification || "-",
+              entry.period || "-",
             ])
-          : [['-', '-', '참여기술진 정보가 없습니다.', '-']],
+          : [["-", "-", "참여기술진 정보가 없습니다.", "-"]],
       columnStyles: {
-        0: { cellWidth: 32, halign: 'center' },
-        1: { cellWidth: 28, halign: 'center' },
-        2: { cellWidth: 'auto' },
-        3: { cellWidth: 48, halign: 'center' },
+        0: { cellWidth: 32, halign: "center" },
+        1: { cellWidth: 28, halign: "center" },
+        2: { cellWidth: "auto" },
+        3: { cellWidth: 48, halign: "center" },
       },
     });
     return lastTableY();
@@ -560,14 +661,18 @@ export async function exportReportToPdf(
   // ── 일반 수동 섹션 ──────────────────────────────────────────────────────
   // 안전성평가 결과·현장시험·도면류처럼 DB/AI 스키마에 없는 항목은 사용자가 입력한 본문을 같은
   // 관공서 표 양식으로 싣는다. 새 컬럼 없이 reports.content_json 안에서만 왕복된다.
-  const renderGenericManualBlock = (label: string, data: GenericManualSectionData, startY: number): number => {
+  const renderGenericManualBlock = (
+    label: string,
+    data: GenericManualSectionData,
+    startY: number,
+  ): number => {
     const y = sectionTitle(label, startY);
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
       startY: y,
-      body: [[data.body?.trim() || '입력된 내용이 없습니다.']],
-      bodyStyles: { minCellHeight: 24, valign: 'top', halign: 'left' },
+      body: [[data.body?.trim() || "입력된 내용이 없습니다."]],
+      bodyStyles: { minCellHeight: 24, valign: "top", halign: "left" },
     });
     return lastTableY();
   };
@@ -587,18 +692,23 @@ export async function exportReportToPdf(
       startY: y,
       tableWidth: CONTENT_WIDTH,
       body: photoEntries.flatMap((image) => [
-        [{ content: '', styles: { minCellHeight: PHOTO_ROW_HEIGHT + 4 } }],
+        [{ content: "", styles: { minCellHeight: PHOTO_ROW_HEIGHT + 4 } }],
         [
           {
             content: `< ${formatPhotoCaption(image)} >`,
-            styles: { halign: 'center' as const, fontStyle: 'bold' as const, fontSize: FONT_SIZE.caption, minCellHeight: 9 },
+            styles: {
+              halign: "center" as const,
+              fontStyle: "bold" as const,
+              fontSize: FONT_SIZE.caption,
+              minCellHeight: 9,
+            },
           },
         ],
       ]),
       columnStyles: { 0: { cellWidth: CONTENT_WIDTH } },
       didDrawCell: (data: AutoTableCellHookData) => {
         // 이미지 행(짝수 인덱스)에만 그린다 — 캡션 행은 autoTable이 text로 알아서 그린다.
-        if (data.section !== 'body' || data.row.index % 2 !== 0) return;
+        if (data.section !== "body" || data.row.index % 2 !== 0) return;
         const image = photoEntries[data.row.index / 2];
         if (!image) return;
         const padding = 2;
@@ -606,7 +716,14 @@ export async function exportReportToPdf(
         const imageY = data.cell.y + padding;
         const imageW = data.cell.width - padding * 2;
         const imageH = data.cell.height - padding * 2;
-        doc.addImage(image.dataUrl, image.format, imageX, imageY, imageW, imageH);
+        doc.addImage(
+          image.dataUrl,
+          image.format,
+          imageX,
+          imageY,
+          imageW,
+          imageH,
+        );
 
         // 탐지 하자 박스(#1333). addImage 는 이미지를 위 사각형에 그대로 늘려 넣으므로
         // 정규화 좌표(0~1)가 이 사각형에 선형 대응한다 — object-cover 같은 크롭 보정이 필요 없다.
@@ -641,12 +758,16 @@ export async function exportReportToPdf(
   // 사진이 0장이면 'photos'를 순서에서 아예 뺀다 — 다른 빈 섹션들과 달리 사진은 "표시할 값이
   // 없다"는 플레이스홀더조차 원본 관용구에 없어(원래 사진이 없으면 전경사진 페이지 자체가
   // 없다), 넣어두면 번호만 차지하는 빈 자리가 생긴다.
-  const order = resolveSectionOrder(content).filter((key) => key !== 'photos' || photoEntries.length > 0);
+  const order = resolveSectionOrder(content).filter(
+    (key) => key !== "photos" || photoEntries.length > 0,
+  );
   let cursorY = MARGIN_X;
 
   order.forEach((key, index) => {
-    const manual = !isFixedSectionKey(key) ? manualSections.find((section) => section.id === key) : undefined;
-    const isSubmission = manual?.type === 'submission';
+    const manual = !isFixedSectionKey(key)
+      ? manualSections.find((section) => section.id === key)
+      : undefined;
+    const isSubmission = manual?.type === "submission";
     const number = index + 1;
 
     if (index === 0) {
@@ -659,26 +780,44 @@ export async function exportReportToPdf(
     }
 
     if (isFixedSectionKey(key)) {
-      if (key === 'overview') cursorY = renderOverviewBlock(`${number}. 기본현황`, cursorY);
-      else if (key === 'summary') cursorY = renderSummaryBlock(`${number}. 결과 요약`, cursorY);
-      else if (key === 'detail') cursorY = renderDetailBlock(`${number}. 진단 외관조사결과 기본사항`, cursorY);
-      else if (key === 'recommendation') cursorY = renderRecommendationBlock(`${number}. 보수ㆍ보강(안)`, cursorY);
+      if (key === "overview")
+        cursorY = renderOverviewBlock(`${number}. 기본현황`, cursorY);
+      else if (key === "summary")
+        cursorY = renderSummaryBlock(`${number}. 결과 요약`, cursorY);
+      else if (key === "detail")
+        cursorY = renderDetailBlock(
+          `${number}. 진단 외관조사결과 기본사항`,
+          cursorY,
+        );
+      else if (key === "recommendation")
+        cursorY = renderRecommendationBlock(
+          `${number}. 보수ㆍ보강(안)`,
+          cursorY,
+        );
       else cursorY = renderPhotosBlock(`${number}. 부위별 사진`, cursorY);
       return;
     }
 
     if (!manual) return;
-    if (manual.type === 'submission') {
+    if (manual.type === "submission") {
       renderSubmissionBlock(manual.data as SubmissionSectionData, cursorY);
       // 다음 섹션은 반드시 새 페이지에서 시작 — 커서를 페이지 하단 너머로 밀어 다음 반복의
       // ensureSpace가 무조건 addPage하도록 유도한다.
       cursorY = BOTTOM_LIMIT + 1;
-    } else if (manual.type === 'participants') {
-      cursorY = renderParticipantsBlock(`${number}. 참여기술진 명단`, manual.data as ParticipantsSectionData, cursorY);
+    } else if (manual.type === "participants") {
+      cursorY = renderParticipantsBlock(
+        `${number}. 참여기술진 명단`,
+        manual.data as ParticipantsSectionData,
+        cursorY,
+      );
     } else {
-      cursorY = renderGenericManualBlock(`${number}. ${manual.title}`, manual.data as GenericManualSectionData, cursorY);
+      cursorY = renderGenericManualBlock(
+        `${number}. ${manual.title}`,
+        manual.data as GenericManualSectionData,
+        cursorY,
+      );
     }
   });
 
-  return doc.output('blob');
+  return doc.output("blob");
 }

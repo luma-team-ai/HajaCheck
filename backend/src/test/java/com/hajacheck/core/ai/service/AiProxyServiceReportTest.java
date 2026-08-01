@@ -48,7 +48,7 @@ class AiProxyServiceReportTest {
     private static final ReportRequest REQUEST = GroundingReportRequestFactory.from(
             CONTEXT,
             new ReportRequest.FacilityInfo("Haja APT", "서울시"),
-            List.of(new ReportRequest.ConfirmedDefect("균열", "1동 1층 기둥", "B", "기둥 표면 수평 균열")),
+            List.of(new ReportRequest.ConfirmedDefect(1L, "균열", "1동 1층 기둥", "B", "기둥 표면 수평 균열")),
             "regenerate");
 
     @BeforeEach

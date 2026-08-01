@@ -184,6 +184,7 @@ def _sample_facility_info() -> dict:
 def _sample_defects() -> list[dict]:
     return [
         {
+            "id": 1,
             "defect_type": "균열",
             "location": "1동 1층 기둥",
             "severity_grade": "B",
@@ -212,13 +213,14 @@ def _sample_summary(total_count: int = 1) -> ReportSummary:
 def _sample_detail(n: int = 1) -> ReportDetail:
     items = [
         DefectDetailItem(
+            defect_id=i + 1,
             defect_type="균열",
             location="1동 1층 기둥",
             severity_grade="B",
             description="기둥 표면 수평 균열",
             cause="건조 수축에 의한 미세 균열",
         )
-        for _ in range(n)
+        for i in range(n)
     ]
     return ReportDetail(items=items)
 
@@ -704,29 +706,30 @@ def test_detail_item_count_mismatch_returns_validation_error(mock_get_llm, mock_
 
 
 def test_detail_matches_confirmed_true_when_content_matches_regardless_of_order():
-    """defect_type+severity_grade 조합이 순서 무관하게 일치하면 매치로 판정한다."""
+    """id 기준으로 매칭되고 그 id의 유형/등급까지 일치하면, items 순서가 confirmed_defects와
+    달라도 매치로 판정한다."""
     confirmed = [
-        {"defect_type": "균열", "severity_grade": "B"},
-        {"defect_type": "박리", "severity_grade": "C"},
+        {"id": 1, "defect_type": "균열", "severity_grade": "B"},
+        {"id": 2, "defect_type": "박리", "severity_grade": "C"},
     ]
     items = [
         DefectDetailItem(
-            defect_type="박리", location="-", severity_grade="C등급", description="-", cause="-"
+            defect_id=2, defect_type="박리", location="-", severity_grade="C등급", description="-", cause="-"
         ),
         DefectDetailItem(
-            defect_type="균열", location="-", severity_grade=" b ", description="-", cause="-"
+            defect_id=1, defect_type="균열", location="-", severity_grade=" b ", description="-", cause="-"
         ),
     ]
     assert _detail_matches_confirmed(items, confirmed) is True
 
 
 def test_detail_matches_confirmed_false_when_content_swapped_despite_same_count():
-    """개수는 같아도(1건) 유형/등급 조합이 실제 confirmed_defects와 다르면 불일치로 판정한다 —
-    기존의 개수만 비교하던 로직은 이 케이스를 놓쳤다(PR머신 P2)."""
-    confirmed = _sample_defects()  # 균열/B 1건
+    """개수는 같고 id도 confirmed_defects와 대응돼도, 그 id가 가리키는 유형/등급이 실제와 다르면
+    불일치로 판정한다 — 기존의 개수만 비교하던 로직은 이 케이스를 놓쳤다(PR머신 P2)."""
+    confirmed = _sample_defects()  # id=1, 균열/B 1건
     items = [
         DefectDetailItem(
-            defect_type="박리", location="1동 1층 기둥", severity_grade="C", description="-", cause="-"
+            defect_id=1, defect_type="박리", location="1동 1층 기둥", severity_grade="C", description="-", cause="-"
         )
     ]
     assert _detail_matches_confirmed(items, confirmed) is False
@@ -742,7 +745,7 @@ def test_detail_content_mismatch_triggers_regenerate_then_recovers(mock_get_llm,
     wrong_detail = ReportDetail(
         items=[
             DefectDetailItem(
-                defect_type="박리", location="1동 1층 기둥", severity_grade="C",
+                defect_id=1, defect_type="박리", location="1동 1층 기둥", severity_grade="C",
                 description="잘못된 유형/등급", cause="-",
             )
         ]
@@ -786,7 +789,7 @@ def test_detail_content_mismatch_persists_returns_validation_error(mock_get_llm,
     always_wrong_detail = ReportDetail(
         items=[
             DefectDetailItem(
-                defect_type="박리", location="1동 1층 기둥", severity_grade="C",
+                defect_id=1, defect_type="박리", location="1동 1층 기둥", severity_grade="C",
                 description="계속 잘못된 유형/등급", cause="-",
             )
         ]

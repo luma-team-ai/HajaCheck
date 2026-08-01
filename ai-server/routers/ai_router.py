@@ -160,8 +160,13 @@ def briefing(req: DashboardStats) -> AIResponse:
 
 class ConfirmedDefectInput(BaseModel):
     """confirmed_defects 배열 원소 — report_chain 전반에서 `d.get(key, '-')`로 조용히 기본값
-    처리되던 필드 존재·타입을 요청 단계(Pydantic)에서 검증한다(PR머신 P2 후속)."""
+    처리되던 필드 존재·타입을 요청 단계(Pydantic)에서 검증한다(PR머신 P2 후속).
 
+    id는 실제 DB Defect.id — LLM이 detail.items에 그대로 echo해 프론트가 인덱스가 아니라 id로
+    사진·bbox를 매칭하게 한다(#1379).
+    """
+
+    id: int = Field(ge=1)
     defect_type: str = Field(min_length=1)
     location: str = Field(min_length=1)
     severity_grade: str = Field(min_length=1)

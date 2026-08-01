@@ -23,6 +23,52 @@ export const MANUAL_SECTION_LABELS = {
   'location-drawing-photos': '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도',
 } as const;
 
+// 표준 서식(정밀안전진단 보고서) 기준 섹션 순서 — 제출문→기본현황→종합의견/결과요약→
+// 진단 외관조사결과/보수·보강→안전성평가→현장시험→시설물현황→참여기술진→위치도·사진 순.
+// "+ 서식 섹션 추가"로 새 섹션을 넣을 때 항상 맨 끝에 붙던 걸(#1379), 이 순서에 맞는 위치로
+// 자동 삽입하는 데 쓴다. 목록에 없는 타입(향후 신규 추가 시)은 안전하게 맨 끝으로 폴백한다.
+const SECTION_CANONICAL_ORDER: SectionKey[] = [
+  'submission',
+  'overview',
+  'overview-form',
+  'summary-opinion',
+  'summary',
+  'detail',
+  'inspection-result-repair',
+  'member-condition-repair',
+  'recommendation',
+  'safety-assessment',
+  'field-test',
+  'facility-status',
+  'participants',
+  'location-drawing-photos',
+  'photos',
+];
+
+function sectionTypeOf(key: SectionKey, manualSections: ManualSection[]): SectionKey {
+  if ((FIXED_SECTION_KEYS as readonly string[]).includes(key)) return key;
+  return manualSections.find((section) => section.id === key)?.type ?? key;
+}
+
+/** 새 섹션(id=newKey, 타입=newType)을 표준 순서상 맞는 위치에 삽입한 새 순서 배열을 반환한다. */
+export function insertSectionAtCanonicalPosition(
+  order: SectionKey[],
+  newKey: SectionKey,
+  newType: SectionKey,
+  manualSections: ManualSection[],
+): SectionKey[] {
+  const newRank = SECTION_CANONICAL_ORDER.indexOf(newType);
+  if (newRank === -1) return [...order, newKey];
+  const insertIndex = order.findIndex((key) => {
+    const rank = SECTION_CANONICAL_ORDER.indexOf(sectionTypeOf(key, manualSections));
+    return rank !== -1 && rank > newRank;
+  });
+  if (insertIndex === -1) return [...order, newKey];
+  const next = [...order];
+  next.splice(insertIndex, 0, newKey);
+  return next;
+}
+
 /**
  * 저장된 sectionOrder를 신뢰하되, 다음 두 불일치를 정리해 편집기·PDF가 항상 같은 순서를 본다.
  *   1. 삭제된 수동 섹션의 잔여 id → 제거.

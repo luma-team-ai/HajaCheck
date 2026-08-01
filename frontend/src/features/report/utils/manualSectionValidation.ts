@@ -10,9 +10,18 @@ function hasText(value: string): boolean {
   return value.trim().length > 0;
 }
 
+const REQUIRED_SUBMISSION_FIELDS: Array<keyof SubmissionSectionData> = [
+  'recipient',
+  'contractDate',
+  'companyName',
+  'companyAddress',
+  'representativeName',
+];
+
 function hasManualSectionContent(section: ManualSection): boolean {
   if (section.type === 'submission') {
-    return Object.values(section.data as SubmissionSectionData).some(hasText);
+    const data = section.data as SubmissionSectionData;
+    return REQUIRED_SUBMISSION_FIELDS.every((field) => hasText(data[field] ?? ''));
   }
 
   if (section.type === 'participants') {
