@@ -18,6 +18,7 @@ import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionResponse;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.repository.MediaRepository;
@@ -374,7 +375,34 @@ public class ReportService {
         String storageKey = requireOwnPdfUrl(reportId, pdfUrl);
         reportPdfStorage.load(reportId, storageKey);
         report.finalizeReport(pdfUrl, editedByUserId);
+        markInspectionReported(scoped.inspection(), companyId, editedByUserId);
         return toDetailResponse(report, editedByUserId, companyId, scoped.inspection());
+    }
+
+    /**
+     * 보고서 확정(PDF 업로드 완료) 시점에 회차를 "완료"로 표시한다(팀 테스트 피드백, 2026-08-01).
+     *
+     * <p>이전엔 {@code REVIEWED}·{@code REPORTED} 둘 다 상태 머신에 도착 상태로만 정의돼 있고 실제로
+     * 전이시키는 코드가 어디에도 없었다 — 검수를 아무리 끝내도 회차는 {@code ANALYZED}에 영원히
+     * 머물러, 시설물 상세의 "미종료 회차" 판정({@code status != REPORTED})이 다 끝난 회차를 계속
+     * "진행 중"으로 보고했다.
+     *
+     * <p>{@code REPORTED}로 가는 유일한 허용 경로가 {@code REVIEWED → REPORTED}뿐이라(
+     * {@link InspectionStatus#canTransitionTo}), 아직 {@code ANALYZED}에 머물러 있는 회차는 먼저
+     * {@code REVIEWED}를 거쳐야 한다 — 검수 화면이 하자 단위로만 검수 여부를 관리하고 회차 단위
+     * "검수 확정" 액션이 따로 없어서, 그 중간 전이를 여기서 함께 처리한다. 이미 {@code REPORTED}인
+     * 회차(같은 회차의 보고서를 재확정하는 경우)는 그대로 둔다 — {@code REPORTED}는 상태 머신상
+     * 종단(더 이상 어디로도 전이 불가)이라 재전이를 시도하면 예외가 난다.
+     */
+    private void markInspectionReported(InspectionResponse inspection, Long companyId, Long editedByUserId) {
+        InspectionStatus status = inspection.status();
+        if (status == InspectionStatus.REPORTED) {
+            return;
+        }
+        if (status == InspectionStatus.ANALYZED) {
+            inspectionService.advanceStatus(editedByUserId, companyId, inspection.id(), InspectionStatus.REVIEWED);
+        }
+        inspectionService.advanceStatus(editedByUserId, companyId, inspection.id(), InspectionStatus.REPORTED);
     }
 
     @Transactional

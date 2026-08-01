@@ -90,6 +90,11 @@ class ReportServiceTest {
                 LocalDate.now(), InspectionType.REGULAR, InspectionStatus.CREATED, LocalDateTime.now());
     }
 
+    private static InspectionResponse inspection(Long facilityId, InspectionStatus status) {
+        return new InspectionResponse(1L, facilityId, 100L, 100L, 1,
+                LocalDate.now(), InspectionType.REGULAR, status, LocalDateTime.now());
+    }
+
     private static FacilityResponse facility() {
         return new FacilityResponse(10L, "테스트빌딩", "BUILDING", "서울시 강남구",
                 null, null, null, null, null, null, LocalDateTime.now(), LocalDateTime.now(),
@@ -781,6 +786,69 @@ class ReportServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.FILE_NOT_FOUND);
+    }
+
+    // ── 보고서 확정 시 회차 완료 전이(팀 테스트 피드백, 2026-08-01) ──
+    // REVIEWED/REPORTED 둘 다 상태 머신엔 도착 상태로 정의돼 있었지만 실제로 전이시키는 코드가
+    // 없어, 검수를 끝내고 보고서까지 만들어도 회차가 ANALYZED에 영원히 머물던 문제.
+
+    @Test
+    void finalizeReport_회차가ANALYZED면_REVIEWED거쳐REPORTED로전이한다() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspection(10L, InspectionStatus.ANALYZED));
+
+        reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(inspectionService);
+        inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
+        inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REPORTED);
+    }
+
+    @Test
+    void finalizeReport_회차가REVIEWED면_REVIEWED전이없이바로REPORTED로전이한다() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspection(10L, InspectionStatus.REVIEWED));
+
+        reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
+
+        verify(inspectionService, never()).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
+        verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REPORTED);
+    }
+
+    @Test
+    void finalizeReport_회차가이미REPORTED면_전이를시도하지않는다() {
+        // REPORTED는 상태 머신상 종단(더 이상 어디로도 전이 불가)이라, 같은 회차의 다른 보고서
+        // 버전을 재확정하는 경우 재전이를 시도하면 DomainStateTransitionException이 난다.
+        Report report = Report.draft(1L, 2, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspection(10L, InspectionStatus.REPORTED));
+
+        reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
+
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
     }
     @Test
     void getReport_무소속사용자_FORBIDDEN을404로변환하지않는다() {
