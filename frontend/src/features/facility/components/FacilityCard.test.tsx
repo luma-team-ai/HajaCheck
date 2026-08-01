@@ -62,6 +62,21 @@ describe('FacilityCard', () => {
     expect(screen.queryByText('사진 없음')).toBeNull();
   });
 
+  it('대표 사진 로드가 실패하면 alt 텍스트 대신 "사진 없음"을 표시한다', () => {
+    render(
+      <FacilityCard
+        facility={{ ...baseFacility, thumbnailUrl: '/api/media/missing/thumbnail' }}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const img = screen.getByRole('img', { name: '강남 오피스타워 A동' });
+    fireEvent.error(img);
+
+    expect(screen.getByText('사진 없음')).not.toBeNull();
+    expect(screen.queryByRole('img', { name: '강남 오피스타워 A동' })).toBeNull();
+  });
+
   it('등급이 있으면 등급 배지를 표시한다', () => {
     render(<FacilityCard facility={{ ...baseFacility, initialGrade: 'E' }} onSelect={vi.fn()} />);
 

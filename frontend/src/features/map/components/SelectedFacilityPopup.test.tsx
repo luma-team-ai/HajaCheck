@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // SelectedFacilityPopup 등급 배지 fallback 색상 테스트 — GradeBadge와 동일한 FALLBACK_GRADE_COLOR
 // 상수를 쓰는지 확인한다(P3, PR #265/#130 리뷰 — 이전엔 '#9CA3AF' 하드코딩이 중복돼 있었음).
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FALLBACK_GRADE_COLOR } from '../constants';
 import type { DefectGrade, FacilityLocation } from '../types';
@@ -83,5 +83,20 @@ describe('SelectedFacilityPopup', () => {
     );
 
     expect(screen.queryByRole('button', { name: '결과 검수' })).toBeNull();
+  });
+
+  it('썸네일 로드가 실패하면 alt 텍스트 대신 "사진 없음"을 표시한다', () => {
+    render(
+      <SelectedFacilityPopup
+        facility={{ ...baseFacility, thumbnailUrl: '/api/media/missing/thumbnail' }}
+        onViewDetail={() => {}}
+      />,
+    );
+
+    const image = screen.getByRole('img', { name: '한강대교 북단' });
+    fireEvent.error(image);
+
+    expect(screen.getByText('사진 없음')).toBeTruthy();
+    expect(screen.queryByRole('img', { name: '한강대교 북단' })).toBeNull();
   });
 });

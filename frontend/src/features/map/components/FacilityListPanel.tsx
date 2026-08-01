@@ -1,6 +1,7 @@
 // 검색 + 카테고리 필터 + 시설물 목록 패널 (지도 뷰 좌측) — HAJA-150(#129) 재오픈 컨벤션 준수 작업
 import { FACILITY_CATEGORY_FILTERS, FALLBACK_GRADE_COLOR, GRADE_COLOR } from '../constants';
 import type { FacilityLocation } from '../types';
+import { ImageWithFallback } from '../../../shared/components/ImageWithFallback';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
 import { GradeBadge } from './GradeBadge';
 
@@ -103,15 +104,12 @@ export function FacilityListPanel({
                   }`}
                 >
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-md bg-neutral-100 text-text-muted">
-                    {facility.thumbnailUrl ? (
-                      <img
-                        src={facility.thumbnailUrl}
-                        alt={facility.name}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <span className="text-[10px]">사진 없음</span>
-                    )}
+                    <ImageWithFallback
+                      src={facility.thumbnailUrl}
+                      alt={facility.name}
+                      className="h-full w-full object-cover"
+                      fallback={<span className="text-[10px]">사진 없음</span>}
+                    />
                   </span>
                   <span className="flex min-w-0 flex-1 flex-col gap-1">
                     <span className="flex items-start justify-between gap-2">
