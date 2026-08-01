@@ -342,7 +342,7 @@ class ReportServiceTest {
         List<ReportResponse.DetailItem> items = new java.util.ArrayList<>();
         for (int i = 0; i < typeGradePairs.length; i += 2) {
             items.add(new ReportResponse.DetailItem(
-                    typeGradePairs[i], "위치", typeGradePairs[i + 1], "설명", "원인"));
+                    null, typeGradePairs[i], "위치", typeGradePairs[i + 1], "설명", "원인"));
         }
         ReportResponse aiReport = new ReportResponse(
                 new ReportResponse.Overview("목적", "요약", "범위"),
@@ -358,7 +358,7 @@ class ReportServiceTest {
                 new ReportResponse.Overview("목적", "요약", "범위"),
                 new ReportResponse.Summary("양호", 1, java.util.Map.of("C", 1), List.of("균열 발견")),
                 new ReportResponse.Detail(List.of(
-                        new ReportResponse.DetailItem("균열", "위치", "C", "설명", "원인"))),
+                        new ReportResponse.DetailItem(null, "균열", "위치", "C", "설명", "원인"))),
                 new ReportResponse.Recommendation(List.of(), List.of()),
                 true);
         return GroundingReportContentSerializer.serialize(

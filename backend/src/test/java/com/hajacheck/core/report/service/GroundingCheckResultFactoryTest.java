@@ -190,7 +190,7 @@ class GroundingCheckResultFactoryTest {
                         Map.of("A", 0, "B", 1, "C", 0, "D", 0, "E", 0),
                         List.of("crack")),
                 new ReportResponse.Detail(List.of(new ReportResponse.DetailItem(
-                        "crack", "floor-1", "B", "micro crack", "shrinkage"))),
+                        null, "crack", "floor-1", "B", "micro crack", "shrinkage"))),
                 new ReportResponse.Recommendation(
                         List.of(new ReportResponse.RecommendationItem(
                                 "crack", "epoxy", "medium", "article-1", true)),

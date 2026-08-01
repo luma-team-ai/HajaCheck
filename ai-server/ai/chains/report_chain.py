@@ -13,7 +13,6 @@
   마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)으로 차단한다 — #1240
 """
 import logging
-from collections import Counter
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -74,6 +73,10 @@ class ReportSummary(BaseModel):
 
 
 class DefectDetailItem(BaseModel):
+    # confirmed_defects 목록에 실린 id를 그대로 echo — 프론트가 이 값으로 실제 Defect(사진·bbox)와
+    # 재조립 없이 1:1 매칭한다(점검 회차 생성 플로우가 bbox·id를 같은 객체에 묶어두는 패턴과 동일 원칙,
+    # PR머신 P1 후속: 인덱스 기반 매칭은 detail.items 순서가 confirmed_defects와 어긋나면 깨졌었다).
+    defect_id: int
     defect_type: str
     location: str
     severity_grade: str
@@ -204,7 +207,7 @@ def _format_defects_list(confirmed_defects: list[dict]) -> str:
     lines = []
     for i, d in enumerate(confirmed_defects, start=1):
         lines.append(
-            f"{i}. 유형: {d.get('defect_type', '-')} / 위치: {d.get('location', '-')} / "
+            f"{i}. id: {d.get('id', '-')} / 유형: {d.get('defect_type', '-')} / 위치: {d.get('location', '-')} / "
             f"등급: {d.get('severity_grade', '-')} / 설명: {d.get('description', '-')}"
         )
     return _wrap_untrusted("\n".join(lines))
@@ -367,18 +370,29 @@ def _detail_content_key(defect_type: str, severity_grade: str) -> tuple[str, str
 
 
 def _detail_matches_confirmed(items: list[DefectDetailItem], confirmed_defects: list[dict]) -> bool:
-    """detail.items가 confirmed_defects와 순서 무관하게 내용까지 일치하는지 검증한다(PR머신 P2).
+    """detail.items가 confirmed_defects와 id 기준으로 정확히 1:1 대응하는지 검증한다.
 
-    기존에는 `len(detail.items) != len(confirmed_defects)` 개수만 비교해, 개수는 맞지만 유형·등급이
-    뒤바뀌거나 창작된 경우(예: 실제로는 균열/B인데 박리/C로 응답)를 잡아내지 못했다. confirmed_defects에
-    안정적인 식별자(id)가 없으므로 defect_type+severity_grade 조합의 멀티셋(Counter)으로 비교한다 —
-    완벽한 항목 단위 매칭(어떤 detail item이 어떤 confirmed_defect에 대응하는지)까지는 과설계이므로 하지 않는다.
+    이전에는 confirmed_defects에 안정적인 식별자(id)가 없어 defect_type+severity_grade 조합의
+    멀티셋(Counter)으로만 비교했다 — 개수·내용은 맞아도 "어떤 detail item이 실제로 어떤 확정 하자를
+    가리키는지"는 알 수 없었고, 프론트가 이걸 배열 인덱스로 재조립하다 순서가 어긋나면(재생성 등으로
+    LLM이 순서를 바꾸면) 엉뚱한 하자의 사진·bbox가 표시되는 버그로 이어졌다(#1379). 이제 백엔드가
+    항상 실제 Defect.id를 함께 보내므로, id로 1:1 매칭하고 그 id에 대응하는 유형/등급까지 일치하는지
+    확인한다 — 없는 id를 지어내거나 중복 echo하면 그대로 불일치로 판정된다.
     """
-    detail_counter = Counter(_detail_content_key(item.defect_type, item.severity_grade) for item in items)
-    confirmed_counter = Counter(
-        _detail_content_key(d.get("defect_type", ""), d.get("severity_grade", "")) for d in confirmed_defects
-    )
-    return detail_counter == confirmed_counter
+    confirmed_by_id = {d.get("id"): d for d in confirmed_defects}
+    if len(confirmed_by_id) != len(confirmed_defects) or len(items) != len(confirmed_defects):
+        return False
+    seen_ids: set[Any] = set()
+    for item in items:
+        confirmed = confirmed_by_id.get(item.defect_id)
+        if confirmed is None or item.defect_id in seen_ids:
+            return False
+        seen_ids.add(item.defect_id)
+        if _detail_content_key(item.defect_type, item.severity_grade) != _detail_content_key(
+            confirmed.get("defect_type", ""), confirmed.get("severity_grade", "")
+        ):
+            return False
+    return True
 
 
 def _to_grounding_defects(confirmed_defects: list[dict]) -> list[GroundingDefect]:

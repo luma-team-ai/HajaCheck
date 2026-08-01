@@ -258,14 +258,17 @@ export function DetailSection({
         <div className="flex flex-col gap-4">
           {pageItems.map(({ item, index }) => {
             const photoGroup = visiblePhotos[index];
+            // 등급 필터가 활성화되면 "같은 등급 전체"가 아니라 이 카드 자신의 하자(bbox) 하나만
+            // 남긴다 — 같은 사진에 같은 등급 하자가 여러 건 있으면(예: 하자 #03/#04가 같은 사진),
+            // 예전엔 그 등급의 모든 박스를 양쪽 카드에 똑같이 그려 어느 카드가 어느 박스인지
+            // 구분이 안 됐다. highlightDefectId(이 카드의 실제 하자 id)로 정확히 하나만 남긴다.
             const scopedPhotoGroup =
               photoGroup && grade !== "ALL"
                 ? {
                     ...photoGroup,
                     defects: photoGroup.defects.filter(
-                      (defect) => defect.grade === grade,
+                      (defect) => defect.id === photoGroup.highlightDefectId,
                     ),
-                    highlightDefectId: undefined,
                   }
                 : photoGroup;
             const dotColor =

@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { within } from '@testing-library/react';
 import type { ApiResponse } from '../../../shared/api/types';
@@ -253,7 +253,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     renderPage();
     await screen.findByText(/점검 회차 요약/);
 
-    for (const name of [/점검 개요/, /하자 현황 요약/, /유형별 상세/, /조치 권고/, /종합 의견/]) {
+    for (const name of [/기본현황/, /결과 요약/, /진단 외관조사결과 기본사항/, /보수ㆍ보강\(안\)/, /종합 의견/]) {
       expect(screen.getByRole('button', { name }).hasAttribute('disabled')).toBe(false);
     }
 
@@ -309,7 +309,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     renderPage();
     await screen.findByText(/점검 회차 요약/);
 
-    for (const name of ['점검 개요', '하자 현황 요약', '유형별 상세', '조치 권고']) {
+    for (const name of ['기본현황', '결과 요약', '진단 외관조사결과 기본사항', '보수ㆍ보강(안)']) {
       fireEvent.click(screen.getByRole('button', { name }));
     }
 
@@ -318,6 +318,44 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     fireEvent.click(generateButton);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(posted).toBe(false);
+  });
+
+  // "미리보기"라는 이름이 지금 고른 섹션 설정을 미리 보여주는 기능처럼 오해를 사서, 실제
+  // 동작(가장 최근 생성된 보고서 열기)에 맞게 이름을 바꾸고 — 생성된 보고서가 아예 없을 때는
+  // 버튼을 disabled로 죽이는 대신 다른 보고서 화면(ReportGeneratePage)과 같은 AlertModal로
+  // 이유를 안내한다.
+  it('생성된 보고서가 없으면 "최근 보고서 보기" 클릭 시 이동하지 않고 AlertModal로 안내한다', async () => {
+    renderPage();
+    await screen.findByText(/점검 회차 요약/);
+
+    fireEvent.click(screen.getByRole('button', { name: '최근 보고서 보기' }));
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('아직 생성된 보고서가 없습니다')).toBeTruthy();
+    expect(screen.queryByText('편집화면')).toBeNull();
+  });
+
+  it('생성된 보고서가 있으면 "최근 보고서 보기" 클릭 시 가장 최근 보고서의 미리보기로 이동한다', async () => {
+    server.use(
+      http.get('/api/inspections/:id/reports', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            { id: 42, inspectionId: 1, version: 2, status: 'DRAFT', createdAt: '2026-08-01T00:00:00Z' },
+            { id: 41, inspectionId: 1, version: 1, status: 'DRAFT', createdAt: '2026-07-31T00:00:00Z' },
+          ],
+        } satisfies ApiResponse<ReportSummaryResponse[]>),
+      ),
+    );
+    renderPageWithLocationProbe();
+    await screen.findByText(/점검 회차 요약/);
+
+    fireEvent.click(screen.getByRole('button', { name: '최근 보고서 보기' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/reports/42?mode=export');
+    });
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('inspectionId가 바뀌면 이전 최근작업 요청을 취소해 늦은 응답이 화면을 덮어쓰지 않는다 (#886 P2)', async () => {
@@ -424,8 +462,8 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.getByTestId('location').textContent).toBe('/reports/77');
   });
 
-  it('생성에 실패하면 편집 화면으로 이동하지 않고 오류를 표시한다', async () => {
-    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+  // 네이티브 alert() 대신 다른 보고서 화면(ReportGeneratePage)과 동일한 AlertModal로 안내한다.
+  it('생성에 실패하면 편집 화면으로 이동하지 않고 AlertModal로 오류를 표시한다', async () => {
     server.use(
       http.post('/api/inspections/:id/reports', () =>
         HttpResponse.json(
@@ -439,10 +477,11 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '보고서 생성 시작' }));
 
-    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith('AI 서버 응답이 없습니다.'));
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('보고서 생성 실패')).toBeTruthy();
+    expect(screen.getByText('AI 서버 응답이 없습니다.')).toBeTruthy();
     expect(screen.getByTestId('location').textContent).toBe('/inspections/1/reports');
     expect(screen.queryByText('편집화면')).toBeNull();
-    alertSpy.mockRestore();
   });
 
   it('최근 작업 내역이 있으면 목록과 "이어서 편집" 버튼을 노출한다', async () => {

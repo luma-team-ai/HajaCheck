@@ -25,7 +25,7 @@ public final class ConfirmedDefectTextFactory {
         String typeLabel = defect.getType().label();
         String gradeLabel = gradeLabel(defect.getGrade());
         String description = buildDescription(defect, typeLabel, gradeLabel);
-        return new ReportRequest.ConfirmedDefect(typeLabel, location, gradeLabel, description);
+        return new ReportRequest.ConfirmedDefect(defect.getId(), typeLabel, location, gradeLabel, description);
     }
 
     private static String buildDescription(Defect defect, String typeLabel, String gradeLabel) {

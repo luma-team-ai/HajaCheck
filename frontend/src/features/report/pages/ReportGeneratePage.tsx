@@ -209,10 +209,15 @@ export function ReportGeneratePage() {
 
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
-  // 하자 상세 항목은 defects와 같은 순서로 만들어지므로 사진도 그 순서 그대로 1:1로 넘긴다.
+  // 하자 상세 항목(content.detail.items[i])과 사진(defectPhotos[i])을 defect_id로 1:1 매칭한다.
+  // 예전엔 "AI가 defects와 같은 순서로 생성한다"는 가정만으로 배열 인덱스로 짝지었는데, AI가
+  // 재생성 등으로 순서를 바꾸면 그 가정이 깨져 엉뚱한 하자의 사진·bbox가 표시됐다(#1379) — 점검
+  // 회차 생성 플로우(DefectOverlay 등)처럼 id를 데이터에 직접 묶어 재조립하지 않는 패턴을 따른다.
+  // defect_id가 없는 구버전 저장분은 기존 인덱스 매칭으로 폴백한다.
   // 항목마다 "그 하자"가 주인공이지만, 같은 사진에 찍힌 다른 하자도 흐리게 함께 보여준다(#1333).
   const defectPhotos = useMemo<DefectPhotoGroup[]>(() => {
     const defects = inspectionData?.defects ?? [];
+    const byId = new Map<number, Defect>(defects.map((defect) => [defect.id, defect]));
     const siblingsByMediaId = new Map<number, Defect[]>();
     defects.forEach((defect) => {
       if (defect.mediaId == null) return;
@@ -220,14 +225,20 @@ export function ReportGeneratePage() {
       if (bucket) bucket.push(defect);
       else siblingsByMediaId.set(defect.mediaId, [defect]);
     });
-    return defects.map((defect) => ({
+    const toGroup = (defect: Defect): DefectPhotoGroup => ({
       mediaId: defect.mediaId ?? null,
       imageUrl: defect.imageUrl,
       defects:
         defect.mediaId == null ? [defect] : (siblingsByMediaId.get(defect.mediaId) ?? [defect]),
       highlightDefectId: defect.id,
-    }));
-  }, [inspectionData?.defects]);
+    });
+    const items = content?.detail.items ?? [];
+    return items.map((item, index) => {
+      const matched = item.defect_id != null ? byId.get(item.defect_id) : undefined;
+      const defect = matched ?? defects[index];
+      return defect ? toGroup(defect) : { mediaId: null, imageUrl: null, defects: [] };
+    });
+  }, [inspectionData?.defects, content?.detail.items]);
 
   // 부위별 사진은 사진 단위 — 같은 사진의 하자를 한 장에 모아 중복 표시를 없앤다(#1333).
   const defectPhotoGroups = useMemo(
@@ -266,13 +277,17 @@ export function ReportGeneratePage() {
       currentLocation.search === nextLocation.search &&
       currentLocation.hash === nextLocation.hash;
     if (isSameLocation) return false;
+    // 같은 보고서의 편집 ↔ 미리보기(mode=export) 전환은 같은 컴포넌트가 그대로 유지돼 content가
+    // 메모리에 남아있으므로 데이터 유실 위험이 없다 — 뒤로가기(미리보기 → 편집) 방향도 예외 처리한다.
+    const isSameReportPage = (location: typeof currentLocation) => location.pathname === `/reports/${report.id}`;
+    if (isSameReportPage(currentLocation) && isSameReportPage(nextLocation)) return false;
     return !isPdfExportLocation(nextLocation.pathname, nextLocation.search, report.id);
   });
 
-  // 저장된 상태이면서 확정 검증을 통과했거나 이미 확정된 보고서만 클라이언트 미리보기를 렌더링한다.
-  // 버튼 클릭 가드는 직접 URL 진입/새로고침에는 적용되지 않으므로 여기서도 검증 상태를 확인한다.
-  const canRenderClientPreview =
-    Boolean(content) && !dirty && (report?.groundingCheckPassed === true || isFinalized);
+  // 미리보기는 확정 전 편집 중인 상태를 보기 위한 기능이라, 저장 여부·확정 검증 통과 여부와
+  // 무관하게 content만 있으면 현재(미저장 포함) 내용으로 즉석 렌더링한다. 서버에 저장된 최종
+  // PDF(report.pdfUrl)가 있으면 그쪽이 우선이며, 이 값은 그 fallback으로만 쓰인다.
+  const canRenderClientPreview = Boolean(content);
   const includeReportPhotos = content?.reportOptions?.includePhoto !== false;
 
   // useInspectionResult(useInspectionResultReal)은 매 렌더마다 새 data 객체를 만든다(메모이제이션
@@ -376,18 +391,12 @@ export function ReportGeneratePage() {
     }
   };
 
-  // "PDF 미리보기" 클릭 핸들러 — 이미 저장된 상태(또는 확정 완료)면 그대로 이동, 미저장 변경이
-  // 있으면 임시저장을 먼저 시도한 뒤에만 이동한다(#1338).
-  const handlePreviewClick = async () => {
+  // "PDF 미리보기" 클릭 핸들러 — 미리보기는 확정 전 편집 중인 내용을 보기 위한 기능이므로
+  // 저장 성공 여부와 무관하게 바로 이동한다. 임시저장 실패(예: 빈 수동 섹션)로 미리보기까지
+  // 막히면 안 된다 — 이동 경로는 blocker의 임시저장 이탈 가드 대상에서도 제외되어 있다.
+  const handlePreviewClick = () => {
     if (!report) return;
-    if (isFinalized || !dirty) {
-      navigate(`/reports/${report.id}?mode=export`);
-      return;
-    }
-    const saved = await handleSave();
-    if (saved) {
-      navigate(`/reports/${report.id}?mode=export`);
-    }
+    navigate(`/reports/${report.id}?mode=export`);
   };
 
   // "최종 보고서 확정" 버튼 핸들러 — 임시저장 → 확정 검증 → PDF 생성/업로드/확정을 순차로 진행한다(#1338).
@@ -658,14 +667,12 @@ export function ReportGeneratePage() {
               </div>
             </div>
           ) : (
+            // content 자체를 아직 불러오지 못한 예외 상태(정상 로드된 보고서라면 canRenderClientPreview가
+            // content 존재 여부만 보므로 이 분기까지 오지 않는다).
             <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">아직 미리 볼 수 없습니다.</p>
-                <p className="text-sm text-text-muted">
-                  {dirty
-                    ? '편집한 내용을 아직 저장하지 않았습니다. 저장한 뒤 다시 시도해 주세요.'
-                    : '편집 화면으로 돌아가 저장한 뒤 다시 시도해 주세요.'}
-                </p>
+                <p className="text-sm text-text-muted">편집 화면으로 돌아가 다시 시도해 주세요.</p>
               </div>
             </div>
           )}

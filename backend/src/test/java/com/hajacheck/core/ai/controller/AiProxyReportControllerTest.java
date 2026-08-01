@@ -60,7 +60,7 @@ class AiProxyReportControllerTest extends PostgresTestSupport {
             {
               "facility_info": {"name": "Haja APT", "location": "서울시"},
               "confirmed_defects": [
-                {"defect_type": "균열", "location": "1동 1층 기둥", "severity_grade": "B", "description": "기둥 표면 수평 균열"}
+                {"id": 1, "defect_type": "균열", "location": "1동 1층 기둥", "severity_grade": "B", "description": "기둥 표면 수평 균열"}
               ],
               "on_mismatch": "regenerate"
             }
@@ -98,7 +98,7 @@ class AiProxyReportControllerTest extends PostgresTestSupport {
                 new ReportResponse.Summary("양호", 1, Map.of("A", 0, "B", 1, "C", 0, "D", 0, "E", 0),
                         List.of("1동 기둥 균열 발생")),
                 new ReportResponse.Detail(List.of(new ReportResponse.DetailItem(
-                        "균열", "1동 1층 기둥", "B", "기둥 표면 수평 균열", "건조 수축"))),
+                        1L, "균열", "1동 1층 기둥", "B", "기둥 표면 수평 균열", "건조 수축"))),
                 new ReportResponse.Recommendation(
                         List.of(new ReportResponse.RecommendationItem("균열", "에폭시 수지 주입", "중", "제X조")),
                         List.of("지하주차장")),

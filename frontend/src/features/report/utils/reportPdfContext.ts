@@ -13,7 +13,10 @@ function buildDefectImageSummary(
     defect.location,
     defect.crackWidthMm ? `균열폭 ${defect.crackWidthMm}mm` : null,
     defect.crackLengthMm ? `길이 ${defect.crackLengthMm}mm` : null,
-    defect.areaRatio ? `면적비 ${Math.round(defect.areaRatio * 100)}%` : null,
+    // 균열은 선형 하자라 면적비가 항상 1% 미만대로 작다(ai-server grading.py 균열 전용 구간표
+    // 참고, 등급 임계값 자체가 0.275%~0.969%) — 소수점 1자리로도 0.0%로 뭉개지는 값이 있어(실측
+    // 확인) 3자리까지 늘려 실제로 측정된 작은 값임을 드러낸다.
+    defect.areaRatio ? `면적비 ${(defect.areaRatio * 100).toFixed(3)}%` : null,
     defect.confidence ? `신뢰도 ${Math.round(defect.confidence * 100)}%` : null,
   ].filter(Boolean);
   return parts.join(" · ");

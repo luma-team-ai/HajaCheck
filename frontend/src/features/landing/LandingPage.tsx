@@ -162,7 +162,7 @@ export default function LandingPage() {
           시설물별 점검 주기를 설정해 다음 점검 일정을 관리할 수 있습니다.
         </p>
         <div className="landing-visual landing-screen-visual">
-          <img src={analysisViewerImage} alt="분석 결과 뷰어 화면" className="landing-screen-image" loading="lazy" />
+          <img src={defectDetailImage} alt="하자 상세 화면" className="landing-screen-image" loading="lazy" />
         </div>
       </section>
 
@@ -200,7 +200,7 @@ export default function LandingPage() {
           </span>
         </div>
         <div className="landing-visual landing-screen-visual">
-          <img src={defectDetailImage} alt="하자 상세 화면" className="landing-screen-image" loading="lazy" />
+          <img src={analysisViewerImage} alt="분석 결과 뷰어 화면" className="landing-screen-image" loading="lazy" />
         </div>
       </section>
 

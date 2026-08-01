@@ -562,11 +562,11 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByText('저장된 PDF가 없습니다.')).toBeNull();
   });
 
-  // 검증 전(그리고 grounding이라는 단어를 노출하지 않는지) 확인 — 일반 점검자가 이해할 수 있는
-  // 문구여야 한다.
-  // #1341 P2 — 버튼 클릭 가드는 직접 URL 진입/새로고침에는 적용되지 않으므로,
-  // mode=export 렌더 조건 자체도 저장 여부와 확정 검증 통과 여부를 함께 확인해야 한다.
-  it('저장된 상태라도 확정 검증을 통과하지 못한 보고서로 mode=export에 직접 진입하면 미리보기를 렌더하지 않는다', async () => {
+  // 미리보기는 확정 전 편집 중인 상태를 보기 위한 기능이라, 확정 검증 통과 여부와 무관하게
+  // content만 있으면 현재 내용으로 즉석 렌더링해야 한다(확정 검증이 최종 확정 버튼을 누르기
+  // 전까지 한 번도 실행되지 않았을 수 있어, 이 게이트를 걸면 신규 보고서는 미리보기를 영영
+  // 못 보게 된다).
+  it('확정 검증을 통과하지 못한 보고서로 mode=export에 직접 진입해도 현재 내용으로 미리보기를 렌더한다', async () => {
     reportState = {
       ...mockReportDetailResponse,
       groundingCheckPassed: null,
@@ -576,13 +576,15 @@ describe('ReportGeneratePage', () => {
 
     renderPageWithPath('/reports/1?mode=export');
 
-    await screen.findByText('아직 미리 볼 수 없습니다.');
-    expect(screen.queryByTitle('보고서 PDF 미리보기(확정 전)')).toBeNull();
-    expect(exportReportToPdf).not.toHaveBeenCalled();
+    const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
+    expect(screen.getByText(/아직 확정되지 않은 미리보기입니다/)).toBeTruthy();
     expect(screen.queryByText(/grounding/i)).toBeNull();
   });
 
-  it('저장하지 않은 변경 사항이 있는 상태로 mode=export에 진입하면 미리보기 대신 저장 안내 문구를 보여준다', async () => {
+  // 미리보기는 "저장 여부"와도 무관해야 한다 — 임시저장은 라우트 이탈 시 데이터 유실을 막기
+  // 위한 방어 장치일 뿐, 편집 중 미리보기를 보는 것과는 별개 목적이다.
+  it('저장하지 않은 변경 사항이 있는 상태로 mode=export에 진입해도 현재(미저장) 내용으로 미리보기를 렌더한다', async () => {
     reportState = {
       ...mockReportDetailResponse,
       groundingCheckPassed: null,
@@ -607,14 +609,10 @@ describe('ReportGeneratePage', () => {
 
     await router.navigate('/reports/1?mode=export');
 
-    const guidance = await screen.findByText('아직 미리 볼 수 없습니다.');
-    expect(guidance).toBeTruthy();
-    expect(
-      screen.getByText('편집한 내용을 아직 저장하지 않았습니다. 저장한 뒤 다시 시도해 주세요.'),
-    ).toBeTruthy();
+    const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
     expect(screen.queryByText(/grounding/i)).toBeNull();
     expect(screen.queryByText(/확정 검증/)).toBeNull();
-    expect(screen.queryByTitle('보고서 PDF 미리보기(확정 전)')).toBeNull();
   });
 
   it('확정 검증을 아직 통과하지 못했어도(content가 편집되지 않은 상태) 최종 보고서 확정 버튼은 활성화되어 있다', async () => {
@@ -801,8 +799,9 @@ describe('ReportGeneratePage', () => {
     expect(updateReportCallCount).toBe(0);
   });
 
-  // #1338 — 미저장 변경이 있는 상태에서 미리보기 진입 시 임시저장을 먼저 시도한 뒤 이동한다.
-  it('미저장 변경이 있는 상태에서 PDF 미리보기를 클릭하면 임시저장 후 export 모드로 이동한다', async () => {
+  // 미리보기는 편집 중인 내용을 보기 위한 기능이라, 미저장 변경이 있어도 저장을 강제하지 않고
+  // 바로 export 모드로 이동해 현재 내용을 렌더한다(임시저장은 라우트 이탈 가드가 별도로 담당).
+  it('미저장 변경이 있는 상태에서 PDF 미리보기를 클릭하면 저장 없이 바로 export 모드로 이동한다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
 
@@ -812,11 +811,9 @@ describe('ReportGeneratePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'PDF 미리보기' }));
 
     await waitFor(() => {
-      expect(updateReportCallCount).toBe(1);
-    });
-    await waitFor(() => {
       expect(screen.queryByLabelText('점검 목적')).toBeNull();
     });
+    expect(updateReportCallCount).toBe(0);
   });
 
   it('미저장 변경 상태에서 PDF 내보내기가 아닌 다른 라우트로 이탈하면 임시저장 모달을 띄우고 저장 후 이동한다', async () => {
@@ -877,7 +874,7 @@ describe('ReportGeneratePage', () => {
     fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '미리보기 이탈 전 저장' } });
 
     await router.navigate('/reports/1?mode=export');
-    await screen.findByText('아직 미리 볼 수 없습니다.');
+    await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
 
     await router.navigate('/dashboard');
 
@@ -887,8 +884,38 @@ describe('ReportGeneratePage', () => {
     expect(router.state.location.search).toBe('?mode=export');
   });
 
-  // #1338 — 미저장 변경 + 빈 추가 섹션이 있으면 저장을 시도하지 않고 AlertModal만 띄운 채 이동하지 않는다.
-  it('미저장 변경에 빈 추가 섹션이 있으면 PDF 미리보기가 저장/이동 없이 AlertModal만 띄운다', async () => {
+  // 회귀 테스트 — 미리보기(mode=export)에서 편집 화면으로 "뒤로가기"할 때는 같은 컴포넌트가
+  // 유지돼 content가 그대로 남아있으므로 임시저장 모달이 뜨면 안 된다(이전엔 편도로만
+  // 예외 처리돼 있어 이 방향에서만 잘못 떴었다).
+  it('미저장 상태에서 미리보기 → 편집 화면으로 돌아갈 때는 임시저장 모달을 띄우지 않는다', async () => {
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [{ path: '/reports/:reportId', element: <ReportGeneratePage /> }],
+      { initialEntries: ['/reports/1'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('보고서 생성 결과');
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '뒤로가기 전 미저장 변경' } });
+
+    await router.navigate('/reports/1?mode=export');
+    await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+
+    await router.navigate('/reports/1');
+
+    await screen.findByLabelText('점검 목적');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(router.state.location.search).toBe('');
+  });
+
+  // 빈 추가 섹션이 있어도 미리보기는 저장/확정 검증과 무관하게 봐야 하므로 AlertModal 없이
+  // 바로 현재 내용으로 렌더한다. 빈 섹션 검증은 "저장"과 "최종 확정" 시점에만 걸린다
+  // (handleSave/handleFinalizeAll — 별도 테스트에서 커버).
+  it('미저장 변경에 빈 추가 섹션이 있어도 PDF 미리보기는 AlertModal 없이 바로 export 모드로 이동한다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
 
@@ -898,11 +925,10 @@ describe('ReportGeneratePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'PDF 미리보기' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeTruthy();
+      expect(screen.queryByLabelText('점검 목적')).toBeNull();
     });
-    expect(within(screen.getByRole('dialog')).getByText(/제출문/)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(updateReportCallCount).toBe(0);
-    expect(screen.getByLabelText('점검 목적')).toBeTruthy();
   });
 
   // #1338 — 최종 확정 통합 플로우 중 확정 검증이 groundingCheckPassed=false를 반환하면 AlertModal로
@@ -953,6 +979,54 @@ describe('ReportGeneratePage', () => {
     expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:http://localhost/fake-preview-url');
     createObjectURLSpy.mockRestore();
     revokeObjectURLSpy.mockRestore();
+  });
+
+  // 회귀 테스트(#1379) — detail.items 순서가 실제 defects 목록 순서와 다를 때(AI 재생성 등으로
+  // 흔히 발생) defect_id로 정확히 매칭해야 한다. 예전엔 배열 인덱스로만 짝지어서, 순서가 어긋나면
+  // 엉뚱한 하자의 사진·bbox가 표시됐다.
+  it('detail.items 순서가 defects 순서와 달라도 defect_id로 올바른 사진과 매칭한다', async () => {
+    server.use(
+      http.get('/api/inspections/1/defects', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              id: 5, inspectionId: 1, type: 'CRACK', grade: 'A', status: 'DETECTED', confidence: 0.9,
+              isReviewed: false, bboxX: 0.1, bboxY: 0.1, bboxW: 0.1, bboxH: 0.1,
+              mediaId: 100, imageUrl: '/img/a-grade.jpg', createdAt: '2026-07-22T10:00:00Z',
+            },
+            {
+              id: 9, inspectionId: 1, type: 'CRACK', grade: 'E', status: 'DETECTED', confidence: 0.9,
+              isReviewed: false, bboxX: 0.2, bboxY: 0.2, bboxW: 0.1, bboxH: 0.1,
+              mediaId: 200, imageUrl: '/img/e-grade.jpg', createdAt: '2026-07-22T10:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    reportState = {
+      ...mockReport,
+      content: {
+        ...mockContent,
+        detail: {
+          // defects 응답과 반대 순서(9번이 먼저) — defect_id 없이 인덱스로만 매칭했다면
+          // 첫 항목에 5번(A등급/a-grade.jpg)의 사진이 잘못 뜬다.
+          items: [
+            { defect_id: 9, defect_type: '균열', location: 'E', severity_grade: 'E', description: '', cause: '' },
+            { defect_id: 5, defect_type: '균열', location: 'A', severity_grade: 'A', description: '', cause: '' },
+          ],
+        },
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const images = await screen.findAllByRole('img', { name: /현장 이미지/ });
+    expect(images.map((image) => image.getAttribute('src'))).toEqual([
+      '/img/e-grade.jpg',
+      '/img/a-grade.jpg',
+    ]);
   });
 });
 

@@ -16,7 +16,7 @@ class GroundingReportRequestFactoryTest {
         ReportRequest request = GroundingReportRequestFactory.from(
                 context,
                 new ReportRequest.FacilityInfo("시설", "서울"),
-                List.of(new ReportRequest.ConfirmedDefect("균열", "1층", "B", "설명")),
+                List.of(new ReportRequest.ConfirmedDefect(1L, "균열", "1층", "B", "설명")),
                 "regenerate");
 
         assertThat(request.groundingRequestId()).isEqualTo(context.groundingRequestId());

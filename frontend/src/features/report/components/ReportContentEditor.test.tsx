@@ -2,6 +2,7 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReportContentEditor } from "./ReportContentEditor";
+import { useAuthStore } from "../../auth/store/authStore";
 import type { ReportContent } from "../types";
 import type { Defect, DefectGrade } from "../../inspection/types";
 import type { DefectPhotoGroup } from "./editor/DefectPhoto";
@@ -75,31 +76,19 @@ describe("ReportContentEditor", () => {
     expect(screen.getByText("법적 근거 (검증됨)")).not.toBeNull();
   });
 
-  it("resets legal_basis_verified to false when legal_basis text is edited", () => {
-    const handleChange = vi.fn();
+  // 법적 근거는 RAG로 생성되는 값이라 사용자가 직접 고치면 근거와 어긋날 수 있어 항상 읽기
+  // 전용이다(readOnly prop과 무관 — content 편집 가능 여부와 별개로 이 필드만 고정).
+  it("법적 근거는 readOnly=false인 편집 화면에서도 항상 읽기 전용이다", () => {
     render(
       <ReportContentEditor
         content={mockContent}
-        onChange={handleChange}
+        onChange={() => {}}
         readOnly={false}
       />,
     );
 
-    const textarea = screen.getByDisplayValue("건축물관리법 제10조");
-    fireEvent.change(textarea, { target: { value: "건축물관리법 제12조" } });
-
-    expect(handleChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recommendation: expect.objectContaining({
-          items: [
-            expect.objectContaining({
-              legal_basis: "건축물관리법 제12조",
-              legal_basis_verified: false,
-            }),
-          ],
-        }),
-      }),
-    );
+    const textarea = screen.getByDisplayValue("건축물관리법 제10조") as HTMLTextAreaElement;
+    expect(textarea.readOnly).toBe(true);
   });
 
   it("진단 외관조사결과 기본사항에서는 설명과 원인 분석만 수정 가능하다", () => {
@@ -219,6 +208,81 @@ describe("ReportContentEditor", () => {
       }
       expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(1);
     }
+  });
+
+  // 회귀 테스트 — 같은 사진에 같은 등급 하자가 2건 이상 있으면(#1379), 등급 필터를 걸었을 때
+  // 예전엔 그 등급의 모든 박스를 두 카드 모두에 똑같이 그려서 어느 카드가 어느 박스인지
+  // 구분이 안 됐다. 이제 카드마다 자기 하자(id) 박스 하나만 그려야 한다.
+  it("같은 사진에 같은 등급 하자가 여러 건이면 각 카드는 자신의 bbox 하나만 렌더링한다", () => {
+    const sameGradeContent: ReportContent = {
+      ...mockContent,
+      summary: { ...mockContent.summary, total_count: 2, count_by_grade: { C: 2 } },
+      detail: {
+        items: [
+          { defect_type: "박리", location: "하자 #03", severity_grade: "C", description: "", cause: "" },
+          { defect_type: "박리", location: "하자 #04", severity_grade: "C", description: "", cause: "" },
+        ],
+      },
+    };
+    const defect3 = defect(3, "C");
+    const defect4 = defect(4, "C");
+    const sharedGroup: DefectPhotoGroup = {
+      mediaId: 101,
+      imageUrl: "/media/101/thumb",
+      defects: [defect3, defect4],
+    };
+
+    const { container } = render(
+      <ReportContentEditor
+        content={sameGradeContent}
+        onChange={() => {}}
+        readOnly={false}
+        defectPhotos={[
+          { ...sharedGroup, highlightDefectId: defect3.id },
+          { ...sharedGroup, highlightDefectId: defect4.id },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "C (2)" }));
+
+    // 카드 2개 × 박스 1개씩 = 총 2개(예전 버그면 카드마다 2개씩 그려 총 4개가 됨).
+    expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(2);
+  });
+
+  // 회귀 테스트 — "+ 서식 섹션 추가"로 제출문을 넣으면 매번 발신 업체명을 새로 타이핑해야 했다.
+  // 로그인 세션의 companyName이 있으면 기본값으로 채워야 한다(#1379).
+  it('제출문 섹션 추가 시 로그인 세션의 회사명을 기본값으로 채운다', () => {
+    useAuthStore.getState().setUser({
+      id: 1,
+      email: 'a@b.com',
+      name: '홍길동',
+      role: 'USER',
+      companyId: 1,
+      profileImageUrl: null,
+      createdAt: '2026-01-01T00:00:00Z',
+      companyName: '테스트회사',
+      status: 'ACTIVE',
+    });
+
+    const handleChange = vi.fn();
+    render(<ReportContentEditor content={mockContent} onChange={handleChange} readOnly={false} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
+    fireEvent.click(screen.getByRole('button', { name: '제출문' }));
+
+    expect(handleChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        manualSections: [
+          expect.objectContaining({
+            type: 'submission',
+            data: expect.objectContaining({ companyName: '테스트회사' }),
+          }),
+        ],
+      }),
+    );
+
+    useAuthStore.getState().clearUser();
   });
 
   it("renders narrative fields as non-resizable editable text inputs until finalized", () => {

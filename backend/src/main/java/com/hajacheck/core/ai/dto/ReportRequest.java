@@ -48,6 +48,9 @@ public record ReportRequest(
     }
 
     public record ConfirmedDefect(
+            // 실제 DB Defect.id — LLM이 detail.items에 그대로 echo해 프론트가 인덱스가 아니라 id로
+            // 사진·bbox를 매칭하게 한다(#1379). ai-server ConfirmedDefectInput.id와 대응.
+            @NotNull Long id,
             @NotBlank @Size(max = 50) @JsonProperty("defect_type") String defectType,
             @NotBlank @Size(max = 200) String location,
             @NotBlank @Size(max = 50) @JsonProperty("severity_grade") String severityGrade,

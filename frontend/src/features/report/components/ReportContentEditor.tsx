@@ -1,3 +1,4 @@
+import { useAuthStore } from '../../auth/store/authStore';
 import type {
   GenericManualSectionData,
   ManualSection,
@@ -8,6 +9,7 @@ import type {
 } from '../types';
 import {
   createManualSectionId,
+  insertSectionAtCanonicalPosition,
   isFixedSectionKey,
   MANUAL_SECTION_LABELS,
   moveItem,
@@ -46,8 +48,14 @@ const EMPTY_SUBMISSION: SubmissionSectionData = {
 
 const EMPTY_PARTICIPANTS: ParticipantsSectionData = { entries: [] };
 
-function defaultManualData(type: ManualSectionType): ManualSection['data'] {
-  if (type === 'submission') return { ...EMPTY_SUBMISSION };
+// 제출문의 발신 업체명은 매번 수동 입력하지 않아도 되는 값이라 로그인 세션(companyName)에서
+// 기본값을 채운다(#1379). 계약 체결일은 "오늘"로 자동 채우면 빈 섹션 검증(#1323 P3, 아무 필드도
+// 안 채운 섹션은 저장을 막는 기능)이 항상 무력화되므로 일부러 자동 채우지 않는다 — 수신자·업체
+// 주소·대표자명과 마찬가지로 앱에 안정적인 조회 소스도 없어 수동 입력으로 남긴다.
+function defaultManualData(type: ManualSectionType, companyName?: string | null): ManualSection['data'] {
+  if (type === 'submission') {
+    return { ...EMPTY_SUBMISSION, companyName: companyName ?? '' };
+  }
   if (type === 'participants') return { ...EMPTY_PARTICIPANTS };
   return { body: '' };
 }
@@ -64,6 +72,7 @@ export function ReportContentEditor({
 }: ReportContentEditorProps) {
   const order = resolveSectionOrder(content);
   const manualSections = content.manualSections ?? [];
+  const companyName = useAuthStore((state) => state.user?.companyName);
 
   const reorder = (fromIndex: number, toIndex: number) => {
     onChange({ ...content, sectionOrder: moveItem(order, fromIndex, toIndex) });
@@ -74,12 +83,12 @@ export function ReportContentEditor({
       id: createManualSectionId(type),
       type,
       title: MANUAL_SECTION_LABELS[type],
-      data: defaultManualData(type),
+      data: defaultManualData(type, companyName),
     };
     onChange({
       ...content,
       manualSections: [...manualSections, section],
-      sectionOrder: [...order, section.id],
+      sectionOrder: insertSectionAtCanonicalPosition(order, section.id, type, manualSections),
     });
   };
 

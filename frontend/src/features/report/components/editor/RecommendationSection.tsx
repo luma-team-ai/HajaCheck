@@ -114,16 +114,11 @@ export function RecommendationSection({
                 <LabeledTextArea
                   label={`법적 근거${item.legal_basis_verified ? " (검증됨)" : ""}`}
                   value={item.legal_basis}
-                  readOnly={readOnly}
+                  readOnly
                   rows={2}
                   className="flex flex-col gap-1.5"
                   textareaClassName={`${INLINE_TEXTAREA_CLASS} text-text-default`}
-                  onChange={(value) =>
-                    updateItem(index, {
-                      legal_basis: value,
-                      legal_basis_verified: false,
-                    })
-                  }
+                  onChange={noop}
                 />
               </div>
             </article>

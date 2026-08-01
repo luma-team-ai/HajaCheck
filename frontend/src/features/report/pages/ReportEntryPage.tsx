@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
+import { AlertModal } from '../../../shared/components/Modal';
 import { DistributionBar } from '../../../shared/components/charts/DistributionBar';
 import { CHART_GRADE_COLORS } from '../../../shared/components/charts/palette';
 import { useInspectionResultReal } from '../../inspection/hooks/useInspectionResultReal';
@@ -166,6 +167,12 @@ export function ReportEntryPage() {
 
   // UI 상태
   const [isGenerating, setIsGenerating] = useState(false);
+  // 다른 보고서 화면(ReportGeneratePage)과 동일한 패턴 — 네이티브 alert() 대신 AlertModal로 통일.
+  const [alertModal, setAlertModal] = useState<{ open: boolean; title?: string; message: string }>({
+    open: false,
+    message: '',
+  });
+  const closeAlertModal = useCallback(() => setAlertModal((prev) => ({ ...prev, open: false })), []);
   const [reports, setReports] = useState<ReportSummaryResponse[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
 
@@ -258,7 +265,11 @@ export function ReportEntryPage() {
       setActiveReportId(response.data.id);
       navigate(`/reports/${response.data.id}`);
     } catch (error) {
-      alert(extractErrorMessage(error, '보고서 생성에 실패했습니다.'));
+      setAlertModal({
+        open: true,
+        title: '보고서 생성 실패',
+        message: extractErrorMessage(error, '보고서 생성에 실패했습니다.'),
+      });
       setIsGenerating(false);
     }
   }, [inspectionId, data, isGenerating, hasSelectedSections, selectedSectionKeys, includePhoto, navigate]);
@@ -417,9 +428,14 @@ export function ReportEntryPage() {
               data-testid={`defect-type-card-${stat.type}`}
               className="flex h-[112px] flex-col justify-between rounded-[20px] border border-border bg-white p-[17px]"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-2">
                 <div className="text-sm font-medium text-text-default">{stat.label}</div>
-                {stat.maxGrade && <GradeBadge grade={stat.maxGrade} size="sm" />}
+                {stat.maxGrade && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="text-[10px] font-medium whitespace-nowrap text-text-muted">최고 등급</span>
+                    <GradeBadge grade={stat.maxGrade} size="sm" />
+                  </div>
+                )}
               </div>
               <div className="text-3xl font-semibold text-black">{stat.count}</div>
             </div>
@@ -450,10 +466,14 @@ export function ReportEntryPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               {[
-                { key: 'overview', label: '점검 개요' },
-                { key: 'summary', label: '하자 현황 요약' },
-                { key: 'details', label: '유형별 상세' },
-                { key: 'recommendation', label: '조치 권고' },
+                // 라벨은 실제 생성된 보고서 편집기의 섹션명과 동일하게 맞춘다(sectionOrder.ts의
+                // FIXED_SECTION_LABELS, SummarySection.tsx의 "종합 의견" 필드 라벨) — key 값은
+                // 백엔드 계약(GroundingReportContentSerializer.ALL_SECTIONS)과 그대로 맞춰야 하므로
+                // 변경하지 않는다.
+                { key: 'overview', label: '기본현황' },
+                { key: 'summary', label: '결과 요약' },
+                { key: 'details', label: '진단 외관조사결과 기본사항' },
+                { key: 'recommendation', label: '보수ㆍ보강(안)' },
                 { key: 'opinion', label: '종합 의견' },
               ].map((sec) => {
                 const sectionKey = sec.key as keyof typeof sections;
@@ -566,10 +586,17 @@ export function ReportEntryPage() {
             <Button
               variant="secondary"
               size="md"
-              disabled={reports.length === 0}
-              onClick={() => reports.length > 0 && navigate(`/reports/${reports[0].id}?mode=export`)}
+              onClick={() =>
+                reports.length > 0
+                  ? navigate(`/reports/${reports[0].id}?mode=export`)
+                  : setAlertModal({
+                      open: true,
+                      title: '아직 생성된 보고서가 없습니다',
+                      message: "이 점검에 대해 생성된 보고서가 없습니다. 먼저 '보고서 생성 시작'으로 보고서를 만들어주세요.",
+                    })
+              }
             >
-              미리보기
+              최근 보고서 보기
             </Button>
             <Button
               variant="primary"
@@ -585,6 +612,13 @@ export function ReportEntryPage() {
           </div>
         </div>
       </div>
+
+      <AlertModal
+        open={alertModal.open}
+        title={alertModal.title}
+        message={alertModal.message}
+        onClose={closeAlertModal}
+      />
     </div>
   );
 }
