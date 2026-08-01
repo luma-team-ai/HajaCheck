@@ -3,6 +3,7 @@ import {
   FACILITY_CARD_GRADE_DOT_COLOR,
   FACILITY_CARD_UPCOMING_BADGE_BG,
 } from '../facilityCardGradeDotColors';
+import { ImageWithFallback } from '../../../shared/components/ImageWithFallback';
 import type { Facility } from '../types';
 import { deriveInspectionCycleStatus } from '../utils/inspectionCycleStatus';
 import { formatLastInspectedAt } from '../utils/formatLastInspectedAt';
@@ -53,17 +54,16 @@ export function FacilityCard({ facility, onSelect }: Props) {
       className="flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-surface text-left shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)] transition-colors hover:bg-surface-sunken"
     >
       <div className="relative h-48 w-full shrink-0 bg-neutral-100">
-        {facility.thumbnailUrl ? (
-          <img
-            src={facility.thumbnailUrl}
-            alt={facility.name}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-xs text-text-muted">
-            사진 없음
-          </div>
-        )}
+        <ImageWithFallback
+          src={facility.thumbnailUrl}
+          alt={facility.name}
+          className="h-full w-full object-cover"
+          fallback={(
+            <div className="flex h-full w-full items-center justify-center text-xs text-text-muted">
+              사진 없음
+            </div>
+          )}
+        />
 
         {facility.initialGrade && (
           <span

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // FacilityListPanel 회귀 테스트 — Figma 대조 후속(선택 카드 강조, 등급 배지 형식,
 // 결함/주의 심각도 아이콘 임계값) 검증(code-reviewer P2, 2026-07-17).
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FacilityLocation } from '../types';
 import { FacilityListPanel, getCountSeverityColor } from './FacilityListPanel';
@@ -82,5 +82,27 @@ describe('FacilityListPanel', () => {
 
     expect(selectedButton?.className).toContain('bg-primary/5');
     expect(unselectedButton?.className).not.toContain('bg-primary/5');
+  });
+
+  it('썸네일 로드가 실패하면 alt 텍스트 대신 "사진 없음"을 표시한다', () => {
+    render(
+      <FacilityListPanel
+        facilities={[buildFacility({ thumbnailUrl: '/api/media/missing/thumbnail' })]}
+        isLoading={false}
+        isError={false}
+        searchQuery=""
+        onSearchQueryChange={noop}
+        selectedCategory="전체"
+        onSelectCategory={noop}
+        selectedFacilityId={null}
+        onSelectFacility={noop}
+      />,
+    );
+
+    const image = screen.getByRole('img', { name: '한강대교 북단' });
+    fireEvent.error(image);
+
+    expect(screen.getByText('사진 없음')).toBeTruthy();
+    expect(screen.queryByRole('img', { name: '한강대교 북단' })).toBeNull();
   });
 });

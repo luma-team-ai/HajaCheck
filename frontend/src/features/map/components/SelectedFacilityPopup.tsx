@@ -1,3 +1,4 @@
+import { ImageWithFallback } from '../../../shared/components/ImageWithFallback';
 import { getGradeColor } from '../constants';
 import type { DefectGrade, FacilityLocation } from '../types';
 
@@ -37,15 +38,12 @@ export function SelectedFacilityPopup({
     <div className="w-[290px] rounded-[24px] border border-[#d4d4d8] bg-white/70 p-4 shadow-[0px_8px_24px_rgba(0,0,0,0.08)] backdrop-blur-[10px] backdrop-brightness-[100%] [-webkit-backdrop-filter:blur(10px)_brightness(100%)] z-10">
       <div className="flex items-start gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-100">
-          {facility.thumbnailUrl ? (
-            <img
-              src={facility.thumbnailUrl}
-              alt={facility.name}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <span className="text-[10px] text-zinc-400">사진 없음</span>
-          )}
+          <ImageWithFallback
+            src={facility.thumbnailUrl}
+            alt={facility.name}
+            className="h-full w-full object-cover"
+            fallback={<span className="text-[10px] text-zinc-400">사진 없음</span>}
+          />
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
