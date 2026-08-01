@@ -51,7 +51,7 @@ public record ReportResponse(
 
     public record DetailItem(
             // ai-server가 confirmed_defects의 id를 그대로 echo — 프론트가 인덱스가 아니라 이 값으로
-            // 실제 Defect(사진·bbox)와 1:1 매칭한다(#1379). NON_NULL — 이 필드가 없던 구버전 저장분과
+            // 실제 Defect(사진·bbox)와 1:1 매칭한다(#1375). NON_NULL — 이 필드가 없던 구버전 저장분과
             // canonical hash 직렬화(GroundingCheckResultFactory) 호환을 위해 null이면 키 자체를 생략한다.
             @JsonInclude(JsonInclude.Include.NON_NULL)
             @JsonProperty("defect_id") Long defectId,

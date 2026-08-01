@@ -211,7 +211,7 @@ export function ReportGeneratePage() {
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
   // 하자 상세 항목(content.detail.items[i])과 사진(defectPhotos[i])을 defect_id로 1:1 매칭한다.
   // 예전엔 "AI가 defects와 같은 순서로 생성한다"는 가정만으로 배열 인덱스로 짝지었는데, AI가
-  // 재생성 등으로 순서를 바꾸면 그 가정이 깨져 엉뚱한 하자의 사진·bbox가 표시됐다(#1379) — 점검
+  // 재생성 등으로 순서를 바꾸면 그 가정이 깨져 엉뚱한 하자의 사진·bbox가 표시됐다(#1375) — 점검
   // 회차 생성 플로우(DefectOverlay 등)처럼 id를 데이터에 직접 묶어 재조립하지 않는 패턴을 따른다.
   // defect_id가 없는 구버전 저장분은 기존 인덱스 매칭으로 폴백한다.
   // 항목마다 "그 하자"가 주인공이지만, 같은 사진에 찍힌 다른 하자도 흐리게 함께 보여준다(#1333).

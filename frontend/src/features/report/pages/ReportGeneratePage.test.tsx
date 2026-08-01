@@ -981,7 +981,7 @@ describe('ReportGeneratePage', () => {
     revokeObjectURLSpy.mockRestore();
   });
 
-  // 회귀 테스트(#1379) — detail.items 순서가 실제 defects 목록 순서와 다를 때(AI 재생성 등으로
+  // 회귀 테스트(#1375) — detail.items 순서가 실제 defects 목록 순서와 다를 때(AI 재생성 등으로
   // 흔히 발생) defect_id로 정확히 매칭해야 한다. 예전엔 배열 인덱스로만 짝지어서, 순서가 어긋나면
   // 엉뚱한 하자의 사진·bbox가 표시됐다.
   it('detail.items 순서가 defects 순서와 달라도 defect_id로 올바른 사진과 매칭한다', async () => {

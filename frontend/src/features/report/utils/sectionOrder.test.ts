@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ManualSection } from '../types';
 import { insertSectionAtCanonicalPosition } from './sectionOrder';
 
-// 회귀 테스트(#1379) — "+ 서식 섹션 추가"가 항상 맨 끝에 붙던 걸 표준 서식 순서(제출문→
+// 회귀 테스트(#1375) — "+ 서식 섹션 추가"가 항상 맨 끝에 붙던 걸 표준 서식 순서(제출문→
 // 기본현황→...→위치도·사진)에 맞는 위치로 자동 삽입하도록 바꿨다. 표지(제출문)를 나중에
 // 추가해도 맨 위로 가야 사용자가 드래그로 끌어올릴 필요가 없다.
 describe('insertSectionAtCanonicalPosition', () => {
