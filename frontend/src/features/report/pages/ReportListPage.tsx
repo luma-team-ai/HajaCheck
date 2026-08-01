@@ -106,7 +106,7 @@ export function ReportListPage() {
       const response = await reportApi.cloneReport(row.id);
       await refreshReportQueries(response.data.inspectionId);
       navigate(`/reports/${response.data.id}`);
-    } catch (error) {
+    } catch {
       setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('clone') }));
     } finally {
       setPendingAction(null);
@@ -145,7 +145,7 @@ export function ReportListPage() {
       const uploadResponse = await reportApi.uploadPdf(row.id, pdfBlob, fileName);
       await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);
       await refreshReportQueries(report.inspectionId);
-    } catch (error) {
+    } catch {
       setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('submit') }));
     } finally {
       setPendingAction(null);
@@ -175,7 +175,7 @@ export function ReportListPage() {
         setActiveReport(null);
       }
       await refreshReportQueries(row.inspectionId);
-    } catch (error) {
+    } catch {
       setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('delete') }));
     } finally {
       setPendingAction(null);
