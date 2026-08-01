@@ -390,19 +390,26 @@ public class ReportService {
      * <p>{@code REPORTED}로 가는 유일한 허용 경로가 {@code REVIEWED → REPORTED}뿐이라(
      * {@link InspectionStatus#canTransitionTo}), 아직 {@code ANALYZED}에 머물러 있는 회차는 먼저
      * {@code REVIEWED}를 거쳐야 한다 — 검수 화면이 하자 단위로만 검수 여부를 관리하고 회차 단위
-     * "검수 확정" 액션이 따로 없어서, 그 중간 전이를 여기서 함께 처리한다. 이미 {@code REPORTED}인
-     * 회차(같은 회차의 보고서를 재확정하는 경우)는 그대로 둔다 — {@code REPORTED}는 상태 머신상
-     * 종단(더 이상 어디로도 전이 불가)이라 재전이를 시도하면 예외가 난다.
+     * "검수 확정" 액션이 따로 없어서, 그 중간 전이를 여기서 함께 처리한다.
+     *
+     * <p>⚠️ PR머신 리뷰 P1 — {@code generateDraft()}가 회차 상태를 전혀 검증하지 않아(확정 하자가
+     * 0건이어도 초안 생성 허용) {@code CREATED}/{@code UPLOADING}/{@code ANALYZING} 상태에서도
+     * finalize 호출이 실제로 도달 가능하다. 이 세 상태는 {@code REPORTED}로 가는 허용 전이 소스가
+     * 아니므로(위 canTransitionTo 참고) 무조건 전이를 시도하면 {@code DomainStateTransitionException}
+     * 이 나서 finalize 트랜잭션 전체가 롤백된다 — 이전엔 항상 성공하던 "보고서 확정" 자체가
+     * 깨지는 회귀였다. {@code ANALYZED}·{@code REVIEWED}(및 이미 {@code REPORTED})가 아니면
+     * 아무 전이도 시도하지 않고 그대로 둔다 — 보고서 확정 자체는 이 회차 상태와 무관하게 항상
+     * 성공해야 하고, 회차 완료 표시는 그 위에 얹는 부가 효과일 뿐이다.
      */
     private void markInspectionReported(InspectionResponse inspection, Long companyId, Long editedByUserId) {
         InspectionStatus status = inspection.status();
-        if (status == InspectionStatus.REPORTED) {
-            return;
-        }
         if (status == InspectionStatus.ANALYZED) {
             inspectionService.advanceStatus(editedByUserId, companyId, inspection.id(), InspectionStatus.REVIEWED);
+            status = InspectionStatus.REVIEWED;
         }
-        inspectionService.advanceStatus(editedByUserId, companyId, inspection.id(), InspectionStatus.REPORTED);
+        if (status == InspectionStatus.REVIEWED) {
+            inspectionService.advanceStatus(editedByUserId, companyId, inspection.id(), InspectionStatus.REPORTED);
+        }
     }
 
     @Transactional

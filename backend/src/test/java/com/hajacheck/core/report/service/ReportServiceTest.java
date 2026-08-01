@@ -850,6 +850,36 @@ class ReportServiceTest {
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
     }
+
+    @Test
+    void finalizeReport_회차가CREATED_UPLOADING_ANALYZING이면_상태전이없이확정만성공한다() {
+        // PR머신 리뷰 P1 — generateDraft()가 회차 상태를 전혀 검증하지 않아(확정 하자 0건이어도
+        // 초안 생성 허용) 이 세 상태에서도 finalize 호출이 실제로 도달 가능하다. REPORTED로 가는
+        // 허용 전이 소스가 아닌 상태에서 무조건 전이를 시도하면 DomainStateTransitionException으로
+        // finalize 트랜잭션 전체가 롤백된다 — 보고서 확정 자체는 이 상태들에서도 항상 성공해야 한다.
+        InspectionStatus[] statuses = {
+            InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING,
+        };
+        for (int i = 0; i < statuses.length; i++) {
+            long reportId = 50L + i;
+            Report report = Report.draft(1L, 1, "{}", 100L);
+            report.recordGroundingResult(
+                    com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                            com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                    report.captureGroundingRequestContext(), report.getContentJson()),
+                            null),
+                    100L);
+            when(reportRepository.findById(reportId)).thenReturn(Optional.of(report));
+            when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L, statuses[i]));
+
+            ReportDetailResponse response = reportService.finalizeReport(
+                    reportId, "/api/reports/" + reportId + "/pdf/r.pdf", 100L, 200L);
+
+            assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
+        }
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+    }
+
     @Test
     void getReport_무소속사용자_FORBIDDEN을404로변환하지않는다() {
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))
