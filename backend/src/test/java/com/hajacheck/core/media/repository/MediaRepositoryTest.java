@@ -408,4 +408,27 @@ class MediaRepositoryTest extends PostgresTestSupport {
                 .extracting(FacilityRepresentativeMediaProjection::getFacilityId)
                 .containsExactly(myFacility);
     }
+
+    @Test
+    void findFirstIdsByInspectionIds_점검별첫사진폴백용으로시설물ID와미디어ID를반환() {
+        Long inspectionId = seedInspection();
+        Long facilityId = em.find(Inspection.class, inspectionId).getFacilityId();
+        Media first = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/1.png").mimeSignatureVerified(true).build());
+        Media second = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/2.png").mimeSignatureVerified(true).build());
+        em.flush();
+
+        List<FacilityRepresentativeMediaProjection> result =
+                mediaRepository.findFirstIdsByInspectionIds(List.of(inspectionId));
+
+        assertThat(result)
+                .extracting(FacilityRepresentativeMediaProjection::getFacilityId)
+                .containsExactly(facilityId, facilityId);
+        assertThat(result)
+                .extracting(FacilityRepresentativeMediaProjection::getMediaId)
+                .containsExactly(first.getId(), second.getId());
+    }
 }

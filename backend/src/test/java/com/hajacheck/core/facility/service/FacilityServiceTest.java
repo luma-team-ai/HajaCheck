@@ -361,6 +361,46 @@ class FacilityServiceTest {
         assertThat(result.get(0).thumbnailUrl()).isNull();
     }
 
+    @Test
+    void list_대표사진없는시설_최신점검첫사진으로썸네일폴백() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        Inspection latestInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 7, 20)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(latestInspection, 100L);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(latestInspection));
+        when(mediaRepository.findFirstIdsByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of());
+        when(mediaRepository.findFirstIdsByInspectionIds(List.of(100L)))
+                .thenReturn(List.of(mediaProjection(10L, 901L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).thumbnailUrl()).isEqualTo("/api/media/901/thumbnail");
+    }
+
+    @Test
+    void list_대표사진있는시설_최신점검사진보다대표사진우선() {
+        Facility facility = facilityWithId(10L, "강남 오피스타워", null, null, null);
+        Inspection latestInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 7, 20)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(latestInspection, 100L);
+        when(facilityRepository.findByCompanyIdOrderByIdAsc(eq(OWNER_ID), any(PageRequest.class)))
+                .thenReturn(List.of(facility));
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(latestInspection));
+        when(mediaRepository.findFirstIdsByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of(mediaProjection(10L, 900L)));
+        when(mediaRepository.findFirstIdsByInspectionIds(List.of(100L)))
+                .thenReturn(List.of(mediaProjection(10L, 901L)));
+
+        List<FacilityResponse> result = facilityService.list(USER_ID, OWNER_ID);
+
+        assertThat(result.get(0).thumbnailUrl()).isEqualTo("/api/media/900/thumbnail");
+    }
+
     // code-reviewer P2 선례(latestDefectId 교차오염 테스트)와 동일 이유 — 시설물 1건짜리 테스트만으로는
     // facilityId별 그룹핑(첫 값=최초 등록 사진 유지)이 실제로 동작하는지 못 잡는다.
     @Test
@@ -412,6 +452,31 @@ class FacilityServiceTest {
         FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
 
         assertThat(response.thumbnailUrl()).isNull();
+    }
+
+    @Test
+    void get_대표사진없는시설_최신점검첫사진으로썸네일폴백() {
+        Facility facility = existingFacility();
+        Inspection latestInspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(2)
+                .inspectionDate(LocalDate.of(2026, 7, 20)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(latestInspection, 100L);
+        Media photo = Media.builder()
+                .inspectionId(100L)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/1-original.png")
+                .thumbnailUrl("inspection-media-thumb/1-thumb.jpg")
+                .mimeSignatureVerified(true)
+                .build();
+        setMediaId(photo, 901L);
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        when(mediaRepository.findByFacilityIdOrderByIdAsc(10L)).thenReturn(List.of());
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(latestInspection));
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(100L)).thenReturn(Optional.of(photo));
+
+        FacilityResponse response = facilityService.get(USER_ID, OWNER_ID, 10L);
+
+        assertThat(response.thumbnailUrl()).isEqualTo("/api/media/901/thumbnail");
     }
 
     // ── 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) ──
