@@ -89,7 +89,7 @@ const DIFF_SEGMENT_LABELS: Record<string, string> = {
 const IGNORED_DIFF_KEYS = new Set(['reportOptions']);
 
 function manualSectionComparableValue(section: ManualSection): Record<string, unknown> {
-  return section.data as Record<string, unknown>;
+  return section.data as unknown as Record<string, unknown>;
 }
 
 function normalizeContentForCompare(content: ReportContent): Record<string, unknown> {

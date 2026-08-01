@@ -123,7 +123,7 @@ describe("buildReportPdfContext — 하자 박스", () => {
         .defectImages ?? [];
 
     expect(images).toHaveLength(4);
-    expect(images.every((image) => image.boxes.length === 0)).toBe(true);
+    expect(images.every((image) => (image.boxes ?? []).length === 0)).toBe(true);
   });
 
   it("mediaId가 없는 하자는 서로 묶지 않는다", () => {
