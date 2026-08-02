@@ -10,6 +10,7 @@ rebar_exposure 모델의 내부 클래스가 good/fair/poor라 라벨 텍스트�
 import pytest
 
 from ai.core.grading import (
+    compute_crack_grade,
     compute_grade,
     compute_severity_score,
     severity_score_to_grade,
@@ -121,3 +122,21 @@ def test_compute_grade_end_to_end_matches_score_and_grade_composition_for_crack(
 
 def test_compute_grade_rebar_exposure_never_better_than_c_even_with_tiny_area():
     assert compute_grade("REBAR_EXPOSURE", 0.0001) == "C"
+
+
+def test_compute_crack_grade_requires_both_area_and_darkness_for_severe():
+    """v3 min 합의(2026-07-28) — 심각(D·E) 판정엔 면적·어두움 둘 다 필요하다(모듈 docstring 참고)."""
+    assert compute_crack_grade(0.01, 0.003) == "E"  # 둘 다 최상위 밴드
+    assert compute_crack_grade(0.01, 0.0002) == "B"  # 실금: 면적 E여도 어두움 B로 캡
+    assert compute_crack_grade(0.0005, 0.003) == "A"  # 어두운 소형 오탐: 면적 A로 캡
+    assert compute_crack_grade(0.005, 0.0005) == "C"  # 중간×중간은 낮은 쪽(C) 채택
+
+
+def test_compute_crack_grade_dark_band_boundaries():
+    # dark 구간표 경계(상한 미만) — area는 최상위로 고정해 dark 축만 검증.
+    area_severe = 0.01
+    assert compute_crack_grade(area_severe, 0.0001) == "A"
+    assert compute_crack_grade(area_severe, 0.000114) == "B"
+    assert compute_crack_grade(area_severe, 0.000329) == "C"
+    assert compute_crack_grade(area_severe, 0.000952) == "D"
+    assert compute_crack_grade(area_severe, 0.002755) == "E"

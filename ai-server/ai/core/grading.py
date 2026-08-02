@@ -26,6 +26,23 @@ v1과 동일한 로그 등간격 공식(`t1 = m2²/(α·m3)`, `r = (m2/t1)^(2/3)
 재측정이 필요하다.** 이번 사고 자체가 "v1 값 옆에 측정 조건이 안 적혀 있어서, 모델·집계 기준이
 바뀐 뒤에도 v1이 계속 쓰였던 것"이 원인이었다 — 같은 실수를 반복하지 않기 위해 조건을 명시해 둔다.
 
+### v3 — 면적 × 어두움총량 min 합의(2026-07-28, 오영석 실측 · 현재 규칙)
+
+area_ratio 단독으로는 "가늘지만 긴" 실금이 D·E로 과대판정된다 — area = 길이×폭인데 U-Net
+마스크 폭은 실제 굵기와 무관하게 3~4px의 선 두께가 하한이라(640 입력에서 법적 기준 0.3mm ≈
+0.2px, 해상도 하한) 사실상 길이만 재는 값이기 때문. 실사용 근접촬영 실금 사진 10장에서 이
+문제가 재현돼(2026-07-27 보고: 실금 4장이 D), BLACKHAT 어두움총량(dark_ratio — 서브픽셀
+영역에서 진짜 폭에 비례하는 광학 신호, 합성 검증 r=0.9987)을 두 번째 지표로 추가하고 **두 지표
+등급 중 낮은 쪽을 채택**한다(min 합의 — 심각 판정엔 "넓게 퍼졌다"와 "짙다" 둘 다 필요).
+실금은 면적(길이)만 높고 어두움이 낮아 걸러지고, 어두운 소형 오탐은 면적이 낮아 걸러진다.
+
+- AI Hub 470장 촬영건 단위 CV(시드5×2-fold): 심각알람 F1 81.3% → **84.2%**(정밀도 83.4%/재현율 85.3%)
+- 실사진 8장(탐지분): 실금 D 4장 중 2장 → C, 등급이 올라간 사진 0장(dark 단독 대체와 달리
+  단조 하향만) / AI Hub 심각 균열 6장 전부 E 유지
+- dark_ratio 산출은 `defect_detection_chain._crack_dark_ratio` — 캘리브레이션(cv_darksum.py)과
+  동일 조건(BLACKHAT ellipse 15×15, 마스크 3×3 팽창 밴드, 255×콘텐츠픽셀 정규화)이어야 하며,
+  이 조건이 바뀌면 dark 구간표도 재측정해야 한다.
+
 ### v1 — YOLO + 최대 인스턴스 기준(2026-07-26, #953 · 폐기)
 
 (구) `crack_yolov8s_seg.pt` + "이미지당 가장 큰 인스턴스 1개" 기준으로 측정됐던 값
@@ -69,24 +86,49 @@ _CRACK_AREA_RATIO_SEVERITY_BANDS: list[tuple[float, float]] = [
     (0.00969, 0.7),
 ]
 
+# 균열(CRACK) 전용 — 어두움총량(dark_ratio) 구간표. v3(모듈 docstring 참고), AI Hub 아파트 균열
+# 470장에서 area와 동일한 로그 등간격 공식으로 도출. dark_ratio 산출 조건이 바뀌면 재측정 필요.
+_CRACK_DARK_RATIO_SEVERITY_BANDS: list[tuple[float, float]] = [
+    (0.000114, 0.1),
+    (0.000329, 0.3),
+    (0.000952, 0.5),
+    (0.002755, 0.7),
+]
+
 _AREA_RATIO_SEVERITY_BANDS_BY_TYPE: dict[str, list[tuple[float, float]]] = {
     "CRACK": _CRACK_AREA_RATIO_SEVERITY_BANDS,
 }
 _AREA_RATIO_SEVERITY_MAX = 0.9
 
 
+def _band_severity(value: float, bands: list[tuple[float, float]]) -> float:
+    for threshold, severity in bands:
+        if value < threshold:
+            return severity
+    return _AREA_RATIO_SEVERITY_MAX
+
+
 def compute_severity_score(defect_type: str, area_ratio: float) -> float:
     """심각도 원점수 s ∈ [0, 1](높을수록 심각) — 규칙 문서 §3. 구간표는 하자 유형별로 다르다
     (모듈 docstring "균열 구간표 캘리브레이션 이력" 참고)."""
     bands = _AREA_RATIO_SEVERITY_BANDS_BY_TYPE.get(defect_type, _DEFAULT_AREA_RATIO_SEVERITY_BANDS)
-    s = _AREA_RATIO_SEVERITY_MAX
-    for threshold, severity in bands:
-        if area_ratio < threshold:
-            s = severity
-            break
+    s = _band_severity(area_ratio, bands)
     if defect_type == "REBAR_EXPOSURE":
         s = max(s, REBAR_EXPOSURE_SEVERITY_FLOOR)
     return s
+
+
+def compute_crack_severity_score(area_ratio: float, dark_ratio: float) -> float:
+    """균열 전용 2지표 min 합의(v3) — 면적·어두움 각각의 심각도 중 낮은 쪽. 근거·성능은 모듈
+    docstring v3 항목 참고."""
+    return min(
+        _band_severity(area_ratio, _CRACK_AREA_RATIO_SEVERITY_BANDS),
+        _band_severity(dark_ratio, _CRACK_DARK_RATIO_SEVERITY_BANDS),
+    )
+
+
+def compute_crack_grade(area_ratio: float, dark_ratio: float) -> str:
+    return severity_score_to_grade(compute_crack_severity_score(area_ratio, dark_ratio))
 
 
 def severity_score_to_grade(s: float) -> str:
