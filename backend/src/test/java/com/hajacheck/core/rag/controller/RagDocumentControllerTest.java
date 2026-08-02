@@ -124,7 +124,11 @@ class RagDocumentControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 업로드_플랫폼관리자_AI서버성공_201_DONE상태() throws Exception {
+    void 업로드_플랫폼관리자_AI서버성공_201_EMBEDDING상태() throws Exception {
+        // #1328 — FastAPI가 청킹만 동기로 마치고 실제 임베딩은 BackgroundTasks로 넘기므로, 업로드
+        // 응답 시점에는 아직 완료를 확정하지 않는다(RagEmbeddingCompletionPoller가 비동기로 폴링해
+        // 나중에 DONE으로 전환 — 그 완료 확정 로직 자체는 RagEmbeddingCompletionPollerTest가
+        // 검증한다). 컨트롤러 계약상 응답은 이제 EMBEDDING이 정상이다.
         when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3)));
 
         mockMvc.perform(multipart("/api/admin/rag-documents")
@@ -137,8 +141,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.title").value("시설물의 안전관리에 관한 특별법"))
-                .andExpect(jsonPath("$.data.embeddingStatus").value("DONE"))
-                .andExpect(jsonPath("$.data.chunkCount").value(3));
+                .andExpect(jsonPath("$.data.embeddingStatus").value("EMBEDDING"));
     }
 
     @Test
@@ -204,9 +207,13 @@ class RagDocumentControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 재임베딩_플랫폼관리자_200_DONE상태로재전환() throws Exception {
+    void 재임베딩_플랫폼관리자_200_EMBEDDING상태로재전환() throws Exception {
+        // #1328 — 재임베딩 시작 직후 응답도 업로드와 동일하게 완료를 확정하지 않는다. restartEmbedding()은
+        // PENDING/DONE/FAILED에서만 허용되므로(RagDocument 참고), 업로드 직후 아직 EMBEDDING인 문서를
+        // 바로 재임베딩 대상으로 쓰면 409가 난다 — AI 서버 실패 응답으로 먼저 FAILED를 동기로 만든 뒤
+        // 그 문서를 재임베딩한다.
         when(aiProxyService.embedRagDocument(any()))
-                .thenReturn(ApiResponse.ok(new RagEmbedResponse(4)))
+                .thenReturn(ApiResponse.fail("VALIDATION_ERROR", "청크 분할 실패"))
                 .thenReturn(ApiResponse.ok(new RagEmbedResponse(9)));
 
         String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
@@ -216,6 +223,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
                         .param("targetCollection", "REGULATIONS")
                         .with(csrf()).with(authentication(authOf(platformAdminUser))))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.embeddingStatus").value("FAILED"))
                 .andReturn().getResponse().getContentAsString();
 
         Long id = extractId(uploadResponse);
@@ -223,8 +231,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
         mockMvc.perform(post("/api/admin/rag-documents/{id}/re-embed", id)
                         .with(csrf()).with(authentication(authOf(platformAdminUser))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.embeddingStatus").value("DONE"))
-                .andExpect(jsonPath("$.data.chunkCount").value(9));
+                .andExpect(jsonPath("$.data.embeddingStatus").value("EMBEDDING"));
     }
 
     @Test
