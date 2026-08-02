@@ -6,6 +6,7 @@ import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicato
 import { Button } from '../../../shared/components/Button';
 import { Modal } from '../../../shared/components/Modal/Modal';
 import { DefectOverlay } from '../components/DefectOverlay';
+import { DeletedDefectsPanel } from '../components/DeletedDefectsPanel';
 import { InspectionDefectExplainPanel } from '../components/InspectionDefectExplainPanel';
 import { useInspectionResult } from '../hooks/useInspectionResult';
 import { inspectionApi } from '../api/inspectionApi';
@@ -18,6 +19,9 @@ const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
 // 누락 추가 캔버스 — 드래그 없이 클릭만 해도 제출되던 0크기 박스 방지 임계값(정규화 좌표 기준, #841)
 const MIN_BBOX_SIZE = 0.01;
+
+// 되살리기 사유 기본값(#1399) — 서버가 1~500자를 필수로 요구한다. 수정 가능하다.
+const RESTORE_REASON_DEFAULT = '오탐 판정 취소';
 
 // Figma 시안의 등급 라벨은 이 페이지 전용 워딩이다 — feature 간 직접 import 금지(types.ts 참고).
 // StatisticsGradeDistributionCard와 동일 라벨 사용.
@@ -93,6 +97,10 @@ export function ResultViewerPage() {
   // 오탐 삭제 사유 입력 — 브라우저 prompt()가 아니라 등급 수정·누락 추가와 같은 모달로 받는다(#1255).
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteReason, setDeleteReason] = useState('');
+  // 오탐 되살리기(#1399) — 서버가 사유를 필수로 받으므로(감사 이력) 삭제와 같은 모달로 확인받는다.
+  // 기본 문구를 채워 두어 "실수를 되돌리는" 흔한 경우엔 한 번만 누르면 되게 한다.
+  const [restoreTargetId, setRestoreTargetId] = useState<number | undefined>();
+  const [restoreReason, setRestoreReason] = useState(RESTORE_REASON_DEFAULT);
   const [isAddMissingOpen, setIsAddMissingOpen] = useState(false);
   // 누락 추가 그리기 모드 — 메인 뷰어 이미지 위에서 직접 드래그로 박스를 지정한다(#874, 2안).
   const [isDrawingMissing, setIsDrawingMissing] = useState(false);
@@ -157,6 +165,13 @@ export function ResultViewerPage() {
   // 현재 media 그룹의 defects — 핸들러들이 "현재 보고 있는 이미지" 범위로 하자를 찾을 때 쓴다
   // (handleGenerateReport 등보다 먼저 선언 — 뒤 핸들러들이 전방참조 없이 곧장 쓸 수 있게).
   const currentDefects = currentMediaGroup?.defects ?? [];
+
+  // 삭제된 하자도 "지금 보고 있는 이미지" 것만 보여준다 — 다른 사진에서 지운 것까지 섞이면
+  // 무엇을 되살리는지 판단할 근거(이미지)가 화면에 없다(#1399).
+  const currentDeletedDefects = useMemo(
+    () => (data?.deletedDefects ?? []).filter((item) => item.defect.mediaId === currentMediaGroup?.mediaId),
+    [data?.deletedDefects, currentMediaGroup?.mediaId],
+  );
 
   // 현재 media 인디케이터 (예: "이미지 1/2")
   const currentMediaIndex = mediaGroups.findIndex((g) => g.mediaId === currentMediaGroup?.mediaId);
@@ -234,6 +249,41 @@ export function ResultViewerPage() {
       setIsUpdating(false);
     }
   }, [data, deleteReason, currentDefects, selectedDefectId, isUpdating, refetch]);
+
+  const handleOpenRestore = useCallback((defectId: number) => {
+    setRestoreTargetId(defectId);
+    setRestoreReason(RESTORE_REASON_DEFAULT);
+    setErrorMessage('');
+  }, []);
+
+  const handleCancelRestore = useCallback(() => {
+    if (isUpdating) return;
+    setRestoreTargetId(undefined);
+    setErrorMessage('');
+  }, [isUpdating]);
+
+  const handleConfirmRestore = useCallback(async () => {
+    const reason = restoreReason.trim();
+    if (restoreTargetId == null || isUpdating) return;
+    if (reason.length === 0 || reason.length > 500) {
+      setErrorMessage('사유는 1-500자 범위여야 합니다.');
+      return;
+    }
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.reviewDefect(restoreTargetId, { isDeleted: false, reason });
+      await refetch();
+      // 되살린 하자를 바로 선택해 준다 — 되돌린 뒤 이어서 검수하는 흐름이 자연스럽다.
+      setSelectedDefectId(restoreTargetId);
+      setRestoreTargetId(undefined);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '되살리기에 실패했습니다.';
+      setErrorMessage(msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [restoreTargetId, restoreReason, isUpdating, refetch]);
 
   const handleOpenGradeEdit = useCallback(() => {
     if (!data) return;
@@ -661,6 +711,16 @@ export function ResultViewerPage() {
                 </div>
               </div>
             )}
+
+            {/* 오탐 삭제 되살리기(#1399) — 액션 버튼 바로 아래. 기본 접힘이라 평소엔 한 줄만 차지한다.
+                visibleDefects 조건 밖에 둔다: 이 이미지의 하자를 전부 오탐 삭제해 화면이 비어도
+                되돌아올 자리는 남아 있어야 한다. */}
+            <DeletedDefectsPanel
+              items={currentDeletedDefects}
+              onRestore={handleOpenRestore}
+              restoringId={restoreTargetId}
+              disabled={isUpdating}
+            />
           </div>
 
           {/* Right: Analysis Panel — currentMediaGroup만 있으면 항상 렌더(#874: 하자 0건이어도
@@ -804,6 +864,59 @@ export function ResultViewerPage() {
               disabled={!deleteReason.trim() || isUpdating}
             >
               삭제
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Restore Modal (#1399) — 삭제와 같은 형식으로 사유를 받는다(감사 이력 append-only) */}
+      <Modal
+        open={restoreTargetId !== undefined}
+        onClose={handleCancelRestore}
+        title="삭제한 하자 되살리기"
+        closeOnOverlayClick={!isUpdating}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-text-muted">
+            삭제를 되돌립니다. 되살린 하자는 다시 검수 대상이 되고 보고서에도 포함됩니다.
+          </p>
+          {errorMessage && (
+            <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
+          )}
+          <div>
+            <label htmlFor="restore-reason-textarea" className="mb-2 block text-sm font-medium text-text-default">
+              되살리는 사유
+            </label>
+            <textarea
+              id="restore-reason-textarea"
+              value={restoreReason}
+              onChange={(e) => setRestoreReason(e.target.value)}
+              placeholder="되살리는 사유를 입력해주세요 (1-500자)"
+              maxLength={500}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+              rows={3}
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="flex-1"
+              onClick={handleCancelRestore}
+              disabled={isUpdating}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              className="flex-1"
+              onClick={handleConfirmRestore}
+              disabled={!restoreReason.trim() || isUpdating}
+            >
+              되살리기
             </Button>
           </div>
         </div>

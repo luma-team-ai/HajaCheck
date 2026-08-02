@@ -13,6 +13,7 @@ const MOCK_IMAGE_URL =
 export const mockInspectionResult: InspectionResult = {
   inspectionId: 1,
   roundNo: 8,
+  deletedDefects: [], // 오탐 삭제 이력 없는 기본 목데이터(#1399)
   media: [
     {
       id: 1,
