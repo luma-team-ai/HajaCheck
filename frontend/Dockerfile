@@ -18,6 +18,12 @@ COPY . .
 ARG VITE_KAKAO_MAP_APP_KEY
 ENV VITE_KAKAO_MAP_APP_KEY=${VITE_KAKAO_MAP_APP_KEY}
 
+# 토스 결제창 SDK 클라이언트 키(#988) — 위 카카오 키와 동일한 이유로 ARG/ENV가 필수다. compose가
+# build arg로 넘겨도 Dockerfile이 ARG로 선언하지 않으면 Docker가 그 값을 조용히 버리기 때문에,
+# 선언 누락 시 결제 경로만 런타임에 TossClientKeyMissingError로 깨진다(#1339 — 실제로 prod에서 발생).
+ARG VITE_TOSS_CLIENT_KEY
+ENV VITE_TOSS_CLIENT_KEY=${VITE_TOSS_CLIENT_KEY}
+
 RUN npm run build
 
 # ---- Runtime stage (nginx: React dist 정적 서빙 + /api·/ws·/ai 리버스 프록시) ----

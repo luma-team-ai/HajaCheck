@@ -26,7 +26,6 @@ const TABS = [
   { key: 'overview', label: '개요' },
   { key: 'history', label: '점검 이력' },
   { key: 'defects', label: '하자 현황' },
-  { key: 'documents', label: '문서' },
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -43,10 +42,12 @@ export interface FacilityOverviewPanelProps {
   /** "다음 점검일" D-day 배지 — feature마다 계산 로직이 달라 호출부가 렌더링해 전달 */
   nextInspectionBadge: ReactNode;
   history: FacilityOverviewHistoryItem[];
-  onEditInfo?: () => void;
   onNewInspection?: () => void;
   /** 기본 "+ 새 점검" — 호출부 맥락에 따라 문구를 바꿀 수 있게 */
   newInspectionLabel?: string;
+  /** "하자 현황" 탭 클릭 시 로컬 탭 전환 대신 호출된다(예: 하자 상세 오버레이로 이동).
+   * 넘기지 않으면 다른 탭과 동일하게 로컬 탭 전환만 한다. */
+  onDefectsTabClick?: () => void;
 }
 
 // 시설물 상세 / 점검(회차) 생성 화면이 공유하는 패널(shared) — Figma
@@ -61,9 +62,9 @@ export function FacilityOverviewPanel({
   unresolvedDefectCount,
   nextInspectionBadge,
   history,
-  onEditInfo,
   onNewInspection,
   newInspectionLabel = '+ 새 점검',
+  onDefectsTabClick,
 }: FacilityOverviewPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('history');
 
@@ -89,13 +90,6 @@ export function FacilityOverviewPanel({
             </div>
 
             <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={onEditInfo}
-                className="rounded-xl bg-white px-5 py-2 text-base font-normal text-zinc-900 outline outline-1 outline-offset-[-1px] outline-neutral-300/30"
-              >
-                정보 수정
-              </button>
               <button
                 type="button"
                 onClick={onNewInspection}
@@ -126,7 +120,13 @@ export function FacilityOverviewPanel({
               <button
                 key={tab.key}
                 type="button"
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => {
+                  if (tab.key === 'defects' && onDefectsTabClick) {
+                    onDefectsTabClick();
+                    return;
+                  }
+                  setActiveTab(tab.key);
+                }}
                 aria-current={activeTab === tab.key ? 'page' : undefined}
                 className={`cursor-pointer rounded-full px-6 py-2 text-base font-medium ${
                   activeTab === tab.key

@@ -498,13 +498,13 @@ class Ha25IncrementalMigrationTest {
                         MountableFile.forClasspathResource(
                                 "db/migration/V34__add_counsel_tickets_created_at_index.sql"),
                         CONTAINER_ROOT + "V34__add_counsel_tickets_created_at_index.sql")
-                // #1393 — Flyway V35(rag_documents.embedding_started_at, PR머신 리뷰 P1)도 이어서 1회
+                // #1393 — Flyway V39(rag_documents.embedding_started_at, PR머신 리뷰 P1)도 이어서 1회
                 // forward-apply한다. 캐노니컬 DDL에 이 컬럼이 반영돼 있으므로 이 증분 경로에서도
                 // 적용해야 assertCanonicalSchemaParity 가 통과한다.
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
-                                "db/migration/V35__add_rag_documents_embedding_started_at.sql"),
-                        CONTAINER_ROOT + "V35__add_rag_documents_embedding_started_at.sql");
+                                "db/migration/V39__add_rag_documents_embedding_started_at.sql"),
+                        CONTAINER_ROOT + "V39__add_rag_documents_embedding_started_at.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -645,10 +645,10 @@ class Ha25IncrementalMigrationTest {
         // CREATE INDEX IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다.
         runPsql(postgres, "V34__add_counsel_tickets_created_at_index.sql");
         runPsql(postgres, "V34__add_counsel_tickets_created_at_index.sql");
-        // #1393 — Flyway V35(rag_documents.embedding_started_at, PR머신 리뷰 P1)도 이어서 forward-apply
+        // #1393 — Flyway V39(rag_documents.embedding_started_at, PR머신 리뷰 P1)도 이어서 forward-apply
         // 한다. ADD COLUMN IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다.
-        runPsql(postgres, "V35__add_rag_documents_embedding_started_at.sql");
-        runPsql(postgres, "V35__add_rag_documents_embedding_started_at.sql");
+        runPsql(postgres, "V39__add_rag_documents_embedding_started_at.sql");
+        runPsql(postgres, "V39__add_rag_documents_embedding_started_at.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

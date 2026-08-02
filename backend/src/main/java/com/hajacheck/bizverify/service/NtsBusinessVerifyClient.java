@@ -6,6 +6,7 @@ import com.hajacheck.bizverify.dto.NtsStatusResponse;
 import com.hajacheck.bizverify.dto.NtsValidateRequest;
 import com.hajacheck.bizverify.dto.NtsValidateResponse;
 import com.hajacheck.global.exception.ErrorCode;
+import jakarta.annotation.PostConstruct;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
@@ -98,6 +99,23 @@ public class NtsBusinessVerifyClient {
         this.submitRestClient = submitRestClient;
         this.realtimeRestClient = realtimeRestClient;
         this.bizVerifyProperties = bizVerifyProperties;
+    }
+
+    /**
+     * 기동 시 1회 경고(#1324 P2) — serviceKey 가 비어 있으면 모든 진위확인이 {@code SKIPPED}(fail-open)로
+     * 떨어진다. #1324 이후로는 SKIPPED 도 그대로 자동승인되므로, 키 미설정 = <b>전 가입이 무검증으로
+     * 승인되는 상태</b>다. 그런데 개별 호출 로그는 INFO 라 운영 로그에 묻히고, 기동 시점에는 아무 신호도
+     * 없어서 "키가 빠진 채로 배포됐다"를 알아챌 방법이 없었다. 여기서 한 번 크게 남긴다.
+     *
+     * <p>⚠️ 키 값 자체는 절대 로그에 남기지 않는다 — 설정 여부(boolean)만 표현한다.
+     */
+    @PostConstruct
+    void warnWhenServiceKeyMissing() {
+        if (!StringUtils.hasText(bizVerifyProperties.getServiceKey())) {
+            log.warn("[진위확인 미설정] biz-verify.service-key 가 비어 있다(configured=false) — 국세청 "
+                    + "진위확인이 전건 SKIPPED(fail-open)로 처리되고, 기업 가입은 무검증으로 자동승인된다"
+                    + "(#1324). 운영 환경이라면 키를 주입할 것.");
+        }
     }
 
     /**

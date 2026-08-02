@@ -44,12 +44,69 @@ export interface ReportOptions {
   includePhoto?: boolean;
 }
 
+// 백엔드가 생산할 수 없는 서식 섹션(제출문·참여기술진 명단·안전성평가·현장시험 등)은 편집
+// 화면에서 수동 입력받는다. content_json은 jsonb opaque 컬럼이고 UpdateReportContentRequest도
+// 문자열 하나만 받으므로(스키마 검증 없음), 아래 타입은 프론트 전용 확장이며 마이그레이션 없이
+// 저장·왕복된다.
+export interface SubmissionSectionData {
+  recipient: string; // 수신자 (예: "서울특별시장 귀하")
+  contractDate: string; // 계약 체결일
+  companyName: string; // 발신 업체명
+  companyAddress: string;
+  representativeName: string; // 대표자(직인 서명란에 표기)
+}
+
+export interface ParticipantEntry {
+  role: string; // 구분 (예: 사업책임기술인)
+  name: string;
+  qualification: string; // 자격 및 주요경력
+  period: string; // 과업 참여기간
+}
+
+export interface ParticipantsSectionData {
+  entries: ParticipantEntry[];
+}
+
+export interface GenericManualSectionData {
+  body: string;
+}
+
+export type ManualSectionType =
+  | 'submission'
+  | 'overview-form'
+  | 'inspection-result-repair'
+  | 'participants'
+  | 'summary-opinion'
+  | 'member-condition-repair'
+  | 'safety-assessment'
+  | 'field-test'
+  | 'facility-status'
+  | 'location-drawing-photos';
+
+export interface ManualSection {
+  id: string;
+  type: ManualSectionType;
+  title: string;
+  data: SubmissionSectionData | ParticipantsSectionData | GenericManualSectionData;
+}
+
+// 편집기 카드(고정 5종) + 수동 섹션을 함께 자유 순서로 배치하기 위한 키. 고정 섹션은 이 문자열
+// 리터럴로, 수동 섹션은 ManualSection.id로 식별한다. 이 순서가 곧 PDF 출력 순서다.
+// 'photos'는 확정 하자 이미지에서 자동 파생되는 데이터라 제출문/참여기술진 명단과 달리 사용자가
+// 직접 입력하지 않는다 — 그래도 순서는 자유롭게 바꿀 수 있어야 하므로 manualSections가 아니라
+// 고정 섹션으로 둔다(overview~recommendation과 동일한 취급).
+export const FIXED_SECTION_KEYS = ['overview', 'summary', 'detail', 'recommendation', 'photos'] as const;
+export type FixedSectionKey = (typeof FIXED_SECTION_KEYS)[number];
+export type SectionKey = FixedSectionKey | string;
+
 export interface ReportContent {
   overview: ReportOverview;
   summary: ReportSummary;
   detail: ReportDetail;
   recommendation: ReportRecommendation;
   reportOptions?: ReportOptions;
+  manualSections?: ManualSection[];
+  sectionOrder?: SectionKey[];
 }
 
 // ---------------------------------------------------------------------------

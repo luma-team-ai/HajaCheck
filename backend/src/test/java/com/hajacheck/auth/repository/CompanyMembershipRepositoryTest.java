@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.CompanyMembership;
+import com.hajacheck.auth.entity.CompanyMembershipStatus;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
@@ -141,6 +142,29 @@ class CompanyMembershipRepositoryTest extends PostgresTestSupport {
                 company.getId(), member.getId(), Instant.now());
 
         assertThat(exists).isFalse();
+    }
+
+    @Test
+    void 진위확인FAILED_강등만으로_멤버십을회수하지않아도_스코프가닫힌다() {
+        // #1324 리뷰 결정의 실증 — #888 재검증 배치(PendingBusinessReverifyWriter.markFailed)는
+        // FAILED 로만 강등하고 멤버십을 **의도적으로 회수하지 않는다**(비가역·복구 경로 부재, 후속 #1367).
+        // 그래도 스코프가 닫히는 근거가 이 쿼리의 verificationStatus=VERIFIED 조건이다.
+        Company company = saveCompany(CompanyState.APPROVED_VERIFIED);
+        User member = saveMember(company.getId(), UserStatus.ACTIVE);
+        CompanyMembership membership = saveApprovedMembership(company.getId(), member.getId());
+        assertThat(companyMembershipRepository.existsEffectiveApprovedMembership(
+                company.getId(), member.getId(), Instant.now())).isTrue();
+
+        company.markBusinessVerificationFailed();
+        companyRepository.saveAndFlush(company);
+
+        // 멤버십 행은 그대로 APPROVED·미회수로 남는다(회수하지 않는 선택을 못 박는다).
+        CompanyMembership reloaded = companyMembershipRepository.findById(membership.getId()).orElseThrow();
+        assertThat(reloaded.getStatus()).isEqualTo(CompanyMembershipStatus.APPROVED);
+        assertThat(reloaded.getRevokedAt()).isNull();
+        // 그럼에도 회사 스코프는 닫힌다 — 오너뿐 아니라 모든 구성원에게 동일하게 적용된다.
+        assertThat(companyMembershipRepository.existsEffectiveApprovedMembership(
+                company.getId(), member.getId(), Instant.now())).isFalse();
     }
 
     @Test

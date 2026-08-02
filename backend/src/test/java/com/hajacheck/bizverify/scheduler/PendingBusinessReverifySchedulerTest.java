@@ -11,7 +11,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.hajacheck.auth.entity.BusinessVerificationStatus;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.bizverify.config.PendingBusinessReverifyProperties;
@@ -59,9 +58,7 @@ class PendingBusinessReverifySchedulerTest {
     }
 
     private void stubTargets(List<Company> targets) {
-        when(companyRepository.findByVerificationStatusAndBusinessStartDateIsNotNull(
-                eq(BusinessVerificationStatus.PENDING), any(Pageable.class)))
-                .thenReturn(targets);
+        when(companyRepository.findNtsReverifyTargets(any(Pageable.class))).thenReturn(targets);
     }
 
     @Test
@@ -71,8 +68,7 @@ class PendingBusinessReverifySchedulerTest {
 
         scheduler.reverifyPendingCompanies();
 
-        verify(companyRepository, never())
-                .findByVerificationStatusAndBusinessStartDateIsNotNull(any(), any());
+        verify(companyRepository, never()).findNtsReverifyTargets(any());
         verify(ntsBusinessVerifyClient, never()).verifyRealtime(anyString(), anyString(), any());
     }
 
@@ -87,11 +83,11 @@ class PendingBusinessReverifySchedulerTest {
         scheduler.reverifyPendingCompanies();
 
         verify(writer).markVerified(1L);
-        verify(writer, never()).markFailed(anyLong());
+        verify(writer, never()).markFailed(anyLong(), any());
     }
 
     @Test
-    @DisplayName("불일치/휴업/폐업/미등록 결과는 writer.markFailed로 FAILED 전이된다")
+    @DisplayName("불일치/휴업/폐업/미등록 결과는 판정 outcome과 함께 writer.markFailed로 FAILED 전이된다")
     void 불일치_휴업_폐업_미등록_FAILED_반영() {
         Company mismatch = pendingCompany(1L, "1111111111", "A");
         Company suspended = pendingCompany(2L, "2222222222", "B");
@@ -109,10 +105,10 @@ class PendingBusinessReverifySchedulerTest {
 
         scheduler.reverifyPendingCompanies();
 
-        verify(writer).markFailed(1L);
-        verify(writer).markFailed(2L);
-        verify(writer).markFailed(3L);
-        verify(writer).markFailed(4L);
+        verify(writer).markFailed(1L, NtsVerificationOutcome.MISMATCH);
+        verify(writer).markFailed(2L, NtsVerificationOutcome.SUSPENDED);
+        verify(writer).markFailed(3L, NtsVerificationOutcome.CLOSED);
+        verify(writer).markFailed(4L, NtsVerificationOutcome.NOT_REGISTERED);
         verify(writer, never()).markVerified(anyLong());
     }
 
@@ -127,13 +123,14 @@ class PendingBusinessReverifySchedulerTest {
         scheduler.reverifyPendingCompanies();
 
         verify(writer, never()).markVerified(anyLong());
-        verify(writer, never()).markFailed(anyLong());
+        verify(writer, never()).markFailed(anyLong(), any());
     }
 
     @Test
-    @DisplayName("businessStartDate가 없는 회사를 제외하는 필터링은 리포지토리 쿼리에 위임된다")
-    void businessStartDate없는회사는_리포지토리조회조건으로제외() {
-        // 리포지토리가 이미 businessStartDate IS NOT NULL 로 필터링해 반환하므로(쿼리 메서드 계약),
+    @DisplayName("대상 선정(개업일자·provenance 조건) 자체는 리포지토리 쿼리에 위임된다")
+    void 대상선정은_리포지토리조회조건으로위임() {
+        // 리포지토리가 이미 businessStartDate IS NOT NULL + provenance 조건으로 필터링해 반환하므로
+        // (findNtsReverifyTargets 계약 — 실제 조건 검증은 CompanyRepositoryTest),
         // 스케줄러는 빈 목록을 받으면 국세청을 전혀 호출하지 않는다는 것만 검증한다.
         stubTargets(List.of());
 
@@ -143,16 +140,16 @@ class PendingBusinessReverifySchedulerTest {
     }
 
     @Test
-    @DisplayName("회차당 최대 처리 건수(Pageable)를 리포지토리 조회에 전달한다")
+    @DisplayName("회차당 최대 처리 건수(Pageable)를 리포지토리 조회에 전달하고, 정렬은 SQL에 맡겨 Sort를 싣지 않는다")
     void 최대처리건수_Pageable로전달() {
         properties.setMaxBatchSize(5);
         stubTargets(List.of());
 
         scheduler.reverifyPendingCompanies();
 
-        verify(companyRepository).findByVerificationStatusAndBusinessStartDateIsNotNull(
-                eq(BusinessVerificationStatus.PENDING),
-                argThat((Pageable p) -> p.getPageSize() == 5));
+        // 네이티브 쿼리는 동적 정렬(Sort)을 보장하지 않으므로 order by 는 SQL 에 고정돼 있다.
+        verify(companyRepository).findNtsReverifyTargets(
+                argThat((Pageable p) -> p.getPageSize() == 5 && p.getSort().isUnsorted()));
     }
 
     @Test
@@ -169,6 +166,6 @@ class PendingBusinessReverifySchedulerTest {
         scheduler.reverifyPendingCompanies();
 
         verify(writer).markVerified(2L);
-        verify(writer, never()).markFailed(1L);
+        verify(writer, never()).markFailed(eq(1L), any());
     }
 }

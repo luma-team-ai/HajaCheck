@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.11 · **최종 수정:** 2026-07-28 · 이전 버전 `archive/`
+> **문서 버전:** v0.13 · **최종 수정:** 2026-07-31 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -306,7 +306,9 @@ FastAPI validation error(`detail[]`)를 반환한다.
 
 > Figma 5개 화면(기업 회원가입/가입 승인 대기/아이디 찾기/비밀번호 찾기/새 비밀번호 설정) 풀스택 대응. 백엔드(Spring)·프론트(React)·AI(stub) 정렬용 단일 계약. **모든 엔드포인트는 `/api/auth/**`**(기존 SecurityConfig permitAll 커버). 응답은 공통 `ApiResponse` envelope `{success, data, error{code,message}}`.
 >
-> **결정**: OCR=stub+수동입력 · 파일저장=dev 로컬볼륨 · 주소=다음(카카오) 우편번호 · 개인가입=소셜 위임(범위 외) · 관리자 승인 화면=범위 외(가입은 company.status=PENDING_REVIEW 생성만).
+> **결정**: OCR=stub+수동입력 · 파일저장=dev 로컬볼륨 · 주소=다음(카카오) 우편번호 · 개인가입=소셜 위임(범위 외) · **관리자 승인 단계 없음 — 가입 즉시 자동승인(#1324)**.
+>
+> **⚠️ 2026-07-30 변경(#1324)**: 관리자 승인 화면이 배선된 적이 없어 신규 가입 기업이 영구 `PENDING_REVIEW`로 남고 회사 스코프 기능이 전부 닫히는 문제가 있었다. 이제 가입 트랜잭션에서 `company.status=APPROVED` + `verification_status=VERIFIED` + **오너의 `company_memberships` APPROVED 행**을 함께 생성한다(이 3개가 회사 스코프 판정 조건 전부). 국세청 진위확인이 fail-open(`SKIPPED`)이어도 승인하지만, 확정 불량(불일치·휴업·폐업)은 종전대로 가입 자체가 차단된다.
 >
 > **공통 규약(소비처 필수 준수)**:
 > - 검증 실패는 **절대 401 금지**(프론트 axios가 401을 로그인 강제 리다이렉트로 처리) → 400/404/409만 사용.
@@ -314,7 +316,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 > - 계정 열거 방지: 찾기류 실패 메시지 통일.
 
 ## POST /api/auth/companies — 기업 회원가입 (multipart/form-data)
-가입 신청. User(passwordHash·ACTIVE) + Company(PENDING_REVIEW) + UserConsent(약관 2건) 원자 생성.
+가입. User(passwordHash·ACTIVE·ADMIN) + Company(**APPROVED + VERIFIED**) + CompanyMembership(**오너 APPROVED**) + UserConsent(약관 2건) 원자 생성 — 관리자 승인 대기 없이 즉시 사용 가능(#1324).
 
 **요청** (multipart 폼 필드 + 파일):
 | 필드 | 타입 | 검증 |
@@ -332,7 +334,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 
 > 약관 버전은 클라이언트가 보내지 않음(서버 소유). OCR 필드(사업자번호/상호/대표)는 현재 사용자가 수동 입력한 값을 그대로 저장.
 
-**성공 201** `data` 필드: `companyId`(number), `maskedEmail`(string, 예 `h***@c***.com`), `status`(`PENDING_REVIEW`), `signupToken`(string). `signupToken`은 승인 대기 화면 상태조회에 쓰는 **불투명 랜덤 문자열**(서버 발급, PK 노출 금지) — 예시값은 문서에 싣지 않는다.
+**성공 201** `data` 필드: `companyId`(number), `maskedEmail`(string, 예 `h***@c***.com`), `status`(**`APPROVED`** — 자동승인, #1324), `signupToken`(string). `signupToken`은 가입 상태조회에 쓰는 **불투명 랜덤 문자열**(서버 발급, PK 노출 금지) — 예시값은 문서에 싣지 않는다.
 
 **실패**: `409 AUTH_EMAIL_DUPLICATED` · `409 AUTH_BUSINESS_NUMBER_DUPLICATED` · `400 FILE_REQUIRED|FILE_INVALID_TYPE|FILE_TOO_LARGE` · `400 INVALID_INPUT` · `500 FILE_UPLOAD_FAILED`
 
@@ -419,9 +421,35 @@ FastAPI validation error(`detail[]`)를 반환한다.
 - 재설정 페이지에 `Referrer-Policy: no-referrer` — 외부 리소스 요청 시 Referer로 토큰이 새는 것 방지.
 - 토큰 소비 후 `history.replaceState`로 URL에서 토큰 제거(브라우저 히스토리·공유 유출 방지).
 
-## GET /api/auth/companies/status?token={signupToken} — 가입 상태 조회(승인 대기 새로고침)
-**성공 200** `data`: `{ "status": "PENDING_REVIEW" , "companyName": "(주)하자체크", "rejectionReason": null }`
-`status` ∈ `PENDING_REVIEW|APPROVED|REJECTED`. 스테퍼: PENDING_REVIEW=서류검토중, APPROVED=승인완료.
+## PATCH /api/users/me/password — 로그인 후 비밀번호 변경 (#1315 / HAJA-601, 2026-07-30)
+
+기존 비밀번호 찾기(#194)는 **비로그인** 경로다. 로그인한 사용자가 스스로 비밀번호를 바꾸는 경로가 없어 신설.
+
+**요청** `{ "currentPassword": "...", "newPassword": "..." }` — **인증 필수(세션+CSRF)**. 대상 사용자는 세션 principal 로만 식별하고 **바디·경로·쿼리 어디서도 userId 를 받지 않는다**(IDOR 차단).
+**성공 200** `ApiResponse<Void>` (`data: null`)
+
+- `newPassword` 정책은 **가입·재설정과 동일**(8자 이상, 영문+숫자). 이 경로가 느슨하면 정책 우회로가 된다.
+- `currentPassword` 에는 형식 제약을 두지 않는다 — 정책 도입 이전 비밀번호 사용자가 400 으로 변경 자체를 못 하게 되고, 400/401 차이가 "저장된 비밀번호가 현행 정책을 만족하는가"를 흘리기 때문. **불일치는 항상 401 하나로 통일.**
+- 검사 순서 `rate-limit → 조회 → 비밀번호 보유 → 현재 비밀번호 일치 → 신·구 동일`. "신·구 동일"(400)을 현재 비밀번호 검증(401) **뒤에** 둬 오라클을 막는다.
+
+**⚠️ 성공 시 현재 세션이 종료된다** — 세션 무효화 + SESSION 쿠키 만료 + CSRF 토큰 회전. 클라이언트는 재로그인시켜야 한다. **다른 기기 세션은 무효화되지 않는다**(non-indexed Redis 세션 제약, 알려진 한계 → 후속 #1318).
+
+**실패**: `400 INVALID_INPUT|AUTH_PASSWORD_NOT_SET|AUTH_PASSWORD_UNCHANGED` · `401 UNAUTHORIZED|AUTH_INVALID_CREDENTIALS` · `403` (CSRF 누락·불일치 / `AUTH_ACCOUNT_WAITING` / `AUTH_ACCOUNT_SUSPENDED`) · `429 AUTH_TOO_MANY_REQUESTS`
+
+### 프론트 규약 (계약에 고정)
+- **401 은 status 가 아니라 code 로 분기한다.** `AUTH_INVALID_CREDENTIALS`= 현재 비밀번호 불일치(폼 인라인 에러), 그 외 401(`UNAUTHORIZED`)= 세션 만료 → 재로그인 유도. status 만 보면 만료된 세션에서 "현재 비밀번호가 틀렸다"는 오안내로 사용자가 갇힌다.
+- 400/401/429 에 걸리지 않는 응답(403·5xx·네트워크)도 **반드시 폴백 메시지를 표면화**한다(무음 실패 금지).
+- 성공 시 서버 세션이 이미 죽으므로 클라이언트 세션 정리 후 `/login` 이동.
+
+### ErrorCode
+`AUTH_PASSWORD_NOT_SET`(400, 신규 — 소셜 전용 계정) · `AUTH_PASSWORD_UNCHANGED`(400, 신규 — 신·구 동일) · `AUTH_INVALID_CREDENTIALS`(401, 기존 재사용) · `AUTH_TOO_MANY_REQUESTS`(429, 기존 재사용).
+
+### rate limit — 알려진 성질
+축은 `userId` 하나다(IP 축 미사용은 기존 결정). 변경 **성공 시 카운터는 즉시 해제**된다. 다만 **세션이 탈취된 계정에서는 공격자가 카운터를 소모해 피해자의 비밀번호 변경(=복구 경로)을 봉쇄**할 수 있다 — 축이 완전히 다른 비로그인 재설정(`POST /api/auth/password-reset-request`)이 탈출 경로이며, 근본 해결은 전 기기 세션 무효화(#1318)다. 한도를 키우는 건 해결이 아니다.
+
+## GET /api/auth/companies/status?token={signupToken} — 가입 상태 조회
+**성공 200** `data`: `{ "status": "APPROVED" , "companyName": "(주)하자체크", "rejectionReason": null }`
+`status` ∈ `PENDING_REVIEW|APPROVED|REJECTED`. **#1324 이후 신규 가입은 항상 `APPROVED`로 반환된다**(자동승인). 나머지 두 값은 enum·과거 데이터 호환을 위해 계약에 남겨두며, 프론트는 더 이상 승인 대기 스테퍼를 노출하지 않는다(가입 완료 → 로그인).
 **실패**: `404 AUTH_SIGNUP_TOKEN_INVALID`
 
 ## POST /ai/business-license-ocr — 사업자등록증 OCR (AI서버, 실구현 #552/#598)

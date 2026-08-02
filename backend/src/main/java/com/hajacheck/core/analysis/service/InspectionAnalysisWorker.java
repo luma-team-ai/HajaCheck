@@ -7,16 +7,20 @@ import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse.FileProgress;
 import com.hajacheck.core.analysis.support.AnalysisFileDisplayNames;
 import com.hajacheck.core.analysis.support.AnalysisProgressStore;
+import com.hajacheck.core.analysis.support.InspectionAnalysisNotificationPayload;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.service.DefectWriter;
+import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.global.config.AsyncConfig;
 import com.hajacheck.membership.service.AnalysisQuotaCharge;
 import com.hajacheck.membership.service.QuotaService;
+import com.hajacheck.notification.entity.NotificationType;
+import com.hajacheck.notification.service.NotificationService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -101,6 +105,7 @@ public class InspectionAnalysisWorker {
     private final DefectWriter defectWriter;
     private final AnalysisProgressStore progressStore;
     private final QuotaService quotaService;
+    private final NotificationService notificationService;
 
     /**
      * @param statusBeforeAnalysis 분석 시작 직전 상태(ANALYZING으로 전이되기 전 값) — 코드 리뷰 P2
@@ -234,11 +239,37 @@ public class InspectionAnalysisWorker {
             return;
         }
 
-        inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, InspectionStatus.ANALYZED);
+        Inspection inspection =
+                inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, InspectionStatus.ANALYZED);
+        notifyAnalysisDone(inspection);
         AnalysisStatusResponse done = new AnalysisStatusResponse(
                 inspectionId, "done", 100, images.size(), images.size(), files,
                 detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount, Instant.now());
         progressStore.save(done);
+    }
+
+    /**
+     * ANALYZED 전이 직후 알림 2건을 발행한다(#494/#495) — 같은 전이 지점에서 수신자만 다르게 함께
+     * 발행하기로 한 팀 합의(이슈 코멘트 참고): {@code ANALYSIS_DONE}은 "요청한 분석이 끝났다"는 완료
+     * 알림으로 회차를 만든 사람({@code createdBy})에게, {@code REVIEW_PENDING}은 "확인이 필요하다"는
+     * 액션 알림으로 담당 점검자({@code assignedInspectorId})에게 보낸다. 1인이 두 역할을 겸하면 같은
+     * 사람이 두 알림을 모두 받는데, 이는 의도된 동작이다(별도 dedupe 없음).
+     *
+     * <p>알림 발행 실패는 절대 이 메서드 밖으로 전파시키지 않는다 — {@link
+     * #refundIfNothingPersisted}와 동일한 이유로, 예외가 새면 바로 다음 줄의 진행률 저장("done")이
+     * 건너뛰어져 프론트가 영원히 폴링한다. 분석 자체는 이미 완전히 끝난 상태라 알림 유실이 최악의
+     * 결과다(사용자가 알림센터 대신 화면을 새로고침해 결과를 확인할 수 있음).
+     */
+    private void notifyAnalysisDone(Inspection inspection) {
+        try {
+            String payload = InspectionAnalysisNotificationPayload.serialize(
+                    inspection.getId(), inspection.getRoundNo());
+            notificationService.notify(inspection.getCreatedBy(), NotificationType.ANALYSIS_DONE, payload);
+            notificationService.notify(inspection.getAssignedInspectorId(), NotificationType.REVIEW_PENDING, payload);
+        } catch (RuntimeException e) {
+            log.warn("분석 완료 알림 발행 실패 — inspectionId={} exception={}",
+                    inspection.getId(), e.getClass().getSimpleName());
+        }
     }
 
     /**

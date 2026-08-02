@@ -1,4 +1,4 @@
--- Flyway V35 — rag_documents.embedding_started_at 신설(#1393, PR머신 리뷰 P1).
+-- Flyway V39 — rag_documents.embedding_started_at 신설(#1393, PR머신 리뷰 P1).
 --
 -- 임베딩 완료 확정이 인메모리 @Async 폴러(RagEmbeddingCompletionPoller)에만 의존해,
 -- 폴링 창(약 25초) 안에 JVM이 재시작되면(배포·크래시·롤링 재시작) 폴러가 통째로 유실되고

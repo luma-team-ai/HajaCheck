@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.38.0-draft"
+  version: "0.40.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -177,6 +177,10 @@ info:
     2026-07-25 분석 결과 뷰어 전용 상세 이미지 조회(GET /api/media/{id}/detail) 신설(#788/#789) —
     그리드용 썸네일(400px 상한)보다 큰 해상도(기본 1600px)로 재인코딩된 이미지 반환. DefectDetailItem에
     detailUrl 필드 추가.
+    2026-07-30 기업 가입 즉시 자동승인(#1324) 후속 — MyPlanResponse.plan.businessVerified 의 의미를
+    "Company.verificationStatus==VERIFIED"에서 "국세청 진위확인 증명 보유(ocr_raw.ntsOutcome ∈
+    {VERIFIED, LEGACY_VERIFIED})"로 재정의. 자동승인이 verification_status 를 전건 VERIFIED 로 만들어
+    그 컬럼이 "스코프 개방 여부"만 뜻하게 됐기 때문이다(필드 타입·nullable 계약은 불변, 값 산출 근거만 변경).
     2026-07-24 내 정보 조회(GET /api/users/me, 로그인 응답 포함) UserResponse에 createdAt(가입일)·
     companyName(소속 기업명, 개인 회원/회사 미조회 시 null) 추가(#740 / HAJA-401) — 마이페이지 "내 정보"
     프로필 섹션용. 기존 필드 순서·이름 유지한 추가형(하위호환).
@@ -578,7 +582,8 @@ paths:
     post:
       summary: 기업 회원가입 (multipart/form-data)
       description: >
-        User(passwordHash·ACTIVE) + Company(PENDING_REVIEW) + UserConsent(약관 2건) 원자 생성.
+        User(passwordHash·ACTIVE·ADMIN) + Company(APPROVED + VERIFIED) + CompanyMembership(오너 APPROVED)
+        + UserConsent(약관 2건) 원자 생성 — 관리자 승인 대기 없이 즉시 자동승인(#1324).
         `CompanySignupController.signup` 구현됨. 검증 실패는 401 금지(400/404/409만 사용).
       tags: [auth]
       requestBody:
@@ -668,8 +673,10 @@ paths:
 
   /api/auth/companies/status:
     get:
-      summary: 가입 상태 조회 (승인 대기 화면 새로고침)
-      description: "`CompanySignupController.getSignupStatus` 구현됨. token=signupToken(불투명 문자열)."
+      summary: 가입 상태 조회
+      description: >
+        `CompanySignupController.getSignupStatus` 구현됨. token=signupToken(불투명 문자열).
+        #1324 이후 신규 가입은 항상 APPROVED 를 반환한다(자동승인) — 승인 대기 스테퍼는 프론트에서 제거됨.
       tags: [auth]
       parameters:
         - name: token
@@ -836,6 +843,66 @@ paths:
               schema: { $ref: "#/components/schemas/UserApiResponse" }
         "401":
           description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/users/me/password:
+    patch:
+      summary: 비밀번호 변경 (로그인 상태, #1315 / HAJA-601)
+      description: >
+        로그인한 본인의 비밀번호를 변경한다. 대상 사용자는 **세션 principal 로만** 식별하며 바디·경로·쿼리
+        어디서도 userId 를 받지 않는다(IDOR 차단). newPassword 정책은 가입(CompanySignupRequest.password)·
+        재설정(PasswordResetRequest.newPassword)과 **동일**하다 — 이 경로가 느슨하면 정책 우회로가 된다.
+
+
+        검사 순서는 `rate-limit → 계정 조회 → 비밀번호 보유(소셜 전용 차단) → 현재 비밀번호 일치 → 신·구 동일`
+        이다. "신·구 동일"(400)을 현재 비밀번호 검증(401) **뒤에** 두어, 현재 비밀번호를 모르는 호출자가
+        응답 차이로 그것을 알아내는 오라클을 막는다. currentPassword 에는 형식 제약을 걸지 않는다 —
+        400/401 차이가 "저장된 비밀번호가 현행 정책을 만족하는가"를 흘리기 때문이며, 불일치는 항상 401 하나다.
+
+
+        ⚠️ **성공 시 현재 세션이 종료된다**(세션 무효화 + SESSION 쿠키 만료 + CSRF 토큰 회전) — 클라이언트는
+        재로그인시켜야 한다. **다른 기기의 기존 세션은 무효화되지 않는다**(알려진 한계 — non-indexed Redis
+        세션 제약, 후속 #1318). 401 은 두 종류(미인증 `UNAUTHORIZED` / 현재 비밀번호 불일치
+        `AUTH_INVALID_CREDENTIALS`)이므로 **클라이언트는 status 가 아니라 code 로 분기**해야 한다.
+        `UserController.changePassword` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasswordChangeRequest" }
+      responses:
+        "200":
+          description: 변경 성공 (현재 세션 종료됨 — 재로그인 필요)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+        "400":
+          description: >
+            INVALID_INPUT(비밀번호 정책 위반) | AUTH_PASSWORD_NOT_SET(소셜 전용 계정 — 비밀번호 미보유) |
+            AUTH_PASSWORD_UNCHANGED(새 비밀번호가 현재와 동일)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증(UNAUTHORIZED) | 현재 비밀번호 불일치(AUTH_INVALID_CREDENTIALS)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: CSRF 토큰 누락·불일치 | AUTH_ACCOUNT_WAITING(초대 코드 미입력) | AUTH_ACCOUNT_SUSPENDED
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "429":
+          description: >
+            AUTH_TOO_MANY_REQUESTS — userId 축 한도 초과(변경 **성공 시 카운터 즉시 해제**). 축이 userId 라
+            세션이 탈취된 계정에서는 공격자가 한도를 소모해 피해자의 비밀번호 변경(복구 경로)을 봉쇄할 수
+            있다 — 그때의 탈출 경로는 축이 완전히 다른 비로그인 재설정(`POST /api/auth/password-reset-request`)이다.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -5209,11 +5276,11 @@ components:
 
     CompanySignupResponse:
       type: object
-      description: signupToken 은 승인 대기 화면 상태조회용 불투명 랜덤 문자열(PK 비노출)
+      description: signupToken 은 가입 상태조회용 불투명 랜덤 문자열(PK 비노출). status 는 자동승인(#1324)이라 항상 APPROVED.
       properties:
         companyId: { type: integer, format: int64, example: 1 }
         maskedEmail: { type: string, example: "h***@c***.com" }
-        status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED], example: PENDING_REVIEW }
+        status: { type: string, enum: [PENDING_REVIEW, APPROVED, REJECTED], example: APPROVED }
         signupToken: { type: string }
 
     CompanySignupApiResponse:
@@ -5420,6 +5487,17 @@ components:
         data: { $ref: "#/components/schemas/PasswordResetResponse" }
         error: { type: object, nullable: true, example: null }
 
+    PasswordChangeRequest:
+      type: object
+      description: >
+        로그인 상태 비밀번호 변경(#1315). newPassword 정책은 가입(CompanySignupRequest.password)·
+        재설정(PasswordResetRequest.newPassword)과 동일 — 8자 이상, 영문+숫자 포함.
+        currentPassword 는 재인증용이며 형식 제약을 두지 않는다(사유는 경로 description 참조).
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, format: password, description: 현재 비밀번호(재인증) }
+        newPassword: { type: string, format: password, minLength: 8, example: "newPw123456" }
+
     # ── 마이페이지(멤버십) — 내 플랜·사용량·좌석 (구현됨, backend/membership, HAJA-177) ──
     MyPlanResponse:
       type: object
@@ -5460,8 +5538,16 @@ components:
               type: boolean
               nullable: true
               description: >
-                회사 구독이면 Company.verificationStatus == VERIFIED 여부. 개인 구독(companyId=null)이면
-                사업자 인증 개념이 없으므로 null(#711).
+                **국세청 진위확인을 통과했음을 증명할 수 있는가**(#1324 재정의). 회사 구독이면 boolean,
+                개인 구독(companyId=null)이면 사업자 인증 개념이 없으므로 null(#711).
+                판정 근거는 companies.verification_status 가 **아니라** 진위확인 provenance
+                (companies.business_registration_ocr_raw.ntsOutcome)다 — 가입 즉시 자동승인(#1324)으로
+                verification_status 는 전건 VERIFIED 가 되어 "회사 승인 상태"만 뜻하게 됐고, 그 값으로
+                배지를 켜면 국세청 장애·키 미설정으로 통과한 회사(SKIPPED)와 소급 승인분에까지
+                "사업자 인증 완료"라는 허위 표시가 나간다.
+                true = ntsOutcome ∈ {VERIFIED(가입 시 국세청 성공), LEGACY_VERIFIED(#1324 이전 검증분)}.
+                그 밖의 값·키 부재·JSON 파손은 모두 false(fail-safe — 증명할 수 없으면 인증 완료라고
+                말하지 않는다).
               example: true
         limits:
           type: object

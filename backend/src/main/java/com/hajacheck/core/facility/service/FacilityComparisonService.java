@@ -12,10 +12,13 @@ import com.hajacheck.core.facility.dto.FacilityComparisonResponse.DefectChangeRo
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -47,9 +50,15 @@ public class FacilityComparisonService {
             "gradeEscalated", "등급 상승"
     );
 
+    // #1298 — ANALYZED 이전(CREATED/UPLOADING/ANALYZING)은 AI 분석이 안 끝나 defects가 아직 없다.
+    // 이 상태 회차를 비교 대상으로 쓰면 상대 회차의 실제 하자가 전부 "신규"로 오분류된다.
+    private static final Set<InspectionStatus> COMPARABLE_STATUSES =
+            EnumSet.of(InspectionStatus.ANALYZED, InspectionStatus.REVIEWED, InspectionStatus.REPORTED);
+
     private final FacilityRepository facilityRepository;
     private final InspectionRepository inspectionRepository;
     private final DefectRepository defectRepository;
+    private final MediaRepository mediaRepository;
     private final CompanyScopeGuard companyScopeGuard;
 
     public FacilityComparisonResponse compare(
@@ -60,6 +69,7 @@ public class FacilityComparisonService {
 
         List<Inspection> allInspections = inspectionRepository.findByFacilityIdIn(List.of(facilityId));
         List<CycleOption> availableCycles = allInspections.stream()
+                .filter(i -> COMPARABLE_STATUSES.contains(i.getStatus()))
                 .sorted((a, b) -> Integer.compare(a.getRoundNo(), b.getRoundNo()))
                 .map(i -> new CycleOption(i.getRoundNo(), i.getInspectionDate()))
                 .toList();
@@ -81,6 +91,12 @@ public class FacilityComparisonService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.INSPECTION_NOT_FOUND));
         Inspection afterInspection = inspectionRepository.findByFacilityIdAndRoundNo(facilityId, afterRound)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INSPECTION_NOT_FOUND));
+        // #1298 — availableCycles가 이미 걸러내지만, 클라이언트가 before/after를 명시적으로 지정하는
+        // 경로는 그 필터를 우회할 수 있어 서버에서 한 번 더 막는다(방어적 검증).
+        if (!COMPARABLE_STATUSES.contains(beforeInspection.getStatus())
+                || !COMPARABLE_STATUSES.contains(afterInspection.getStatus())) {
+            throw new BusinessException(ErrorCode.INSPECTION_COMPARISON_ROUND_NOT_ANALYZED);
+        }
 
         List<Defect> beforeDefects = defectRepository.findByInspectionIdAndNotDeleted(beforeInspection.getId());
         List<Defect> afterDefects = defectRepository.findByInspectionIdAndNotDeleted(afterInspection.getId());
@@ -94,8 +110,22 @@ public class FacilityComparisonService {
                 new CycleOption(afterInspection.getRoundNo(), afterInspection.getInspectionDate()),
                 buildKpis(changes),
                 changes,
-                availableCycles
+                availableCycles,
+                representativeImageUrl(beforeInspection.getId()),
+                representativeImageUrl(afterInspection.getId())
         );
+    }
+
+    // 회차별 "시각적 비교" 대표 사진(HAJA-612/#1346) — 그 회차의 첫 사진(2026-07-31 사용자 결정).
+    // 사진이 없으면 null(프론트가 기존 "사진 없음" 플레이스홀더를 그대로 보여준다). 조회 대상 inspectionId는
+    // compare()가 이미 회사 스코프(findByIdAndCompanyId → findByFacilityIdAndRoundNo)로 좁혀둔 값이라
+    // 별도 인가 분기를 만들지 않는다. URL 형식은 MediaResponse.from()/DefectDetailItem과 동일한 상대경로.
+    // 코드 리뷰 P2 — 전체 목록(findByInspectionIdOrderByIdAsc)이 아니라 첫 1건만 조회한다(영상 프레임
+    // 추출로 한 회차에 수백~수천 행이 쌓일 수 있음).
+    private String representativeImageUrl(Long inspectionId) {
+        return mediaRepository.findFirstByInspectionIdOrderByIdAsc(inspectionId)
+                .map(media -> "/api/media/" + media.getId() + "/detail")
+                .orElse(null);
     }
 
     private List<DefectChangeRow> classify(List<Defect> beforeDefects, List<Defect> afterDefects) {

@@ -31,6 +31,6 @@ export interface FacilityLocation {
   /** 주의 건수 — 기존 하자 등급 C 집계 */
   cautionCount: number | null;
   thumbnailUrl: string | null;
-  /** 가장 최근 점검(회차) ID — 결과 검수 뷰어(/inspections/:id/viewer) 라우팅 연동용 (#1255) */
+  /** 가장 최근 점검(회차) ID — API 하위 호환을 위해 유지한다. */
   latestInspectionId?: number | null;
 }

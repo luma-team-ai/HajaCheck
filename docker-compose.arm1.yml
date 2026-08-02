@@ -101,9 +101,14 @@ services:
       # 스프링→FastAPI 프록시가 부착하는 내부키. FastAPI의 AI_INTERNAL_KEY와 동일 소스여야 검증 통과.
       # 운영(arm1)은 강제(:?).
       AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
-      # 국세청 사업자 진위확인(#596) serviceKey — spring bizverify가 읽음. fail-open이라 미설정 시
-      # 진위확인 SKIP(가입은 됨). :- 소프트 — 이 키는 기동을 막지 않는다(AI_INTERNAL_KEY와 달리 :? 아님).
-      BUSINESS_REGISTRATION_API_KEY: ${BUSINESS_REGISTRATION_API_KEY:-}
+      # 국세청 사업자 진위확인(#596) serviceKey — spring bizverify가 읽음.
+      # ⚠️ #1324로 이 키의 보안 성질이 뒤집혔다 — :- 소프트에서 :? 강제로 전환한다.
+      #   이전: 미설정 → 진위확인 SKIPPED → 회사 verification_status=PENDING → 회사 스코프 닫힘
+      #         (fail-closed. 키가 없어도 무해했으므로 기동을 막을 이유가 없었다.)
+      #   이후: 미설정 → SKIPPED → CompanyAccountWriter가 무조건 VERIFIED+APPROVED+오너 멤버십 발급
+      #         → 임의의 사업자번호로 가입한 계정이 즉시 회사 스코프 전체를 얻는다(fail-open).
+      # 즉 이 키는 이제 "없으면 서비스가 성립하지 않는 것"(AI_INTERNAL_KEY·SMTP_PASSWORD와 동급)이다.
+      BUSINESS_REGISTRATION_API_KEY: ${BUSINESS_REGISTRATION_API_KEY:?BUSINESS_REGISTRATION_API_KEY가 .env에 설정되어야 합니다 — 미설정 시 기업 가입이 무검증으로 자동승인됩니다(#1324)}
       # 토스페이먼츠 샌드박스 결제(#988) 시크릿 — spring payment 클라이언트가 읽음. 미설정이면 결제
       # 진입점만 PAYMENT_GATEWAY_ERROR(502)로 fail-close 되고 나머지 기능·기동은 정상이다. :- 소프트인
       # 이유: 결제는 샌드박스 데모 부가기능이라 키 누락으로 배포 전체를 멈추면 안 된다(:? 는
@@ -198,9 +203,10 @@ services:
         # 빌드·헬스체크 전부 통과한 뒤 런타임에만 KakaoMapKeyMissingError로 조용히 깨진다.
         VITE_KAKAO_MAP_APP_KEY: ${VITE_KAKAO_MAP_APP_KEY:?VITE_KAKAO_MAP_APP_KEY가 .env에 설정되어야 합니다}
         # 토스 결제창 SDK 클라이언트 키(#988) — Vite가 빌드 시점에 인라인한다(런타임 주입 불가).
-        # 공개돼도 되는 키라 :- 소프트(미설정 시 결제 화면만 동작하지 않음). 서버 시크릿
+        # 공개돼도 되는 키지만 운영은 카카오와 동일하게 강제(:?) — 소프트(:-)로 두면 키가 비어도
+        # 빌드·헬스체크가 전부 통과한 뒤 결제 경로만 런타임에 조용히 깨진다(#1339). 서버 시크릿
         # TOSS_SECRET_KEY와 절대 혼동하지 말 것.
-        VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:-}
+        VITE_TOSS_CLIENT_KEY: ${VITE_TOSS_CLIENT_KEY:?VITE_TOSS_CLIENT_KEY가 .env에 설정되어야 합니다}
     # latest 금지(PRD §6.1) — deploy.sh가 IMAGE_TAG(날짜+커밋SHA)를 주입해 태깅. 수동 실행 시 local.
     image: hajacheck-arm1-frontend:${IMAGE_TAG:-local}
     restart: unless-stopped

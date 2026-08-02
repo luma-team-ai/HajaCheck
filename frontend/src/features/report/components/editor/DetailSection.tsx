@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { DefectDetailItem, ReportContent } from '../../types';
+import { DefectPhoto, type DefectPhotoGroup } from './DefectPhoto';
 import { LabeledTextArea } from './LabeledTextArea';
 
 type GradeFilter = 'ALL' | 'A' | 'B' | 'C' | 'D' | 'E';
@@ -16,36 +17,36 @@ const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
 };
 
 const INLINE_INPUT_CLASSES =
-  'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-base font-semibold leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:px-2 focus:py-1 focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
+  'w-full rounded-lg border border-transparent bg-transparent px-0 py-0 text-left text-base font-semibold leading-6 text-heading outline-none transition focus:border-primary focus:bg-surface focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed read-only:text-heading';
 
+// LabeledTextArea 기본 FIELD_CLASSES(px-4 py-3 border-border bg-surface 등)와 같은 속성을 덮어써야
+// 하는데, Tailwind는 클래스 문자열 순서가 아니라 유틸리티가 생성된 스케일 순서로 캐스케이드를
+// 결정한다(px-4가 px-0보다 나중에 정의돼 실제로는 px-4가 이긴다) — 그래서 충돌하는 속성엔 `!`를
+// 붙여 항상 이기도록 강제한다(다른 곳의 StatisticsFilterBar.tsx 관례와 동일).
 const INLINE_TEXTAREA_CLASSES =
-  'min-h-0 border-transparent bg-transparent px-0 py-0 text-sm leading-6 focus:border-primary focus:bg-surface focus:px-2 focus:py-1 read-only:bg-transparent read-only:text-heading';
+  'min-h-0 border-transparent! bg-transparent! px-0! py-0! text-sm leading-6 focus:border-primary focus:bg-surface read-only:bg-transparent! read-only:text-heading!';
+
+// "위치"는 긴 주소가 들어오면(예: "충남 예산군 응봉면 예당관광...") 한 줄 입력으로는 잘려 보이므로,
+// 하자 유형(짧은 값 전제)과 달리 자동 줄바꿈되는 textarea를 쓴다.
+const INLINE_LOCATION_TEXTAREA_CLASSES =
+  'min-h-0 border-transparent! bg-transparent! px-0! py-0! text-left text-base! font-semibold leading-6 text-heading! focus:border-primary focus:bg-surface read-only:bg-transparent! read-only:text-heading!';
 
 interface DetailSectionProps {
   content: ReportContent;
   onChange: (next: ReportContent) => void;
   readOnly: boolean;
-  imageUrls?: Array<string | null | undefined>;
+  /**
+   * 하자 상세 항목과 **같은 순서·같은 개수**로 정렬된 사진 — `content.detail.items[i]`가
+   * `defectPhotos[i]`에 대응한다. 각 그룹은 그 사진의 하자를 모두 담되 해당 항목만 강조한다(#1333).
+   */
+  defectPhotos?: DefectPhotoGroup[];
 }
 
-function DefectImage({ src, alt }: { src?: string | null; alt: string }) {
-  const [failed, setFailed] = useState(false);
-
-  if (!src || failed) {
-    return (
-      <div className="flex h-full min-h-56 items-center justify-center bg-surface-sunken text-sm text-text-muted">
-        이미지 없음
-      </div>
-    );
-  }
-
+function DefectImagePlaceholder() {
   return (
-    <img
-      src={src}
-      alt={alt}
-      className="h-full min-h-56 w-full object-cover"
-      onError={() => setFailed(true)}
-    />
+    <div className="flex h-full min-h-56 items-center justify-center bg-surface-sunken text-sm text-text-muted">
+      이미지 없음
+    </div>
   );
 }
 
@@ -53,15 +54,15 @@ export function DetailSection({
   content,
   onChange,
   readOnly,
-  imageUrls = [],
+  defectPhotos = [],
 }: DetailSectionProps) {
   const [grade, setGrade] = useState<GradeFilter>('ALL');
   const [page, setPage] = useState(0);
-  const [visibleImageUrls, setVisibleImageUrls] = useState(imageUrls);
+  const [visiblePhotos, setVisiblePhotos] = useState(defectPhotos);
 
   useEffect(() => {
-    setVisibleImageUrls(imageUrls);
-  }, [imageUrls]);
+    setVisiblePhotos(defectPhotos);
+  }, [defectPhotos]);
 
   const items = content.detail.items;
   const indexedItems = items.map((item, index) => ({ item, index }));
@@ -101,8 +102,7 @@ export function DetailSection({
 
   return (
     <section className="flex flex-col gap-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-xl font-medium leading-7 text-heading">상세 내역</h2>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-end">
         <div className="inline-flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2.5">
             <span className="text-xs font-medium tracking-wide text-zinc-700">등급:</span>
@@ -186,7 +186,7 @@ export function DetailSection({
 
       {pageItems.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-text-muted">
-          해당 등급의 지적 내역이 없습니다.
+          해당 등급의 하자 내역이 없습니다.
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -197,11 +197,17 @@ export function DetailSection({
               className="rounded-lg border border-border bg-surface overflow-hidden"
             >
               <div className="grid gap-0 lg:grid-cols-[minmax(240px,325px)_minmax(200px,236px)_minmax(0,1fr)]">
-                <div className="relative min-h-72 overflow-hidden bg-surface-sunken">
-                  <DefectImage
-                    src={visibleImageUrls[index]}
-                    alt={`지적 ${index + 1} 현장 이미지`}
-                  />
+                <div className="relative flex min-h-72 items-center justify-center overflow-hidden bg-surface-sunken">
+                  {visiblePhotos[index] ? (
+                    <DefectPhoto
+                      group={visiblePhotos[index]}
+                      alt={`하자 ${index + 1} 현장 이미지`}
+                      imageClassName="max-h-[420px] w-auto max-w-full"
+                      fallback={<DefectImagePlaceholder />}
+                    />
+                  ) : (
+                    <DefectImagePlaceholder />
+                  )}
                   <div className="absolute left-4 top-4 inline-flex items-center gap-2 rounded-full bg-surface/90 px-3 py-1.5 text-xs font-semibold tracking-wide text-heading backdrop-blur-[10px]">
                     <span
                       className={`h-2 w-2 rounded-full ${
@@ -213,35 +219,35 @@ export function DetailSection({
                       }`}
                       aria-hidden="true"
                     />
-                    DEFECT #{String(index + 1).padStart(2, '0')}
+                    하자 #{String(index + 1).padStart(2, '0')}
                   </div>
                 </div>
 
                 <div className="grid min-w-0 content-start gap-5 border-t border-border px-8 py-8 lg:border-l lg:border-t-0">
                   <label className="flex min-w-0 flex-col gap-1">
-                      <span className="text-xs font-medium tracking-wide text-text-muted">지적 유형</span>
+                      <span className="text-xs font-medium tracking-wide text-text-muted">하자 유형</span>
                       <input
-                        aria-label={`지적 ${index + 1} 유형`}
+                        aria-label={`하자 ${index + 1} 유형`}
                         className={INLINE_INPUT_CLASSES}
                         value={item.defect_type}
                         disabled={readOnly}
                         onChange={(event) => updateItem(index, { defect_type: event.target.value })}
                       />
                   </label>
-                  <label className="flex min-w-0 flex-col gap-1">
-                      <span className="text-xs font-medium tracking-wide text-text-muted">위치</span>
-                      <input
-                        aria-label={`지적 ${index + 1} 위치`}
-                        className={INLINE_INPUT_CLASSES}
-                        value={item.location}
-                        disabled={readOnly}
-                        onChange={(event) => updateItem(index, { location: event.target.value })}
-                      />
-                  </label>
+                  <LabeledTextArea
+                    label="위치"
+                    labelClassName="text-text-muted"
+                    className="min-w-0"
+                    value={item.location}
+                    readOnly={readOnly}
+                    rows={1}
+                    textareaClassName={INLINE_LOCATION_TEXTAREA_CLASSES}
+                    onChange={(value) => updateItem(index, { location: value })}
+                  />
                   <label className="flex min-w-0 flex-col gap-2">
                       <span className="text-xs font-medium tracking-wide text-text-muted">등급</span>
                       <input
-                        aria-label={`지적 ${index + 1} 등급`}
+                        aria-label={`하자 ${index + 1} 등급`}
                         className="w-24 rounded-full px-3 py-1 text-center text-sm font-bold border-0 outline-none focus:ring-2 focus:ring-primary/10 disabled:cursor-not-allowed"
                         style={
                           GRADE_BADGE_STYLE[item.severity_grade]

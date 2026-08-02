@@ -2,6 +2,91 @@ import { api } from '../../../shared/api/axios';
 import type { PageResponse } from '../../../shared/api/types';
 import type { ReportFacilityOption, ReportListFilters, ReportListItem, ReportListSummary } from '../types';
 
+export interface ReportContext {
+  facility?: ReportFacilityContext | null;
+  inspection?: ReportInspectionContext | null;
+  company?: ReportCompanyContext | null;
+  assignedInspector?: ReportUserContext | null;
+  createdByUser?: ReportUserContext | null;
+  defects: ReportDefectContext[];
+  media: ReportMediaContext[];
+}
+
+export interface ReportFacilityContext {
+  id: number;
+  name: string;
+  type?: string | null;
+  address?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  builtYear?: number | null;
+  scale?: string | null;
+  inspectionCycleMonths?: number | null;
+  nextInspectionDueAt?: string | null;
+  initialGrade?: string | null;
+  assigneeUserId?: number | null;
+  memo?: string | null;
+  thumbnailUrl?: string | null;
+}
+
+export interface ReportInspectionContext {
+  id: number;
+  facilityId: number;
+  createdBy: number;
+  assignedInspectorId: number;
+  roundNo: number;
+  inspectionDate: string;
+  type: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface ReportCompanyContext {
+  id: number;
+  name: string;
+  representativeName?: string | null;
+  address?: string | null;
+  addressDetail?: string | null;
+}
+
+export interface ReportUserContext {
+  id: number;
+  name: string;
+  role?: string | null;
+}
+
+export interface ReportDefectContext {
+  id: number;
+  type: string;
+  typeLabel?: string | null;
+  grade?: string | null;
+  status: string;
+  location?: string | null;
+  confidence?: number | null;
+  mediaId?: number | null;
+  bboxX?: number | null;
+  bboxY?: number | null;
+  bboxW?: number | null;
+  bboxH?: number | null;
+  crackWidthMm?: number | null;
+  crackLengthMm?: number | null;
+  areaRatio?: number | null;
+  actionContent?: string | null;
+  actionDate?: string | null;
+  actionAssigneeId?: number | null;
+}
+
+export interface ReportMediaContext {
+  id: number;
+  inspectionId?: number | null;
+  facilityId?: number | null;
+  fileType?: string | null;
+  thumbnailUrl?: string | null;
+  detailUrl?: string | null;
+  originalFilename?: string | null;
+  capturedAt?: string | null;
+}
+
 export interface ReportDetailResponse {
   id: number;
   inspectionId: number;
@@ -16,6 +101,7 @@ export interface ReportDetailResponse {
   editedBy?: number | null;
   createdBy: number;
   createdAt: string;
+  context?: ReportContext | null;
 }
 
 export interface ReportSummaryResponse {

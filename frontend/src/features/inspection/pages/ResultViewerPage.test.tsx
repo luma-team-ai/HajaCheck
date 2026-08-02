@@ -228,6 +228,8 @@ function renderPage(path: string = '/inspections/1/viewer'): void {
       <MemoryRouter initialEntries={[path]}>
         <Routes>
           <Route path="/inspections/:id/viewer" element={<ResultViewerPage />} />
+          {/* '점검 요약' 클릭이 실제로 보고서 진입점으로 넘어가는지 확인하기 위한 착지 프로브(#1113) */}
+          <Route path="/inspections/:id/reports" element={<div>보고서 진입점 프로브</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -796,6 +798,30 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     const button = screen.getByRole('button', { name: '점검 요약' });
     expect(button.hasAttribute('disabled')).toBe(false);
+  });
+
+  it('하자 0건이어도 "점검 요약" 버튼이 활성화되고 보고서 진입점으로 이동한다 (#1113)', async () => {
+    // 하자 0건이면 reviewedCount·totalCount가 모두 0이라 "검수 미완료" 조건에 걸리지 않는다.
+    // 이 케이스는 페이지가 통째로 빈 화면으로 대체되던 동작을 고친 #1111의 핵심 — 문구 존재만
+    // 확인하는 기존 테스트로는 리팩터링이 조용히 되돌려도 잡히지 않아 버튼·이동까지 고정한다.
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: [] };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+    expect(screen.getByText('탐지된 하자가 없습니다.')).not.toBeNull();
+
+    const button = screen.getByRole('button', { name: '점검 요약' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+    // 비활성 사유 툴팁("n/m 하자 검수 확정 필요")이 남아 있으면 안 된다.
+    expect(button.getAttribute('title')).toBe('');
+
+    fireEvent.click(button);
+    expect(await screen.findByText('보고서 진입점 프로브')).not.toBeNull();
   });
 
   // 등급 수정 모달 테스트 (#827)

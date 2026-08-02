@@ -19,6 +19,9 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.LocalDate;
@@ -41,6 +44,8 @@ class FacilityComparisonServiceTest {
     @Mock
     private DefectRepository defectRepository;
     @Mock
+    private MediaRepository mediaRepository;
+    @Mock
     private CompanyScopeGuard companyScopeGuard;
 
     @InjectMocks
@@ -60,14 +65,21 @@ class FacilityComparisonServiceTest {
         return facility;
     }
 
+    // #1298 — compare()가 ANALYZED 이상 상태만 비교 대상으로 허용하도록 바뀌어, 이 파일의 기존
+    // 테스트(classify/KPI 로직 검증)가 전제하는 "이미 분석된 두 회차"를 기본값으로 맞춘다. 상태
+    // 필터링 자체를 검증하는 테스트만 inspectionWithStatus로 다른 상태를 명시한다.
     private Inspection inspection(Long inspectionId, int roundNo, LocalDate date) {
+        return inspectionWithStatus(inspectionId, roundNo, date, InspectionStatus.ANALYZED);
+    }
+
+    private Inspection inspectionWithStatus(Long inspectionId, int roundNo, LocalDate date, InspectionStatus status) {
         Inspection inspection = Inspection.builder()
                 .facilityId(FACILITY_ID)
                 .createdBy(USER_ID)
                 .assignedInspectorId(USER_ID)
                 .roundNo(roundNo)
                 .inspectionDate(date)
-                .status(InspectionStatus.CREATED)
+                .status(status)
                 .build();
         ReflectionTestUtils.setField(inspection, "id", inspectionId);
         return inspection;
@@ -86,6 +98,18 @@ class FacilityComparisonServiceTest {
                 .build();
         ReflectionTestUtils.setField(defect, "id", defectId);
         return defect;
+    }
+
+    private Media media(Long mediaId, Long inspectionId) {
+        Media media = Media.builder()
+                .inspectionId(inspectionId)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("orig/" + mediaId)
+                .mimeSignatureVerified(true)
+                .mimeType("image/jpeg")
+                .build();
+        ReflectionTestUtils.setField(media, "id", mediaId);
+        return media;
     }
 
     private void stubFacilityAndInspections(Inspection before, Inspection after) {
@@ -169,6 +193,45 @@ class FacilityComparisonServiceTest {
         assertThat(response.beforeCycle().cycle()).isEqualTo(2);
         assertThat(response.afterCycle().cycle()).isEqualTo(3);
         assertThat(response.availableCycles()).hasSize(3);
+    }
+
+    // #1298 — round_no가 가장 큰 회차가 아직 미분석(CREATED)이면 자동선택에서 건너뛰어야 한다.
+    // 안 그러면 그 회차엔 AI 분석 전이라 하자가 아직 없어, 상대 회차의 실제 하자가 전부
+    // "신규"로 오분류된다.
+    @Test
+    void compare_beforeAfter둘다null_미분석회차는자동선택에서제외된다() {
+        Inspection round1 = inspectionWithStatus(10L, 1, LocalDate.of(2026, 1, 1), InspectionStatus.ANALYZED);
+        Inspection round2 = inspectionWithStatus(11L, 2, LocalDate.of(2026, 2, 1), InspectionStatus.ANALYZED);
+        Inspection round3 = inspectionWithStatus(12L, 3, LocalDate.of(2026, 3, 1), InspectionStatus.CREATED);
+        when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
+        when(inspectionRepository.findByFacilityIdIn(List.of(FACILITY_ID)))
+                .thenReturn(List.of(round1, round2, round3));
+        when(inspectionRepository.findByFacilityIdAndRoundNo(FACILITY_ID, 1)).thenReturn(Optional.of(round1));
+        when(inspectionRepository.findByFacilityIdAndRoundNo(FACILITY_ID, 2)).thenReturn(Optional.of(round2));
+        when(defectRepository.findByInspectionIdAndNotDeleted(any())).thenReturn(List.of());
+
+        FacilityComparisonResponse response =
+                facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, null, null);
+
+        assertThat(response.beforeCycle().cycle()).isEqualTo(1);
+        assertThat(response.afterCycle().cycle()).isEqualTo(2);
+        assertThat(response.availableCycles()).extracting(FacilityComparisonResponse.CycleOption::cycle)
+                .containsExactly(1, 2);
+    }
+
+    // #1298 — availableCycles 필터를 우회해 미분석 회차를 직접 before/after로 지정해도 서버가
+    // 방어적으로 거부해야 한다(클라이언트 신뢰 불가).
+    @Test
+    void compare_명시적으로지정한회차가미분석_예외() {
+        Inspection before = inspectionWithStatus(10L, 1, LocalDate.of(2026, 1, 1), InspectionStatus.ANALYZED);
+        Inspection after = inspectionWithStatus(11L, 2, LocalDate.of(2026, 2, 1), InspectionStatus.CREATED);
+        when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
+        when(inspectionRepository.findByFacilityIdAndRoundNo(FACILITY_ID, 1)).thenReturn(Optional.of(before));
+        when(inspectionRepository.findByFacilityIdAndRoundNo(FACILITY_ID, 2)).thenReturn(Optional.of(after));
+
+        assertThatThrownBy(() -> facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, 1, 2))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INSPECTION_COMPARISON_ROUND_NOT_ANALYZED);
     }
 
     @Test
@@ -370,6 +433,46 @@ class FacilityComparisonServiceTest {
 
         assertThat(response.availableCycles()).extracting(FacilityComparisonResponse.CycleOption::cycle)
                 .containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void compare_두회차모두사진있으면_각회차첫사진detailUrl로채워진다() {
+        // HAJA-612/#1346 — "시각적 비교" 대표 사진은 그 회차의 첫 사진(id asc 첫 원소). 코드 리뷰 P2 —
+        // 전체 목록이 아니라 findFirstByInspectionIdOrderByIdAsc로 첫 1건만 조회하므로(대량 행 낭비
+        // 방지), 리포지토리가 이미 정렬된 첫 결과 하나만 돌려준다고 가정하고 스텁한다.
+        Inspection before = inspection(10L, 1, LocalDate.of(2026, 1, 1));
+        Inspection after = inspection(11L, 2, LocalDate.of(2026, 2, 1));
+        stubFacilityAndInspections(before, after);
+        when(defectRepository.findByInspectionIdAndNotDeleted(any())).thenReturn(List.of());
+
+        Media beforeFirst = media(500L, before.getId());
+        Media afterFirst = media(600L, after.getId());
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(before.getId()))
+                .thenReturn(Optional.of(beforeFirst));
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(after.getId()))
+                .thenReturn(Optional.of(afterFirst));
+
+        FacilityComparisonResponse response =
+                facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, 1, 2);
+
+        assertThat(response.beforeImageUrl()).isEqualTo("/api/media/500/detail");
+        assertThat(response.afterImageUrl()).isEqualTo("/api/media/600/detail");
+    }
+
+    @Test
+    void compare_사진없는회차는이미지URL이null이다() {
+        Inspection before = inspection(10L, 1, LocalDate.of(2026, 1, 1));
+        Inspection after = inspection(11L, 2, LocalDate.of(2026, 2, 1));
+        stubFacilityAndInspections(before, after);
+        when(defectRepository.findByInspectionIdAndNotDeleted(any())).thenReturn(List.of());
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(before.getId())).thenReturn(Optional.empty());
+        when(mediaRepository.findFirstByInspectionIdOrderByIdAsc(after.getId())).thenReturn(Optional.empty());
+
+        FacilityComparisonResponse response =
+                facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, 1, 2);
+
+        assertThat(response.beforeImageUrl()).isNull();
+        assertThat(response.afterImageUrl()).isNull();
     }
 
     private long kpiValue(FacilityComparisonResponse response, String key) {

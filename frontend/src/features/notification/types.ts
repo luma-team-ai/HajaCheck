@@ -13,8 +13,11 @@ export type NotificationCategory = '분석' | '검수' | '상담' | '점검일' 
 // GET /api/notifications 응답 1건 — NotificationResponse.java와 1:1.
 // type은 constants.ts의 NOTIFICATION_TYPE_META 4종을 우선 매핑 대상으로 삼되, BE enum이 FE보다 먼저
 // 확장될 수 있어(PR머신 P1) string으로 넓게 받는다 — getNotificationTypeMeta가 미지의 값을 폴백 처리한다.
-// payload는 타입별로 구조가 다른 자유 형식 jsonb(현재 BE에 생성 트리거가 없어 스키마 미확정)라
-// Record<string, unknown>으로만 받고, description 등 표시용 필드는 있으면 쓰고 없으면 생략한다.
+// payload는 타입별로 구조가 다른 자유 형식 jsonb라 Record<string, unknown>으로만 받고, description 등
+// 표시용 필드는 있으면 쓰고 없으면 생략한다. 타입별 실제 스키마는 각 BE *NotificationPayload 클래스가
+// 단일 진실(예: CounselReplyNotificationPayload/InspectionDueNotificationPayload/
+// InspectionAnalysisNotificationPayload) — 여기서 타입으로 강제하지 않고 constants.ts/
+// NotificationCenter.tsx의 resolveXxx 헬퍼가 런타임에 개별 가드한다.
 export interface NotificationApiItem {
   id: number;
   type: string;

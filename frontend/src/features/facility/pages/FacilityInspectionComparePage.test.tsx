@@ -62,18 +62,47 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getAllByRole('combobox')).toHaveLength(1);
   });
 
-  // PR머신 P2 회귀고정(#1275) — "이전 회차"보다 이르거나 같은 회차를 "현재 회차"로 고르면
-  // before>=after가 되어 서버가 400 INVALID_INPUT을 던진다. 선택지 자체에서 그런 회차가
-  // 빠져 있어야 한다(목 데이터: beforeCycle=7, availableCycles=[5,6,7,8,9] → 8·9만 남아야 함).
-  it('"현재 회차" 선택지에 이전 회차 이하 값이 포함되지 않는다(#1275)', async () => {
+  // #1291 회귀고정 — #1275 당시엔 "이전 회차"를 고정한 채 cycle > beforeCycle로만 필터링해
+  // 대부분 최신 1개 회차만 선택 가능했다(드롭박스가 사실상 무의미). "현재 회차"를 고르면
+  // "이전 회차"도 목록상 바로 직전 회차로 함께 재계산되므로(handleAfterCycleChange), 첫 회차
+  // (비교 대상 "이전"이 없는 회차)만 빼고 전체가 선택 가능해야 한다
+  // (목 데이터: availableCycles=[5,6,7,8,9] → 6·7·8·9 전부 남아야 함).
+  it('"현재 회차" 선택지에 첫 회차를 제외한 전체 회차가 나온다(#1291)', async () => {
     renderPage();
     await screen.findByText('회차 간 비교');
 
     const afterSelect = screen.getByLabelText('현재 회차') as HTMLSelectElement;
     const optionValues = Array.from(afterSelect.options).map((option) => Number(option.value));
 
-    expect(optionValues.every((cycle) => cycle > mockInspectionComparison.beforeCycle.cycle)).toBe(true);
-    expect(optionValues).not.toContain(mockInspectionComparison.beforeCycle.cycle);
+    const [firstCycle, ...restCycles] = mockInspectionComparison.availableCycles.map((option) => option.cycle);
+    expect(optionValues).toEqual(restCycles);
+    expect(optionValues).not.toContain(firstCycle);
+  });
+
+  // #1291 — "현재 회차"로 무엇을 고르든 "이전 회차"는 고정값이 아니라 목록상 바로 직전
+  // 회차로 재계산돼야 한다(예: 6을 고르면 이전 회차는 5). 이전엔 항상 서버 최초 응답의
+  // beforeCycle(7)로 고정 전송돼 이 케이스에서 실제로는 회차 5↔6 비교가 아니라 7↔6(=역전,
+  // 서버가 400) 요청이 나갔을 것이다.
+  it('"현재 회차"를 목록 중간 값으로 바꾸면 "이전 회차"도 바로 직전 회차로 재계산해 요청한다(#1291)', async () => {
+    const capturedSearches: string[] = [];
+    const captureRequest = ({ request }: { request: Request }) => {
+      capturedSearches.push(new URL(request.url).search);
+    };
+    server.events.on('request:match', captureRequest);
+
+    try {
+      renderPage();
+      await screen.findByText('회차 간 비교');
+
+      fireEvent.change(screen.getByLabelText('현재 회차'), { target: { value: '6' } });
+
+      await screen.findByText('회차 간 비교');
+      const lastSearch = capturedSearches[capturedSearches.length - 1];
+      expect(lastSearch).toContain('after=6');
+      expect(lastSearch).toContain('before=5');
+    } finally {
+      server.events.removeListener('request:match', captureRequest);
+    }
   });
 
   // #1157 회귀고정 — 과거엔 DEFAULT_BEFORE_CYCLE=7/DEFAULT_AFTER_CYCLE=8이 하드코딩돼 있어
@@ -113,7 +142,6 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
       renderPage();
       await screen.findByText('회차 간 비교');
 
-      // #1275 필터로 이전 회차(7) 이하는 선택지에서 빠지므로, 유효한 대안 회차(9)를 고른다.
       fireEvent.change(screen.getByLabelText('현재 회차'), { target: { value: '9' } });
 
       await screen.findByText('회차 간 비교');
@@ -136,20 +164,25 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getByText('등급 상승')).not.toBeNull();
   });
 
-  it('시각적 비교 패널과 진행성 균열 추이 차트를 렌더링한다', async () => {
+  // #1347 — "진행성 균열 추이" 차트는 제거했다(Defect.crackWidthMm를 채우는 경로가 없어 항상 빈 차트).
+  it('시각적 비교 패널을 렌더링하고 진행성 균열 추이 차트는 노출하지 않는다', async () => {
     renderPage();
 
     expect(await screen.findByText('시각적 비교')).not.toBeNull();
-    expect(screen.getByText('동일 촬영 지점 정렬됨', { exact: false })).not.toBeNull();
-    expect(screen.getByText('진행성 균열 추이')).not.toBeNull();
-    expect(screen.getByRole('img', { name: /균열 폭 추이/ })).not.toBeNull();
+    expect(screen.getByText('회차별 대표 사진', { exact: false })).not.toBeNull();
+    expect(screen.queryByText('진행성 균열 추이')).toBeNull();
+    expect(screen.queryByRole('img', { name: /균열 폭 추이/ })).toBeNull();
   });
 
-  it('하자 변화 목록 테이블에 위치·변화 배지를 렌더링한다', async () => {
+  // #1344 — 위치(Defect.location)가 비어 있는 하자가 많아 "null / 균열"이 그대로 노출되던 문제로
+  // 첫 컬럼을 "위치/유형" → "유형"으로 좁혔다. 위치 문자열은 더 이상 렌더링되지 않는다.
+  it('하자 변화 목록 테이블에 유형·변화 배지를 렌더링한다', async () => {
     renderPage();
 
     expect(await screen.findByText('하자 변화 목록')).not.toBeNull();
-    expect(screen.getByText('외벽 A구간 / 균열')).not.toBeNull();
+    expect(screen.getByText('유형')).not.toBeNull();
+    expect(screen.getByText('균열')).not.toBeNull();
+    expect(screen.queryByText(/외벽 A구간/)).toBeNull();
     expect(screen.getByText('악화')).not.toBeNull();
     expect(screen.getByText('신규')).not.toBeNull();
     expect(screen.getByText('유지')).not.toBeNull();
@@ -166,13 +199,13 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(exportComparisonReportAsPngMock.mock.calls[0][1]).toBe('1');
   });
 
-  // 회귀 고정 — 실 백엔드(HAJA-531/#1112)는 beforeImageUrl/afterImageUrl/crackTrend를 응답에서
-  // 아예 생략한다(null/undefined). 이 필드들을 필수로 선언했던 예전 타입 그대로 두면
-  // CrackTrendChart가 data.length에서 크래시하고 <img>는 깨진 아이콘만 보였다.
-  it('백엔드가 이미지/균열추이 필드를 생략해도(실 API 응답 형태) 크래시 없이 플레이스홀더를 보여준다', async () => {
+  // 회귀 고정 — 실 백엔드(HAJA-531/#1112)는 beforeImageUrl/afterImageUrl을 응답에서 아예 생략한다
+  // (null/undefined). 이 필드들을 필수로 선언했던 예전 타입 그대로 두면 <img>가 깨진 아이콘만 보였다.
+  // 채우는 작업은 #1346. (함께 생략되던 crackTrend는 #1347에서 화면 자체를 제거했다.)
+  it('백엔드가 이미지 필드를 생략해도(실 API 응답 형태) 크래시 없이 플레이스홀더를 보여준다', async () => {
     server.use(
       http.get('/api/facilities/:id/compare', () => {
-        const body: ApiResponse<Omit<InspectionComparisonResult, 'beforeImageUrl' | 'afterImageUrl' | 'crackTrend'>> = {
+        const body: ApiResponse<Omit<InspectionComparisonResult, 'beforeImageUrl' | 'afterImageUrl'>> = {
           success: true,
           data: {
             facilityId: mockInspectionComparison.facilityId,
@@ -192,6 +225,5 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
 
     expect(await screen.findByText('회차 간 비교')).not.toBeNull();
     expect(await screen.findAllByText('사진 없음')).toHaveLength(2);
-    expect(await screen.findByText('표시할 데이터가 없습니다.')).not.toBeNull();
   });
 });

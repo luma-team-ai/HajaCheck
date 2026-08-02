@@ -2,13 +2,21 @@
 @import 'tailwindcss';
 @import './tokens.css';
 
+@font-face {
+  font-family: 'Pretendard Variable';
+  font-style: normal;
+  font-weight: 45 920;
+  font-display: block;
+  src: url('../../node_modules/pretendard/dist/web/variable/woff2/PretendardVariable.woff2') format('woff2-variations');
+}
+
 * {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: 'Pretendard', -apple-system, sans-serif;
+  font-family: 'Pretendard Variable', -apple-system, sans-serif;
 }
 
 /* 사용자 목록 PDF 내보내기(관리자 > 사용자 관리) — 인쇄 시 사이드바·헤더·챗봇 버튼 등

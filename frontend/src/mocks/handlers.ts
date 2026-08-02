@@ -15,7 +15,7 @@ import { facilityMediaHandlers } from '../features/facility/api/facilityMediaApi
 import { inspectionHandlers } from '../features/inspection/api/inspectionApi.handlers';
 import { mediaHandlers } from '../features/inspection/api/mediaApi.handlers';
 import { menuHandlers } from '../features/menu/api/menuApi.handlers';
-import { mypageHandlers } from '../features/mypage/api/mypageApi.handlers';
+import { mypageHandlers, mypagePasswordChangeHandler } from '../features/mypage/api/mypageApi.handlers';
 import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
 import { monitoringHandlers } from '../features/platform-admin/api/monitoringApi.handlers';
 import { planPolicyHandlers } from '../features/platform-admin/api/planPolicyApi.handlers';
@@ -35,6 +35,13 @@ const effectiveAuthHandlers = getEffectiveAuthHandlers(import.meta.env, authHand
 // hybrid에서는 실 백엔드가 계약을 가진 보고서 요청을 MSW가 가로채지 않게 한다.
 // 백엔드 미구현 회사 목록/요약은 훅의 404 폴백으로 개발 화면을 유지한다.
 const effectiveReportHandlers = hybridMode ? [] : reportHandlers;
+// 비밀번호 변경(#1316, HAJA-602)은 BE #1315가 병렬로 실 구현 중이라, hybrid에서 이 엔드포인트 하나만
+// MSW가 가로채지 않게 한다(보안 리뷰 P2-3 — 안 그러면 실 백엔드가 붙은 dev에서도 PATCH가 목으로
+// 가로채져 "비밀번호가 안 바뀌었는데 200 성공"으로 보인다). 다른 mypage 엔드포인트(플랜/좌석/점검
+// 이력 등)는 아직 병렬 실구현이 없어 그대로 목을 유지한다.
+const effectiveMypageHandlers = hybridMode
+  ? mypageHandlers.filter((handler) => handler !== mypagePasswordChangeHandler)
+  : mypageHandlers;
 
 export const allMockHandlers = [
   ...effectiveAuthHandlers,
@@ -55,7 +62,7 @@ export const allMockHandlers = [
   ...defectHandlers,
   ...dashboardHandlers,
   ...menuHandlers,
-  ...mypageHandlers,
+  ...effectiveMypageHandlers,
   ...facilityHandlers,
   ...facilityMediaHandlers,
   ...facilityDefectHandlers,

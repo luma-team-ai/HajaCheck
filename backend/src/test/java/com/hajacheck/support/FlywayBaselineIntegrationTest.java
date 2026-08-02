@@ -4,10 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.repository.PlanRepository;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -84,7 +92,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V35까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_모든_마이그레이션이_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -134,16 +142,38 @@ class FlywayBaselineIntegrationTest {
         //   #1193이 dev에 머지되면서(2026-07-29) 해소돼 번호열이 V1…V32·V33으로 다시 연속이 됐다.
         // + V34(counsel_tickets.created_at 인덱스, #1168 — 플랫폼 관리자 상담 관리 페이지 날짜별 조회
         //   성능, PR머신 리뷰 P2 지적 반영).
-        // + V35(rag_documents.embedding_started_at 임베딩 시작 시각, #1393 — 인메모리 폴러 유실 시
-        //   EMBEDDING에 영구 고착되는 문서를 RagEmbeddingStaleReconciler가 판정하는 기준, 리뷰 P1).
-        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V35(4개) = 35이다.
-        assertThat(appliedMigrations).isEqualTo(35);
+        // + V35(menus·menu_role_access·menu_node_type 복구, #1308 — prod가 V1 baseline을 스탬프만 해
+        //   V1 정의 객체 3종이 실물로 없던 격차를 forward 로 메운다. 빈 DB 경로에서는 V1이 이미
+        //   만들었으므로 IF NOT EXISTS 가드로 no-op 이고, 메뉴 시드만 추가된다).
+        // + V36(Flyway 이전 수동 증분 SQL 중 prod 미반영분 반영, #1311 — HAJA-25 finalize 의 부분 UNIQUE
+        //   3종·assigned_inspector FK·updated_at 트리거 3종·citations NOT NULL 과 AP-020 알림 이력 인덱스,
+        //   + V35 가 빠뜨린 idx_menus_parent. 빈 DB 경로에서는 V1 이 이미 만들어 no-op 이다).
+        // + V37(usage_counters.lock_version orphan 컬럼 제거, #1325 — prod 에만 남은 pre-Flyway
+        //   Hibernate 잔재가 NOT NULL·DEFAULT 없음이라 쿼터 소비 경로의 INSERT 를 전부 막았다.
+        //   빈 DB 경로에는 컬럼이 애초에 없으므로 IF EXISTS 가드로 no-op 이다).
+        // + V38(기존 기업 소급 자동승인 + 오너 멤버십 소급 발급, #1324 — 가입 즉시 자동승인 배선에 맞춰
+        //   PENDING_REVIEW 로 묶여 있던 기존 회사를 APPROVED·VERIFIED 로 올리고 누락된 오너 멤버십을
+        //   발급한다. 스키마 변경이 없는 데이터 전이라 빈 DB 경로에서는 companies 0행이라 no-op 이다.
+        //   착수 시 V37 이었으나 핫픽스 #1326 이 그 번호를 선점해 V38 로 재번호했다).
+        //
+        // ⚠️ 기대 개수를 하드코딩하지 않는다 — 예전에는 상수(36·37…)를 박아 두어 마이그레이션이 하나
+        // 늘 때마다, 그리고 번호를 선점당해 재번호할 때마다 이 단언이 무관한 이유로 깨졌다(신호 없는
+        // 실패 → 상수만 올리는 습관 → 정작 "적용 누락"은 못 잡음). 여기서 고정할 계약은 "그 수가
+        // 몇이냐"가 아니라 **디렉터리의 모든 마이그레이션이 빈 DB 에서 하나도 빠짐없이 성공 적용됐는가**다.
+        // 그래서 classpath 의 실제 V*.sql 목록과 대조한다(FlywayMigrationVersionSequenceTest 가 그
+        // 목록의 번호 연속성을 별도로 고정하므로 둘이 합쳐 "결번 없음 + 전량 적용"이 된다).
+        List<Integer> migrationVersions = migrationFileVersions();
+        assertThat(appliedMigrations)
+                .as("빈 DB 에서 db/migration 의 모든 마이그레이션(%d개)이 성공 적용돼야 한다: %s",
+                        migrationVersions.size(), migrationVersions)
+                .isEqualTo(migrationVersions.size());
 
-        // 최신 적용 버전이 실제로 V35 인지 확인.
+        // 최신 적용 버전이 디렉터리의 최대 번호인지 확인(중간에서 멈추지 않았는지).
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("35");
+        assertThat(latestVersion)
+                .isEqualTo(String.valueOf(migrationVersions.get(migrationVersions.size() - 1)));
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -485,7 +515,42 @@ class FlywayBaselineIntegrationTest {
                 """, Long.class);
         assertThat(counselTicketsCreatedAtIndex).isEqualTo(1L);
 
-        // V35가 rag_documents.embedding_started_at 컬럼을 실제로 추가했는지 확인한다(#1393 리뷰 P1 —
+        // V36(#1311)이 Flyway 이전 수동 증분(HAJA-25 finalize·AP-020)의 prod 누락분을 실제로 반영했는지
+        // 확인한다. 빈 DB 경로에서는 V1이 이미 만들어 둔 것이라 V36은 no-op 이지만, 최종 상태 계약은
+        // 두 경로가 같아야 한다 — 여기서 그 최종 상태를 고정한다.
+        Long ha25FinalizeIndexes = jdbcTemplate.queryForObject("""
+                select count(*) from pg_indexes
+                where schemaname = 'public'
+                  and indexname in ('uq_user_plans_active_user', 'uq_user_plans_active_company',
+                                    'uq_counsel_tickets_session', 'idx_notifications_user_history',
+                                    'idx_menus_parent')
+                """, Long.class);
+        assertThat(ha25FinalizeIndexes).isEqualTo(5L);
+
+        Long updatedAtTriggers = jdbcTemplate.queryForObject("""
+                select count(*) from pg_trigger
+                where not tgisinternal
+                  and tgname in ('trg_users_set_updated_at', 'trg_companies_set_updated_at',
+                                 'trg_facilities_set_updated_at')
+                """, Long.class);
+        assertThat(updatedAtTriggers).isEqualTo(3L);
+
+        Long assignedInspectorFk = jdbcTemplate.queryForObject("""
+                select count(*) from pg_constraint
+                where conname = 'fk_inspections_assigned_inspector'
+                  and conrelid = 'public.inspections'::regclass
+                  and contype = 'f' and convalidated
+                """, Long.class);
+        assertThat(assignedInspectorFk).isEqualTo(1L);
+
+        Long citationSnippetNotNull = jdbcTemplate.queryForObject("""
+                select count(*) from pg_attribute
+                where attrelid = 'public.chat_message_citations'::regclass
+                  and attname = 'snippet' and not attisdropped and attnotnull
+                """, Long.class);
+        assertThat(citationSnippetNotNull).isEqualTo(1L);
+
+        // V39가 rag_documents.embedding_started_at 컬럼을 실제로 추가했는지 확인한다(#1393 리뷰 P1 —
         // 이 컬럼이 없으면 EMBEDDING 고착 문서를 판정할 기준 시각이 없어 영구 고착된다).
         Long embeddingStartedAtColumn = jdbcTemplate.queryForObject("""
                 select count(*) from information_schema.columns
@@ -493,5 +558,35 @@ class FlywayBaselineIntegrationTest {
                   and column_name = 'embedding_started_at'
                 """, Long.class);
         assertThat(embeddingStartedAtColumn).isEqualTo(1L);
+    }
+
+    /**
+     * classpath({@code db/migration})의 실제 마이그레이션 번호를 오름차순으로 읽는다 —
+     * 기대 개수를 상수로 박지 않기 위한 단일 진실 소스.
+     */
+    private static List<Integer> migrationFileVersions() {
+        Pattern versioned = Pattern.compile("^V(\\d+)__.+\\.sql$");
+        try {
+            Resource[] resources = new PathMatchingResourcePatternResolver()
+                    .getResources("classpath*:db/migration/V*__*.sql");
+            List<Integer> versions = new ArrayList<>();
+            for (Resource resource : resources) {
+                String filename = resource.getFilename();
+                if (filename == null) {
+                    continue;
+                }
+                Matcher matcher = versioned.matcher(filename);
+                if (matcher.matches()) {
+                    versions.add(Integer.parseInt(matcher.group(1)));
+                }
+            }
+            Collections.sort(versions);
+            assertThat(versions)
+                    .as("classpath 에서 마이그레이션 파일을 하나도 찾지 못했다 — 경로 패턴을 확인할 것")
+                    .isNotEmpty();
+            return versions;
+        } catch (IOException e) {
+            throw new UncheckedIOException("db/migration 목록을 읽지 못했다", e);
+        }
     }
 }

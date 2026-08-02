@@ -167,4 +167,52 @@ describe('FacilityPhotoUploadField', () => {
     expect(() => fireEvent.change(input, { target: { files: [makeImageFile('a.png')] } })).not.toThrow();
     expect(screen.getByAltText('a.png')).not.toBeNull();
   });
+
+  // #1286 — 대표사진 선택: 백엔드/DB 변경 없이 "업로드 배열 맨 앞으로 재정렬"만으로 카드 목록
+  // 썸네일에 반영시키는 설계라, onFilesChange가 실제로 재정렬된 배열을 내보내는지가 핵심 계약이다.
+  it('사진을 추가하면 첫 번째 사진이 기본 대표로 표시되고 순서 그대로 onFilesChange에 전달된다(#1286)', () => {
+    const handleFilesChange = vi.fn();
+    render(<FacilityPhotoUploadField onFilesChange={handleFilesChange} />);
+
+    const input = screen.getByLabelText('대표 사진 업로드');
+    const fileA = makeImageFile('a.png');
+    const fileB = makeImageFile('b.png');
+    fireEvent.change(input, { target: { files: [fileA, fileB] } });
+
+    expect(screen.getByRole('button', { name: 'a.png은 대표 사진입니다' })).not.toBeNull();
+    expect(handleFilesChange).toHaveBeenLastCalledWith([fileA, fileB]);
+  });
+
+  it('두 번째 사진을 대표로 지정하면 onFilesChange에 그 사진이 맨 앞으로 재정렬돼 전달된다(#1286)', () => {
+    const handleFilesChange = vi.fn();
+    render(<FacilityPhotoUploadField onFilesChange={handleFilesChange} />);
+
+    const input = screen.getByLabelText('대표 사진 업로드');
+    const fileA = makeImageFile('a.png');
+    const fileB = makeImageFile('b.png');
+    fireEvent.change(input, { target: { files: [fileA, fileB] } });
+    handleFilesChange.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'b.png을 대표 사진으로 설정' }));
+
+    expect(screen.getByRole('button', { name: 'b.png은 대표 사진입니다' })).not.toBeNull();
+    expect(handleFilesChange).toHaveBeenLastCalledWith([fileB, fileA]);
+  });
+
+  it('대표로 지정한 사진을 제거하면 남은 사진 중 첫 번째가 자동으로 대표가 된다(#1286)', () => {
+    const handleFilesChange = vi.fn();
+    render(<FacilityPhotoUploadField onFilesChange={handleFilesChange} />);
+
+    const input = screen.getByLabelText('대표 사진 업로드');
+    const fileA = makeImageFile('a.png');
+    const fileB = makeImageFile('b.png');
+    fireEvent.change(input, { target: { files: [fileA, fileB] } });
+    fireEvent.click(screen.getByRole('button', { name: 'b.png을 대표 사진으로 설정' }));
+    handleFilesChange.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'b.png 제거' }));
+
+    expect(screen.getByRole('button', { name: 'a.png은 대표 사진입니다' })).not.toBeNull();
+    expect(handleFilesChange).toHaveBeenLastCalledWith([fileA]);
+  });
 });

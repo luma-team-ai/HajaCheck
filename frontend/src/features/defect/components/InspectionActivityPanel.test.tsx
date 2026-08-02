@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-// InspectionActivityPanel 단위 테스트 — 활동 항목이 많을 때 처음 5건만 보여주고 "더보기" 클릭 시
-// 나머지를 클라이언트 사이드로 펼치는 동작(Figma 정렬, #937)을 검증한다.
+// InspectionActivityPanel 단위 테스트 — 활동 항목이 많아도 전체를 렌더링하고 목록 영역에서
+// 스크롤하는 동작을 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, render, screen, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -22,7 +22,7 @@ function makeRevision(id: number, minute: number): DefectRevision {
   };
 }
 
-// 하자 3건 x 각 3건 활동 = 총 9건(초기 5건 노출 기준을 넘겨 "더보기" 동작을 확인하기 위함).
+// 하자 3건 x 각 3건 활동 = 총 9건(스크롤이 필요한 긴 목록을 확인하기 위함).
 const defects: Defect[] = [1, 2, 3].map((id) => ({
   id,
   inspectionId: 101,
@@ -79,14 +79,15 @@ function renderPanel() {
   );
 }
 
-describe('InspectionActivityPanel — 더보기', () => {
-  it('활동 항목이 5건을 넘으면 처음 5건만 보여주고 더보기 버튼을 표시한다', async () => {
+describe('InspectionActivityPanel — 스크롤 목록', () => {
+  it('활동 항목을 모두 렌더링하고 더보기 버튼 대신 스크롤 목록을 표시한다', async () => {
     renderPanel();
 
     const panel = screen.getByLabelText('점검 활동 기록');
     const list = await within(panel).findByRole('list');
-    expect(within(list).getAllByRole('listitem')).toHaveLength(5);
-    expect(within(panel).getByRole('button', { name: '더보기 (4)' })).not.toBeNull();
+    expect(within(list).getAllByRole('listitem')).toHaveLength(9);
+    expect(list.className).toContain('inspection-activity-panel__list');
+    expect(within(panel).queryByRole('button', { name: /더보기/ })).toBeNull();
   });
 
   it('상태 변경 항목에 하자 상세 모달과 같은 색상 상태 배지를 표시한다', async () => {
@@ -98,18 +99,11 @@ describe('InspectionActivityPanel — 더보기', () => {
     expect(badge.className).toContain('defect-activity-status-badge');
     expect(badge.className).toContain('bg-orange-50');
     expect(badge.className).toContain('text-orange-500');
+    const time = badge.closest('li')?.querySelector('time');
+    const defectCode = badge.closest('li')?.querySelector('.inspection-activity-panel__code');
+    expect(time).not.toBeNull();
+    expect(defectCode?.nextElementSibling).toBe(time);
+    expect(time?.parentElement?.nextElementSibling).toBe(badge);
   });
 
-  it('더보기를 클릭하면 남은 항목이 모두 펼쳐지고 버튼이 사라진다', async () => {
-    renderPanel();
-
-    const panel = screen.getByLabelText('점검 활동 기록');
-    await within(panel).findByRole('list');
-
-    fireEvent.click(within(panel).getByRole('button', { name: '더보기 (4)' }));
-
-    const list = within(panel).getByRole('list');
-    expect(within(list).getAllByRole('listitem')).toHaveLength(9);
-    expect(within(panel).queryByRole('button', { name: /더보기/ })).toBeNull();
-  });
 });

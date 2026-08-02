@@ -6,6 +6,7 @@ import type {
   MyInspectionsSummary,
   MyPlan,
   MyReportCard,
+  PasswordChangeRequest,
   PaymentHistoryItem,
   PlanName,
   PlanOrder,
@@ -33,4 +34,10 @@ export const mypageApi = {
     api.get<PageResponse<InspectionHistoryRow>>('/me/inspections', { params }),
   getReports: (period: PeriodFilterValue) =>
     api.get<MyReportCard[]>('/me/reports', { params: { period } }),
+  // 비밀번호 변경(#1316, HAJA-602) — 계정 자체 엔드포인트라 다른 /me/* 마이페이지 API와 달리
+  // authApi.getMe와 같은 /users/me 경로군을 쓴다(handoff §계약). 401은 "세션 만료"가 아니라
+  // "현재 비밀번호 불일치"를 뜻하므로 axios 전역 401 하드 리다이렉트(shared/api/axios.ts)를
+  // 우회해야 한다 — skipAuthRedirect:true로 getMe와 동일하게 처리한다.
+  changePassword: (body: PasswordChangeRequest) =>
+    api.patch<null>('/users/me/password', body, { skipAuthRedirect: true }),
 };

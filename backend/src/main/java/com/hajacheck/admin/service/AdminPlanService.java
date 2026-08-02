@@ -59,10 +59,14 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>인가</b>: ADMIN role 자체는 SecurityConfig 의 URL 매처("/api/admin/**" → hasRole(ADMIN))가 필터
  * 단계에서 강제한다(프론트 가드는 UX 용, 백엔드가 최종 방어선). 이 서비스는 그 위에 <b>회사 스코프</b>를 얹는다:
  * companyId 가 없으면(개인 회원 등) FORBIDDEN. (#887) 원래는 그 회사에 유효한 승인 {@code CompanyMembership}
- * 이 없으면(§2.6 "미승인 멤버십은 상속 대상 아님") 추가로 PLAN_NOT_FOUND 를 던졌으나, 실제 가입 경로
+ * 이 없으면(§2.6 "미승인 멤버십은 상속 대상 아님") 추가로 PLAN_NOT_FOUND 를 던졌으나, 당시 가입 경로
  * ({@code CompanyAccountWriter.createAccount()})가 멤버십 행을 만들지 않아 모든 기업 관리자가 이 화면에서
  * 그 예외를 그대로 맞는 결손이 있었다 — 정식 승인 플로우 배선(#363)까지는 users.company_id 만으로 회사
  * 스코프를 인정하는 방어적 완화를 적용한다({@link #resolveInheritedCompanyId} 참고).
+ *
+ * <p>(#1324 이후) 가입 경로는 이제 오너 APPROVED 멤버십을 발급하고 기존 회사도 V38 로 소급 발급됐다 —
+ * 완화의 원인은 해소됐지만 게이트 복원 자체는 #363 범위로 남긴다(여기서 조이면 멤버십 없는 잔여 계정이
+ * 즉시 404 가 되므로 별도 사이클에서 실측 후 처리).
  *
  * <p><b>플랜 변경 이력</b>: table_design.md §user_plans 가 규정한 대로 "기존 ACTIVE 를 EXPIRED 로 내리고 신규를
  * ACTIVE 로 올리는" 단일 트랜잭션 전이로 처리한다 — user_plans 행 자체가 "언제·어느 요금제에서·어느 요금제로"의
@@ -488,12 +492,15 @@ public class AdminPlanService {
     // 요청 관리자의 회사를 확정한다. companyId 없음(개인 회원 등) = 회사 관리 대상 아님(FORBIDDEN).
     //
     // (#887) 원래는 여기서 유효 승인 CompanyMembership 을 추가로 요구했다(§2.6 "미승인 멤버십은 상속
-    // 대상 아님"). 그런데 실제 가입 경로(CompanyAccountWriter.createAccount())는 가입 시 멤버십 행을
-    // 아예 만들지 않고 users.company_id 만 채우므로, 그 게이트를 유지하면 dev 의 모든 기업 관리자가
-    // 이 화면에서 PLAN_NOT_FOUND(404) 를 그대로 맞는다. 정식 해결(가입 시 PENDING 멤버십 생성 + 승인
-    // 엔드포인트 배선)은 #363 에서 별도 Critical 사이클로 처리하고, 그 전까지는 users.company_id 만으로
-    // 회사 스코프를 인정한다 — "활성 플랜 없음"은 resolveCurrentCompanyPlan/getPlanQuota 가 이미 별도로
-    // (PLAN_NOT_FOUND 또는 null 값) 처리하므로 여기서 미승인 멤버십과 混同될 일은 없다.
+    // 대상 아님"). 그런데 당시 가입 경로(CompanyAccountWriter.createAccount())는 가입 시 멤버십 행을
+    // 아예 만들지 않고 users.company_id 만 채웠으므로, 그 게이트를 유지하면 dev 의 모든 기업 관리자가
+    // 이 화면에서 PLAN_NOT_FOUND(404) 를 그대로 맞았다. 정식 해결(승인 엔드포인트 배선)은 #363 에서
+    // 별도 Critical 사이클로 처리하고, 그 전까지는 users.company_id 만으로 회사 스코프를 인정한다 —
+    // "활성 플랜 없음"은 resolveCurrentCompanyPlan/getPlanQuota 가 이미 별도로 (PLAN_NOT_FOUND 또는
+    // null 값) 처리하므로 여기서 미승인 멤버십과 混同될 일은 없다.
+    //
+    // (#1324) 가입 시 오너 APPROVED 멤버십이 발급되고 기존 회사도 V38 로 소급 발급됐다 — 완화의 원인은
+    // 사라졌으나 게이트 복원은 #363 범위로 유지한다(잔여 무멤버십 계정 실측이 선행돼야 한다).
     private Long resolveInheritedCompanyId(Long adminUserId) {
         User admin = userRepository.findById(adminUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));

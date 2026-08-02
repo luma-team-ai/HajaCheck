@@ -42,6 +42,12 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     @Query("select coalesce(max(i.roundNo), 0) from Inspection i where i.facilityId = :facilityId")
     int findMaxRoundNoByFacilityId(@Param("facilityId") Long facilityId);
 
+    // #1291 — roundNo는 항상 생성 순서(max+1)로 채번돼 점검일과 독립적이라, 새 회차의 점검일이
+    // 기존 최신 회차보다 앞서도 막히지 않았다(회차 간 비교·추이 차트가 전부 회차 번호 오름차순=
+    // 시간 순서로 가정해 깨짐). 생성 시 검증용 — 회차가 하나도 없으면 empty.
+    @Query("select max(i.inspectionDate) from Inspection i where i.facilityId = :facilityId")
+    Optional<LocalDate> findMaxInspectionDateByFacilityId(@Param("facilityId") Long facilityId);
+
     // 회차 간 비교(HAJA-531/#1112) — 시설물 1건의 특정 회차 단건 조회.
     Optional<Inspection> findByFacilityIdAndRoundNo(Long facilityId, Integer roundNo);
 

@@ -4,7 +4,6 @@ import { Button } from '../../../shared/components/Button';
 import '../../../shared/styles/layout.css';
 import { ComparisonKpiCard } from '../components/ComparisonKpiCard';
 import { ComparisonVisualPanel } from '../components/ComparisonVisualPanel';
-import { CrackTrendChart } from '../components/CrackTrendChart';
 import { DefectChangeTable } from '../components/DefectChangeTable';
 import { InspectionCycleSelect } from '../components/InspectionCycleSelect';
 import { exportComparisonReportAsPng } from '../utils/exportComparisonReportAsPng';
@@ -62,17 +61,22 @@ export function FacilityInspectionComparePage() {
   const displayedBeforeCycle = beforeCycle ?? data.beforeCycle.cycle;
   const displayedAfterCycle = afterCycle ?? data.afterCycle.cycle;
 
-  // PR머신 P2(#1275) — "이전 회차"보다 이르거나 같은 회차를 "현재 회차"로 고르면
-  // before>=after가 되어 서버가 400 INVALID_INPUT을 던진다(자기 자신과 비교하거나 시간
-  // 역전 비교는 의미가 없다). 선택지 자체에서 그런 회차를 빼서 애초에 고를 수 없게 한다.
-  const afterCycleOptions = data.availableCycles.filter((option) => option.cycle > displayedBeforeCycle);
+  // #1291 — "이전 회차"를 서버가 처음 고른 값에 고정한 채 cycle > displayedBeforeCycle로만
+  // 필터링하면(PR머신 P2/#1275 당시 방식), 대부분 최신 1개 회차만 남아 드롭박스가 사실상
+  // 무의미해진다("이전 회차"가 통상 최신-1회차라서). data.availableCycles는 서버가 cycle
+  // 오름차순으로 정렬해 내려준다(FacilityComparisonService.compare) — 첫 회차는 비교 대상
+  // "이전"이 없어 선택지에서만 제외하고, 나머지는 전부 선택 가능하게 한다.
+  const afterCycleOptions = data.availableCycles.slice(1);
 
-  // "현재 회차"만 선택 가능하므로, 사용자가 바꿀 때 "이전 회차"도 현재 표시값으로 함께
-  // 명시해서 보낸다 — 그러지 않으면 beforeRound가 undefined로 남아 서버가 "둘 다 생략"으로
-  // 오인해 방금 고른 afterCycle까지 자동 대체로 덮어써 버린다(#1157 이전 P1과 동일한 함정).
+  // "현재 회차"를 고르면 "이전 회차"는 고정값이 아니라 목록상 바로 직전 회차로 다시 계산해
+  // 함께 보낸다 — before>=after 조합 자체가 생길 수 없어(afterCycleOptions가 이미 첫 회차를
+  // 제외했으므로 previous는 항상 존재) #1275류 400 INVALID_INPUT을 재현하지 않으면서도 전체
+  // 회차를 선택지로 남길 수 있다.
   const handleAfterCycleChange = (cycle: number) => {
+    const index = data.availableCycles.findIndex((option) => option.cycle === cycle);
+    const previousCycle = index > 0 ? data.availableCycles[index - 1].cycle : displayedBeforeCycle;
     setAfterCycle(cycle);
-    setBeforeCycle(displayedBeforeCycle);
+    setBeforeCycle(previousCycle);
   };
 
   return (
@@ -119,19 +123,17 @@ export function FacilityInspectionComparePage() {
         ))}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+      {/* #1347 — 우측에 있던 "진행성 균열 추이" 차트를 제거했다. 차트가 쓰는 Defect.crackWidthMm는
+          값을 채우는 프로덕션 경로가 전혀 없어(AI 탐지 응답 DTO에 크랙 폭 필드 부재, 저장 로직 없음)
+          항상 빈 차트만 노출됐다. 실데이터 확보는 AI 파이프라인 스키마 확장이 선행돼야 한다(#1346 조사).
+          이제 "시각적 비교"가 이 행을 단독으로 쓰되, 사진 2장이 과도하게 커지지 않도록 폭을 제한한다. */}
+      <div className="w-full lg:max-w-4xl">
         <ComparisonVisualPanel
           beforeCycle={data.beforeCycle}
           afterCycle={data.afterCycle}
           beforeImageUrl={data.beforeImageUrl}
           afterImageUrl={data.afterImageUrl}
         />
-        <div className="flex flex-col gap-3">
-          <h2 className="m-0 text-base font-bold text-heading">진행성 균열 추이</h2>
-          {/* 실 백엔드(HAJA-531/#1112)는 crackTrend를 응답에서 생략한다(null/undefined) — LineChart가
-              data.length에 바로 접근해 크래시하므로 빈 배열로 방어한다(react-reviewer 발견, 즉시 수정). */}
-          <CrackTrendChart data={data.crackTrend ?? []} />
-        </div>
       </div>
 
       <div className="flex flex-col gap-3">

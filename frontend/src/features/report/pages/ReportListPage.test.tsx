@@ -121,11 +121,12 @@ describe('ReportListPage', () => {
 
     const firstRow = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(within(firstRow).getByRole('checkbox', { name: `${REPORT_101_TITLE} 선택` }));
-    expect(screen.getByRole('button', { name: /내보내기\(일괄\)/ }).textContent).toContain('(1)');
+    expect(screen.getByText('다운로드는 완료된 PDF만 가능합니다. 편집 중인 보고서는 발행을 완료한 뒤 PDF 일괄 다운로드 대상에 포함됩니다.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /PDF 일괄 다운로드/ }).textContent).toContain('(1)');
 
     fireEvent.click(screen.getByRole('button', { name: '다음 페이지' }));
     expect(await screen.findByText(/\[26-03\] 수원 스마트팩토리/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /내보내기\(일괄\)/ }).textContent).toContain('(1)');
+    expect(screen.getByRole('button', { name: /PDF 일괄 다운로드/ }).textContent).toContain('(1)');
   });
 
   // NOTES.md §2.2 "[WHEN: 보고서 목록/이력 관리 개발 시] MUST: 행 클릭 시 변경 이력 플라이아웃" —
@@ -134,8 +135,8 @@ describe('ReportListPage', () => {
     renderPage();
 
     expect(
-      screen.getByText('행의 ⋮ 메뉴에서 "변경 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.'),
-    ).toBeTruthy();
+      screen.queryByText('행의 ⋮ 메뉴에서 "변경 이력"을 선택하면 여기에 보고서 버전 목록이 표시됩니다.'),
+    ).toBeNull();
 
     const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
     fireEvent.click(row);
@@ -198,10 +199,6 @@ describe('ReportListPage', () => {
           },
         });
       }),
-      http.get('/api/inspections/3/defects', () => {
-        calls.push('defects');
-        return HttpResponse.json({ success: true, data: [] });
-      }),
       http.post('/api/reports/103/pdf', () => {
         calls.push('upload');
         return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/103/pdf/generated.pdf' } });
@@ -233,7 +230,7 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
-    await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'defects', 'upload', 'finalize']));
+    await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'upload', 'finalize']));
   });
 
   it('DRAFT 행 제출 시 대표 사진 제외 옵션이면 PDF에 하자 이미지를 넣지 않는다', async () => {
@@ -495,5 +492,51 @@ describe('ReportListPage', () => {
 
     expect(await screen.findByText('변경 이력')).toBeTruthy();
     expect(await screen.findByText(/알 수 없음/)).toBeTruthy();
+  });
+
+  it('변경 이력 비교 결과는 패널 내부가 아니라 공용 모달로 열고 내부 key를 한글 라벨로 표시한다', async () => {
+    server.use(
+      http.get('/api/reports/:id', ({ params }) => {
+        const id = Number(params.id);
+        return HttpResponse.json({
+          success: true,
+          data: {
+            id,
+            inspectionId: 1,
+            version: id === 102 ? 2 : 3,
+            status: 'FINALIZED',
+            groundingCheckPassed: true,
+            pdfUrl: `/api/reports/${id}/pdf/storage-key`,
+            content: {
+              ...reportContent,
+              overview: {
+                ...reportContent.overview,
+                facility_summary: id === 102 ? '이전 시설물 개요' : '현재 시설물 개요',
+              },
+            },
+            createdBy: 1,
+            createdAt: '2026-07-24T14:30:00',
+          },
+        });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '변경 이력' }));
+    const historyPanel = await screen.findByText('변경 이력');
+    const panelRoot = historyPanel.closest('.w-72') as HTMLElement;
+
+    const compareButtons = await screen.findAllByRole<HTMLButtonElement>('button', { name: '비교' });
+    fireEvent.click(compareButtons.find((button) => !button.disabled)!);
+
+    const dialog = await screen.findByRole('dialog', { name: '현재 버전 ↔ v2' });
+    expect(within(dialog).getByText('기본현황 > 시설물 개요')).toBeTruthy();
+    expect(within(dialog).getByText('현재 시설물 개요')).toBeTruthy();
+    expect(within(dialog).getByText('이전 시설물 개요')).toBeTruthy();
+    expect(within(dialog).queryByText('overview.facility_summary')).toBeNull();
+    expect(within(panelRoot).queryByLabelText('보고서 버전 비교 결과')).toBeNull();
   });
 });

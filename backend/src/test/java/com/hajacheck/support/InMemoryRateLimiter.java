@@ -45,7 +45,16 @@ public class InMemoryRateLimiter implements RateLimiter {
         return current.count <= limit;
     }
 
-    /** 테스트 간 상태 격리용. */
+    /**
+     * 특정 키의 카운터만 비운다(RedisRateLimiter 의 DEL 과 동일 의미) — 다음 tryAcquire 가 새 창을 연다.
+     * 비밀번호 변경 성공 시 한도 해제(#1315)가 이 경로를 쓴다.
+     */
+    @Override
+    public synchronized void reset(String key) {
+        windows.remove(key);
+    }
+
+    /** 테스트 간 상태 격리용 — 전체 비우기(인터페이스에 없는 fake 전용 메서드). */
     public void reset() {
         windows.clear();
     }
