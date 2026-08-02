@@ -19,9 +19,10 @@ services:
       SPRING_PROFILES_ACTIVE: prod
       # 운영(VM)은 내부키 강제 — arm1과 동일 패턴(fail-open 방지, 동일 ${AI_INTERNAL_KEY} 소스)
       AI_SERVER_INTERNAL_KEY: ${AI_INTERNAL_KEY:?AI_INTERNAL_KEY가 .env에 설정되어야 합니다}
-      # 국세청 사업자 진위확인(#596) serviceKey — spring bizverify가 읽음. fail-open이라 미설정 시
-      # 진위확인 SKIP(가입은 됨). :- 소프트 — 이 키는 기동을 막지 않는다.
-      BUSINESS_REGISTRATION_API_KEY: ${BUSINESS_REGISTRATION_API_KEY:-}
+      # 국세청 사업자 진위확인(#596) serviceKey — spring bizverify가 읽음.
+      # ⚠️ #1324로 이 키가 fail-closed → fail-open으로 뒤집혀 :? 강제로 전환한다(arm1과 동일 근거).
+      # 미설정 → SKIPPED → 가입이 무조건 VERIFIED+APPROVED+오너 멤버십을 받아 회사 스코프가 전면 개방된다.
+      BUSINESS_REGISTRATION_API_KEY: ${BUSINESS_REGISTRATION_API_KEY:?BUSINESS_REGISTRATION_API_KEY가 .env에 설정되어야 합니다 — 미설정 시 기업 가입이 무검증으로 자동승인됩니다(#1324)}
       # 토스페이먼츠 샌드박스 결제(#988) 시크릿 — spring payment 클라이언트가 읽음. 미설정이면 결제
       # 진입점만 PAYMENT_GATEWAY_ERROR(502)로 fail-close 되고 나머지 기능·기동은 정상이다. :- 소프트인
       # 이유: 결제는 샌드박스 데모 부가기능이라 키 누락으로 배포 전체를 멈추면 안 된다(:? 는

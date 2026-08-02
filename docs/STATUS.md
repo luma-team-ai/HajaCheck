@@ -36,6 +36,17 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **🚨 기업 계정 회사 스코프 전면 403 복구 (→ main hotfix 직행, 2026-07-31)** — BE **#1368**(merge `aa821dd3`, 이슈 #1324+#1366 / HAJA-603). **마이그레이션 V38**(데이터 전이, 스키마 변경 0). CD success → arm1 재기동 시 적용 완료.
+  - **장애 범위**: prod 에서 **기업으로 가입한 계정이 회사 스코프 API 전부 403** — 시설물 등록·목록, 점검, 하자, 보고서, 통계, 대시보드, AI 브리핑. 즉 **가입 직후부터 아무 기능도 못 씀**. arm1 실측으로 회사 6건 중 4건이 막혀 있었고, 정상인 2건은 `Company.approve()` 호출부가 0건이므로 **수동 SQL 편집분**이었다 — 앱 경로로 정상화된 회사는 하나도 없었다.
+  - **원인**: `CompanyScopeGuard` 가 요구하는 4조건(①APPROVED 멤버십 ②user ACTIVE ③company APPROVED ④verification VERIFIED) 중 **①③을 만들 코드 경로가 main 에 아예 없었다** — `CompanyMembership.approvedOwner()` 호출부 0건, `Company.approve()` 호출부 0건(javadoc 이 "현재 미배선"이라고 스스로 명시), `CompanyAccountWriter` 는 User·Company·동의·플랜만 저장. `V36__*.sql:35` 에 "prod 실측: company_memberships 0행" 기록이 이미 있었다.
+  - **수정**: 가입 시 같은 트랜잭션에서 `VERIFIED+APPROVED` 전이 + 오너 멤버십 발급, `Company.autoApprove()` 신설(수동 승인 `approve()` 의 VERIFIED 선행 가드는 보존), V38 로 기존 회사 소급(REJECTED·FAILED 제외, 멱등). 배지는 `verification_status` 가 전건 VERIFIED 가 되므로 **provenance(`ocr_raw.ntsOutcome`) 화이트리스트**로 판정 전환(증명 못 하면 false).
+  - **머신 반려로 편입된 P1(#1366)**: 자동승인이 가입을 즉시 VERIFIED 로 만들어 **#888 재검증 배치(PENDING 만 조회)가 영구 무력화** — 국세청 장애 구간 가입분이 사후 탐지에서 이탈. 재검증 대상 판정을 인가 플래그가 아니라 **provenance 기준**(`ntsOutcome ∉ {VERIFIED, LEGACY_VERIFIED}`, 화이트리스트 **여집합** = fail-safe)으로 전환해 해소. `markBusinessVerifiedByNts()` 를 분리해 루프 종료 보장(실 PG 테스트 고정).
+  - **⚠️ 되돌린 것**: 머신이 제안한 **오너 멤버십 회수를 구현했다가 제거**(`bb5c0bf8` → `5fe355f4`). `markBusinessVerificationFailed()` 한 줄로 스코프 판정·DB 트리거가 둘 다 VERIFIED 를 요구해 **전 구성원 스코프가 이미 닫히므로 이득 0** 인데, `reinvite()` 호출부 0건이라 **비가역**이고 FAILED 는 재검증에서 영구 제외라 오판이 자가치유되지 않는다. javadoc 에 "다시 넣지 말 것" + 근거 4개를 교차 배치.
+  - **배포 검증(실측)**: 회사 6건 전부 `APPROVED+VERIFIED`, 멤버십 2 → **6건**. provenance 분리 정상(실검증 4건 `LEGACY_VERIFIED` 배지 켜짐 / 레거시 2건 `UNKNOWN_BACKFILL` 배지 꺼짐). 잔여 스코프 차단 **0건**, 재검증 적체 **0건**. `testjb@test.com` 실동작 403/400 → **전부 200**.
+  - **⚠️ 배포 전제 추가**: `BUSINESS_REGISTRATION_API_KEY` 가 arm1·prod compose 에서 `:-` → **`:?` 강제**로 바뀌었다. 이 PR 이 그 키의 보안 성질을 뒤집었기 때문(이전: 미설정→스코프 닫힘 fail-closed / 이후: 미설정→**전면 개방** fail-open). `AI_INTERNAL_KEY`·`SMTP_PASSWORD` 와 동급 전제조건 — **키 없으면 배포 하드실패**. arm1 `.env` 주입은 확인됨.
+  - **교훈**: 진단 중 `POST` 를 raw `fetch` 로 프로브했는데 **CSRF 헤더가 없어 403 이 났고**, Spring Security 의 CSRF 거부도 `RestAccessDeniedHandler` 를 타 **인가 실패와 동일한 `403 FORBIDDEN`** 을 낸다. 둘을 구분하려면 `X-XSRF-TOKEN` 을 붙여 재현할 것(붙이니 `400 INVALID_INPUT` = 인가 통과 확인).
+  - **후속 #1367**(킬스위치) — 잔여 5개 항목 등록: 사업자 **소유·통제** 미검증(NTS 는 실재만 확인 → 사칭 가입은 어떤 자동 통제로도 탐지 불가) / BRN 선점 락아웃 / 운영자 수동 차단 API / **`/api/admin/**` 우회**(`CompanyScopeGuard` 미적용 → 차단된 회사 ADMIN 도 사용자·플랜 관리 가능) / FAILED 확정 경보·복구 왕복.
+
 - **🔍 하자 상세 '활동 이력' prod 404 수정 (→ dev, 2026-07-31)** — FE **#1353**(merge `0e432c15`, 이슈 #1351 / HAJA-613). `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`. **마이그레이션 0건**(프론트 전용).
   - **발견 경위**: 승격 #1343 배포 직후 **prod 로그 점검**에서 발견. 기능검수(클릭 경로)로는 안 잡혔고, `WARN 존재하지 않는 리소스 요청: GET api/facilities/63/defect-detail/activity` 가 8초 내 4회 × 2회(react-query 재시도) 찍힌 것이 단서였다.
   - **원인 두 겹** — ① `FacilityDefectDetailPage.tsx:69` 가 `facilityId` 자리에 `defectId` 를 전달(라우트는 `/facilities/:id/defects/:defectId` 로 둘 다 있음). **둘 다 `string` 이라 타입체커가 못 잡는다.** 실측으로 확정: `facilities.id=63` **0건**, `defects.id=63` 존재(`facility_id=2`). ② 그 엔드포인트는 **백엔드 구현이 아예 없다** — MSW 목 전용(`facilityDefectApi.ts:35` 주석, #489 스코프 밖). **①만 고쳐도 prod 404는 그대로**다.
