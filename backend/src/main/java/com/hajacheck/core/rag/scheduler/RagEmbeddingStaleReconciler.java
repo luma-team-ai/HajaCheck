@@ -37,6 +37,13 @@ import org.springframework.stereotype.Component;
  * <p>⚠️ 단일 인스턴스 실행 전제(StuckAnalysisReaper와 동일). 스케일아웃해도 failEmbedding()은 "여전히
  * EMBEDDING일 때만" 전이하는 멱등 연산이라 중복 실행이 데이터를 손상시키지 않는다. 문서별 실패를
  * 격리해 한 건 실패가 배치 전체를 멈추지 않게 한다.
+ *
+ * <p>⚠️ 배포 스큐 방어(PR#1393 사람 검수) — Spring과 ai-server는 별개 컨테이너라 롤아웃이 원자적이지
+ * 않다. ai-server가 먼저 배포되고 Spring이 아직 구버전이면 이 PR이 고치려던 거짓완료가 재현될 수
+ * 있고, 반대로 Spring이 먼저 배포되면 embedding-status가 404/형식불일치를 반환해 재확인 자체가
+ * 실패한다. 이런 "확인 불가" 상황(조회 예외, 실패 응답, 구버전 ai-server가 embed_batch_id 필드
+ * 자체를 안 주는 경우)을 "확정적으로 미완료"와 구분해 FAILED로 밀어붙이지 않고 EMBEDDING을 유지한다
+ * — 다음 주기에 재확인하며, ai-server 승격이 끝나면 자연히 정상 판정으로 수렴한다.
  */
 @Slf4j
 @Component
@@ -62,14 +69,20 @@ public class RagEmbeddingStaleReconciler {
 
         int completed = 0;
         int failed = 0;
+        int indeterminate = 0;
         for (RagDocument document : stale) {
             try {
-                if (isActuallyComplete(document)) {
-                    ragDocumentWriter.completeEmbedding(document.getId(), document.getExpectedChunkCount());
-                    completed++;
-                } else {
-                    ragDocumentWriter.failEmbedding(document.getId());
-                    failed++;
+                ReconcileOutcome outcome = checkOutcome(document);
+                switch (outcome) {
+                    case COMPLETE -> {
+                        ragDocumentWriter.completeEmbedding(document.getId(), document.getExpectedChunkCount());
+                        completed++;
+                    }
+                    case NOT_COMPLETE -> {
+                        ragDocumentWriter.failEmbedding(document.getId());
+                        failed++;
+                    }
+                    case INDETERMINATE -> indeterminate++;
                 }
             } catch (Exception e) {
                 // 1건 실패를 격리 — 그사이 폴러가 먼저 확정했다면 completeEmbedding()/failEmbedding()이
@@ -79,27 +92,48 @@ public class RagEmbeddingStaleReconciler {
             }
         }
 
-        log.info("RAG 임베딩 고착 리컨사일러 — 대상 {}건 중 {}건 DONE 확정, {}건 FAILED 정리",
-                stale.size(), completed, failed);
+        log.info("RAG 임베딩 고착 리컨사일러 — 대상 {}건 중 {}건 DONE 확정, {}건 FAILED 정리, {}건 확인불가(EMBEDDING 유지)",
+                stale.size(), completed, failed, indeterminate);
+    }
+
+    private enum ReconcileOutcome {
+        COMPLETE, NOT_COMPLETE, INDETERMINATE
     }
 
     /**
      * 폴러 상한(25초) 이후 방치된 문서가 실제로는 Chroma에 정상 적재됐는지 재확인한다(#1393 리뷰 2차
      * P2) — 재확인 없이 무조건 FAILED로 정리하면 대용량 문서(이 PR이 원래 겨냥한 대상)가 성공했음에도
      * 거짓 FAILED가 된다. expectedChunkCount/embedBatchId가 없는 레거시 행(V39 이전 EMBEDDING 잔재)은
-     * 재확인할 기대값 자체가 없으므로 재확인을 건너뛰고 기존처럼 FAILED로 정리한다.
+     * 재확인할 기대값 자체가 없으므로 재확인을 건너뛰고 기존처럼 FAILED로 정리한다(NOT_COMPLETE).
+     *
+     * <p>조회 자체가 실패(예외)했거나, 응답이 실패를 나타내거나, 청크 수가 0이 아닌데 embed_batch_id가
+     * 없는 경우(구버전 ai-server가 이 필드를 아예 안 주거나, 재임베딩 배치가 아직 혼재 중인 경우)는
+     * "확정적으로 미완료"가 아니라 "확인 불가"로 본다(배포 스큐 방어, 클래스 javadoc 참고) — FAILED로
+     * 밀어붙이지 않고 INDETERMINATE로 남겨 다음 주기에 재확인한다.
      */
-    private boolean isActuallyComplete(RagDocument document) {
+    private ReconcileOutcome checkOutcome(RagDocument document) {
         if (document.getExpectedChunkCount() == null) {
-            return false;
+            return ReconcileOutcome.NOT_COMPLETE;
         }
         String collection = document.getTargetCollection().name().toLowerCase(Locale.ROOT);
-        ApiResponse<RagEmbeddingStatusResponse> response =
-                aiProxyService.checkEmbeddingStatus(String.valueOf(document.getId()), collection);
-        if (!response.success()) {
-            return false;
+        ApiResponse<RagEmbeddingStatusResponse> response;
+        try {
+            response = aiProxyService.checkEmbeddingStatus(String.valueOf(document.getId()), collection);
+        } catch (RuntimeException e) {
+            log.warn("RAG 임베딩 고착 재확인 조회 실패(확인불가로 보류) documentId={} exception={}",
+                    document.getId(), e.getClass().getSimpleName());
+            return ReconcileOutcome.INDETERMINATE;
         }
-        return RagEmbeddingCompletionCheck.isComplete(
-                response.data(), document.getExpectedChunkCount(), document.getEmbedBatchId());
+        if (!response.success()) {
+            return ReconcileOutcome.INDETERMINATE;
+        }
+        RagEmbeddingStatusResponse data = response.data();
+        int expectedChunkCount = document.getExpectedChunkCount();
+        if (data == null || (expectedChunkCount != 0 && data.embedBatchId() == null)) {
+            return ReconcileOutcome.INDETERMINATE;
+        }
+        return RagEmbeddingCompletionCheck.isComplete(data, expectedChunkCount, document.getEmbedBatchId())
+                ? ReconcileOutcome.COMPLETE
+                : ReconcileOutcome.NOT_COMPLETE;
     }
 }
