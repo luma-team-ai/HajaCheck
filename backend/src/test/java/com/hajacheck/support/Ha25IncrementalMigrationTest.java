@@ -504,7 +504,14 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V39__add_rag_documents_embedding_started_at.sql"),
-                        CONTAINER_ROOT + "V39__add_rag_documents_embedding_started_at.sql");
+                        CONTAINER_ROOT + "V39__add_rag_documents_embedding_started_at.sql")
+                // #1393 — Flyway V40(rag_documents.expected_chunk_count/embed_batch_id, PR머신 리뷰
+                // 2차 P2)도 이어서 1회 forward-apply한다. 캐노니컬 DDL에 이 컬럼들이 반영돼 있으므로
+                // 이 증분 경로에서도 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V40__add_rag_documents_expected_embed_batch.sql"),
+                        CONTAINER_ROOT + "V40__add_rag_documents_expected_embed_batch.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -649,6 +656,10 @@ class Ha25IncrementalMigrationTest {
         // 한다. ADD COLUMN IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다.
         runPsql(postgres, "V39__add_rag_documents_embedding_started_at.sql");
         runPsql(postgres, "V39__add_rag_documents_embedding_started_at.sql");
+        // #1393 — Flyway V40(rag_documents.expected_chunk_count/embed_batch_id, PR머신 리뷰 2차 P2)도
+        // 이어서 forward-apply한다. ADD COLUMN IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다.
+        runPsql(postgres, "V40__add_rag_documents_expected_embed_batch.sql");
+        runPsql(postgres, "V40__add_rag_documents_expected_embed_batch.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
