@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 class RagDocumentTest {
 
@@ -107,13 +109,15 @@ class RagDocumentTest {
     @Test
     void restartEmbedding_임계를넘긴고착임베딩중은재시작허용() {
         // 폴러 유실(JVM 재시작)로 EMBEDDING에 고착된 문서를 관리자가 재임베딩으로 복구할 수 있어야
-        // 한다(#1393 P1) — 임계를 0으로 주면 방금 시작한 문서도 stale 취급된다.
+        // 한다(#1393 P1).
         RagDocument document = RagDocument.upload(
                 "시설물 안전법", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
                 null, null, null, null, "https://files.example/law.pdf");
         document.startEmbedding();
+        ReflectionTestUtils.setField(document, "embeddingStartedAt",
+                Instant.now().minus(Duration.ofMinutes(10)));
 
-        document.restartEmbedding(Duration.ZERO);
+        document.restartEmbedding(Duration.ofMinutes(5));
 
         assertThat(document.getEmbeddingStatus()).isEqualTo(RagEmbeddingStatus.EMBEDDING);
         assertThat(document.getEmbeddingStartedAt()).isNotNull();
@@ -137,10 +141,19 @@ class RagDocumentTest {
                 "시설물 안전법", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
                 null, null, null, null, "https://files.example/law.pdf");
 
-        assertThat(document.isEmbeddingStale(Duration.ZERO)).isFalse();
-        document.startEmbedding();
-        assertThat(document.isEmbeddingStale(Duration.ZERO)).isTrue();
         assertThat(document.isEmbeddingStale(Duration.ofMinutes(5))).isFalse();
+
+        document.startEmbedding();
+        // 방금 시작 = 진행 중 → 고착 아님.
+        assertThat(document.isEmbeddingStale(Duration.ofMinutes(5))).isFalse();
+
+        ReflectionTestUtils.setField(document, "embeddingStartedAt",
+                Instant.now().minus(Duration.ofMinutes(10)));
+        assertThat(document.isEmbeddingStale(Duration.ofMinutes(5))).isTrue();
+
+        // 시작 시각 미상(컬럼 신설 이전 레거시 행)도 복구 대상이다.
+        ReflectionTestUtils.setField(document, "embeddingStartedAt", null);
+        assertThat(document.isEmbeddingStale(Duration.ofMinutes(5))).isTrue();
     }
 
     @Test

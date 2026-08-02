@@ -1416,6 +1416,7 @@ create table rag_documents
     embedding_status   rag_embedding_status_type default 'PENDING'::rag_embedding_status_type not null,
     chunk_count        integer,
     embedded_at        timestamp with time zone,
+    embedding_started_at timestamp with time zone,
     created_at         timestamp with time zone  default now()                                not null
 );
 
@@ -1446,6 +1447,8 @@ comment on column rag_documents.embedding_status is '문서 임베딩 처리 상
 comment on column rag_documents.chunk_count is '문서를 분할하여 Chroma에 임베딩한 청크 수';
 
 comment on column rag_documents.embedded_at is '임베딩 완료 시각';
+
+comment on column rag_documents.embedding_started_at is '임베딩 시작 시각(EMBEDDING 고착 판정 기준 — NULL은 시작 시각 미상)';
 
 comment on column rag_documents.created_at is '문서 업로드 시작 시각';
 

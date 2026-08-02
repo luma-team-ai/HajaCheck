@@ -39,7 +39,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 예약 하향 알림 라벨 2종, #1105/HAJA-526)→V32(defect_action_logs 조치 등록 이력 append-only 테이블,
  * #1193/HAJA-569 — 조치중 단계 다중 등록 지원)→V33(user_plans.payment_pending_until 미결제 유예 표식 +
  * 부분 인덱스, #1177 — 유료→유료 하향 C안 "유예 후 강등")→V34(counsel_tickets.created_at 인덱스, #1168 —
- * 플랫폼 관리자 상담 관리 페이지 날짜별 조회 성능, PR머신 리뷰 P2)을 순서대로 적용하고,
+ * 플랫폼 관리자 상담 관리 페이지 날짜별 조회 성능, PR머신 리뷰 P2)→V35(rag_documents.embedding_started_at
+ * 임베딩 시작 시각, #1393 — EMBEDDING 고착 판정 기준)을 순서대로 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
@@ -83,7 +84,7 @@ class FlywayBaselineIntegrationTest {
     private PlanRepository planRepository;
 
     @Test
-    void 빈DB에서_V1부터_V32까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
+    void 빈DB에서_V1부터_V35까지_적용되고_hibernateValidate와_PlanSeedGuard를_통과한다() {
         // 컨텍스트가 이미 기동했다는 사실 자체가 Hibernate validate(전체 엔티티 매핑 대조)와
         // PlanSeedGuard(plans 3티어 존재 검증) 둘 다 통과했음을 의미한다.
 
@@ -133,14 +134,16 @@ class FlywayBaselineIntegrationTest {
         //   #1193이 dev에 머지되면서(2026-07-29) 해소돼 번호열이 V1…V32·V33으로 다시 연속이 됐다.
         // + V34(counsel_tickets.created_at 인덱스, #1168 — 플랫폼 관리자 상담 관리 페이지 날짜별 조회
         //   성능, PR머신 리뷰 P2 지적 반영).
-        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V34(3개) = 34이다.
-        assertThat(appliedMigrations).isEqualTo(34);
+        // + V35(rag_documents.embedding_started_at 임베딩 시작 시각, #1393 — 인메모리 폴러 유실 시
+        //   EMBEDDING에 영구 고착되는 문서를 RagEmbeddingStaleReconciler가 판정하는 기준, 리뷰 P1).
+        //   마이그레이션 수는 V1~V24(24개) + V25~V31(7개) + V32~V35(4개) = 35이다.
+        assertThat(appliedMigrations).isEqualTo(35);
 
-        // 최신 적용 버전이 실제로 V34 인지 확인.
+        // 최신 적용 버전이 실제로 V35 인지 확인.
         String latestVersion = jdbcTemplate.queryForObject(
                 "select version from flyway_schema_history where success = true "
                         + "order by installed_rank desc limit 1", String.class);
-        assertThat(latestVersion).isEqualTo("34");
+        assertThat(latestVersion).isEqualTo("35");
 
         // V19 가 media.facility_id 컬럼을 실제로 추가했는지 확인(#632/#652).
         Long facilityIdColumnExists = jdbcTemplate.queryForObject("""
@@ -481,5 +484,14 @@ class FlywayBaselineIntegrationTest {
                   and indexname = 'idx_counsel_tickets_created_at'
                 """, Long.class);
         assertThat(counselTicketsCreatedAtIndex).isEqualTo(1L);
+
+        // V35가 rag_documents.embedding_started_at 컬럼을 실제로 추가했는지 확인한다(#1393 리뷰 P1 —
+        // 이 컬럼이 없으면 EMBEDDING 고착 문서를 판정할 기준 시각이 없어 영구 고착된다).
+        Long embeddingStartedAtColumn = jdbcTemplate.queryForObject("""
+                select count(*) from information_schema.columns
+                where table_schema = 'public' and table_name = 'rag_documents'
+                  and column_name = 'embedding_started_at'
+                """, Long.class);
+        assertThat(embeddingStartedAtColumn).isEqualTo(1L);
     }
 }
