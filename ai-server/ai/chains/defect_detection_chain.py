@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from ai.core.grading import compute_grade
+from ai.core.grading import compute_crack_grade, compute_grade
 from ai.core.unet_client import (
     CRACK_MASK_THRESHOLD,
     get_crack_model,
@@ -85,6 +85,12 @@ class DetectedDefect(BaseModel):
     confidence: float
     grade: str  # A~E
     area_ratio: float  # 세그멘테이션 마스크 기반 면적비율(또는 바운딩박스 근사치)
+    # 물리 측정값(원본 이미지 픽셀 단위, 보고서 표기용 — 등급 입력 아님). mm 환산은 사진 속
+    # 기준물(촬영 규약 docs/design/crack-measurement-protocol.md)로 스케일을 얻은 뒤에만 가능하다.
+    # Spring DetectedDefectItem은 @JsonIgnoreProperties(ignoreUnknown)라 additive-only로 안전.
+    area_px: float | None = None  # 마스크 픽셀 수(원본 해상도 환산)
+    length_px: float | None = None  # 균열만 — 면적/폭 근사
+    width_px: float | None = None  # 균열만 — 2×면적/둘레 근사(skeletonize 대비 r=0.9989)
 
 
 class DefectDetectionError(Exception):
@@ -125,7 +131,58 @@ def _mask_area_ratio(masks, index: int, fallback_bbox_area: float) -> float:
     return float(mask.sum()) / float(mask.numel())
 
 
-def _crack_mask_to_detections(mask: "np.ndarray", probability: "np.ndarray") -> list[DetectedDefect]:
+def _crack_dark_ratio(image: "Image.Image", mask: "np.ndarray") -> float:
+    """어두움총량(dark_ratio) — 마스크 주변 밴드의 BLACKHAT 합 / (255 × 콘텐츠 픽셀 수).
+
+    등급 v3(grading.py 모듈 docstring)의 두 번째 지표. U-Net 마스크 폭은 선 두께 하한(3~4px)에
+    갇혀 실제 굵기를 못 재지만, 어두움총량은 서브픽셀 폭에도 비례하는 광학 신호라 "가늘지만 긴"
+    실금과 진짜 굵은 균열을 가른다.
+
+    ⚠️ 아래 세 조건은 dark 구간표(_CRACK_DARK_RATIO_SEVERITY_BANDS)가 측정된 캘리브레이션
+    (cv_darksum.py, AI Hub 470장)과 동일하게 유지해야 한다 — 하나라도 바꾸면 구간표 재측정:
+    ① 그레이스케일은 **원본 해상도**에서 변환 후 콘텐츠 크기로 INTER_AREA 축소(레터박스 캔버스의
+    BILINEAR 결과를 재활용하지 않는다 — 보간이 달라 blackhat 값이 달라짐), ② BLACKHAT 커널
+    ellipse 15×15, ③ 합산 범위는 마스크를 3×3 팽창시킨 밴드(마스크가 균열 중심선을 살짝 벗어나도
+    어두운 픽셀을 놓치지 않게).
+    """
+    import cv2
+    import numpy as np
+
+    if not mask.any():
+        return 0.0
+    height, width = mask.shape
+    gray = cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2GRAY)
+    gray = cv2.resize(gray, (width, height), interpolation=cv2.INTER_AREA)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    blackhat = cv2.morphologyEx(gray, cv2.MORPH_BLACKHAT, kernel).astype(np.float32)
+    band = cv2.dilate(mask.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    return float(blackhat[band].sum()) / (255.0 * mask.size)
+
+
+def _crack_component_measurements(component_mask: "np.ndarray", area: int) -> tuple[float, float]:
+    """연결요소 1개의 (length_px, width_px) — 콘텐츠 좌표계 기준(호출부가 원본 px로 스케일).
+
+    폭은 `2×면적/둘레` 근사 — skeletonize(distance transform) 실측 대비 r=0.9989로 검증됐고
+    (2026-07-28 조사), scikit-image 신규 의존성 없이 OpenCV만으로 계산된다. 면적은
+    `cv2.contourArea`가 아니라 마스크 픽셀 수를 쓴다(contourArea는 -18.8% 과소평가 실측).
+    길이=면적/폭. 등급 입력으로는 쓰지 않는다(폭 단독 지표는 촬영건 CV에서 과적합 확정).
+    """
+    import cv2
+
+    contours, _ = cv2.findContours(
+        component_mask.astype("uint8"), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    perimeter = sum(cv2.arcLength(c, closed=True) for c in contours)
+    if perimeter <= 0:  # 1~2px 퇴화 케이스(최소 크기 필터보다 작아 실제론 도달 어려움)
+        side = float(area) ** 0.5
+        return side, side
+    width = 2.0 * float(area) / perimeter
+    return float(area) / width, width
+
+
+def _crack_mask_to_detections(
+    mask: "np.ndarray", probability: "np.ndarray", dark_ratio: float, scale: float = 1.0
+) -> list[DetectedDefect]:
     """균열 확률 맵 -> 연결요소별 DetectedDefect 목록.
 
     `mask`/`probability`는 호출부(`_crack_detections`)가 **레터박스 패딩을 이미 잘라낸 콘텐츠
@@ -139,8 +196,9 @@ def _crack_mask_to_detections(mask: "np.ndarray", probability: "np.ndarray") -> 
     동작에 가깝다(U-Net으로 교체한 이유 자체가 이 파편화 경향 — 저장소 README 참고). 컴포넌트별로
     개별 area_ratio를 매기면 "총 면적은 같은데 몇 조각으로 끊겼는지"에 따라 등급이 크게 널뛴다
     (실측 재현: 총면적 0.876%가 1덩어리면 E, 4조각(각 0.156%)이면 B). 그래서 등급은 이미지 전체
-    마스크 면적(total_mask_ratio)으로 1회 산정해 모든 컴포넌트에 동일하게 적용하고, 컴포넌트별
-    area_ratio는 표시(바운딩박스 크기 참고용)로만 남긴다.
+    마스크 면적(total_mask_ratio)과 어두움총량(dark_ratio)의 min 합의(grading.compute_crack_grade,
+    v3)로 1회 산정해 모든 컴포넌트에 동일하게 적용하고, 컴포넌트별 area_ratio는 표시(바운딩박스
+    크기 참고용)로만 남긴다.
 
     연결요소 분석 전에 `cv2.morphologyEx(MORPH_CLOSE)`로 가까운 조각을 먼저 병합한다 — 등급에는
     이미 영향이 없지만, threshold 잡음으로 사실상 하나인 균열이 여러 별도 탐지 행으로 쪼개지는
@@ -160,7 +218,7 @@ def _crack_mask_to_detections(mask: "np.ndarray", probability: "np.ndarray") -> 
     total_mask_ratio = float(mask.sum()) / float(total_pixels)
     if total_mask_ratio == 0.0:
         return []
-    image_grade = compute_grade("CRACK", total_mask_ratio)
+    image_grade = compute_crack_grade(total_mask_ratio, dark_ratio)
 
     mask_u8 = mask.astype("uint8")
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
@@ -175,18 +233,20 @@ def _crack_mask_to_detections(mask: "np.ndarray", probability: "np.ndarray") -> 
         # 픽셀까지 포함해 실측상 최대 1.49배 과대 계상되고(재검수 N-3), 이 값이 Defect.areaRatio로
         # DB에 영구 저장돼 YOLO 경로(실제 마스크 기준)와 의미가 어긋난다. confidence 계산에 이미
         # 만드는 "원본 마스크 교집합"을 그대로 재사용해 한 번만 계산한다.
-        original_pixels = probability[(labels == label) & mask]
+        component_mask = (labels == label) & mask
+        original_pixels = probability[component_mask]
         original_area = int(original_pixels.size)
         if original_area < min_component_pixels:
             continue
-        components.append((original_area, label, x, y, w, h, original_pixels))
+        length_px, width_px = _crack_component_measurements(component_mask, original_area)
+        components.append((original_area, label, x, y, w, h, original_pixels, length_px, width_px))
 
     # 면적 큰 순으로 상한만큼만 남긴다(P2-2).
     components.sort(key=lambda c: c[0], reverse=True)
     components = components[:MAX_CRACK_COMPONENTS]
 
     detections: list[DetectedDefect] = []
-    for area, _label, x, y, w, h, original_pixels in components:
+    for area, _label, x, y, w, h, original_pixels, length_px, width_px in components:
         area_ratio = float(area) / float(total_pixels)
         confidence = float(original_pixels.mean()) if original_pixels.size > 0 else CRACK_MASK_THRESHOLD
 
@@ -202,6 +262,10 @@ def _crack_mask_to_detections(mask: "np.ndarray", probability: "np.ndarray") -> 
                 confidence=min(round(confidence, 4), CONFIDENCE_CLAMP_MAX),
                 grade=image_grade,
                 area_ratio=area_ratio,
+                # scale = 원본px/콘텐츠px — 측정값은 mm 환산 기준이 되는 원본 해상도로 통일한다.
+                area_px=round(float(area) * scale * scale, 1),
+                length_px=round(length_px * scale, 1),
+                width_px=round(width_px * scale, 1),
             )
         )
     return detections
@@ -222,7 +286,10 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
     height, width = prediction.content_height, prediction.content_width
     content_probability = prediction.probability[top : top + height, left : left + width]
     content_mask = content_probability > CRACK_MASK_THRESHOLD
-    return _crack_mask_to_detections(content_mask, content_probability)
+    dark_ratio = _crack_dark_ratio(image, content_mask)
+    # 레터박스는 종횡비를 보존하므로 가로/세로 스케일이 같다 — 측정값(px)을 원본 해상도로 환산.
+    scale = image.width / width if width > 0 else 1.0
+    return _crack_mask_to_detections(content_mask, content_probability, dark_ratio, scale=scale)
 
 
 def _yolo_type_detections(defect_type: str, image: "Image.Image") -> list[DetectedDefect]:
@@ -245,6 +312,7 @@ def _yolo_type_detections(defect_type: str, image: "Image.Image") -> list[Detect
     xyxyn = boxes.xyxyn.tolist()
     confidences = boxes.conf.tolist()
 
+    total_pixels = image.width * image.height
     for i, (x1, y1, x2, y2) in enumerate(xyxyn):
         bbox_w, bbox_h = x2 - x1, y2 - y1
         area_ratio = _mask_area_ratio(result.masks, i, fallback_bbox_area=bbox_w * bbox_h)
@@ -260,10 +328,41 @@ def _yolo_type_detections(defect_type: str, image: "Image.Image") -> list[Detect
                 confidence=min(round(float(confidences[i]), 4), CONFIDENCE_CLAMP_MAX),
                 grade=grade,
                 area_ratio=area_ratio,
+                # 면적비 × 원본 픽셀 수 — 박리박락·철근노출의 mm² 환산(기준물 확보 시) 기반값.
+                area_px=round(area_ratio * total_pixels, 1),
             )
         )
 
     return detections
+
+
+# 균열 bbox가 박리박락 bbox에 이 비율 이상 포함되면 균열 쪽을 오탐으로 보고 제거한다(2026-07-28
+# 실사진 10장 검증: 박리 안 페인트 까진 경계선을 균열로 오탐한 4건 제거, 진짜 균열 7건 전부 유지).
+# 박리 내부의 명암 경계는 U-Net에 선형 구조로 보여 균열로 잡히지만, 그 영역의 하자는 이미
+# SPALLING 탐지가 대표한다. 박리가 작게(점으로만) 잡히는 사진엔 포함 조건이 성립하지 않아 무효 —
+# 의도된 보수적 한정이다.
+CRACK_IN_SPALLING_CONTAINMENT_THRESHOLD = 0.8
+
+
+def _suppress_cracks_inside_spalling(detections: list[DetectedDefect]) -> list[DetectedDefect]:
+    """SPALLING bbox에 80% 이상 포함된 CRACK 탐지를 제거한다. bbox는 모두 원본 이미지 기준
+    0~1 정규화 좌표라(균열=콘텐츠 영역, YOLO=원본 — 동일 프레임) 그대로 비교 가능하다."""
+    spallings = [d for d in detections if d.type == "SPALLING"]
+    if not spallings:
+        return detections
+
+    def contained(crack: DetectedDefect) -> bool:
+        crack_area = crack.bbox_w * crack.bbox_h
+        if crack_area <= 0:
+            return False
+        for s in spallings:
+            ix = max(0.0, min(crack.bbox_x + crack.bbox_w, s.bbox_x + s.bbox_w) - max(crack.bbox_x, s.bbox_x))
+            iy = max(0.0, min(crack.bbox_y + crack.bbox_h, s.bbox_y + s.bbox_h) - max(crack.bbox_y, s.bbox_y))
+            if ix * iy / crack_area >= CRACK_IN_SPALLING_CONTAINMENT_THRESHOLD:
+                return True
+        return False
+
+    return [d for d in detections if d.type != "CRACK" or not contained(d)]
 
 
 def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
@@ -300,4 +399,4 @@ def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
     if len(failed_types) == len(detectors):
         raise DefectDetectionError("모든 하자 유형 탐지에 실패했습니다")
 
-    return detections
+    return _suppress_cracks_inside_spalling(detections)
