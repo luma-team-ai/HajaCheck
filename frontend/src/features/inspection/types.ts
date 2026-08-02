@@ -14,7 +14,10 @@ export interface DefectBoundingBox {
 export interface Defect {
   id: number;
   type: DefectType;
-  grade: DefectGrade;
+  // null = 등급 미판정. DB defects.grade가 nullable이고 AI 응답에 grade가 없으면 그대로 저장된다
+  // (InspectionAnalysisWorker) — 수동 생성도 grade가 선택적이다. 예전엔 non-null로 선언해 필터가
+  // 미판정 하자를 통째로 숨겼고, totalCount에는 남아 "점검 요약"이 잠겼다(#1395).
+  grade: DefectGrade | null;
   status: DefectStatus;
   confidence: number; // 0~1
   bbox: DefectBoundingBox;

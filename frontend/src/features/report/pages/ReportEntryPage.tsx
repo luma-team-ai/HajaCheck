@@ -214,8 +214,11 @@ export function ReportEntryPage() {
   // CONFIRMED_DEFECT_STATUSES(=DETECTED 제외 전부)와 정확히 같은 기준.
   const confirmedDefects = data?.defects.filter((d) => d.status !== 'DETECTED') ?? [];
 
+  // 등급 미판정(grade=null)은 분포에서 제외한다 — A~E 어느 칸에도 속하지 않는데, 예전엔 타입이
+  // non-null이라 그대로 인덱싱해 `null` 이라는 가짜 등급 칸이 만들어질 수 있었다(#1395).
   const gradeDistribution = confirmedDefects.reduce(
     (acc, d) => {
+      if (d.grade == null) return acc;
       acc[d.grade] = (acc[d.grade] || 0) + 1;
       return acc;
     },

@@ -498,7 +498,39 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('이미지 2/2')).not.toBeNull();
     // 이미지 자체(DefectOverlay)는 계속 렌더되어야 한다 — 문구로 대체되면 안 됨.
     expect(screen.getByAltText('점검 이미지')).not.toBeNull();
-    expect(screen.getByText('이 이미지에 해당하는 하자가 없습니다.')).not.toBeNull();
+    // 마지막 이미지(2/2)라 '다음 이미지' 안내는 붙지 않는다.
+    expect(screen.getByText('이 이미지의 하자가 없습니다.')).not.toBeNull();
+  });
+
+  it('하자 0건 이미지가 마지막이 아니면 다음 이미지로 가라는 안내가 붙는다', async () => {
+    // 하자 0건 이미지에서는 검수할 게 없어 버튼이 전부 비활성이라, 다음 행동을 문구로 알려야 한다.
+    // 앞에 0건 이미지(66)를 하나 더 둬서 "0건 + 마지막 아님" 조합을 만든다.
+    server.use(
+      http.get('/api/inspections/:id/media', () => {
+        const media: MediaResponse[] = [66, 67, 68].map((id) => ({
+          id,
+          inspectionId: 1,
+          fileType: 'IMAGE' as const,
+          thumbnailUrl: `/api/media/${id}/thumbnail`,
+          detailUrl: `/api/media/${id}/detail`,
+          mimeType: 'image/jpeg',
+          capturedAt: '2026-07-22T10:00:00Z',
+          gpsLat: null,
+          gpsLng: null,
+          createdAt: '2026-07-22T10:00:00Z',
+        }));
+        const body: ApiResponse<MediaResponse[]> = { success: true, data: media };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+    // 첫 이미지(66)는 하자 0건이고 뒤에 이미지가 더 있다.
+    expect(await screen.findByText('이미지 1/3')).not.toBeNull();
+    expect(
+      screen.getByText("이 이미지의 하자가 없습니다. 상단의 '다음 이미지' 버튼으로 이동하세요."),
+    ).not.toBeNull();
   });
 
   it('하자 0건 이미지에서도 누락추가 버튼이 계속 보인다(#874)', async () => {
@@ -507,7 +539,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
     fireEvent.click(screen.getByRole('button', { name: '다음 이미지 →' }));
-    await screen.findByText('이 이미지에 해당하는 하자가 없습니다.');
+    await screen.findByText('이 이미지의 하자가 없습니다.');
 
     const button = screen.getByRole('button', { name: '누락 추가' });
     expect(button.hasAttribute('disabled')).toBe(false);
