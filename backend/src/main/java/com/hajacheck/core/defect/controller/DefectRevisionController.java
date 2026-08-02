@@ -4,6 +4,7 @@ import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.defect.dto.DefectCreateRequest;
 import com.hajacheck.core.defect.dto.DefectDetailItem;
 import com.hajacheck.core.defect.dto.DefectRevisionRequest;
+import com.hajacheck.core.defect.dto.DeletedDefectItem;
 import com.hajacheck.core.defect.service.DefectRevisionService;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -48,6 +49,22 @@ public class DefectRevisionController {
     }
 
     @Operation(
+            summary = "오탐 삭제된 하자 목록 조회",
+            description = "점검 회차에서 검수자가 오탐으로 삭제한 하자와 그 사유·일시·삭제자를 반환한다(#1399). "
+                    + "삭제 사유는 저장돼 있었으나 모든 조회가 is_deleted=false 필터라 어느 화면에서도 "
+                    + "읽을 수 없었다 — PRD FR-4의 '감사용 defect_revisions 화면 노출'을 오탐 삭제분까지 확장한다. "
+                    + "재분석 시 통째로 소프트삭제된 구버전은 제외한다(되살리면 유령 하자가 부활)."
+    )
+    @GetMapping("/inspections/{id}/defects/deleted")
+    public ResponseEntity<ApiResponse<List<DeletedDefectItem>>> getDeletedDefects(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable("id") Long inspectionId) {
+        List<DeletedDefectItem> defects = defectRevisionService.getDeletedDefects(
+                loginUser.getUserId(), loginUser.getCompanyId(), inspectionId);
+        return ResponseEntity.ok(ApiResponse.ok(defects));
+    }
+
+    @Operation(
             summary = "수동 하자 생성",
             description = "AI 분석 누락된 하자를 검수자가 직접 등록한다(FR-4, HAJA-344). "
                     + "type은 필수, bbox는 선택(4개 모두 또는 모두 무)이며, grade는 선택(미지정 시 미검수)."
@@ -65,7 +82,7 @@ public class DefectRevisionController {
     @Operation(
             summary = "검수 — 오탐 수정·등급 조정",
             description = "점검자가 하자를 검수한다(FR-4, 휴먼 인 더 루프). "
-                    + "grade(등급 조정) 또는 isDeleted(오탐 삭제) 중 정확히 하나만 지정. "
+                    + "grade(등급 조정) 또는 isDeleted(오탐 삭제=true / 복구=false) 중 정확히 하나만 지정. "
                     + "각 변경은 defect_revisions에 append-only 이력으로 기록된다."
     )
     @PatchMapping("/defects/{id}")

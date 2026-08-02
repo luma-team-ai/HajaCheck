@@ -1,3 +1,5 @@
+import type { DeletedDefectItem } from './api/inspectionApi.types';
+
 // FR-4 결과 시각화·검수 — PRD §5 FR-4, §6.3 데이터 모델(안) 기준
 // 탐지 클래스 5종(AI 탐지 3종 + 수동 입력 확대 2종) — 누수백태·도장손상은 수동 입력 기능으로 확대
 export type DefectType = '균열' | '박리박락' | '누수·백태' | '철근노출' | '도장 손상';
@@ -67,6 +69,9 @@ export interface InspectionResult {
   status: string; // 예: AI 검수중
   reviewedCount: number; // 예: 128
   totalCount: number; // 예: 214
+  // 오탐 삭제된 하자 + 삭제 사유·일시·삭제자(#1399). 재분석 소프트삭제분은 서버가 제외한다.
+  // 조회 실패 시에는 빈 배열 — 부가 정보라 검수 흐름을 막지 않는다.
+  deletedDefects: DeletedDefectItem[];
 }
 
 // backend InspectionType(정기/정밀/긴급)과 1:1.

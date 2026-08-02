@@ -15,6 +15,7 @@ import type {
   AnalysisStatusResponse,
   MediaResponse,
   FacilityInspectionSummary,
+  DeletedDefectItem,
 } from './inspectionApi.types';
 
 export interface DefectRevisionRequest {
@@ -35,6 +36,9 @@ export const inspectionApi = {
   // 점검 회차별 하자 목록 조회
   getDefects: (inspectionId: number) =>
     api.get<DefectDetailItem[]>(`/inspections/${inspectionId}/defects`),
+  // 오탐 삭제된 하자 목록 — 사유·일시·삭제자 포함(#1399). 재분석 소프트삭제분은 서버가 제외한다.
+  getDeletedDefects: (inspectionId: number) =>
+    api.get<DeletedDefectItem[]>(`/inspections/${inspectionId}/defects/deleted`),
   // 점검 회차별 전체 미디어 목록 조회 (하자 유무 무관, #804)
   getMedia: (inspectionId: number) =>
     api.get<MediaResponse[]>(`/inspections/${inspectionId}/media`),

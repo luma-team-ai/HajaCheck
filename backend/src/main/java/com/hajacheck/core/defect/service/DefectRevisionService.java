@@ -1,9 +1,12 @@
 package com.hajacheck.core.defect.service;
 
+import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.core.defect.dto.DefectCreateRequest;
 import com.hajacheck.core.defect.dto.DefectDetailItem;
 import com.hajacheck.core.defect.dto.DefectRevisionRequest;
+import com.hajacheck.core.defect.dto.DeletedDefectItem;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectRevision;
@@ -15,7 +18,10 @@ import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,11 +34,16 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class DefectRevisionService {
 
+    // defect_revisions.field_changed 값 — 오탐 삭제·복구 이력의 식별자이자, "검수자가 지운 것"과
+    // "재분석이 통째로 민 것"을 가르는 유일한 표식이다(#1399). 문자열 오타 방지를 위해 상수로 둔다.
+    private static final String FIELD_IS_DELETED = "is_deleted";
+
     private final DefectRepository defectRepository;
     private final DefectRevisionRepository defectRevisionRepository;
     private final InspectionService inspectionService;
     private final CompanyScopeGuard companyScopeGuard;
     private final MediaRepository mediaRepository;
+    private final UserRepository userRepository;
 
     /**
      * 점검 회차별 하자 목록 조회(검수·뷰어 공용).
@@ -53,6 +64,56 @@ public class DefectRevisionService {
         List<Defect> defects = defectRepository.findByInspectionIdAndNotDeleted(inspectionId);
         return defects.stream()
                 .map(DefectDetailItem::from)
+                .toList();
+    }
+
+    /**
+     * 오탐 삭제된 하자 목록(#1399) — 결과 뷰어의 "삭제된 하자" 접이식 목록·되살리기용.
+     *
+     * <p>검수자가 오탐으로 지운 것만 반환한다({@link DefectRepository#findDeletedByReviewer}) —
+     * 재분석 때 통째로 밀린 구버전까지 되살리기 후보로 보이면 유령 하자가 부활한다.
+     *
+     * @return 삭제 하자 + 사유·일시·삭제자(id 오름차순, 없으면 빈 목록)
+     * @throws BusinessException 점검 회차 미존재 또는 타인 소유 (404)
+     */
+    public List<DeletedDefectItem> getDeletedDefects(Long userId, Long companyId, Long inspectionId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        // 소유권 검증 — 미존재/타인 소유는 여기서 404
+        inspectionService.getInspection(userId, companyId, inspectionId);
+
+        List<Defect> deleted = defectRepository.findDeletedByReviewer(inspectionId);
+        if (deleted.isEmpty()) {
+            return List.of();
+        }
+
+        // 삭제 이력을 한 번에 읽어 N+1을 피한다. 복구 후 재삭제가 가능해 하자당 여러 건이 나올 수
+        // 있으므로 최신순 목록에서 하자별 첫 건(=가장 최근 삭제)만 남긴다.
+        List<Long> defectIds = deleted.stream().map(Defect::getId).toList();
+        Map<Long, DefectRevision> latestDeleteByDefectId = new HashMap<>();
+        for (DefectRevision revision : defectRevisionRepository
+                .findByDefectIdInAndFieldChangedAndNewValueOrderByCreatedAtDesc(
+                        defectIds, FIELD_IS_DELETED, "true")) {
+            latestDeleteByDefectId.putIfAbsent(revision.getDefectId(), revision);
+        }
+
+        // 삭제자 이름도 한 번에 조회(DefectService의 userRepository.findById(...).map(User::getName) 패턴을
+        // 목록용으로 배치화). 탈퇴 등으로 못 찾으면 null로 남긴다.
+        Map<Long, String> userNameById = userRepository.findAllById(
+                        latestDeleteByDefectId.values().stream()
+                                .map(DefectRevision::getRevisedBy)
+                                .collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(User::getId, User::getName));
+
+        return deleted.stream()
+                .map(defect -> {
+                    DefectRevision revision = latestDeleteByDefectId.get(defect.getId());
+                    return new DeletedDefectItem(
+                            DefectDetailItem.from(defect),
+                            revision == null ? null : revision.getReason(),
+                            revision == null ? null : revision.getCreatedAt(),
+                            revision == null ? null : userNameById.get(revision.getRevisedBy()));
+                })
                 .toList();
     }
 
@@ -151,16 +212,13 @@ public class DefectRevisionService {
             throw e;
         }
 
-        // grade와 isDeleted 정확히 하나만 지정 확인
+        // grade와 isDeleted 정확히 하나만 지정 확인.
+        // isDeleted는 true(오탐 삭제)/false(복구) 둘 다 유효한 값이므로(#1399) null 여부로 판정한다 —
+        // 예전엔 "false = 지정 안 함"으로 취급해 복구 요청이 '둘 다 미지정' 400에 걸렸다.
         boolean hasGrade = request.getGrade() != null;
-        boolean hasDeleted = request.getDeleted() != null && request.getDeleted();
+        boolean hasDeleted = request.getDeleted() != null;
         if (hasGrade == hasDeleted) {
-            // 둘 다 true (둘 다 지정) 또는 둘 다 false (둘 다 미지정)
-            throw new BusinessException(ErrorCode.INVALID_INPUT);
-        }
-
-        // isDeleted=false인 경우는 400
-        if (request.getDeleted() != null && !request.getDeleted()) {
+            // 둘 다 지정 또는 둘 다 미지정
             throw new BusinessException(ErrorCode.INVALID_INPUT);
         }
 
@@ -177,7 +235,7 @@ public class DefectRevisionService {
             fieldChanged = "grade";
 
             defect.review(request.getGrade());
-        } else {
+        } else if (request.getDeleted()) {
             // 오탐 삭제
             oldValue = String.valueOf(defect.isDeleted());
             // 이미 삭제된 경우 중복 삭제 요청은 INVALID_STATE_TRANSITION
@@ -185,9 +243,30 @@ public class DefectRevisionService {
                 throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
             }
             newValue = "true";
-            fieldChanged = "is_deleted";
+            fieldChanged = FIELD_IS_DELETED;
 
             defect.softDelete();
+        } else {
+            // 오탐 삭제 복구(#1399) — 삭제도 이력도 그대로 살아 있으므로 플래그만 되돌리면 된다.
+            oldValue = String.valueOf(defect.isDeleted());
+            // 삭제되지 않은 하자의 복구 요청은 무의미하다(삭제의 중복 요청과 같은 취급).
+            if (!defect.isDeleted()) {
+                throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
+            }
+            // 검수자가 지운 것만 되살린다 — 재분석 때 통째로 밀린 구버전(is_deleted 이력이 없다)을
+            // 되살리면 이미 대체된 유령 하자가 화면·통계에 부활한다. 목록 조회와 같은 기준이지만,
+            // 목록에 안 뜨는 id로 직접 요청이 들어올 수 있으므로 여기서도 독립적으로 막는다.
+            boolean deletedByReviewer = defectRevisionRepository
+                    .findByDefectIdInAndFieldChangedAndNewValueOrderByCreatedAtDesc(
+                            List.of(defectId), FIELD_IS_DELETED, "true")
+                    .stream().findAny().isPresent();
+            if (!deletedByReviewer) {
+                throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
+            }
+            newValue = "false";
+            fieldChanged = FIELD_IS_DELETED;
+
+            defect.restore();
         }
 
         // 변경 저장

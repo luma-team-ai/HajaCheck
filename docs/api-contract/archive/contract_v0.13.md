@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.14 · **최종 수정:** 2026-08-02 · 이전 버전 `archive/`
+> **문서 버전:** v0.13 · **최종 수정:** 2026-07-31 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -271,8 +271,7 @@ FastAPI validation error(`detail[]`)를 반환한다.
 | POST | `/api/inspections/{id}/media` | 촬영 데이터 업로드 | 황승현 |
 | POST | `/api/inspections/{id}/analyze` | AI 분석 요청 | 황승현 |
 | GET | `/api/inspections/{id}/defects` | 분석 결과(하자 목록) 조회 | 오영석 |
-| GET | `/api/inspections/{id}/defects/deleted` | 오탐 삭제된 하자·사유 조회 | 오영석 ✅ 구현됨 |
-| PATCH | `/api/defects/{id}` | 검수(오탐 삭제·복구·등급 조정) | 오영석 |
+| PATCH | `/api/defects/{id}` | 검수(오탐 수정·등급 조정) | 오영석 |
 | POST | `/ai/defect-explain` | AI 하자 설명 생성 | 오영석 ✅ 구현됨 |
 | POST | `/ai/report` | AI 보고서 생성 및 Grounding(내부 전용) | 김관영 ✅ 구현됨 |
 | POST | `/api/reports` | 보고서 생성 요청 (비동기 잡 발족) | 김관영 |

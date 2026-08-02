@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -8,7 +8,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import type { DefectRevisionRequest } from '../api/inspectionApi';
-import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, MediaResponse } from '../api/inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, MediaResponse, DeletedDefectItem } from '../api/inspectionApi.types';
 import { ResultViewerPage } from './ResultViewerPage';
 
 // 테스트용 목 데이터
@@ -24,6 +24,15 @@ const mockInspection: InspectionResponse = {
   reviewedCount: 1,
   totalCount: 5,
 };
+
+const deletedItemOf = (
+  overrides: Partial<DeletedDefectItem> & { defect: DefectDetailItem },
+): DeletedDefectItem => ({
+  deletedReason: '그림자를 균열로 오인',
+  deletedAt: '2026-07-23T09:30:00Z',
+  deletedByName: '오영석',
+  ...overrides,
+});
 
 const mockDefects: DefectDetailItem[] = [
   {
@@ -119,6 +128,10 @@ const testHandlers = [
   }),
   http.get('/api/inspections/:id/defects', () => {
     const body: ApiResponse<DefectDetailItem[]> = { success: true, data: mockDefects };
+    return HttpResponse.json(body);
+  }),
+  http.get('/api/inspections/:id/defects/deleted', () => {
+    const body: ApiResponse<DeletedDefectItem[]> = { success: true, data: [] };
     return HttpResponse.json(body);
   }),
   http.get('/api/inspections/:id/media', () => {
@@ -1316,6 +1329,79 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await waitFor(() => {
       const updated = screen.getByAltText('점검 이미지') as HTMLImageElement;
       expect(updated.src).toContain('/api/media/68/detail');
+    });
+  });
+
+  // #1399 — 오탐 삭제 사유는 저장돼 있었지만 모든 조회가 is_deleted=false 필터라 어느 화면에서도
+  // 읽을 수 없었고, 되돌릴 방법도 없었다.
+  describe('오탐 삭제 되살리기', () => {
+    function useDeleted(items: DeletedDefectItem[]): void {
+      server.use(
+        http.get('/api/inspections/:id/defects/deleted', () => {
+          const body: ApiResponse<DeletedDefectItem[]> = { success: true, data: items };
+          return HttpResponse.json(body);
+        }),
+      );
+    }
+
+    it('삭제된 하자가 없으면 패널 자체가 보이지 않는다', async () => {
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(screen.queryByText(/삭제된 하자/)).toBeNull();
+    });
+
+    it('건수만 보이다가 펼치면 사유·삭제자가 드러난다', async () => {
+      useDeleted([deletedItemOf({ defect: { ...mockDefects[0], id: 50 } })]);
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      const toggle = await screen.findByText(/이 이미지에서 삭제된 하자 1건/);
+      // 접힌 상태에서는 사유가 노출되지 않는다.
+      expect(screen.queryByText(/그림자를 균열로 오인/)).toBeNull();
+
+      fireEvent.click(toggle);
+
+      expect(screen.getByText(/그림자를 균열로 오인/)).not.toBeNull();
+      expect(screen.getByText(/오영석/)).not.toBeNull();
+    });
+
+    it('다른 이미지에서 삭제된 하자는 섞이지 않는다', async () => {
+      // mediaId=68은 현재 보고 있는 이미지(67)가 아니다.
+      useDeleted([deletedItemOf({ defect: { ...mockDefects[0], id: 51, mediaId: 68 } })]);
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(screen.queryByText(/삭제된 하자/)).toBeNull();
+    });
+
+    it('되살리기를 누르면 사유 모달이 열리고 확인 시 복구를 요청한다', async () => {
+      useDeleted([deletedItemOf({ defect: { ...mockDefects[0], id: 52 } })]);
+      let restoreBody: Record<string, unknown> | undefined;
+      server.use(
+        http.patch('/api/defects/:id', async ({ request, params }) => {
+          restoreBody = { id: params.id, ...(await request.json() as Record<string, unknown>) };
+          const body: ApiResponse<DefectDetailItem> = { success: true, data: mockDefects[0] };
+          return HttpResponse.json(body);
+        }),
+      );
+
+      renderPage();
+      await screen.findByText('DEF-0001');
+      fireEvent.click(await screen.findByText(/이 이미지에서 삭제된 하자 1건/));
+      fireEvent.click(screen.getByRole('button', { name: '되살리기' }));
+
+      // 서버가 사유를 필수로 받으므로 기본 문구가 채워진 채 열린다(한 번 눌러 끝낼 수 있게).
+      const dialog = await screen.findByRole('dialog');
+      const textarea = within(dialog).getByLabelText('되살리는 사유');
+      expect((textarea as HTMLTextAreaElement).value).toBe('오탐 판정 취소');
+
+      // 목록의 '되살리기'와 모달 확인 버튼이 같은 이름이라 모달 안으로 한정해 누른다.
+      fireEvent.click(within(dialog).getByRole('button', { name: '되살리기' }));
+
+      await waitFor(() => {
+        expect(restoreBody).toEqual({ id: '52', isDeleted: false, reason: '오탐 판정 취소' });
+      });
     });
   });
 });

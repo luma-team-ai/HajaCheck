@@ -17,6 +17,18 @@ export const DEFECT_TYPE_CODE_LABELS: Record<DefectTypeCode, DefectType> = {
   PAINT_DAMAGE: '도장 손상',
 };
 
+/**
+ * 오탐 삭제된 하자 1건(#1399) — 결과 뷰어의 "삭제된 하자" 접이식 목록·되살리기용.
+ * 삭제 사유는 저장돼 있었으나 모든 조회가 is_deleted=false 필터라 읽을 수 없었다.
+ * 3필드는 defect_revisions(field_changed='is_deleted') 이력에서 온다 — 이력이 유실된 예외 상황에서만 null.
+ */
+export interface DeletedDefectItem {
+  defect: DefectDetailItem;
+  deletedReason: string | null;
+  deletedAt: string | null;
+  deletedByName: string | null;
+}
+
 export interface DefectDetailItem {
   id: number;
   inspectionId: number;
