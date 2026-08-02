@@ -5,11 +5,17 @@
   상세 배경: ai/core/hf_chat_model.py 모듈 docstring)
 - chat 모델이 CachedLLM으로 정상 감싸기
 - with_structured_output() 이 _StructuredLLM 반환
+- _StructuredLLM 재시도 폴백 3케이스(UT-28): 호출 실패 후 성공 / 파싱 실패 후 성공 /
+  전부 실패 시 마지막 예외 전파. 삼킨 실패가 로그로 남는지도 함께 확인한다.
 """
+import logging
 import os
 from unittest.mock import MagicMock, patch
 
-from ai.core.llm_client import CachedLLM, _StructuredLLM, get_llm
+import pytest
+from pydantic import BaseModel
+
+from ai.core.llm_client import MAX_RETRIES, CachedLLM, _StructuredLLM, get_llm
 
 # 실제 시크릿 아님 — 테스트용 자리표시자. 리터럴을 토큰 키에 직접 대입하면
 # PR머신 시크릿 스캐너가 오탐하므로 상수로 분리(키 이름에 시크릿 키워드 없음).
@@ -126,6 +132,70 @@ def test_cache_namespace_differs_by_model_and_temperature(mock_chat_model_cls):
         diff_model_namespace = llm_diff_model._cache_namespace
         assert diff_model_namespace == "hf:other-model:latest:0.1"
         assert default_namespace != diff_model_namespace
+
+
+# ── UT-28: _StructuredLLM 재시도 폴백 ─────────────────────────────────────────
+# 캐시 동작은 test_llm_structured_cache.py가 다루므로 여기선 cache=False로 두고
+# 재시도 경로만 본다(_log_usage가 Redis를 건드리므로 _redis만 mock).
+
+
+class _UT28Schema(BaseModel):
+    field1: str
+
+
+def _response(content: str):
+    resp = MagicMock()
+    resp.content = content
+    resp.usage_metadata = {"total_tokens": 1}
+    return resp
+
+
+@patch("ai.core.llm_client._redis")
+def test_structured_retries_after_llm_call_failure(mock_redis, caplog):
+    """1회차 호출이 네트워크/타임아웃 등으로 실패해도 재시도로 복구한다."""
+    chat = MagicMock()
+    chat.invoke.side_effect = [RuntimeError("HF 일시 오류"), _response('{"field1": "ok"}')]
+
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        result = _StructuredLLM(chat, _UT28Schema, cache=False).invoke("prompt")
+
+    assert result == _UT28Schema(field1="ok")
+    assert chat.invoke.call_count == 2
+    assert len(caplog.records) == 1  # 삼킨 1회차 실패가 로그로 남는다
+
+
+@patch("ai.core.llm_client._redis")
+def test_structured_retries_after_parse_failure(mock_redis, caplog):
+    """호출은 됐지만 응답이 잘려 파싱 실패한 경우(#448)도 동일하게 재시도한다."""
+    chat = MagicMock()
+    chat.invoke.side_effect = [_response("잘린 응답"), _response('{"field1": "ok"}')]
+
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        result = _StructuredLLM(chat, _UT28Schema, cache=False).invoke("prompt")
+
+    assert result == _UT28Schema(field1="ok")
+    assert chat.invoke.call_count == 2
+    assert len(caplog.records) == 1
+
+
+@patch("ai.core.llm_client._redis")
+def test_structured_raises_after_all_retries_on_schema_mismatch(mock_redis, caplog):
+    """스키마 불일치(JSON은 유효하나 필드가 다름) 응답이 계속되면 표준 폴백 = 마지막 예외 전파.
+
+    자유 텍스트를 억지로 파싱해 부분 결과를 만들어내지 않는다(NFR-24·NFR-25) — 조용한 None
+    반환·자유 텍스트 폴백은 잘못된 하자 설명이 그대로 보고서에 실리는 경로라 더 위험하다.
+    """
+    chat = MagicMock()
+    chat.invoke.return_value = _response('{"unexpected_field": "스키마 불일치"}')
+
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        # PydanticOutputParser가 던지는 예외 타입은 langchain 버전에 따라 다를 수 있어 Exception으로 받는다
+        with pytest.raises(Exception):  # noqa: B017
+            _StructuredLLM(chat, _UT28Schema, cache=False).invoke("prompt")
+
+    assert chat.invoke.call_count == MAX_RETRIES + 1  # 무한 재시도 아님
+    assert len(caplog.records) == MAX_RETRIES + 1
+    assert "재시도 3/3" in caplog.records[-1].getMessage()
 
 
 if __name__ == "__main__":
