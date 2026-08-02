@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-07-31
+> 마지막 갱신: 2026-08-02
 
 ## 인프라
 
@@ -35,6 +35,16 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+- **🔁 main → dev 역머지 (→ dev, 2026-08-02)** — **#1387**(merge `d32d15c0`, **merge 커밋**). 대응 이슈·Jira 없음(동기화 chore). **신규 코드 0줄** — main-only 20커밋을 dev로 되돌린 것뿐.
+  - **왜 필요했나**: `#1368`(기업 계정 회사 스코프 전면 403 복구)이 **main hotfix 직행**이라 dev에 없었다. 그대로 두면 **다음 dev→main 승격이 이 수정을 통째로 되돌려 P0 장애가 재발**한다. 마지막 역머지 #1327 이후 누적분 전량.
+  - **포함**: 코드 15커밋(#1324/#1366 진위확인·자동승인 계열, backend 27파일) · **V38**(dev 최신이 V37이었으므로 번호 충돌 0 → **다음은 V39**) · 운영 config 2건(arm1/prod compose `BUSINESS_REGISTRATION_API_KEY` `:-`→`:?` 강제) · 문서 5커밋.
+  - **충돌**: `docs/STATUS.md` 1곳뿐, **코드 충돌 0건**. dev 쪽이 비어 있고 main에만 #1368 항목이 있는 순수 추가 충돌 → main 블록 채택(내용 손실 0).
+  - **⚠️ squash 금지 사유**: squash로 머지하면 main 커밋들이 dev의 조상이 되지 않아 **동일한 드리프트가 즉시 재발**한다. 역머지는 항상 merge 커밋으로.
+  - **PR머신 `ai:p1-blocked` 반려를 사용자 승인 하에 오버라이드** — 머신이 `CompanyAccountWriter.java:69`(가입 전면 자동승인, 소유권 미검증)를 P1로 재보고했으나 **이 PR에서는 성립하지 않음**으로 판정(등급 격하 아님, 위험 자체는 #1367에서 유효 유지). 근거 4건: ①`git diff origin/main...HEAD` 실측상 **auth/bizverify 신규 파일 0건**(지목 코드는 이미 main·prod 라이브) ②소유·통제 미검증은 국세청 API가 실재만 확인하는 **수단 부재로 확정 수용**된 범위 밖 사안(후속 #1367) ③요청된 회귀 가드는 `CompanySignupServiceTest.java:285-320`에 이미 존재(MISMATCH·CLOSED·SUSPENDED → `AUTH_BUSINESS_VERIFICATION_FAILED` + `createAccount` never) ④**반려 수용이 위험을 키운다** — 지적 코드는 이미 prod 라이브라 막아도 위험은 남고, 막으면 승격 시 403 재발. 판정 전문은 PR #1387 코멘트.
+  - **P3(미조치, 의도)**: V38 소급분(`UNKNOWN_BACKFILL`)이 provenance로 증명 불가라 재검증 배치에 상주해 국세청 일일 쿼터를 상시 소모. fail-safe 여집합 설계 자체는 의도된 것 → 코드 변경 없이 **배포 후 배치 로그(대상·SKIPPED 건수)로 모니터링**, 완화 정책은 #1367 범위에서 검토.
+  - **검증**: 로컬 `./gradlew test` **2042건 PASS**(failures·errors·skipped 0) · CI backend·changes SUCCESS(ai-server·frontend는 변경 없어 SKIPPED) · 시크릿 스캔 3종 0건 · 머지 후 `git rev-list origin/dev..origin/main` **0건**으로 드리프트 해소 확인.
+  - **교훈(재발 방지)**: 드리프트 20건 중 **5건이 main 직접 커밋한 STATUS.md**였다. hotfix 역머지는 **main 머지 직후 즉시** 수행해야 누적되지 않는다.
 
 - **🚨 기업 계정 회사 스코프 전면 403 복구 (→ main hotfix 직행, 2026-07-31)** — BE **#1368**(merge `aa821dd3`, 이슈 #1324+#1366 / HAJA-603). **마이그레이션 V38**(데이터 전이, 스키마 변경 0). CD success → arm1 재기동 시 적용 완료.
   - **장애 범위**: prod 에서 **기업으로 가입한 계정이 회사 스코프 API 전부 403** — 시설물 등록·목록, 점검, 하자, 보고서, 통계, 대시보드, AI 브리핑. 즉 **가입 직후부터 아무 기능도 못 씀**. arm1 실측으로 회사 6건 중 4건이 막혀 있었고, 정상인 2건은 `Company.approve()` 호출부가 0건이므로 **수동 SQL 편집분**이었다 — 앱 경로로 정상화된 회사는 하나도 없었다.
