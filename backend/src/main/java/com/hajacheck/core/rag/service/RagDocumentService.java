@@ -148,6 +148,10 @@ public class RagDocumentService {
             // RagEmbeddingCompletionPoller에 위임해 실제 Chroma 청크 수를 폴링 확인한 뒤에만 한다.
             ApiResponse<RagEmbedResponse> response = aiProxyService.embedRagDocument(aiRequest);
             if (response.success() && response.data() != null) {
+                // 폴러가 25초 상한에 도달해도 완료 재확인이 가능하도록 이번 요청의 기대값을 먼저
+                // 영속한다(#1393 리뷰 2차 P2 — RagEmbeddingStaleReconciler가 이 값으로 재조회).
+                ragDocumentWriter.recordEmbedRequest(
+                        documentId, response.data().chunkCount(), response.data().embedBatchId());
                 ragEmbeddingCompletionPoller.pollUntilComplete(
                         documentId, aiCollection, response.data().chunkCount(),
                         response.data().embedBatchId());

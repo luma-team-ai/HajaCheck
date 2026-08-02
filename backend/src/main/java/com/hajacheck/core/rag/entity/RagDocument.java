@@ -98,6 +98,18 @@ public class RagDocument {
     @Column(name = "embedding_started_at")
     private Instant embeddingStartedAt;
 
+    /**
+     * 이번 임베딩 요청이 기대하는 청크 수·배치 식별자(#1393 리뷰 2차 P2) — 폴러가 25초 상한에
+     * 도달해 EMBEDDING을 유지한 채 종료하면, {@link com.hajacheck.core.rag.scheduler.RagEmbeddingStaleReconciler}가
+     * 이 두 값으로 {@code AiProxyService.checkEmbeddingStatus()}를 재조회해 실제로 완료됐는지 채점한다.
+     * embedding_started_at은 "얼마나 오래 걸렸나"만 알려줄 뿐 "정답이 뭔가"는 알려주지 못하므로 별도로 둔다.
+     */
+    @Column(name = "expected_chunk_count")
+    private Integer expectedChunkCount;
+
+    @Column(name = "embed_batch_id", length = 64)
+    private String embedBatchId;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
@@ -155,6 +167,17 @@ public class RagDocument {
         }
         return this.embeddingStartedAt == null
                 || this.embeddingStartedAt.isBefore(Instant.now().minus(staleThreshold));
+    }
+
+    /**
+     * AI 서버가 임베딩 요청을 접수한 직후(청킹 완료, 배경 임베딩 시작 시점) 이번 요청의 기대값을
+     * 기록한다(#1393 리뷰 2차 P2) — startEmbedding()/restartEmbedding() 시점에는 아직 AI 서버 응답
+     * 전이라 이 값을 알 수 없어 별도 메서드로 분리한다. EMBEDDING 상태에서만 의미가 있다.
+     */
+    public void recordEmbedRequest(int expectedChunkCount, String embedBatchId) {
+        requireEmbeddingStatus("recordEmbedRequest", RagEmbeddingStatus.EMBEDDING);
+        this.expectedChunkCount = expectedChunkCount;
+        this.embedBatchId = embedBatchId;
     }
 
     public void completeEmbedding(int chunkCount) {
