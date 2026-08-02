@@ -317,3 +317,82 @@ if __name__ == "__main__":
     print("Running rag_ingest self-check...")
     test_ingest_document_알수없는컬렉션은ValueError()
     print("OK: rag_ingest self-check passed (run via pytest for mocked cases)")
+
+
+# ── embed_batch_id (#1393 리뷰 P2 — 청크 수가 같은 재임베딩의 거짓 완료 차단) ──
+
+@patch("routers.ai_router.delete_stale_chunks")
+@patch("routers.ai_router.ingest_document")
+def test_embed_endpoint_배치식별자를응답하고배경임베딩에전달(mock_ingest, mock_delete_stale):
+    res = client.post(
+        "/ai/rag-documents/embed",
+        json={
+            "doc_id": "42",
+            "title": "시설물 안전법",
+            "doc_type": "LAW",
+            "target_collection": "regulations",
+            "text": FLAT_LAW_SAMPLE,
+        },
+    )
+
+    body = res.json()
+    embed_batch_id = body["data"]["embed_batch_id"]
+    assert embed_batch_id
+    # 배경 임베딩이 같은 식별자를 각 청크 메타데이터에 심어야 status 조회로 되돌려받을 수 있다.
+    assert mock_ingest.call_args.kwargs["embed_batch_id"] == embed_batch_id
+
+
+@patch("ai.core.rag_ingest.get_vectorstore")
+def test_ingest_document_배치식별자를메타데이터에기록(mock_get_vectorstore):
+    ingest_document(
+        "42", "시설물 안전법", "LAW", "regulations", FLAT_LAW_SAMPLE, embed_batch_id="batch-1"
+    )
+
+    metadatas = mock_get_vectorstore.return_value.add_texts.call_args.kwargs["metadatas"]
+    assert all(metadata["embed_batch_id"] == "batch-1" for metadata in metadatas)
+
+
+@patch("ai.core.rag_ingest.get_vectorstore")
+def test_ingest_document_배치식별자가없으면키자체를생략(mock_get_vectorstore):
+    ingest_document("42", "시설물 안전법", "LAW", "regulations", FLAT_LAW_SAMPLE)
+
+    metadatas = mock_get_vectorstore.return_value.add_texts.call_args.kwargs["metadatas"]
+    assert all("embed_batch_id" not in metadata for metadata in metadatas)
+
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_모든청크가같은배치면배치식별자를반환(mock_get_vectorstore):
+    mock_vs = MagicMock()
+    mock_vs._collection.get.return_value = {
+        "ids": ["42_0", "42_1"],
+        "metadatas": [{"embed_batch_id": "batch-2"}, {"embed_batch_id": "batch-2"}],
+    }
+    mock_get_vectorstore.return_value = mock_vs
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "regulations"},
+    )
+
+    body = res.json()
+    assert body["data"]["chunk_count"] == 2
+    assert body["data"]["embed_batch_id"] == "batch-2"
+
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_옛배치와새배치가섞여있으면None(mock_get_vectorstore):
+    # 재임베딩 진행 중 — 청크 수는 옛 배치만으로도 기대치와 같을 수 있으므로 배치 식별자가
+    # 확정되지 않으면 Spring이 완료로 확정하지 않아야 한다.
+    mock_vs = MagicMock()
+    mock_vs._collection.get.return_value = {
+        "ids": ["42_0", "42_1"],
+        "metadatas": [{"embed_batch_id": "batch-3"}, {"embed_batch_id": "batch-2"}],
+    }
+    mock_get_vectorstore.return_value = mock_vs
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "regulations"},
+    )
+
+    assert res.json()["data"]["embed_batch_id"] is None

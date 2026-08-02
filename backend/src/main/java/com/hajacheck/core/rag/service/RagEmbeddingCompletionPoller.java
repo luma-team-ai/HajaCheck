@@ -17,9 +17,16 @@ import org.springframework.stereotype.Component;
  *
  * <p>RagDocumentService.embed()가 FastAPI로부터 받은 예상 청크 수(expectedChunkCount)를 들고 이
  * 컴포넌트에 완료 확인을 위임하면, 짧은 간격으로 {@link AiProxyService#checkEmbeddingStatus}를
- * 재시도 폴링해 실제 Chroma 청크 수가 예상치와 일치할 때만 completeEmbedding()을 호출한다. 재시도를
- * 다 쓰고도 일치하지 않으면 failEmbedding()으로 안전한 기본값 처리한다(관리자가 재임베딩으로 복구
- * 가능한 idempotent 설계, RagDocumentService 참고).
+ * 재시도 폴링해 실제 Chroma 청크 수가 예상치와 일치하고 <b>배치 식별자까지 이번 요청의 것과 같을 때만</b>
+ * completeEmbedding()을 호출한다(#1393 리뷰 P2 — 청크 수가 같은 재임베딩에서 옛 청크만 보고 거짓 완료로
+ * 확정하던 문제).
+ *
+ * <p>재시도 상한(약 25초)을 다 써도 확인되지 않으면 <b>failEmbedding()을 호출하지 않고</b> 문서를
+ * EMBEDDING으로 둔 채 폴러만 종료한다(#1393 리뷰 P2) — 대용량 문서의 배경 임베딩이 25초를 넘길 수 있어
+ * 실제로는 성공할 문서를 FAILED로 확정하기 때문이다. 최종 판정은 임계
+ * ({@link com.hajacheck.core.rag.entity.RagDocument#EMBEDDING_STALE_THRESHOLD})까지 기다린 뒤
+ * {@link com.hajacheck.core.rag.scheduler.RagEmbeddingStaleReconciler}가 맡는다(관리자가 재임베딩으로
+ * 복구 가능한 idempotent 설계, RagDocumentService 참고).
  *
  * <p>{@link AsyncConfig#RAG_EMBED_TASK_EXECUTOR} 전용 스레드에서 동작하므로 여기서의
  * {@link Thread#sleep}은 요청 스레드나 nginx 타임아웃과 무관하다 — 사용자 응답은 embed() 호출 시점에
@@ -50,9 +57,11 @@ public class RagEmbeddingCompletionPoller {
      * @param collection         FastAPI 소문자 컬렉션 상수(regulations/defect_kb) — RagDocumentService가
      *                            이미 toLowerCase() 매핑을 마친 값을 그대로 전달한다.
      * @param expectedChunkCount FastAPI 청킹 단계에서 즉시 반환된 예상 최종 청크 수
+     * @param expectedBatchId    FastAPI 청킹 단계에서 즉시 반환된 이번 임베딩 배치 식별자
      */
     @Async(AsyncConfig.RAG_EMBED_TASK_EXECUTOR)
-    public void pollUntilComplete(Long documentId, String collection, int expectedChunkCount) {
+    public void pollUntilComplete(Long documentId, String collection, int expectedChunkCount,
+                                  String expectedBatchId) {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             if (sleepBeforeNextCheck()) {
                 log.warn("RAG 임베딩 완료 폴링 중 인터럽트 — documentId={}", documentId);
@@ -64,7 +73,8 @@ public class RagEmbeddingCompletionPoller {
                 ApiResponse<RagEmbeddingStatusResponse> response =
                         aiProxyService.checkEmbeddingStatus(String.valueOf(documentId), collection);
                 if (response.success() && response.data() != null
-                        && response.data().chunkCount() == expectedChunkCount) {
+                        && response.data().chunkCount() == expectedChunkCount
+                        && isThisBatch(response.data().embedBatchId(), expectedBatchId)) {
                     ragDocumentWriter.completeEmbedding(documentId, expectedChunkCount);
                     return;
                 }
@@ -76,9 +86,23 @@ public class RagEmbeddingCompletionPoller {
             }
         }
 
-        log.warn("RAG 임베딩 완료 폴링 타임아웃 — documentId={} expectedChunkCount={}",
+        // 상한 도달 시 곧바로 failEmbedding()하지 않는다(#1393 리뷰 P2) — 대용량 문서는 배경 임베딩이
+        // 25초 안에 끝나지 않을 수 있어, 실제로는 성공할 문서를 FAILED로 확정해버린다. 문서는 EMBEDDING
+        // 상태로 두고 폴러만 종료해, 그동안 배경 임베딩이 끝나면 다음 재임베딩/조회에서 정상 반영되고,
+        // 임계(RagDocument.EMBEDDING_STALE_THRESHOLD, 5분 — 이 상한보다 충분히 크다)까지도 끝나지
+        // 않으면 RagEmbeddingStaleReconciler가 최종적으로 FAILED로 정리한다.
+        log.warn("RAG 임베딩 완료 폴링 타임아웃 — documentId={} expectedChunkCount={} "
+                        + "(EMBEDDING 유지, 최종 판정은 RagEmbeddingStaleReconciler에 위임)",
                 documentId, expectedChunkCount);
-        ragDocumentWriter.failEmbedding(documentId);
+    }
+
+    /**
+     * embedding-status가 돌려준 배치 식별자가 이번 요청의 배치와 같은지 — 재임베딩 중에는 옛 배치 청크가
+     * 그대로 남아 있어(add_texts는 upsert라 delete 없이 덮어쓴다) 청크 수만으로는 완료를 구분할 수 없다.
+     * 응답이 null이면(옛/새 배치가 섞여 있거나 배치 식별자 이전 버전의 ai-server) 완료로 보지 않는다.
+     */
+    private boolean isThisBatch(String actualBatchId, String expectedBatchId) {
+        return expectedBatchId != null && expectedBatchId.equals(actualBatchId);
     }
 
     /**

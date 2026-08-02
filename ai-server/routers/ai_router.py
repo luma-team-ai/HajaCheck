@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, BackgroundTasks
 from langchain_core.exceptions import OutputParserException
@@ -307,6 +308,7 @@ def _run_ingest_background(
     authored_at: Optional[str],
     verification_status: Optional[str],
     chunk_count: int,
+    embed_batch_id: str,
 ):
     try:
         # 1. 실제 청킹 및 임베딩 연산 수행 (CPU 헤비 태스크)
@@ -320,6 +322,7 @@ def _run_ingest_background(
             publisher=publisher,
             authored_at=authored_at,
             verification_status=verification_status,
+            embed_batch_id=embed_batch_id,
         )
         # 2. 성공한 뒤에만 초과 청크 정리
         delete_stale_chunks(doc_id, target_collection, chunk_count)
@@ -353,7 +356,12 @@ def rag_documents_embed(req: RagDocumentEmbedRequest, background_tasks: Backgrou
         logger.exception("POST /ai/rag-documents/embed 청킹 처리 중 예외 발생")
         return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "문서 청킹 중 오류가 발생했습니다")
 
-    # 2. 임베딩 적재 및 초과분 삭제는 백그라운드 태스크로 연동
+    # 2. 이번 임베딩 배치 식별자 — 배경 임베딩이 각 청크 메타데이터에 심고, embedding-status가
+    #    되돌려준다. Spring은 청크 수뿐 아니라 이 값까지 일치할 때만 완료로 확정한다(#1393 리뷰 P2 —
+    #    청크 수가 같은 재임베딩에서 옛 청크만 보고 거짓 완료로 확정하던 문제).
+    embed_batch_id = uuid4().hex
+
+    # 3. 임베딩 적재 및 초과분 삭제는 백그라운드 태스크로 연동
     background_tasks.add_task(
         _run_ingest_background,
         req.doc_id,
@@ -366,10 +374,11 @@ def rag_documents_embed(req: RagDocumentEmbedRequest, background_tasks: Backgrou
         req.authored_at,
         req.verification_status,
         chunk_count,
+        embed_batch_id,
     )
 
-    # 3. 즉시 계산된 청크 개수와 함께 성공 리턴 (스프링 백엔드와 완벽 호환)
-    return AIResponse.ok({"chunk_count": chunk_count})
+    # 4. 즉시 계산된 청크 개수와 배치 식별자를 함께 성공 리턴
+    return AIResponse.ok({"chunk_count": chunk_count, "embed_batch_id": embed_batch_id})
 
 
 @router.get("/rag-documents/{doc_id}/embedding-status")
@@ -398,6 +407,13 @@ def rag_documents_embedding_status(doc_id: str, target_collection: str) -> AIRes
         vectorstore = get_vectorstore(target_collection)
         result = vectorstore._collection.get(where={"doc_id": doc_id})
         chunk_count = len(result.get("ids", []))
+        # 적재된 청크 전부가 같은 배치에서 나왔을 때만 그 배치 식별자를 돌려준다. 재임베딩 도중에는
+        # 새 배치 청크와 옛 배치 청크가 섞여 있어 None이 되고, Spring은 완료로 확정하지 않는다
+        # (#1393 리뷰 P2 — 청크 수가 같은 재임베딩의 거짓 완료 차단).
+        batch_ids = {
+            (metadata or {}).get("embed_batch_id") for metadata in (result.get("metadatas") or [])
+        }
+        embed_batch_id = batch_ids.pop() if len(batch_ids) == 1 else None
     except Exception:  # noqa: BLE001 — Chroma 조회 실패 등 표준 폴백(모델 호출 없는 단순 조회 경로)
         logger.exception(
             "GET /ai/rag-documents/{doc_id}/embedding-status 처리 중 예상치 못한 예외 발생"
@@ -406,7 +422,7 @@ def rag_documents_embedding_status(doc_id: str, target_collection: str) -> AIRes
             AIErrorCode.VALIDATION_ERROR, "임베딩 상태 조회 중 오류가 발생했습니다"
         )
 
-    return AIResponse.ok({"chunk_count": chunk_count})
+    return AIResponse.ok({"chunk_count": chunk_count, "embed_batch_id": embed_batch_id})
 
 
 class BusinessLicenseOcrRequest(BaseModel):

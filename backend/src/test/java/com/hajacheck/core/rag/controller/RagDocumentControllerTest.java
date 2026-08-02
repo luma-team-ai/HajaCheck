@@ -129,7 +129,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
         // 응답 시점에는 아직 완료를 확정하지 않는다(RagEmbeddingCompletionPoller가 비동기로 폴링해
         // 나중에 DONE으로 전환 — 그 완료 확정 로직 자체는 RagEmbeddingCompletionPollerTest가
         // 검증한다). 컨트롤러 계약상 응답은 이제 EMBEDDING이 정상이다.
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3)));
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3, "batch-1")));
 
         mockMvc.perform(multipart("/api/admin/rag-documents")
                         .file(pdfPart())
@@ -214,7 +214,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
         // 그 문서를 재임베딩한다.
         when(aiProxyService.embedRagDocument(any()))
                 .thenReturn(ApiResponse.fail("VALIDATION_ERROR", "청크 분할 실패"))
-                .thenReturn(ApiResponse.ok(new RagEmbedResponse(9)));
+                .thenReturn(ApiResponse.ok(new RagEmbedResponse(9, "batch-1")));
 
         String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
                         .file(pdfPart())

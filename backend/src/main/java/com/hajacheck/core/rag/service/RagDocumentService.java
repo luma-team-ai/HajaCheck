@@ -149,7 +149,8 @@ public class RagDocumentService {
             ApiResponse<RagEmbedResponse> response = aiProxyService.embedRagDocument(aiRequest);
             if (response.success() && response.data() != null) {
                 ragEmbeddingCompletionPoller.pollUntilComplete(
-                        documentId, aiCollection, response.data().chunkCount());
+                        documentId, aiCollection, response.data().chunkCount(),
+                        response.data().embedBatchId());
             } else {
                 log.warn("RAG 문서 임베딩 실패(AI 서버 응답 실패) documentId={}", documentId);
                 ragDocumentWriter.failEmbedding(documentId);

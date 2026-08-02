@@ -36,6 +36,7 @@ def ingest_document(
     publisher: str | None = None,
     authored_at: str | None = None,
     verification_status: str | None = None,
+    embed_batch_id: str | None = None,
 ) -> int:
     """문서를 청킹해 target_collection에 임베딩하고 청크 수를 반환한다.
 
@@ -66,6 +67,11 @@ def ingest_document(
             "embedding_model": EMBEDDING_MODEL,
             "embedded_at": embedded_at,
         }
+        # 재임베딩 배치 식별자(#1393 리뷰 P2) — add_texts()는 동일 id를 upsert하므로 재임베딩 중에도
+        # 옛 청크가 그대로 남아 있다. 청크 수만 비교하면 청크 수가 같은 재임베딩에서 배경 임베딩이
+        # 끝나기도 전에 Spring이 거짓 완료로 확정한다. 이 값이 요청 배치와 일치할 때만 완료로 본다.
+        if embed_batch_id:
+            metadata["embed_batch_id"] = embed_batch_id
         if target_collection == COLLECTION_REGULATIONS:
             metadata.update(extract_article_metadata(chunk))
             if effective_date:

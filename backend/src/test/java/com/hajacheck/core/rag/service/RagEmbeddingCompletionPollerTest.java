@@ -45,9 +45,9 @@ class RagEmbeddingCompletionPollerTest {
     @Test
     void pollUntilComplete_첫시도에실제청크수가예상치와일치하면_즉시완료처리하고재시도하지않는다() {
         when(aiProxyService.checkEmbeddingStatus("1", "regulations"))
-                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(5)));
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(5, "batch-1")));
 
-        poller.pollUntilComplete(1L, "regulations", 5);
+        poller.pollUntilComplete(1L, "regulations", 5, "batch-1");
 
         verify(aiProxyService, times(1)).checkEmbeddingStatus("1", "regulations");
         verify(ragDocumentWriter).completeEmbedding(1L, 5);
@@ -55,37 +55,65 @@ class RagEmbeddingCompletionPollerTest {
     }
 
     @Test
-    void pollUntilComplete_재시도끝에도청크수가일치하지않으면_failEmbedding으로안전한기본값처리한다() {
-        // 실제 청크 수가 계속 기대치보다 적게 조회되는 경우(임베딩이 끝나지 않았거나 실패한 경우)
-        // 최대 재시도 횟수를 다 쓰고도 일치하지 않으면 완료로 확정하지 않고 실패 처리한다.
+    void pollUntilComplete_재시도끝에도청크수가일치하지않으면_실패확정하지않고EMBEDDING을유지한다() {
+        // 상한(약 25초)을 넘겨도 배경 임베딩이 계속 진행 중일 수 있어(대용량 문서), 여기서 FAILED로
+        // 확정하면 실제로는 성공한 문서가 실패로 남는다(#1393 리뷰 P2). 최종 판정은 임계까지 기다리는
+        // RagEmbeddingStaleReconciler에 넘기고, 폴러는 문서 상태를 건드리지 않고 종료한다.
         when(aiProxyService.checkEmbeddingStatus("2", "defect_kb"))
-                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(0)));
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(0, null)));
 
-        poller.pollUntilComplete(2L, "defect_kb", 5);
+        poller.pollUntilComplete(2L, "defect_kb", 5, "batch-1");
 
         verify(ragDocumentWriter, never()).completeEmbedding(any(), org.mockito.ArgumentMatchers.anyInt());
-        verify(ragDocumentWriter).failEmbedding(2L);
+        verify(ragDocumentWriter, never()).failEmbedding(any());
     }
 
     @Test
-    void pollUntilComplete_조회가매번예외를던져도_재시도를흡수하고최종적으로failEmbedding한다() {
+    void pollUntilComplete_조회가매번예외를던져도_재시도를흡수하고상태를건드리지않는다() {
         when(aiProxyService.checkEmbeddingStatus(eq("3"), eq("regulations")))
                 .thenThrow(new BusinessException(ErrorCode.AI_SERVER_UNREACHABLE));
 
-        poller.pollUntilComplete(3L, "regulations", 5);
+        poller.pollUntilComplete(3L, "regulations", 5, "batch-1");
 
         verify(ragDocumentWriter, never()).completeEmbedding(any(), org.mockito.ArgumentMatchers.anyInt());
-        verify(ragDocumentWriter).failEmbedding(3L);
+        verify(ragDocumentWriter, never()).failEmbedding(any());
+    }
+
+    @Test
+    void pollUntilComplete_청크수는같아도배치식별자가옛값이면_완료로확정하지않는다() {
+        // 재임베딩은 add_texts(upsert)라 옛 청크가 그대로 남아 있어, 청크 수가 같으면 배경 임베딩이
+        // 끝나기 전에도 기대치와 일치해버린다(#1393 리뷰 P2) — 배치 식별자로 이번 배치인지 가린다.
+        when(aiProxyService.checkEmbeddingStatus("5", "regulations"))
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(5, "old-batch")));
+
+        poller.pollUntilComplete(5L, "regulations", 5, "new-batch");
+
+        verify(ragDocumentWriter, never()).completeEmbedding(any(), org.mockito.ArgumentMatchers.anyInt());
+        verify(ragDocumentWriter, never()).failEmbedding(any());
+    }
+
+    @Test
+    void pollUntilComplete_옛배치로시작해_새배치가확인되면완료처리한다() {
+        when(aiProxyService.checkEmbeddingStatus("6", "regulations"))
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(5, "old-batch")))
+                // 재임베딩 진행 중 — 옛/새 배치 청크가 섞여 있으면 ai-server가 null을 돌려준다.
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(5, null)))
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(5, "new-batch")));
+
+        poller.pollUntilComplete(6L, "regulations", 5, "new-batch");
+
+        verify(aiProxyService, times(3)).checkEmbeddingStatus("6", "regulations");
+        verify(ragDocumentWriter).completeEmbedding(6L, 5);
     }
 
     @Test
     void pollUntilComplete_일부시도만실패하다_이후시도에서일치하면완료처리한다() {
         when(aiProxyService.checkEmbeddingStatus("4", "regulations"))
                 .thenThrow(new BusinessException(ErrorCode.AI_SERVER_TIMEOUT))
-                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(2)))
-                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(5)));
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(2, "batch-1")))
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(5, "batch-1")));
 
-        poller.pollUntilComplete(4L, "regulations", 5);
+        poller.pollUntilComplete(4L, "regulations", 5, "batch-1");
 
         verify(aiProxyService, times(3)).checkEmbeddingStatus("4", "regulations");
         verify(ragDocumentWriter).completeEmbedding(4L, 5);

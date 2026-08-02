@@ -116,13 +116,13 @@ class RagDocumentServiceTest {
         // Chroma 임베딩이 끝났다는 보장이 없는 거짓 완료 방지). 대신 RagEmbeddingCompletionPoller에
         // documentId+collection+expectedChunkCount를 넘겨 위임했는지만 검증한다 — 폴러는 별도
         // 비동기 스레드(@Async)로 동작하므로 여기서는 완료 상태 전이 자체를 재현하지 않는다.
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(12)));
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(12, "batch-1")));
 
         RagDocumentResponse response = ragDocumentService.upload(file, REQUEST);
 
         assertThat(response.embeddingStatus()).isEqualTo(RagEmbeddingStatus.EMBEDDING);
         verify(ragDocumentWriter).markEmbeddingStarted(any());
-        verify(ragEmbeddingCompletionPoller).pollUntilComplete(document.getId(), "regulations", 12);
+        verify(ragEmbeddingCompletionPoller).pollUntilComplete(document.getId(), "regulations", 12, "batch-1");
         verify(ragDocumentWriter, never()).completeEmbedding(any(), anyInt());
         verify(ragDocumentWriter, never()).failEmbedding(any());
     }
@@ -156,9 +156,9 @@ class RagDocumentServiceTest {
         // 무관하게 failEmbedding()으로 귀결돼야 한다 — 여기서는 폴러 위임 호출 자체가 실패하는
         // 경로를 재현한다. 폴러 내부(@Async 스레드)에서 발생하는 예외 처리는
         // RagEmbeddingCompletionPollerTest가 별도로 검증한다.
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3)));
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3, "batch-1")));
         doThrow(new OptimisticLockingFailureException("동시 갱신 충돌"))
-                .when(ragEmbeddingCompletionPoller).pollUntilComplete(any(), any(), anyInt());
+                .when(ragEmbeddingCompletionPoller).pollUntilComplete(any(), any(), anyInt(), any());
 
         RagDocumentResponse response = ragDocumentService.upload(file, REQUEST);
 
@@ -202,13 +202,13 @@ class RagDocumentServiceTest {
         document.startEmbedding();
         document.completeEmbedding(5);
         when(fileStorage.read("rag-documents/stub.pdf")).thenReturn("dummy-pdf-bytes".getBytes());
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(9)));
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(9, "batch-1")));
 
         RagDocumentResponse response = ragDocumentService.reEmbed(document.getId());
 
         assertThat(response.embeddingStatus()).isEqualTo(RagEmbeddingStatus.EMBEDDING);
         verify(ragDocumentWriter).markReEmbeddingStarted(any());
-        verify(ragEmbeddingCompletionPoller).pollUntilComplete(document.getId(), "regulations", 9);
+        verify(ragEmbeddingCompletionPoller).pollUntilComplete(document.getId(), "regulations", 9, "batch-1");
     }
 
     @Test
