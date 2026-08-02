@@ -30,8 +30,9 @@ class DefectTest {
 
     @Test
     void changeStatus_정의된수명주기순서로전이() {
+        // 등급은 전이의 선행조건일 뿐 이 테스트의 관심사가 아니다(#1397).
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
-                .confidence(0.95).build();
+                .confidence(0.95).grade(DefectGrade.C).build();
 
         defect.changeStatus(DefectStatus.CONFIRMED);
         defect.changeStatus(DefectStatus.IN_PROGRESS);
@@ -44,7 +45,7 @@ class DefectTest {
     @Test
     void changeStatus_사유없는건너뛰기와동일상태는거부하고해결상태는이탈불가() {
         Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
-                .confidence(0.95).build();
+                .confidence(0.95).grade(DefectGrade.C).build();
         assertThatThrownBy(() -> detected.changeStatus(DefectStatus.IN_PROGRESS))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> detected.changeStatus(DefectStatus.DETECTED))
@@ -61,7 +62,7 @@ class DefectTest {
     @Test
     void changeStatus_사유가있으면건너뛰기와역행을허용() {
         Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
-                .confidence(0.95).build();
+                .confidence(0.95).grade(DefectGrade.C).build();
 
         detected.changeStatus(DefectStatus.IN_PROGRESS, "경미한 하자라 검수확정 생략");
         assertThat(detected.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
@@ -299,12 +300,34 @@ class DefectTest {
     @Test
     void changeStatus_예외발생시reviewed는변경되지않음() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
-                .confidence(0.95).build();
+                .confidence(0.95).grade(DefectGrade.C).build();
         assertThat(defect.isReviewed()).isFalse();
 
         assertThatThrownBy(() -> defect.changeStatus(DefectStatus.DETECTED))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(defect.isReviewed()).isFalse();
+    }
+
+    @Test
+    void changeStatus_등급없는신규결함은어떤상태로도이탈불가() {
+        // #1397 — 등급 없이 확정되면 화면의 '등급 수정'은 DETECTED에서만 열리므로 이후 어디서도
+        // 등급을 부여할 수 없는 영구 미분류로 고착된다. 확정 전에 review()로 등급을 먼저 매겨야 한다.
+        Defect ungraded = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).build();
+
+        assertThatThrownBy(() -> ungraded.changeStatus(DefectStatus.CONFIRMED))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("등급");
+        // 사유를 붙인 건너뛰기로도 우회할 수 없다.
+        assertThatThrownBy(() -> ungraded.changeStatus(DefectStatus.IN_PROGRESS, "검수확정 생략"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(ungraded.getStatus()).isEqualTo(DefectStatus.DETECTED);
+        assertThat(ungraded.isReviewed()).isFalse();
+
+        // 등급을 매기면(review는 status를 바꾸지 않는다) 정상 전이된다.
+        ungraded.review(DefectGrade.D);
+        ungraded.changeStatus(DefectStatus.CONFIRMED);
+        assertThat(ungraded.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
     }
 }
