@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Defect } from '../../../inspection/types';
+import { isDrawableBbox } from '../../../inspection/utils/isDrawableBbox';
 
 /** 사진 1장 + 그 위에 얹을 하자 목록. `mediaId`가 null인 하자(수동 추가 등)는 사진별로 묶이지 않는다. */
 export interface DefectPhotoGroup {
@@ -19,15 +20,6 @@ interface DefectPhotoProps {
   alt: string;
   /** 이미지가 없거나 로드에 실패했을 때 자리 표시자 */
   fallback: React.ReactNode;
-}
-
-/** 0~1 정규화 좌표가 아닌 값은 그리지 않는다 — 백엔드가 null을 줄 수 있고(수동 추가 하자), 범위를 벗어난 값은 레이아웃을 깨뜨린다. */
-function isDrawableBbox(defect: Defect): boolean {
-  const bbox = defect.bbox;
-  if (!bbox) return false;
-  const values = [bbox.x, bbox.y, bbox.width, bbox.height];
-  if (values.some((value) => typeof value !== 'number' || !Number.isFinite(value))) return false;
-  return bbox.width > 0 && bbox.height > 0;
 }
 
 /**
