@@ -185,8 +185,9 @@ def test_structured_raises_after_all_retries_on_schema_mismatch(mock_redis, capl
     자유 텍스트를 억지로 파싱해 부분 결과를 만들어내지 않는다(NFR-24·NFR-25) — 조용한 None
     반환·자유 텍스트 폴백은 잘못된 하자 설명이 그대로 보고서에 실리는 경로라 더 위험하다.
     """
+    secret_like_content = '{"unexpected_field": "서울시 강남구 OO빌딩 3층 북벽 균열"}'
     chat = MagicMock()
-    chat.invoke.return_value = _response('{"unexpected_field": "스키마 불일치"}')
+    chat.invoke.return_value = _response(secret_like_content)
 
     with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
         # PydanticOutputParser가 던지는 예외 타입은 langchain 버전에 따라 다를 수 있어 Exception으로 받는다
@@ -196,6 +197,12 @@ def test_structured_raises_after_all_retries_on_schema_mismatch(mock_redis, capl
     assert chat.invoke.call_count == MAX_RETRIES + 1  # 무한 재시도 아님
     assert len(caplog.records) == MAX_RETRIES + 1
     assert "재시도 3/3" in caplog.records[-1].getMessage()
+    assert "OutputParserException" in caplog.text  # 실패 성격은 타입명으로 식별 가능
+
+    # 응답 원문이 로그로 새지 않는다(PR머신 P1). langchain_core의 OutputParserException은 메시지에
+    # 파싱 대상 원문을 통째로 담으므로 exc_info/str(e)를 넘기면 시설명·위치·하자내용이 그대로 남는다.
+    assert "OO빌딩" not in caplog.text
+    assert secret_like_content not in caplog.text
 
 
 if __name__ == "__main__":
