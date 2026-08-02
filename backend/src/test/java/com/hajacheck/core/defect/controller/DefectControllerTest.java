@@ -36,6 +36,8 @@ import jakarta.persistence.PersistenceContext;
 import java.time.LocalDate;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -725,6 +727,56 @@ class DefectControllerTest extends PostgresTestSupport {
                                 "actionDate", "2026-07-28",
                                 "actionAssigneeId", owner.getId(),
                                 "targetStatus", "RESOLVED"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    // UT-073(FR/AP 조치 결과 등록) — DefectActionResultRequest의 필수 필드 검증이 실제로
+    // 400 INVALID_INPUT으로 표면화되는지. @NotNull/@NotBlank는 붙어 있었지만 이를 고정하는
+    // 테스트가 없어, 애노테이션이 지워지거나 @Valid가 빠져도 아무도 못 잡는 상태였다.
+    @ParameterizedTest(name = "{0} 누락 시 400")
+    @ValueSource(strings = {"actionMediaId", "actionContent", "actionDate", "actionAssigneeId"})
+    void 조치등록_필수필드누락_400_INVALID_INPUT(String missingField) throws Exception {
+        User owner = saveOwner("owner-req-" + missingField.toLowerCase() + "@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.CONFIRMED);
+        Media media = saveMedia(inspection.getId());
+
+        Map<String, Object> body = new java.util.HashMap<>(Map.of(
+                "actionMediaId", media.getId(),
+                "actionContent", "조치 착수 — 균열 부위 실측 완료",
+                "actionDate", "2026-07-28",
+                "actionAssigneeId", owner.getId(),
+                "targetStatus", "IN_PROGRESS"));
+        body.remove(missingField);
+
+        mockMvc.perform(patch("/api/defects/{id}/action", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 조치등록_actionContent공백만_400_INVALID_INPUT() throws Exception {
+        // @NotBlank — null이 아니라 공백 문자열로 우회하는 경로도 함께 막는다.
+        User owner = saveOwner("owner-req-blank@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.CONFIRMED);
+        Media media = saveMedia(inspection.getId());
+
+        mockMvc.perform(patch("/api/defects/{id}/action", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "actionMediaId", media.getId(),
+                                "actionContent", "   ",
+                                "actionDate", "2026-07-28",
+                                "actionAssigneeId", owner.getId(),
+                                "targetStatus", "IN_PROGRESS"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
     }
