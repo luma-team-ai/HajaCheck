@@ -620,6 +620,12 @@ export function ResultViewerPage() {
                 {errorMessage && (
                   <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
                 )}
+                {/* 비활성 버튼만 두면 왜 안 눌리는지 알 수 없다 — 다음 행동을 문구로 명시(#1397). */}
+                {selected && selected.status === 'DETECTED' && selected.grade == null && (
+                  <div className="rounded-lg bg-warning-soft-bg px-4 py-3 text-sm text-warning-soft-fg">
+                    등급이 지정되지 않은 하자입니다. 우측 &apos;등급 수정&apos;으로 등급을 먼저 정해야 검수 확정할 수 있습니다.
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                 <Button
                   type="button"
@@ -631,13 +637,24 @@ export function ResultViewerPage() {
                 >
                   오탐 삭제
                 </Button>
+                {/* 등급 미판정 하자는 확정을 막는다(#1397) — 확정되면 status가 DETECTED를 벗어나
+                    '등급 수정' 버튼까지 잠겨(아래 :721) 앱 어디서도 등급을 부여할 수 없는 영구
+                    미분류로 고착된다. 백엔드도 같은 규칙을 갖지만(Defect.changeStatus) 화면에서
+                    먼저 막아 무엇을 해야 하는지(등급 수정 먼저) 알린다. */}
                 <Button
                   type="button"
                   variant="primary"
                   size="lg"
                   className="flex-[7]"
                   onClick={handleConfirmReview}
-                  disabled={isUpdating || !selected || selected.status !== 'DETECTED'}
+                  disabled={
+                    isUpdating || !selected || selected.status !== 'DETECTED' || selected.grade == null
+                  }
+                  title={
+                    selected && selected.status === 'DETECTED' && selected.grade == null
+                      ? '등급이 없는 하자입니다. 먼저 우측 «등급 수정»으로 등급을 지정하세요.'
+                      : ''
+                  }
                 >
                   이 하자 검수 확정
                 </Button>

@@ -562,6 +562,52 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(button.hasAttribute('disabled')).toBe(false);
   });
 
+  // #1397 — #1396으로 grade=null 하자를 처음으로 선택할 수 있게 되면서 생긴 구멍.
+  // 등급 없이 확정하면 status가 DETECTED를 벗어나 '등급 수정'까지 잠기고(영구 미분류 고착),
+  // 앱 어디에도 다른 등급 편집 UI가 없다.
+  describe('등급 미판정(grade=null) 하자', () => {
+    const ungradedOnly = [
+      { ...mockDefects[0], id: 40, grade: null, status: 'DETECTED' as const, isReviewed: false },
+    ] as DefectDetailItem[];
+
+    function useUngraded(): void {
+      server.use(
+        http.get('/api/inspections/:id/defects', () => {
+          const body: ApiResponse<DefectDetailItem[]> = { success: true, data: ungradedOnly };
+          return HttpResponse.json(body);
+        }),
+      );
+    }
+
+    it('검수 확정 버튼이 비활성화된다', async () => {
+      useUngraded();
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(
+        screen.getByRole('button', { name: '이 하자 검수 확정' }).hasAttribute('disabled'),
+      ).toBe(true);
+    });
+
+    it('등급 수정 버튼은 활성 상태로 남아 복구 경로가 열려 있다', async () => {
+      useUngraded();
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(screen.getByRole('button', { name: '등급 수정' }).hasAttribute('disabled')).toBe(false);
+    });
+
+    it('왜 확정할 수 없는지 안내 문구가 보인다', async () => {
+      useUngraded();
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(
+        await screen.findByText(/등급이 지정되지 않은 하자입니다/),
+      ).not.toBeNull();
+    });
+  });
+
   it('하자 마커 클릭 → AI 패널 요약 텍스트가 선택된 하자로 갱신된다', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
