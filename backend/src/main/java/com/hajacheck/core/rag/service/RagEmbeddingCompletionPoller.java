@@ -78,8 +78,9 @@ public class RagEmbeddingCompletionPoller {
                     return;
                 }
             } catch (RuntimeException e) {
-                // 조회 자체가 실패한 시도는 재시도로 흡수한다 — 마지막 시도까지 계속 실패하면
-                // 루프 종료 후 failEmbedding()으로 귀결된다.
+                // 조회 자체가 실패한 시도는 재시도로 흡수한다 — 마지막 시도까지 계속 실패해도
+                // failEmbedding()을 호출하지 않는다(#1393 리뷰 2차 P2). 루프 종료 후에는 EMBEDDING을
+                // 유지한 채 종료해 최종 판정을 RagEmbeddingStaleReconciler에 넘긴다(아래 참고).
                 log.warn("RAG 임베딩 완료 상태 조회 실패(재시도 예정) documentId={} attempt={}/{}",
                         documentId, attempt, MAX_ATTEMPTS, e);
             }

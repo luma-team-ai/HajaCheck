@@ -47,8 +47,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * 예약 하향 알림 라벨 2종, #1105/HAJA-526)→V32(defect_action_logs 조치 등록 이력 append-only 테이블,
  * #1193/HAJA-569 — 조치중 단계 다중 등록 지원)→V33(user_plans.payment_pending_until 미결제 유예 표식 +
  * 부분 인덱스, #1177 — 유료→유료 하향 C안 "유예 후 강등")→V34(counsel_tickets.created_at 인덱스, #1168 —
- * 플랫폼 관리자 상담 관리 페이지 날짜별 조회 성능, PR머신 리뷰 P2)→V35(rag_documents.embedding_started_at
- * 임베딩 시작 시각, #1393 — EMBEDDING 고착 판정 기준)을 순서대로 적용하고,
+ * 플랫폼 관리자 상담 관리 페이지 날짜별 조회 성능, PR머신 리뷰 P2)→V39(rag_documents.embedding_started_at
+ * 임베딩 시작 시각, #1393 — EMBEDDING 고착 판정 기준. 역머지로 들어온 V35~V38 다음 번호)을 순서대로
+ * 적용하고,
  * Hibernate ddl-auto=validate + PlanSeedGuard 부팅 가드가 통과하는지 검증한다.
  *
  * <p>다른 {@code @SpringBootTest} 는 전부 {@link PostgresTestSupport}(withInitScript로 스키마를 미리
