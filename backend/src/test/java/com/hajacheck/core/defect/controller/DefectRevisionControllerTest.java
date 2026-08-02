@@ -1,5 +1,6 @@
 package com.hajacheck.core.defect.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -37,6 +38,8 @@ import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -204,6 +207,24 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     private UsernamePasswordAuthenticationToken authOf(User user) {
         LoginUser principal = new LoginUser(user);
         return new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+    }
+
+    /**
+     * 영속성 컨텍스트를 DB로 밀어낸 뒤 defect_revisions 행을 생성순으로 읽는다(UT-22).
+     * 응답 body가 아니라 실제 테이블을 보는 이유: 이력 기록이 통째로 빠지거나 soft delete가
+     * hard delete로 바뀌어도 body 검증만으로는 그대로 통과하기 때문.
+     */
+    private List<Map<String, Object>> revisionsOf(Long defectId) {
+        defectRepository.flush();
+        return jdbcTemplate.queryForList(
+                "SELECT revised_by, field_changed, old_value, new_value, reason, created_at "
+                        + "FROM defect_revisions WHERE defect_id = ? ORDER BY id", defectId);
+    }
+
+    private Map<String, Object> defectRowOf(Long defectId) {
+        defectRepository.flush();
+        return jdbcTemplate.queryForMap(
+                "SELECT grade, is_reviewed, is_deleted FROM defects WHERE id = ?", defectId);
     }
 
     // ============ GET /api/inspections/{id}/defects 테스트 ============
@@ -764,6 +785,23 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.grade").value("A"))
                 .andExpect(jsonPath("$.data.isReviewed").value(true));
+
+        // UT-22 — 이력 1건이 "누가·언제·무엇"까지 실제로 기록됐는지 DB에서 확인
+        List<Map<String, Object>> revisions = revisionsOf(defect.getId());
+        assertThat(revisions).hasSize(1);
+        Map<String, Object> revision = revisions.get(0);
+        assertThat(revision.get("revised_by")).isEqualTo(owner.getId());
+        assertThat(revision.get("field_changed")).isEqualTo("grade");
+        assertThat(revision.get("old_value")).isEqualTo("C");
+        assertThat(revision.get("new_value")).isEqualTo("A");
+        assertThat(revision.get("reason")).isEqualTo("재검수 결과 A등급으로 상향");
+        assertThat(revision.get("created_at")).isNotNull();
+
+        // 원본은 최신값으로 갱신(이력만 쌓고 본체가 안 바뀌는 경우 방지)
+        Map<String, Object> defectRow = defectRowOf(defect.getId());
+        assertThat(defectRow.get("grade")).hasToString("A");
+        assertThat(defectRow.get("is_reviewed")).isEqualTo(true);
+        assertThat(defectRow.get("is_deleted")).isEqualTo(false);
     }
 
     @Test
@@ -788,6 +826,65 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
+
+        // UT-22 — 삭제도 이력에 남는다
+        List<Map<String, Object>> revisions = revisionsOf(defect.getId());
+        assertThat(revisions).hasSize(1);
+        Map<String, Object> revision = revisions.get(0);
+        assertThat(revision.get("revised_by")).isEqualTo(owner.getId());
+        assertThat(revision.get("field_changed")).isEqualTo("is_deleted");
+        assertThat(revision.get("old_value")).isEqualTo("false");
+        assertThat(revision.get("new_value")).isEqualTo("true");
+        assertThat(revision.get("reason")).isEqualTo("오탐이므로 삭제");
+
+        // Soft Delete — 행 자체는 남고 is_deleted 플래그만 선다(hard delete로 바뀌면 여기서 걸린다)
+        Map<String, Object> defectRow = defectRowOf(defect.getId());
+        assertThat(defectRow.get("is_deleted")).isEqualTo(true);
+        assertThat(defectRow.get("grade")).hasToString("B");  // 삭제는 등급을 건드리지 않는다
+    }
+
+    @Test
+    void PATCH_검수이력_append_only_누적() throws Exception {
+        // UT-22 핵심 — 같은 하자를 연속 검수하면 이력이 덮어써지지 않고 누적되고,
+        // 먼저 기록된 행은 이후 검수에도 그대로 보존된다(append-only).
+        Company company = saveCompany("회사28");
+        User owner = saveUser("owner28@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector28@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+        Defect defect = saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
+
+        reviewGrade(defect.getId(), owner, DefectGrade.B, "1차 검수 — B로 하향");
+        List<Map<String, Object>> afterFirst = revisionsOf(defect.getId());
+        assertThat(afterFirst).hasSize(1);
+        Map<String, Object> firstRevision = afterFirst.get(0);
+
+        reviewGrade(defect.getId(), owner, DefectGrade.D, "2차 검수 — D로 상향");
+
+        List<Map<String, Object>> afterSecond = revisionsOf(defect.getId());
+        assertThat(afterSecond).hasSize(2);
+        // 1행은 그대로(수정·덮어쓰기 없음), 2행의 old_value는 1행의 new_value를 이어받는다
+        assertThat(afterSecond.get(0)).isEqualTo(firstRevision);
+        assertThat(afterSecond.get(1).get("old_value")).isEqualTo("B");
+        assertThat(afterSecond.get(1).get("new_value")).isEqualTo("D");
+
+        // 원본은 항상 마지막 검수 결과만 보유
+        assertThat(defectRowOf(defect.getId()).get("grade")).hasToString("D");
+    }
+
+    private void reviewGrade(Long defectId, User reviewer, DefectGrade grade, String reason) throws Exception {
+        DefectRevisionRequest request = DefectRevisionRequest.builder()
+                .grade(grade)
+                .reason(reason)
+                .build();
+
+        mockMvc.perform(patch("/api/defects/{id}", defectId)
+                .with(csrf())
+                .with(authentication(authOf(reviewer)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
     }
 
     @Test
