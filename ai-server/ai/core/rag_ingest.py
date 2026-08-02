@@ -11,6 +11,8 @@ ai/core/에 둔다. 메타데이터 필드명·타입·결측값 처리는 docs/
 ingest_document 시그니처 그대로) — 후속 과제로 남는다.
 """
 import hashlib
+import threading
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from ai.core.chunking import extract_article_metadata, split_general_text, split_regulation_text
@@ -18,6 +20,23 @@ from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS, ge
 
 # get_embeddings() 기본 모델(ai/core/embeddings.py)과 동일 문자열을 메타데이터에 그대로 기록한다.
 EMBEDDING_MODEL = "BAAI/bge-m3"
+
+# doc_id 별 배경 임베딩 직렬화 락(#1393 리뷰 2차 P2) — Spring이 stale(5분 초과) EMBEDDING 문서의
+# restartEmbedding()을 허용하면서, 아직 끝나지 않은 원본 배경 임베딩과 관리자가 새로 트리거한
+# 재임베딩 배경 임베딩이 동시에 같은 doc_id의 Chroma 청크를 순서 보장 없이 add_texts/delete로
+# 건드릴 수 있다. 둘 다 BackgroundTasks(스레드풀)에서 실행되므로, doc_id 당 하나의 락으로
+# ingest_document()+delete_stale_chunks() 전체를 감싸 직렬화하면 늦게 끝난 태스크의 결과가
+# 먼저 끝난 태스크를 덮어쓰는 순서 역전이 사라진다(둘 중 나중에 시작한 태스크가 항상 나중에
+# 끝나 최종 상태를 결정) — delete_document()로 선삭제하는 방식은 PR#685가 이미 "재삽입 실패 시
+# 기존 임베딩을 통째로 잃는다"고 금지했으므로 채택하지 않는다.
+_document_ingest_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+_document_ingest_locks_guard = threading.Lock()
+
+
+def document_ingest_lock(doc_id: str) -> threading.Lock:
+    """doc_id 전용 락을 반환한다(없으면 생성) — 락 딕셔너리 자체의 동시 접근은 별도 guard로 보호한다."""
+    with _document_ingest_locks_guard:
+        return _document_ingest_locks[doc_id]
 
 
 def _chunk_document_id(doc_id: str, chunk_index: int) -> str:

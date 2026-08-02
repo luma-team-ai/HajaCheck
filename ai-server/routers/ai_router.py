@@ -39,7 +39,7 @@ from ai.core.grounding import (
     MismatchPolicy,
     check_grounding,
 )
-from ai.core.rag_ingest import delete_stale_chunks, ingest_document
+from ai.core.rag_ingest import delete_stale_chunks, document_ingest_lock, ingest_document
 from ai.core.schemas import AIErrorCode, AIResponse
 
 logger = logging.getLogger(__name__)
@@ -311,21 +311,26 @@ def _run_ingest_background(
     embed_batch_id: str,
 ):
     try:
-        # 1. 실제 청킹 및 임베딩 연산 수행 (CPU 헤비 태스크)
-        ingest_document(
-            doc_id,
-            title,
-            doc_type,
-            target_collection,
-            text,
-            effective_date=effective_date,
-            publisher=publisher,
-            authored_at=authored_at,
-            verification_status=verification_status,
-            embed_batch_id=embed_batch_id,
-        )
-        # 2. 성공한 뒤에만 초과 청크 정리
-        delete_stale_chunks(doc_id, target_collection, chunk_count)
+        # doc_id 단위 직렬화 락(#1393 리뷰 2차 P2) — Spring이 stale EMBEDDING 문서의 재임베딩을
+        # 허용하면서, 아직 끝나지 않은 원본 배경 임베딩과 재임베딩 배경 임베딩이 동시에 같은
+        # doc_id의 Chroma를 건드릴 수 있다. 이 락으로 ingest+정리 전체를 감싸면 둘 중 나중에
+        # "시작"한 태스크가 항상 나중에 "끝나" 최종 상태(=최신 요청 결과)를 결정하게 된다.
+        with document_ingest_lock(doc_id):
+            # 1. 실제 청킹 및 임베딩 연산 수행 (CPU 헤비 태스크)
+            ingest_document(
+                doc_id,
+                title,
+                doc_type,
+                target_collection,
+                text,
+                effective_date=effective_date,
+                publisher=publisher,
+                authored_at=authored_at,
+                verification_status=verification_status,
+                embed_batch_id=embed_batch_id,
+            )
+            # 2. 성공한 뒤에만 초과 청크 정리
+            delete_stale_chunks(doc_id, target_collection, chunk_count)
         logger.info(f"RAG 백그라운드 임베딩 완료: doc_id={doc_id}, 청크 수={chunk_count}")
     except Exception as e:
         logger.exception(f"RAG 백그라운드 임베딩 중 치명적 예외 발생 (doc_id={doc_id}): {e}")
@@ -382,7 +387,7 @@ def rag_documents_embed(req: RagDocumentEmbedRequest, background_tasks: Backgrou
 
 
 @router.get("/rag-documents/{doc_id}/embedding-status")
-def rag_documents_embedding_status(doc_id: str, target_collection: str) -> AIResponse:
+async def rag_documents_embedding_status(doc_id: str, target_collection: str) -> AIResponse:
     """RAG 문서 백그라운드 임베딩 완료 여부 확인용 read-only 엔드포인트(#1328).
 
     /ai/rag-documents/embed가 청킹만 동기로 끝내고 실제 임베딩(ingest_document)은
@@ -395,6 +400,13 @@ def rag_documents_embedding_status(doc_id: str, target_collection: str) -> AIRes
     직접 사용해 where={"doc_id": doc_id}로 조회한다(langchain_chroma==0.1.4 delete() 래퍼가
     where를 버리는 것과 별개로, get()도 래퍼가 아닌 내부 컬렉션을 직접 쓰는 편이 다른 함수들과
     일관적이다).
+
+    ⚠️ `async def`(#1393 리뷰 2차 P2) — `_run_ingest_background`(CPU 헤비 bge-m3 임베딩)는
+    `BackgroundTasks.add_task`로 등록된 sync 함수라 Starlette/anyio 공용 스레드풀에서 실행된다.
+    이 엔드포인트가 sync def였다면 같은 풀을 공유해, 임베딩 태스크가 스레드를 오래 점유하는 동안
+    이 조회가 큐잉·지연되고, 그러면 Spring 폴러가 25초 창 안에 응답을 못 받아 실제로는 성공한
+    임베딩도 실패로 오판할 위험이 커진다. 이 함수 본문은 Chroma 메타데이터 조회뿐이라 스레드풀
+    큐잉 없이 이벤트 루프에서 바로 처리해도 다른 코루틴을 유의미하게 막지 않는다.
     """
     from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS, get_vectorstore
 
