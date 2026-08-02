@@ -97,4 +97,22 @@ export const ragDocumentHandlers = [
     const body: ApiResponse<RagDocument> = { success: true, data: target };
     return HttpResponse.json(body);
   }),
+
+  http.delete('/api/admin/rag-documents/:id', ({ params }) => {
+    const id = Number(params.id);
+    const target = mockRagDocuments.find((doc) => doc.id === id);
+    if (!target) {
+      const body: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'RAG_DOCUMENT_NOT_FOUND', message: 'RAG 문서를 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(body, { status: 404 });
+    }
+
+    mockRagDocuments = mockRagDocuments.filter((doc) => doc.id !== id);
+
+    const body: ApiResponse<null> = { success: true, data: null };
+    return HttpResponse.json(body);
+  }),
 ];
