@@ -1,0 +1,101 @@
+package com.hajacheck.core.rag.scheduler;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import com.hajacheck.core.rag.entity.RagDocument;
+import com.hajacheck.core.rag.entity.RagDocumentSourceType;
+import com.hajacheck.core.rag.entity.RagEmbeddingStatus;
+import com.hajacheck.core.rag.entity.RagTargetCollection;
+import com.hajacheck.core.rag.repository.RagDocumentRepository;
+import com.hajacheck.core.rag.service.RagDocumentWriter;
+import com.hajacheck.global.exception.DomainStateTransitionException;
+import java.time.Instant;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
+
+/**
+ * RagEmbeddingStaleReconciler 단위 테스트(#1393 P1) — {@code @Scheduled} 트리거 자체는 통합 관심사라
+ * 여기서는 reconcileStaleEmbedding()을 직접 호출해 "stale 문서를 failEmbedding으로 전이시키는가"만
+ * 검증한다.
+ */
+@ExtendWith(MockitoExtension.class)
+class RagEmbeddingStaleReconcilerTest {
+
+    @Mock
+    private RagDocumentRepository ragDocumentRepository;
+    @Mock
+    private RagDocumentWriter ragDocumentWriter;
+
+    @InjectMocks
+    private RagEmbeddingStaleReconciler reconciler;
+
+    private RagDocument staleDocument(long id) {
+        RagDocument document = RagDocument.upload(
+                "시설물 안전법", RagDocumentSourceType.LAW, RagTargetCollection.REGULATIONS,
+                null, null, null, null, "https://files.example/law.pdf");
+        document.startEmbedding();
+        ReflectionTestUtils.setField(document, "id", id);
+        return document;
+    }
+
+    @Test
+    void reconcileStaleEmbedding_고착문서를failEmbedding으로정리한다() {
+        when(ragDocumentRepository.findStaleEmbedding(eq(RagEmbeddingStatus.EMBEDDING), any(Instant.class)))
+                .thenReturn(List.of(staleDocument(1L), staleDocument(2L)));
+
+        reconciler.reconcileStaleEmbedding();
+
+        verify(ragDocumentWriter).failEmbedding(1L);
+        verify(ragDocumentWriter).failEmbedding(2L);
+    }
+
+    @Test
+    void reconcileStaleEmbedding_대상이없으면아무것도하지않는다() {
+        when(ragDocumentRepository.findStaleEmbedding(eq(RagEmbeddingStatus.EMBEDDING), any(Instant.class)))
+                .thenReturn(List.of());
+
+        reconciler.reconcileStaleEmbedding();
+
+        verifyNoInteractions(ragDocumentWriter);
+    }
+
+    @Test
+    void reconcileStaleEmbedding_한건실패를격리하고나머지를계속처리한다() {
+        // 그사이 폴러가 DONE으로 확정한 문서는 failEmbedding()이 상태 전이 예외를 던지는데,
+        // 배치 전체가 멈추면 안 된다.
+        when(ragDocumentRepository.findStaleEmbedding(eq(RagEmbeddingStatus.EMBEDDING), any(Instant.class)))
+                .thenReturn(List.of(staleDocument(1L), staleDocument(2L)));
+        doThrow(new DomainStateTransitionException("failEmbedding 불가"))
+                .when(ragDocumentWriter).failEmbedding(1L);
+
+        reconciler.reconcileStaleEmbedding();
+
+        verify(ragDocumentWriter).failEmbedding(2L);
+    }
+
+    @Test
+    void reconcileStaleEmbedding_임계이전시작분만조회한다() {
+        when(ragDocumentRepository.findStaleEmbedding(eq(RagEmbeddingStatus.EMBEDDING), any(Instant.class)))
+                .thenReturn(List.of());
+        Instant before = Instant.now().minus(RagDocument.EMBEDDING_STALE_THRESHOLD);
+
+        reconciler.reconcileStaleEmbedding();
+
+        verify(ragDocumentRepository).findStaleEmbedding(
+                eq(RagEmbeddingStatus.EMBEDDING),
+                org.mockito.ArgumentMatchers.argThat(cutoff ->
+                        !cutoff.isBefore(before) && !cutoff.isAfter(Instant.now())));
+        verify(ragDocumentWriter, never()).failEmbedding(any());
+    }
+}
