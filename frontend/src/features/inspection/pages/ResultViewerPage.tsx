@@ -168,6 +168,12 @@ export function ResultViewerPage() {
 
   // 삭제된 하자도 "지금 보고 있는 이미지" 것만 보여준다 — 다른 사진에서 지운 것까지 섞이면
   // 무엇을 되살리는지 판단할 근거(이미지)가 화면에 없다(#1399).
+  //
+  // ⚠️ 의도된 제약(#1401): currentMediaGroup.mediaId 는 항상 실제 이미지 id 라, mediaId=null 인
+  // 삭제 하자는 어떤 이미지에서도 이 목록에 뜨지 않는다. 서버는 반환하지만 화면에서 빠진다.
+  // 그런 하자는 애초에 뷰어의 일반 목록·오버레이 어디에도 나타나지 않아 선택 자체가 불가능하고,
+  // 따라서 뷰어로는 오탐 삭제도 할 수 없다 — 만들려면 API를 직접 두 번(생성·삭제) 쳐야 한다.
+  // 도달 경로가 없는 케이스를 위해 별도 그룹을 만들지 않는다. 이 화면이 이미지 중심인 한 유지된다.
   const currentDeletedDefects = useMemo(
     () => (data?.deletedDefects ?? []).filter((item) => item.defect.mediaId === currentMediaGroup?.mediaId),
     [data?.deletedDefects, currentMediaGroup?.mediaId],

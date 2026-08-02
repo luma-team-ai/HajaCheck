@@ -12,13 +12,17 @@ interface DeletedDefectsPanelProps {
   disabled?: boolean;
 }
 
+// 활동 기록 타임라인(defect/ActivityHistoryPanel)이 같은 defect_revisions 시각을 이 형식으로
+// 보여준다 — 같은 종류의 데이터가 화면마다 다르게 보이지 않도록 관례를 그대로 따른다(#1401).
+// ⚠️ deletedAt은 백엔드 LocalDateTime이라 오프셋 없이 내려오고 new Date()가 브라우저 로컬로
+// 해석한다. 서버 컨테이너 TZ=Asia/Seoul + JPA auditing이 JVM 기본 타임존을 쓰므로 KST 벽시계로
+// 저장되며, 국내 사용(브라우저도 KST)에서는 일치한다. 해외 타임존 브라우저에서는 어긋나지만
+// 활동 기록 타임라인도 동일한 패턴이라 이 화면만 고치면 오히려 갈린다 — 앱 전반 사안으로 분리.
 function formatDeletedAt(value: string | null): string {
   if (!value) return '일시 미상';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '일시 미상';
-  // 로케일 문자열은 환경마다 흔들려 테스트가 불안정해진다 — 고정 포맷으로 직접 만든다.
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return date.toLocaleString('ko-KR');
 }
 
 /**
