@@ -72,9 +72,8 @@ public class RagEmbeddingCompletionPoller {
             try {
                 ApiResponse<RagEmbeddingStatusResponse> response =
                         aiProxyService.checkEmbeddingStatus(String.valueOf(documentId), collection);
-                if (response.success() && response.data() != null
-                        && response.data().chunkCount() == expectedChunkCount
-                        && isThisBatch(response.data().embedBatchId(), expectedBatchId)) {
+                if (response.success() && RagEmbeddingCompletionCheck.isComplete(
+                        response.data(), expectedChunkCount, expectedBatchId)) {
                     ragDocumentWriter.completeEmbedding(documentId, expectedChunkCount);
                     return;
                 }
@@ -94,15 +93,6 @@ public class RagEmbeddingCompletionPoller {
         log.warn("RAG 임베딩 완료 폴링 타임아웃 — documentId={} expectedChunkCount={} "
                         + "(EMBEDDING 유지, 최종 판정은 RagEmbeddingStaleReconciler에 위임)",
                 documentId, expectedChunkCount);
-    }
-
-    /**
-     * embedding-status가 돌려준 배치 식별자가 이번 요청의 배치와 같은지 — 재임베딩 중에는 옛 배치 청크가
-     * 그대로 남아 있어(add_texts는 upsert라 delete 없이 덮어쓴다) 청크 수만으로는 완료를 구분할 수 없다.
-     * 응답이 null이면(옛/새 배치가 섞여 있거나 배치 식별자 이전 버전의 ai-server) 완료로 보지 않는다.
-     */
-    private boolean isThisBatch(String actualBatchId, String expectedBatchId) {
-        return expectedBatchId != null && expectedBatchId.equals(actualBatchId);
     }
 
     /**

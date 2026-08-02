@@ -107,6 +107,20 @@ class RagEmbeddingCompletionPollerTest {
     }
 
     @Test
+    void pollUntilComplete_예상청크수가0이면_배치식별자없이도즉시완료처리한다() {
+        // 빈/추출불가 텍스트는 청크가 0개라 ai-server가 add_texts를 아예 호출하지 않아 어떤 청크에도
+        // embed_batch_id가 실리지 않는다(#1393 리뷰 2차 P2) — 배치 대조를 요구하면 영구 FAILED가 된다.
+        when(aiProxyService.checkEmbeddingStatus("7", "defect_kb"))
+                .thenReturn(ApiResponse.ok(new RagEmbeddingStatusResponse(0, null)));
+
+        poller.pollUntilComplete(7L, "defect_kb", 0, "batch-1");
+
+        verify(aiProxyService, times(1)).checkEmbeddingStatus("7", "defect_kb");
+        verify(ragDocumentWriter, times(1)).completeEmbedding(7L, 0);
+        verify(ragDocumentWriter, never()).failEmbedding(any());
+    }
+
+    @Test
     void pollUntilComplete_일부시도만실패하다_이후시도에서일치하면완료처리한다() {
         when(aiProxyService.checkEmbeddingStatus("4", "regulations"))
                 .thenThrow(new BusinessException(ErrorCode.AI_SERVER_TIMEOUT))
