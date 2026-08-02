@@ -222,21 +222,84 @@ class MembershipServiceTest {
     }
 
     @Test
-    void 내플랜조회_회사구독_VERIFIED면_businessVerified_true() {
+    void 내플랜조회_국세청검증_provenance가있으면_businessVerified_true() {
+        // #1324 P1 — 배지 근거는 verification_status 가 아니라 ocr_raw.ntsOutcome(provenance) 이다.
         UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
-        Company company = company(COMPANY_ID, USER_ID);
+        Company company = company(COMPANY_ID, USER_ID, "{\"ntsOutcome\":\"VERIFIED\"}");
         company.markBusinessVerified();
 
+        stubCompanyPlan(userPlan, company);
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isTrue();
+    }
+
+    @Test
+    void 내플랜조회_레거시검증분도_businessVerified_true() {
+        // V38 이 스탬프한 "#1324 이전 진짜 검증" 회사 — 배지가 거짓으로 꺼지면 안 된다.
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        Company company = company(COMPANY_ID, USER_ID, "{\"ntsOutcome\":\"LEGACY_VERIFIED\"}");
+        company.markBusinessVerified();
+
+        stubCompanyPlan(userPlan, company);
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isTrue();
+    }
+
+    @Test
+    void 내플랜조회_자동승인만된회사는_VERIFIED여도_businessVerified_false() {
+        // #1324 P1 회귀 방지 — 국세청 SKIPPED(장애·키 미설정)로 통과한 회사는 verification_status 가
+        // VERIFIED 라도 "사업자 인증 완료"라고 말하면 안 된다(허위 표시).
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        Company company = company(COMPANY_ID, USER_ID, "{\"ntsOutcome\":\"SKIPPED\"}");
+        company.markBusinessVerified();
+        company.autoApprove();
+
+        stubCompanyPlan(userPlan, company);
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isFalse();
+    }
+
+    @Test
+    void 내플랜조회_V38소급승인분은_businessVerified_false() {
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        Company company = company(COMPANY_ID, USER_ID, "{\"ntsOutcome\":\"UNKNOWN_BACKFILL\"}");
+        company.markBusinessVerified();
+
+        stubCompanyPlan(userPlan, company);
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isFalse();
+    }
+
+    @Test
+    void 내플랜조회_provenance키가없으면_businessVerified_false() {
+        // 증명할 수 없으면 인증 완료라고 말하지 않는다(fail-safe).
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        Company company = company(COMPANY_ID, USER_ID, "{\"source\":\"MANUAL_INPUT\"}");
+        company.markBusinessVerified();
+
+        stubCompanyPlan(userPlan, company);
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.plan().businessVerified()).isFalse();
+    }
+
+    private void stubCompanyPlan(UserPlan userPlan, Company company) {
         when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
         when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
                 .thenReturn(Optional.of(userPlan));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
         when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
-        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(501L), any())).thenReturn(Optional.empty());
-
-        MyPlanResponse response = service.getMyPlan(USER_ID);
-
-        assertThat(response.plan().businessVerified()).isTrue();
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(userPlan.getId()), any()))
+                .thenReturn(Optional.empty());
     }
 
     @Test
@@ -448,8 +511,12 @@ class MembershipServiceTest {
     }
 
     private static Company company(Long id, Long ownerUserId) {
+        return company(id, ownerUserId, "{}");
+    }
+
+    private static Company company(Long id, Long ownerUserId, String ocrRaw) {
         Company c = Company.createPendingReview(ownerUserId, "(주)하자체크", "1234567890",
-                "김민수", "서울시 강남구", null, "http://files/brn.png", "{}");
+                "김민수", "서울시 강남구", null, "http://files/brn.png", ocrRaw);
         setId(c, id);
         return c;
     }
