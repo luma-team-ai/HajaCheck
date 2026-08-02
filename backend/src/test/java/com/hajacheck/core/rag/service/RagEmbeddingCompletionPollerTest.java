@@ -133,4 +133,22 @@ class RagEmbeddingCompletionPollerTest {
         verify(ragDocumentWriter).completeEmbedding(4L, 5);
         verify(ragDocumentWriter, never()).failEmbedding(any());
     }
+
+    @Test
+    void pollUntilComplete_슬립중인터럽트되어도failEmbedding을호출하지않는다() {
+        // PR머신 리뷰 P2 — 인터럽트 경로도 타임아웃 경로와 동일하게 EMBEDDING을 유지해야 한다.
+        // 현재 스레드를 미리 인터럽트해 첫 Thread.sleep()이 즉시 InterruptedException을 던지게 한다.
+        Thread.currentThread().interrupt();
+        try {
+            poller.pollUntilComplete(8L, "regulations", 5, "batch-1");
+        } finally {
+            // 인터럽트 상태를 다음 테스트로 새지 않게 정리(sleepBeforeNextCheck가 이미 재설정하지만
+            // 방어적으로 한 번 더 비운다).
+            Thread.interrupted();
+        }
+
+        verify(aiProxyService, never()).checkEmbeddingStatus(any(), any());
+        verify(ragDocumentWriter, never()).failEmbedding(any());
+        verify(ragDocumentWriter, never()).completeEmbedding(any(), any(Integer.class));
+    }
 }

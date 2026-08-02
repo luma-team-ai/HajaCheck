@@ -64,8 +64,12 @@ public class RagEmbeddingCompletionPoller {
                                   String expectedBatchId) {
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             if (sleepBeforeNextCheck()) {
-                log.warn("RAG 임베딩 완료 폴링 중 인터럽트 — documentId={}", documentId);
-                ragDocumentWriter.failEmbedding(documentId);
+                // 인터럽트(주로 graceful shutdown 시 executor awaitTermination 이후)에도 타임아웃
+                // 경로와 동일하게 EMBEDDING을 유지한 채 종료한다(PR머신 리뷰 P2) — 이 순간 ai-server의
+                // BackgroundTask 임베딩은 별개 컨테이너에서 계속 진행 중일 수 있어, 여기서 failEmbedding()
+                // 하면 실제로는 성공할 문서가 거짓 FAILED로 확정된다. 최종 판정은 RagEmbeddingStaleReconciler로.
+                log.warn("RAG 임베딩 완료 폴링 중 인터럽트 — documentId={} (EMBEDDING 유지, "
+                        + "최종 판정은 RagEmbeddingStaleReconciler에 위임)", documentId);
                 return;
             }
 
