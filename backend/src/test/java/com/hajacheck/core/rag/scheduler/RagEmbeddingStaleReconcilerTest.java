@@ -3,6 +3,7 @@ package com.hajacheck.core.rag.scheduler;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -22,17 +23,20 @@ import com.hajacheck.global.exception.DomainStateTransitionException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.time.Instant;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * RagEmbeddingStaleReconciler 단위 테스트(#1393 P1) — {@code @Scheduled} 트리거 자체는 통합 관심사라
  * 여기서는 reconcileStaleEmbedding()을 직접 호출해 "stale 문서를 failEmbedding으로 전이시키는가"만
- * 검증한다.
+ * 검증한다. 실제 재확인 작업은 전용 executor로 offload되므로(PR머신 리뷰 P1), mock TaskExecutor가
+ * execute()에 넘어온 Runnable을 즉시 같은 스레드에서 실행하도록 스텁해 테스트를 동기로 만든다.
  */
 @ExtendWith(MockitoExtension.class)
 class RagEmbeddingStaleReconcilerTest {
@@ -43,9 +47,19 @@ class RagEmbeddingStaleReconcilerTest {
     private RagDocumentWriter ragDocumentWriter;
     @Mock
     private AiProxyService aiProxyService;
+    @Mock
+    private TaskExecutor ragEmbedTaskExecutor;
 
     @InjectMocks
     private RagEmbeddingStaleReconciler reconciler;
+
+    @BeforeEach
+    void stubExecutorToRunSynchronously() {
+        lenient().doAnswer(invocation -> {
+            invocation.<Runnable>getArgument(0).run();
+            return null;
+        }).when(ragEmbedTaskExecutor).execute(any());
+    }
 
     private RagDocument staleDocument(long id) {
         RagDocument document = RagDocument.upload(

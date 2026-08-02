@@ -67,6 +67,7 @@ public class AiProxyService {
     private final AiServerProperties aiServerProperties;
     private final BriefingStatsService briefingStatsService;
     private final AiProxyRateLimiter aiProxyRateLimiter;
+    private final RestClient aiServerEmbeddingStatusRestClient;
 
     /**
      * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
@@ -372,7 +373,7 @@ public class AiProxyService {
 
     private RagEmbeddingStatusAiEnvelope callEmbeddingStatus(String docId, String collection) {
         try {
-            return aiServerRestClient.get()
+            return aiServerEmbeddingStatusRestClient.get()
                     .uri(RAG_EMBEDDING_STATUS_PATH + "?target_collection={collection}", docId, collection)
                     .headers(this::attachInternalKeyIfPresent)
                     .retrieve()

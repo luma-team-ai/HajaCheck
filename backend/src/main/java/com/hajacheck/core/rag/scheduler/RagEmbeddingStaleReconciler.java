@@ -8,11 +8,14 @@ import com.hajacheck.core.rag.repository.RagDocumentRepository;
 import com.hajacheck.core.rag.service.RagDocumentWriter;
 import com.hajacheck.core.rag.service.RagEmbeddingCompletionCheck;
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.config.AsyncConfig;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -57,7 +60,16 @@ public class RagEmbeddingStaleReconciler {
     private final RagDocumentRepository ragDocumentRepository;
     private final RagDocumentWriter ragDocumentWriter;
     private final AiProxyService aiProxyService;
+    @Qualifier(AsyncConfig.RAG_EMBED_TASK_EXECUTOR)
+    private final TaskExecutor ragEmbedTaskExecutor;
 
+    /**
+     * {@code @Scheduled} 트리거 — 기본 스케줄러 스레드풀은 이 앱의 다른 모든 {@code @Scheduled} 배치
+     * (결제 만료 강등·플랜 하향·알림 등)와 스레드 1개를 공유한다(PR머신 리뷰 P1). 여기서는 빠른 DB
+     * 조회만 하고, ai-server 네트워크 호출이 섞인 실제 재확인 작업은 {@link #ragEmbedTaskExecutor}
+     * (RagEmbeddingCompletionPoller와 공유하는 전용 풀)로 넘겨, ai-server가 느려지는 상황에서도
+     * 공유 스케줄러 스레드가 묶이지 않게 한다.
+     */
     @Scheduled(fixedDelay = RECONCILE_INTERVAL_MS, initialDelay = RECONCILE_INITIAL_DELAY_MS)
     public void reconcileStaleEmbedding() {
         Instant startedBefore = Instant.now().minus(RagDocument.EMBEDDING_STALE_THRESHOLD);
@@ -66,7 +78,10 @@ public class RagEmbeddingStaleReconciler {
         if (stale.isEmpty()) {
             return;
         }
+        ragEmbedTaskExecutor.execute(() -> reconcile(stale));
+    }
 
+    private void reconcile(List<RagDocument> stale) {
         int completed = 0;
         int failed = 0;
         int indeterminate = 0;
