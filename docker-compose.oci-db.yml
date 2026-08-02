@@ -143,7 +143,7 @@ services:
       #      frontend-dev만 이 값을 잃는다(부분 오염 — 컨테이너는 전부 healthy로 보임).
       #   → 재발 방지: .env에 COMPOSE_FILE 을 설정할 것(.env.example 참조).
       #      설정하면 -f 없이도 항상 3개 파일이 적용된다.
-      VITE_ENABLE_MSW: "false"
+      VITE_ENABLE_MSW: "hybrid"
 
 volumes:
   oci-db-uploads:
