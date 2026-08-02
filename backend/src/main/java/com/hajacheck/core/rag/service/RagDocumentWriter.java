@@ -55,4 +55,17 @@ public class RagDocumentWriter {
     public void recordEmbedRequest(Long id, int expectedChunkCount, String embedBatchId) {
         ragDocumentRepository.findByIdOrThrow(id).recordEmbedRequest(expectedChunkCount, embedBatchId);
     }
+
+    /**
+     * DB 로우 삭제(#1394) — 파일(storageKey)을 먼저 읽어 반환해야, 트랜잭션 밖(RagDocumentService)에서
+     * DB 커밋이 끝난 뒤에만 실제 파일을 지울 수 있다(순서가 바뀌면 DB 삭제가 실패했는데 파일만 먼저
+     * 지워지는 반쪽 삭제가 생긴다 — create()의 보상삭제와 반대 방향의 동일한 원자성 원칙).
+     */
+    @Transactional
+    public String delete(Long id) {
+        RagDocument document = ragDocumentRepository.findByIdOrThrow(id);
+        String storageKey = document.getFileUrl();
+        ragDocumentRepository.delete(document);
+        return storageKey;
+    }
 }
