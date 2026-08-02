@@ -29,6 +29,11 @@ EMBEDDING_MODEL = "BAAI/bge-m3"
 # 먼저 끝난 태스크를 덮어쓰는 순서 역전이 사라진다(둘 중 나중에 시작한 태스크가 항상 나중에
 # 끝나 최종 상태를 결정) — delete_document()로 선삭제하는 방식은 PR#685가 이미 "재삽입 실패 시
 # 기존 임베딩을 통째로 잃는다"고 금지했으므로 채택하지 않는다.
+#
+# ⚠️ 사용이 끝난 락도 이 dict에서 제거하지 않는다(PR머신 리뷰 P3) — 관리자 콘솔에서만 임베딩이
+# 트리거되는 경로라 doc_id 종류가 적고(수백~수천 단위), threading.Lock 객체 하나의 크기도 작아
+# 장수명 프로세스에서도 실질적인 메모리 위험이 낮다고 판단해 의도적으로 남겨둔다. 문서 수가
+# 크게 늘면(수십만 단위) 참조 카운트 기반 정리를 후속 이슈로 붙인다.
 _document_ingest_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
 _document_ingest_locks_guard = threading.Lock()
 
