@@ -34,10 +34,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class DefectRevisionService {
 
-    // defect_revisions.field_changed 값 — 오탐 삭제·복구 이력의 식별자이자, "검수자가 지운 것"과
-    // "재분석이 통째로 민 것"을 가르는 유일한 표식이다(#1399). 문자열 오타 방지를 위해 상수로 둔다.
-    private static final String FIELD_IS_DELETED = "is_deleted";
-
     private final DefectRepository defectRepository;
     private final DefectRevisionRepository defectRevisionRepository;
     private final InspectionService inspectionService;
@@ -92,7 +88,7 @@ public class DefectRevisionService {
         Map<Long, DefectRevision> latestDeleteByDefectId = new HashMap<>();
         for (DefectRevision revision : defectRevisionRepository
                 .findByDefectIdInAndFieldChangedAndNewValueOrderByCreatedAtDesc(
-                        defectIds, FIELD_IS_DELETED, "true")) {
+                        defectIds, DefectRevision.FIELD_IS_DELETED, "true")) {
             latestDeleteByDefectId.putIfAbsent(revision.getDefectId(), revision);
         }
 
@@ -243,7 +239,7 @@ public class DefectRevisionService {
                 throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
             }
             newValue = "true";
-            fieldChanged = FIELD_IS_DELETED;
+            fieldChanged = DefectRevision.FIELD_IS_DELETED;
 
             defect.softDelete();
         } else {
@@ -258,13 +254,24 @@ public class DefectRevisionService {
             // 목록에 안 뜨는 id로 직접 요청이 들어올 수 있으므로 여기서도 독립적으로 막는다.
             boolean deletedByReviewer = defectRevisionRepository
                     .findByDefectIdInAndFieldChangedAndNewValueOrderByCreatedAtDesc(
-                            List.of(defectId), FIELD_IS_DELETED, "true")
+                            List.of(defectId), DefectRevision.FIELD_IS_DELETED, "true")
                     .stream().findAny().isPresent();
             if (!deletedByReviewer) {
                 throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
             }
+            // 재분석으로 대체된 세대는 되살리지 않는다(#1401) — 검수자가 지운 이력이 남아 있어도
+            // 그 하자는 이미 새 분석 결과로 교체됐다. 되살리면 구회차 하자가 일반 목록·건수·
+            // 등급분포·보고서에 부활한다. 목록 쿼리와 같은 기준이지만 목록에 안 뜨는 id로 직접
+            // 요청이 올 수 있어 여기서도 독립 검증한다.
+            boolean supersededByReanalysis = !defectRevisionRepository
+                    .findByDefectIdInAndFieldChangedAndNewValueOrderByCreatedAtDesc(
+                            List.of(defectId), DefectRevision.FIELD_REANALYSIS_SUPERSEDED, "true")
+                    .isEmpty();
+            if (supersededByReanalysis) {
+                throw new BusinessException(ErrorCode.INVALID_STATE_TRANSITION);
+            }
             newValue = "false";
-            fieldChanged = FIELD_IS_DELETED;
+            fieldChanged = DefectRevision.FIELD_IS_DELETED;
 
             defect.restore();
         }
