@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -60,5 +61,14 @@ public class RagDocumentController {
     @PostMapping("/{id}/re-embed")
     public ResponseEntity<ApiResponse<RagDocumentResponse>> reEmbed(@PathVariable Long id) {
         return ResponseEntity.ok(ApiResponse.ok(ragDocumentService.reEmbed(id)));
+    }
+
+    @Operation(summary = "RAG 문서 삭제",
+            description = "AI 서버 Chroma 청크를 먼저 삭제한 뒤 DB 로우와 원본 파일을 삭제한다(PLATFORM_ADMIN 전용). "
+                    + "AI 서버 삭제 실패 시 DB/파일은 그대로 유지되며 오류를 반환한다 — 관리자가 다시 시도하면 된다(idempotent).")
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
+        ragDocumentService.delete(id);
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 }
