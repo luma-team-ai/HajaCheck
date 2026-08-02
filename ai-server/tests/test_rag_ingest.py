@@ -249,6 +249,70 @@ def test_embed_endpoint_필수필드누락_422():
     assert res.status_code == 422
 
 
+# ── GET /ai/rag-documents/{doc_id}/embedding-status ──
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_실제청크수를반환(mock_get_vectorstore):
+    mock_vs = MagicMock()
+    mock_vs._collection.get.return_value = {"ids": ["42_0", "42_1", "42_2"]}
+    mock_get_vectorstore.return_value = mock_vs
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "regulations"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["chunk_count"] == 3
+    mock_get_vectorstore.assert_called_once_with("regulations")
+    mock_vs._collection.get.assert_called_once_with(where={"doc_id": "42"})
+
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_청크없으면0(mock_get_vectorstore):
+    mock_vs = MagicMock()
+    mock_vs._collection.get.return_value = {"ids": []}
+    mock_get_vectorstore.return_value = mock_vs
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "defect_kb"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["data"]["chunk_count"] == 0
+
+
+def test_embedding_status_잘못된target_collection_VALIDATION_ERROR():
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "bogus"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_조회예외_VALIDATION_ERROR폴백(mock_get_vectorstore):
+    mock_get_vectorstore.side_effect = RuntimeError("chroma unavailable")
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "regulations"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
 if __name__ == "__main__":
     print("Running rag_ingest self-check...")
     test_ingest_document_알수없는컬렉션은ValueError()

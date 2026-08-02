@@ -372,6 +372,43 @@ def rag_documents_embed(req: RagDocumentEmbedRequest, background_tasks: Backgrou
     return AIResponse.ok({"chunk_count": chunk_count})
 
 
+@router.get("/rag-documents/{doc_id}/embedding-status")
+def rag_documents_embedding_status(doc_id: str, target_collection: str) -> AIResponse:
+    """RAG 문서 백그라운드 임베딩 완료 여부 확인용 read-only 엔드포인트(#1328).
+
+    /ai/rag-documents/embed가 청킹만 동기로 끝내고 실제 임베딩(ingest_document)은
+    BackgroundTasks로 넘기게 되면서(16ffe3bb), Spring이 그 즉시 completeEmbedding()을 호출하면
+    실제로는 아직 Chroma에 반영되지 않은 채로 DB만 DONE으로 마킹되는 거짓 완료가 생긴다.
+    Spring은 이 엔드포인트를 폴링해 실제 chunk_count가 기대치와 일치할 때만 완료로 확정한다.
+
+    임베딩 계산(모델 호출) 없이 Chroma 메타데이터 조회만 수행하는 가벼운 엔드포인트 —
+    rag_ingest.delete_document()/delete_stale_chunks()와 동일하게 vectorstore._collection을
+    직접 사용해 where={"doc_id": doc_id}로 조회한다(langchain_chroma==0.1.4 delete() 래퍼가
+    where를 버리는 것과 별개로, get()도 래퍼가 아닌 내부 컬렉션을 직접 쓰는 편이 다른 함수들과
+    일관적이다).
+    """
+    from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS, get_vectorstore
+
+    if target_collection not in (COLLECTION_REGULATIONS, COLLECTION_DEFECT_KB):
+        return AIResponse.fail(
+            AIErrorCode.VALIDATION_ERROR, f"unknown target_collection: {target_collection}"
+        )
+
+    try:
+        vectorstore = get_vectorstore(target_collection)
+        result = vectorstore._collection.get(where={"doc_id": doc_id})
+        chunk_count = len(result.get("ids", []))
+    except Exception:  # noqa: BLE001 — Chroma 조회 실패 등 표준 폴백(모델 호출 없는 단순 조회 경로)
+        logger.exception(
+            "GET /ai/rag-documents/{doc_id}/embedding-status 처리 중 예상치 못한 예외 발생"
+        )
+        return AIResponse.fail(
+            AIErrorCode.VALIDATION_ERROR, "임베딩 상태 조회 중 오류가 발생했습니다"
+        )
+
+    return AIResponse.ok({"chunk_count": chunk_count})
+
+
 class BusinessLicenseOcrRequest(BaseModel):
     """사업자등록증 OCR 요청 — image_base64 경로만 구현(HAJA-169/#552). file_ref는 seam only(미구현)."""
 
