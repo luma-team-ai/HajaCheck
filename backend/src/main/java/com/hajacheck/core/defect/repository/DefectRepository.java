@@ -142,6 +142,17 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
             + "order by d.id asc")
     List<Defect> findByInspectionIdAndNotDeleted(@Param("inspectionId") Long inspectionId);
 
+    // 오탐 삭제 목록(#1399) — 삭제된 하자 중 **검수자가 오탐으로 지운 것만** 반환한다.
+    // is_deleted=true 에는 두 종류가 섞여 있다: ⓐ 검수자 오탐 판정(DefectRevisionService#reviewDefect)
+    // ⓑ 재분석 때 DefectWriter#softDeleteAllForInspectionThenSave 가 통째로 민 구버전.
+    // ⓑ를 되살리면 이미 대체된 유령 하자가 화면·통계에 부활하므로, ⓐ의 표식인
+    // defect_revisions(field_changed='is_deleted', new_value='true') 이력 존재로 한정한다(ⓑ는 이력이 없다).
+    @Query("select d from Defect d where d.inspectionId = :inspectionId and d.deleted = true "
+            + "and exists (select 1 from DefectRevision r where r.defectId = d.id "
+            + "and r.fieldChanged = 'is_deleted' and r.newValue = 'true') "
+            + "order by d.id asc")
+    List<Defect> findDeletedByReviewer(@Param("inspectionId") Long inspectionId);
+
     // AI 재분석 fail-closed 가드(코드 리뷰 P1 5차) — ANALYZED 회차에 비삭제 하자가 하나라도 있으면
     // 재분석을 거부한다(InspectionAnalysisService.hasExistingDefects). 목록을 로딩하지 않고 존재만 확인.
     boolean existsByInspectionIdAndDeletedFalse(Long inspectionId);

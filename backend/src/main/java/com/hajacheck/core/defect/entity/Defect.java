@@ -302,6 +302,21 @@ public class Defect {
         this.reviewed = true;
     }
 
+    /**
+     * 오탐 삭제 복구(#1399) — 잘못 지운 하자를 되돌린다. soft delete라 데이터는 그대로 살아 있고
+     * 플래그만 되돌리면 되며, 삭제 사유 이력({@code defect_revisions})도 append-only라 보존된다.
+     *
+     * <p>{@code reviewed}는 되돌리지 않는다 — 삭제·복구 모두 사람이 손댄 검수 행위이고,
+     * 복구 후 다시 등급 확정·검수 확정 단계를 밟게 된다. "되살릴 자격이 있는 삭제인지"(검수자
+     * 오탐 판정 vs 재분석 소프트삭제)는 이력을 아는 서비스 계층이 판정한다.
+     */
+    public void restore() {
+        if (!this.deleted) {
+            return;
+        }
+        this.deleted = false;
+    }
+
     private void requireNotDeleted(String action) {
         if (this.deleted) {
             throw new DomainStateTransitionException(
