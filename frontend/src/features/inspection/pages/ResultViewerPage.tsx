@@ -240,7 +240,8 @@ export function ResultViewerPage() {
     const selected = findSelectedDefect(data.defects, currentDefects, selectedDefectId);
     if (selected) {
       setGradeEditId(selected.id);
-      setSelectedGrade(selected.grade);
+      // 등급 미판정(null)이면 라디오를 비워 둔 채로 연다 — 검수자가 처음으로 등급을 매기는 경로.
+      setSelectedGrade(selected.grade ?? '');
     }
   }, [data, currentDefects, selectedDefectId]);
 
@@ -570,7 +571,11 @@ export function ResultViewerPage() {
                         ? '탐지된 하자가 없습니다.'
                         : visibleDefects.length === 0
                           ? '조건에 맞는 하자가 없습니다.'
-                          : '이 이미지에 해당하는 하자가 없습니다.'}
+                          : isLastMedia
+                            ? '이 이미지의 하자가 없습니다.'
+                            : // 검수할 게 없는 이미지에서 다음 행동을 명시한다 — 마지막 이미지에서는
+                              // '다음 이미지' 버튼이 비활성이라 안내하지 않는다(이미지가 1장뿐일 때도 동일).
+                              "이 이미지의 하자가 없습니다. 상단의 '다음 이미지' 버튼으로 이동하세요."}
                     </div>
                   )}
                 </>
@@ -684,12 +689,18 @@ export function ResultViewerPage() {
                         </svg>
                         <span className="text-xs font-medium text-text-default">분석 요약</span>
                       </div>
-                      {data && (
+                      {/* 등급 미판정 하자는 AI 설명을 요청하지 않는다 — 프롬프트 입력이 등급이라
+                          null을 넘기면 근거 없는 설명이 나온다. 먼저 '등급 수정'으로 등급을 매기면 뜬다. */}
+                      {data && selected.grade != null ? (
                         <InspectionDefectExplainPanel
                           defectType={selected.type}
                           grade={selected.grade}
                           facilityType={data.facilityType}
                         />
+                      ) : (
+                        <div className="text-sm text-text-muted">
+                          등급이 아직 매겨지지 않은 하자입니다. &apos;등급 수정&apos;으로 등급을 지정하면 AI 분석이 표시됩니다.
+                        </div>
                       )}
                     </div>
                   </>

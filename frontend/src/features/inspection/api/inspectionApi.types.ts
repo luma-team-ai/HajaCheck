@@ -21,7 +21,7 @@ export interface DefectDetailItem {
   id: number;
   inspectionId: number;
   type: DefectTypeCode;
-  grade: DefectGrade;
+  grade: DefectGrade | null; // DB defects.grade가 nullable — 등급 미판정(#1395)
   status: DefectStatus;
   confidence: number;
   isReviewed: boolean;

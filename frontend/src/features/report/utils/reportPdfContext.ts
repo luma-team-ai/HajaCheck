@@ -114,7 +114,8 @@ export function buildReportPdfContext(
                   image: {
                     defectType: defect.type,
                     imageUrl: defect.thumbnailUrl,
-                    grade: defect.grade,
+                    // 등급 미판정(null)은 캡션에서 등급을 생략한다 — "null등급" 표기 방지(#1395)
+                    grade: defect.grade ?? undefined,
                     summary: defect.summary,
                   },
                   box: toPdfBox(

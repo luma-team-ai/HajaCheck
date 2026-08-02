@@ -131,11 +131,16 @@ export function useInspectionResultReal(inspectionId: number) {
     data,
     isLoading,
     isError,
-    refetch: () => {
-      inspectionQuery.refetch();
-      defectsQuery.refetch();
-      mediaQuery.refetch();
-      facilityQuery.refetch();
-    },
+    // 네 쿼리를 모두 기다리는 Promise를 반환한다 — 예전엔 각 refetch()의 Promise를 버리고
+    // undefined를 반환해서, 호출부의 `await refetch()`가 즉시 통과했다(#1395). 검수·오탐 삭제
+    // 직후 목록이 갱신되기 전에 모달이 닫히고 버튼이 다시 활성화돼, 같은 하자를 한 번 더 누르면
+    // 서버가 INVALID_STATE_TRANSITION(409)을 던지고 그 원문이 사용자에게 노출됐다.
+    refetch: () =>
+      Promise.all([
+        inspectionQuery.refetch(),
+        defectsQuery.refetch(),
+        mediaQuery.refetch(),
+        facilityQuery.refetch(),
+      ]).then(() => undefined),
   };
 }
