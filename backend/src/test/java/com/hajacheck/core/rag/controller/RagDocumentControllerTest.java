@@ -1,9 +1,12 @@
 package com.hajacheck.core.rag.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -18,6 +21,8 @@ import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.ai.dto.RagEmbedResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.PostgresTestSupport;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -253,6 +258,78 @@ class RagDocumentControllerTest extends PostgresTestSupport {
     void 재임베딩_회사관리자_403() throws Exception {
         // PR #685 리뷰 P1 회귀 테스트.
         mockMvc.perform(post("/api/admin/rag-documents/{id}/re-embed", 1L)
+                        .with(csrf()).with(authentication(authOf(adminUser))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 삭제_플랫폼관리자_200_목록에서제거() throws Exception {
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(2)));
+
+        String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
+                        .file(pdfPart())
+                        .param("title", "삭제 대상 문서")
+                        .param("sourceType", "LAW")
+                        .param("targetCollection", "REGULATIONS")
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long id = extractId(uploadResponse);
+
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", id)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        mockMvc.perform(post("/api/admin/rag-documents/{id}/re-embed", id)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 삭제_AI서버실패_DB에는그대로남아재시도가능() throws Exception {
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(1)));
+
+        String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
+                        .file(pdfPart())
+                        .param("title", "AI서버실패 문서")
+                        .param("sourceType", "LAW")
+                        .param("targetCollection", "REGULATIONS")
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long id = extractId(uploadResponse);
+
+        doThrow(new BusinessException(ErrorCode.AI_SERVER_UNREACHABLE))
+                .when(aiProxyService).deleteRagDocumentChunks(anyString(), anyString());
+
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", id)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isServiceUnavailable());
+
+        // DB/파일이 그대로 남아 재시도(=다시 삭제 호출)로 회복 가능해야 한다 — 목록조회로 확인.
+        mockMvc.perform(get("/api/admin/rag-documents").with(authentication(authOf(platformAdminUser))))
+                .andExpect(jsonPath("$.data[?(@.title == 'AI서버실패 문서')]").exists());
+    }
+
+    @Test
+    void 삭제_존재하지않는문서_404() throws Exception {
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", 999999L)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RAG_DOCUMENT_NOT_FOUND"));
+    }
+
+    @Test
+    void 삭제_일반사용자_403() throws Exception {
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", 1L)
+                        .with(csrf()).with(authentication(authOf(normalUser))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 삭제_회사관리자_403() throws Exception {
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", 1L)
                         .with(csrf()).with(authentication(authOf(adminUser))))
                 .andExpect(status().isForbidden());
     }
