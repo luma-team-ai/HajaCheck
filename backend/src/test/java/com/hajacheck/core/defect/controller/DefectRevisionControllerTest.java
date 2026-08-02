@@ -77,6 +77,9 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     private InspectionRepository inspectionRepository;
     @Autowired
     private DefectRepository defectRepository;
+
+    @Autowired
+    private com.hajacheck.core.defect.service.DefectWriter defectWriter;
     @Autowired
     private MediaRepository mediaRepository;
     @Autowired
@@ -1079,6 +1082,85 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/inspections/{id}/defects/deleted", inspection.getId())
                 .with(authentication(authOf(outsider))))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 전량_오탐삭제후_재분석하면_구회차_삭제분은_되살리기_목록에서_빠진다() throws Exception {
+        // #1401 — 재분석은 비삭제분만 소프트삭제하므로 검수자가 이미 지운 하자는 is_deleted 이력을
+        // 그대로 유지한다. 재분석 게이트가 '비삭제 0건이면 허용'(InspectionAnalysisService)이라
+        // '전부 오탐 삭제 → 재분석' 시퀀스가 성립하고, 세대 마커가 없으면 대체된 구회차 삭제분이
+        // 되살리기 후보로 남아 되살릴 때 유령 하자가 부활한다.
+        Company company = saveCompany("회사9-6");
+        User owner = saveUser("owner9-6@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector9-6@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        Defect first = saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
+        Defect second = saveDefect(inspection, DefectGrade.D, DefectStatus.DETECTED);
+        patchDefect(owner, first.getId(), DefectRevisionRequest.builder()
+                .deleted(true).reason("전부 오탐이라 삭제 1").build()).andExpect(status().isOk());
+        patchDefect(owner, second.getId(), DefectRevisionRequest.builder()
+                .deleted(true).reason("전부 오탐이라 삭제 2").build()).andExpect(status().isOk());
+
+        // 이 시점에는 둘 다 되살릴 수 있어야 한다(아직 재분석 전).
+        mockMvc.perform(get("/api/inspections/{id}/defects/deleted", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2));
+
+        // 재분석 경로 재현 — 워커가 실제로 호출하는 DefectWriter 를 그대로 쓴다.
+        Defect reanalyzed = Defect.builder()
+                .inspectionId(inspection.getId())
+                .type(DefectType.CRACK)
+                .confidence(0.9)
+                .grade(DefectGrade.B)
+                .build();
+        defectWriter.softDeleteAllForInspectionThenSave(
+                owner.getId(), inspection.getId(), List.of(reanalyzed));
+
+        // 구회차 삭제분은 목록에서 빠진다.
+        mockMvc.perform(get("/api/inspections/{id}/defects/deleted", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+
+        // 목록에 안 떠도 id 를 알면 직접 요청할 수 있으므로 복구 자체도 막혀야 한다.
+        patchDefect(owner, first.getId(), DefectRevisionRequest.builder()
+                .deleted(false).reason("되살리기 시도").build())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
+
+        // 부활하지 않았음을 일반 목록으로 확인 — 재분석 결과 1건만 보여야 한다.
+        mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(reanalyzed.getId()));
+    }
+
+    @Test
+    void 재분석_이전에_삭제한하자는_같은세대라면_되살릴수있다() throws Exception {
+        // #1401 가드가 과하게 걸려 정상 케이스까지 막지 않는지 고정한다 — 일부만 오탐 삭제한
+        // 상태(재분석은 비삭제분이 남아 있어 애초에 거부된다)에서는 그대로 되살릴 수 있어야 한다.
+        Company company = saveCompany("회사9-7");
+        User owner = saveUser("owner9-7@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector9-7@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        Defect deleted = saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
+        saveDefect(inspection, DefectGrade.A, DefectStatus.DETECTED);  // 살아있는 하자
+        patchDefect(owner, deleted.getId(), DefectRevisionRequest.builder()
+                .deleted(true).reason("이건 오탐").build()).andExpect(status().isOk());
+
+        patchDefect(owner, deleted.getId(), DefectRevisionRequest.builder()
+                .deleted(false).reason("다시 보니 진짜 하자").build())
+                .andExpect(status().isOk());
+
+        assertThat(defectRowOf(deleted.getId()).get("is_deleted")).isEqualTo(false);
     }
 
     private org.springframework.test.web.servlet.ResultActions patchDefect(

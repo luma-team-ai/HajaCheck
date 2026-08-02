@@ -147,9 +147,18 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     // ⓑ 재분석 때 DefectWriter#softDeleteAllForInspectionThenSave 가 통째로 민 구버전.
     // ⓑ를 되살리면 이미 대체된 유령 하자가 화면·통계에 부활하므로, ⓐ의 표식인
     // defect_revisions(field_changed='is_deleted', new_value='true') 이력 존재로 한정한다(ⓑ는 이력이 없다).
+    // 재분석 세대 교체(#1401) — 삭제 여부 무관 전체. DefectWriter 가 대체 마커를 남길 대상이다.
+    List<Defect> findByInspectionId(Long inspectionId);
+
+    // 되살리기 대상: 검수자가 오탐으로 지웠고(is_deleted 이력 존재), 아직 재분석으로 대체되지 않은 것.
+    // 대체 조건이 없으면 '전부 오탐 삭제 → 재분석' 시퀀스를 거친 구회차 삭제분이 그대로 후보로 남아
+    // 되살릴 때 유령 하자가 부활한다(#1401). JPQL은 자바 상수를 참조할 수 없어 리터럴을 쓴다 —
+    // 값 정본은 DefectRevision.FIELD_IS_DELETED / FIELD_REANALYSIS_SUPERSEDED.
     @Query("select d from Defect d where d.inspectionId = :inspectionId and d.deleted = true "
             + "and exists (select 1 from DefectRevision r where r.defectId = d.id "
             + "and r.fieldChanged = 'is_deleted' and r.newValue = 'true') "
+            + "and not exists (select 1 from DefectRevision s where s.defectId = d.id "
+            + "and s.fieldChanged = 'reanalysis_superseded') "
             + "order by d.id asc")
     List<Defect> findDeletedByReviewer(@Param("inspectionId") Long inspectionId);
 

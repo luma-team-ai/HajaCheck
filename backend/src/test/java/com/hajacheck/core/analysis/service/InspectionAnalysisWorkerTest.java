@@ -198,7 +198,7 @@ class InspectionAnalysisWorkerTest {
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
                 InspectionStatus.UPLOADING, GENERATION, CHARGE);
 
-        verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any());
+        verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any(), any());
     }
 
     @Test
@@ -214,7 +214,7 @@ class InspectionAnalysisWorkerTest {
                 InspectionStatus.UPLOADING, GENERATION, CHARGE);
 
         verify(defectWriter, org.mockito.Mockito.times(1))
-                .softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
+                .softDeleteAllForInspectionThenSave(any(), eq(INSPECTION_ID), any());
         verify(defectWriter, org.mockito.Mockito.times(2)).saveAll(any());
     }
 
@@ -228,7 +228,7 @@ class InspectionAnalysisWorkerTest {
                 InspectionStatus.UPLOADING, GENERATION, CHARGE);
 
         InOrder inOrder = Mockito.inOrder(defectWriter);
-        inOrder.verify(defectWriter).softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
+        inOrder.verify(defectWriter).softDeleteAllForInspectionThenSave(any(), eq(INSPECTION_ID), any());
         inOrder.verify(defectWriter).saveAll(any());
     }
 
@@ -246,7 +246,7 @@ class InspectionAnalysisWorkerTest {
                 InspectionStatus.UPLOADING, GENERATION, CHARGE);
 
         verify(defectWriter, org.mockito.Mockito.times(1))
-                .softDeleteAllForInspectionThenSave(eq(INSPECTION_ID), any());
+                .softDeleteAllForInspectionThenSave(any(), eq(INSPECTION_ID), any());
     }
 
     @Test
@@ -258,7 +258,7 @@ class InspectionAnalysisWorkerTest {
         when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
         when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
         org.mockito.Mockito.doThrow(new RuntimeException("제약 위반"))
-                .when(defectWriter).softDeleteAllForInspectionThenSave(any(), any());
+                .when(defectWriter).softDeleteAllForInspectionThenSave(any(), any(), any());
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION, CHARGE);
 
@@ -279,7 +279,7 @@ class InspectionAnalysisWorkerTest {
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
                 InspectionStatus.UPLOADING, GENERATION, CHARGE);
 
-        verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any());
+        verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any(), any());
         verify(defectWriter, never()).saveAll(any());
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
         verify(aiProxyService, org.mockito.Mockito.times(1)).detectDefects(anyString());
@@ -322,7 +322,7 @@ class InspectionAnalysisWorkerTest {
         when(aiProxyService.detectDefects(anyString()))
                 .thenReturn(List.of(detection("CRACK", "A")))
                 .thenThrow(new RuntimeException("타임아웃"));
-        when(defectWriter.softDeleteAllForInspectionThenSave(any(), any())).thenAnswer(inv -> inv.getArgument(1));
+        when(defectWriter.softDeleteAllForInspectionThenSave(any(), any(), any())).thenAnswer(inv -> inv.getArgument(2));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
                 InspectionStatus.UPLOADING, GENERATION, CHARGE);
