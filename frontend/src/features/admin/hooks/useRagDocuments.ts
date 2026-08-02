@@ -3,11 +3,20 @@ import type { ApiError } from '../../../shared/api/types';
 import { ragDocumentApi } from '../api/ragDocumentApi';
 import type { RagDocument } from '../ragDocument.types';
 
-// RAG 문서 목록 조회 — 업로드/재임베딩이 동기 처리(#22 handoff)라 폴링 없이 mutation 성공 시
-// invalidateQueries만으로 최신 상태가 반영된다(useAdminUsers와 동일 전략).
+// RAG 문서 목록 조회 — 임베딩 완료 확정이 백엔드 폴러(RagEmbeddingCompletionPoller, #1328)를 거쳐
+// 비동기로 반영되므로, mutation 성공 시 invalidateQueries만으로는 EMBEDDING→DONE/FAILED 전이를
+// 놓친다. 목록에 EMBEDDING 상태 문서가 남아있는 동안만 짧은 간격으로 자동 재조회하고, 없으면
+// 폴링을 멈춘다(불필요한 요청 방지).
+const EMBEDDING_POLL_INTERVAL_MS = 4000;
+
 export function useRagDocuments() {
   return useQuery<RagDocument[], ApiError>({
     queryKey: ['admin', 'rag-documents'],
     queryFn: () => ragDocumentApi.list().then((res) => res.data),
+    refetchInterval: (query) => {
+      const documents = query.state.data;
+      const hasEmbeddingInProgress = documents?.some((doc) => doc.embeddingStatus === 'EMBEDDING');
+      return hasEmbeddingInProgress ? EMBEDDING_POLL_INTERVAL_MS : false;
+    },
   });
 }
