@@ -405,8 +405,13 @@ async def rag_documents_embedding_status(doc_id: str, target_collection: str) ->
     `BackgroundTasks.add_task`로 등록된 sync 함수라 Starlette/anyio 공용 스레드풀에서 실행된다.
     이 엔드포인트가 sync def였다면 같은 풀을 공유해, 임베딩 태스크가 스레드를 오래 점유하는 동안
     이 조회가 큐잉·지연되고, 그러면 Spring 폴러가 25초 창 안에 응답을 못 받아 실제로는 성공한
-    임베딩도 실패로 오판할 위험이 커진다. 이 함수 본문은 Chroma 메타데이터 조회뿐이라 스레드풀
-    큐잉 없이 이벤트 루프에서 바로 처리해도 다른 코루틴을 유의미하게 막지 않는다.
+    임베딩도 실패로 오판할 위험이 커진다.
+
+    ⚠️ chromadb 클라이언트 자체는 sync라(#1393 리뷰 2차 P2 3차 검증) `vectorstore._collection.get()`을
+    이 코루틴 안에서 await 없이 직접 부르면 그 시간만큼 이벤트 루프 전체가 막힌다 — 다른 문서를 동시
+    폴링 중인 요청까지 지연된다. `anyio.to_thread.run_sync`로 별도 스레드에 offload해 이벤트 루프는
+    막지 않으면서, 위 문단의 CPU 헤비 임베딩 스레드풀과는 별개(anyio 기본 워커 스레드풀)라 서로
+    경합하지 않는다.
     """
     from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS, get_vectorstore
 
@@ -416,8 +421,15 @@ async def rag_documents_embedding_status(doc_id: str, target_collection: str) ->
         )
 
     try:
+        import anyio
+
         vectorstore = get_vectorstore(target_collection)
-        result = vectorstore._collection.get(where={"doc_id": doc_id})
+        # 블로킹 Chroma 호출(#1393 리뷰 2차 P2) — chromadb 클라이언트는 sync라 async def 코루틴 안에서
+        # await 없이 직접 부르면 그 시간 동안 이벤트 루프 전체가 막혀 다른 코루틴(다른 문서의 동시
+        # 폴링 등)을 지연시킨다. anyio.to_thread.run_sync로 별도 스레드에 offload한다.
+        result = await anyio.to_thread.run_sync(
+            lambda: vectorstore._collection.get(where={"doc_id": doc_id})
+        )
         chunk_count = len(result.get("ids", []))
         # 적재된 청크 전부가 같은 배치에서 나왔을 때만 그 배치 식별자를 돌려준다. 재임베딩 도중에는
         # 새 배치 청크와 옛 배치 청크가 섞여 있어 None이 되고, Spring은 완료로 확정하지 않는다
