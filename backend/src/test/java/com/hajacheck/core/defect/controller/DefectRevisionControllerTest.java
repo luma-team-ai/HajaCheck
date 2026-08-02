@@ -936,7 +936,9 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void PATCH_deletedFalse_400() throws Exception {
+    void PATCH_삭제되지않은하자_복구요청_409() throws Exception {
+        // #1399 — isDeleted=false는 이제 '복구'로 유효하다(예전엔 무조건 400). 다만 삭제된 적 없는
+        // 하자를 되살리는 건 의미가 없어 중복 삭제와 같은 INVALID_STATE_TRANSITION으로 막는다.
         Company company = saveCompany("회사9");
         User owner = saveUser("owner9@haja.com");
         addCompanyMembership(owner, company);
@@ -955,8 +957,137 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .with(authentication(authOf(owner)))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
+    }
+
+    @Test
+    void PATCH_오탐복구_정상_이력도남는다() throws Exception {
+        // #1399 — 삭제 → 복구 왕복. soft delete라 데이터가 그대로 살아 있어 플래그만 되돌리면 되고,
+        // 삭제 사유 이력은 append-only라 보존된 채 복구 이력이 한 줄 더 쌓인다.
+        Company company = saveCompany("회사9-2");
+        User owner = saveUser("owner9-2@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector9-2@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+        Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
+
+        patchDefect(owner, defect.getId(), DefectRevisionRequest.builder()
+                .deleted(true).reason("오탐이라 삭제").build())
+                .andExpect(status().isOk());
+        assertThat(defectRowOf(defect.getId()).get("is_deleted")).isEqualTo(true);
+
+        patchDefect(owner, defect.getId(), DefectRevisionRequest.builder()
+                .deleted(false).reason("확인해보니 실제 하자였음").build())
+                .andExpect(status().isOk());
+
+        assertThat(defectRowOf(defect.getId()).get("is_deleted")).isEqualTo(false);
+        // 복구된 하자는 일반 목록 조회에 다시 나타난다(뷰어에서 검수를 이어갈 수 있어야 한다).
+        mockMvc.perform(get("/api/inspections/{id}/defects", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1));
+
+        // 삭제 이력이 지워지지 않고 복구 이력이 추가된다(append-only).
+        List<Map<String, Object>> revisions = revisionsOf(defect.getId());
+        assertThat(revisions).hasSize(2);
+        assertThat(revisions).anySatisfy(r -> {
+            assertThat(r.get("field_changed")).isEqualTo("is_deleted");
+            assertThat(r.get("old_value")).isEqualTo("false");
+            assertThat(r.get("new_value")).isEqualTo("true");
+            assertThat(r.get("reason")).isEqualTo("오탐이라 삭제");
+        });
+        assertThat(revisions).anySatisfy(r -> {
+            assertThat(r.get("field_changed")).isEqualTo("is_deleted");
+            assertThat(r.get("old_value")).isEqualTo("true");
+            assertThat(r.get("new_value")).isEqualTo("false");
+            assertThat(r.get("reason")).isEqualTo("확인해보니 실제 하자였음");
+        });
+    }
+
+    @Test
+    void PATCH_재분석소프트삭제분은_복구불가_409() throws Exception {
+        // #1399 핵심 가드 — is_deleted=true 에는 ⓐ 검수자 오탐 판정과 ⓑ 재분석 때 통째로 밀린
+        // 구버전이 섞여 있다. ⓑ에는 is_deleted 이력이 없고, 되살리면 이미 대체된 유령 하자가
+        // 화면·통계에 부활한다. 목록에 안 뜨는 id로 직접 요청이 들어와도 막혀야 한다.
+        Company company = saveCompany("회사9-3");
+        User owner = saveUser("owner9-3@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector9-3@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+        Defect defect = saveDefect(inspection, DefectGrade.B, DefectStatus.DETECTED);
+        // 이력 없이 플래그만 세운다 = DefectWriter.softDeleteAllForInspectionThenSave 와 동일한 상태
+        defect.softDelete();
+        defectRepository.save(defect);
+
+        patchDefect(owner, defect.getId(), DefectRevisionRequest.builder()
+                .deleted(false).reason("되살리기 시도").build())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
+
+        assertThat(defectRowOf(defect.getId()).get("is_deleted")).isEqualTo(true);
+    }
+
+    @Test
+    void GET_삭제된하자목록_사유와삭제자를함께반환하고_재분석삭제분은제외() throws Exception {
+        // #1399 — 삭제 사유는 저장돼 있었으나 모든 조회가 is_deleted=false 필터라 어느 화면에서도
+        // 읽을 수 없었다. 이 엔드포인트가 그 사각지대를 메운다.
+        Company company = saveCompany("회사9-4");
+        User owner = saveUser("owner9-4@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector9-4@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        Defect reviewerDeleted = saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
+        patchDefect(owner, reviewerDeleted.getId(), DefectRevisionRequest.builder()
+                .deleted(true).reason("그림자를 균열로 오인").build())
+                .andExpect(status().isOk());
+
+        Defect reanalysisDeleted = saveDefect(inspection, DefectGrade.D, DefectStatus.DETECTED);
+        reanalysisDeleted.softDelete();  // 이력 없는 삭제 = 재분석 소프트삭제
+        defectRepository.save(reanalysisDeleted);
+
+        saveDefect(inspection, DefectGrade.A, DefectStatus.DETECTED);  // 살아있는 하자
+
+        mockMvc.perform(get("/api/inspections/{id}/defects/deleted", inspection.getId())
+                .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].defect.id").value(reviewerDeleted.getId()))
+                .andExpect(jsonPath("$.data[0].deletedReason").value("그림자를 균열로 오인"))
+                .andExpect(jsonPath("$.data[0].deletedByName").value(owner.getName()))
+                .andExpect(jsonPath("$.data[0].deletedAt").isNotEmpty());
+    }
+
+    @Test
+    void GET_삭제된하자목록_타회사는404() throws Exception {
+        // 미존재와 타인 소유를 구분하지 않는 기존 원칙(IDOR 방지)을 신규 엔드포인트에도 적용한다.
+        Company ownerCompany = saveCompany("회사9-5");
+        User owner = saveUser("owner9-5@haja.com");
+        addCompanyMembership(owner, ownerCompany);
+        User inspector = saveInspector("inspector9-5@haja.com", ownerCompany);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = saveInspection(facility, owner, inspector);
+
+        Company otherCompany = saveCompany("타회사9-5");
+        User outsider = saveUser("outsider9-5@haja.com");
+        addCompanyMembership(outsider, otherCompany);
+
+        mockMvc.perform(get("/api/inspections/{id}/defects/deleted", inspection.getId())
+                .with(authentication(authOf(outsider))))
+                .andExpect(status().isNotFound());
+    }
+
+    private org.springframework.test.web.servlet.ResultActions patchDefect(
+            User actor, Long defectId, DefectRevisionRequest request) throws Exception {
+        return mockMvc.perform(patch("/api/defects/{id}", defectId)
+                .with(csrf())
+                .with(authentication(authOf(actor)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)));
     }
 
     @Test
