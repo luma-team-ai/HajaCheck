@@ -154,7 +154,11 @@ def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstor
 @patch("routers.ai_router.delete_stale_chunks")
 @patch("routers.ai_router.ingest_document")
 def test_embed_endpoint_성공_chunk_count반환(mock_ingest, mock_delete_stale):
-    mock_ingest.return_value = 5
+    # 504 방지 비동기화(16ffe3bb) 이후 응답의 chunk_count는 엔드포인트가 동기로 직접 청킹해 얻은
+    # 값이다 — 실제 임베딩 적재(ingest_document)는 BackgroundTasks로 넘어가고 그 반환값은 응답에
+    # 쓰이지 않는다. mock_ingest.return_value로 응답을 통제할 수 없으므로, FLAT_LAW_SAMPLE을 실제
+    # split_regulation_text로 청킹했을 때 나오는 청크 수(1개)를 그대로 기대값으로 쓴다.
+    mock_ingest.return_value = 1
 
     res = client.post(
         "/ai/rag-documents/embed",
@@ -171,9 +175,9 @@ def test_embed_endpoint_성공_chunk_count반환(mock_ingest, mock_delete_stale)
     assert res.status_code == 200
     body = res.json()
     assert body["success"] is True
-    assert body["data"]["chunk_count"] == 5
-    # 삭제는 ingest 성공 이후, 실제 반환된 chunk_count로 초과분만 정리한다.
-    mock_delete_stale.assert_called_once_with("42", "regulations", 5)
+    assert body["data"]["chunk_count"] == 1
+    # 삭제는 ingest 성공 이후, 엔드포인트가 동기로 계산한 실제 chunk_count로 초과분만 정리한다.
+    mock_delete_stale.assert_called_once_with("42", "regulations", 1)
     mock_ingest.assert_called_once()
 
 
