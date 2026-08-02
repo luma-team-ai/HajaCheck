@@ -1,12 +1,18 @@
 # --- 공통 ---
 .env
 .env.*
+# 공백 오타 아님(PR머신 리뷰 P3 확인 요청 응답) — 실수로 "ai-server/.env "(끝에 공백 포함)라는
+# 파일이 만들어져 커밋에 딸려 들어간 사고(#1393)가 있었다. 위 패턴들은 이 이름을 안 잡으므로,
+# ".env" 뒤에 공백이 붙는 변형까지 명시적으로 잡아둔다.
+.env *
 !.env.example
 *.log
 .DS_Store
 .idea/
 .vscode/
 *.iml
+.claude/worktrees/
+ai-server/.cache/
 
 # 내부 비공개 문서(handoff·검수본 등) — 팀 공통 보호(전역 gitignore 없는 팀원 대비)
 docs/_local/

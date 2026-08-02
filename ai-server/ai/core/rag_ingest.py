@@ -11,6 +11,8 @@ ai/core/에 둔다. 메타데이터 필드명·타입·결측값 처리는 docs/
 ingest_document 시그니처 그대로) — 후속 과제로 남는다.
 """
 import hashlib
+import threading
+from collections import defaultdict
 from datetime import datetime, timezone
 
 from ai.core.chunking import extract_article_metadata, split_general_text, split_regulation_text
@@ -18,6 +20,28 @@ from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS, ge
 
 # get_embeddings() 기본 모델(ai/core/embeddings.py)과 동일 문자열을 메타데이터에 그대로 기록한다.
 EMBEDDING_MODEL = "BAAI/bge-m3"
+
+# doc_id 별 배경 임베딩 직렬화 락(#1393 리뷰 2차 P2) — Spring이 stale(5분 초과) EMBEDDING 문서의
+# restartEmbedding()을 허용하면서, 아직 끝나지 않은 원본 배경 임베딩과 관리자가 새로 트리거한
+# 재임베딩 배경 임베딩이 동시에 같은 doc_id의 Chroma 청크를 순서 보장 없이 add_texts/delete로
+# 건드릴 수 있다. 둘 다 BackgroundTasks(스레드풀)에서 실행되므로, doc_id 당 하나의 락으로
+# ingest_document()+delete_stale_chunks() 전체를 감싸 직렬화하면 늦게 끝난 태스크의 결과가
+# 먼저 끝난 태스크를 덮어쓰는 순서 역전이 사라진다(둘 중 나중에 시작한 태스크가 항상 나중에
+# 끝나 최종 상태를 결정) — delete_document()로 선삭제하는 방식은 PR#685가 이미 "재삽입 실패 시
+# 기존 임베딩을 통째로 잃는다"고 금지했으므로 채택하지 않는다.
+#
+# ⚠️ 사용이 끝난 락도 이 dict에서 제거하지 않는다(PR머신 리뷰 P3) — 관리자 콘솔에서만 임베딩이
+# 트리거되는 경로라 doc_id 종류가 적고(수백~수천 단위), threading.Lock 객체 하나의 크기도 작아
+# 장수명 프로세스에서도 실질적인 메모리 위험이 낮다고 판단해 의도적으로 남겨둔다. 문서 수가
+# 크게 늘면(수십만 단위) 참조 카운트 기반 정리를 후속 이슈로 붙인다.
+_document_ingest_locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
+_document_ingest_locks_guard = threading.Lock()
+
+
+def document_ingest_lock(doc_id: str) -> threading.Lock:
+    """doc_id 전용 락을 반환한다(없으면 생성) — 락 딕셔너리 자체의 동시 접근은 별도 guard로 보호한다."""
+    with _document_ingest_locks_guard:
+        return _document_ingest_locks[doc_id]
 
 
 def _chunk_document_id(doc_id: str, chunk_index: int) -> str:
@@ -36,6 +60,7 @@ def ingest_document(
     publisher: str | None = None,
     authored_at: str | None = None,
     verification_status: str | None = None,
+    embed_batch_id: str | None = None,
 ) -> int:
     """문서를 청킹해 target_collection에 임베딩하고 청크 수를 반환한다.
 
@@ -66,6 +91,11 @@ def ingest_document(
             "embedding_model": EMBEDDING_MODEL,
             "embedded_at": embedded_at,
         }
+        # 재임베딩 배치 식별자(#1393 리뷰 P2) — add_texts()는 동일 id를 upsert하므로 재임베딩 중에도
+        # 옛 청크가 그대로 남아 있다. 청크 수만 비교하면 청크 수가 같은 재임베딩에서 배경 임베딩이
+        # 끝나기도 전에 Spring이 거짓 완료로 확정한다. 이 값이 요청 배치와 일치할 때만 완료로 본다.
+        if embed_batch_id:
+            metadata["embed_batch_id"] = embed_batch_id
         if target_collection == COLLECTION_REGULATIONS:
             metadata.update(extract_article_metadata(chunk))
             if effective_date:

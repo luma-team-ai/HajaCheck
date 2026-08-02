@@ -1,10 +1,14 @@
 package com.hajacheck.core.rag.repository;
 
 import com.hajacheck.core.rag.entity.RagDocument;
+import com.hajacheck.core.rag.entity.RagEmbeddingStatus;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.time.Instant;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 /**
  * RAG 문서(rag_documents) 저장소 — 플랫폼 관리자 콘솔(#22/HAJA-35). company 스코핑 없음(법규·지침 문서는
@@ -13,6 +17,19 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface RagDocumentRepository extends JpaRepository<RagDocument, Long> {
 
     List<RagDocument> findAllByOrderByCreatedAtDesc();
+
+    /**
+     * 고착 후보 EMBEDDING 문서 조회(#1393) — 임베딩 시작 시각이 임계 이전이거나, 시작 시각 자체가
+     * 없는(embedding_started_at 컬럼 신설 이전에 EMBEDDING으로 남은 레거시) 행을 모두 포함한다.
+     * {@link com.hajacheck.core.rag.scheduler.RagEmbeddingStaleReconciler} 전용.
+     */
+    @Query("""
+            select d from RagDocument d
+            where d.embeddingStatus = :status
+              and (d.embeddingStartedAt is null or d.embeddingStartedAt < :startedBefore)
+            """)
+    List<RagDocument> findStaleEmbedding(@Param("status") RagEmbeddingStatus status,
+                                         @Param("startedBefore") Instant startedBefore);
 
     /**
      * id로 조회하고 없으면 즉시 예외 — RagDocumentService/RagDocumentWriter 양쪽에 똑같이 복제돼

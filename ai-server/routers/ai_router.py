@@ -12,8 +12,9 @@ import hashlib
 import json
 import logging
 from typing import Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import ValidationError as PydanticValidationError
@@ -38,7 +39,7 @@ from ai.core.grounding import (
     MismatchPolicy,
     check_grounding,
 )
-from ai.core.rag_ingest import delete_stale_chunks, ingest_document
+from ai.core.rag_ingest import delete_stale_chunks, document_ingest_lock, ingest_document
 from ai.core.schemas import AIErrorCode, AIResponse
 
 logger = logging.getLogger(__name__)
@@ -301,39 +302,156 @@ class RagDocumentEmbedRequest(BaseModel):
     verification_status: Optional[str] = None
 
 
-@router.post("/rag-documents/embed")
-def rag_documents_embed(req: RagDocumentEmbedRequest) -> AIResponse:
-    """RAG 문서 임베딩(#22/HAJA-35, PRD FR-8-B) — 청킹+적재(upsert)를 먼저 하고, 성공한 뒤에만
-    옛 문서의 초과 청크(재임베딩으로 청크 수가 줄어든 경우의 나머지)를 정리한다. 이전엔 삭제를
-    먼저 해 재삽입 실패 시 방금까지 정상 서빙되던 임베딩을 통째로 잃는 창이 있었다(PR#685 리뷰
-    P2) — add_texts()가 동일 chunk id를 upsert하므로 삭제 없이도 재임베딩이 안전하게 덮어써진다.
-    LLM 호출이 없는 결정론적 데이터 처리라 grounding-check와 같은 계열이지만, 이 레포 catch-all
-    관례(ValueError→VALIDATION_ERROR, 나머지→고정 메시지 폴백)를 그대로 재사용한다 — 임베딩 모델
-    로드 실패 등 예측 어려운 실패도 스택은 서버 로그로만 남기고 클라이언트에는 내부 정보를
-    노출하지 않는다.
-    """
+def _run_ingest_background(
+    doc_id: str,
+    title: str,
+    doc_type: str,
+    target_collection: str,
+    text: str,
+    effective_date: Optional[str],
+    publisher: Optional[str],
+    authored_at: Optional[str],
+    verification_status: Optional[str],
+    chunk_count: int,
+    embed_batch_id: str,
+):
     try:
-        chunk_count = ingest_document(
-            req.doc_id,
-            req.title,
-            req.doc_type,
-            req.target_collection,
-            req.text,
-            effective_date=req.effective_date,
-            publisher=req.publisher,
-            authored_at=req.authored_at,
-            verification_status=req.verification_status,
-        )
-        # 옛 문서가 더 길었을 때만 남는 초과 청크 정리 — 실패해도 새 임베딩 자체는 이미 반영돼
-        # 있으므로 검색 결과에 영향 없다(최악의 경우 초과분 몇 개가 잠시 더 남을 뿐).
-        delete_stale_chunks(req.doc_id, req.target_collection, chunk_count)
+        # doc_id 단위 직렬화 락(#1393 리뷰 2차 P2) — Spring이 stale EMBEDDING 문서의 재임베딩을
+        # 허용하면서, 아직 끝나지 않은 원본 배경 임베딩과 재임베딩 배경 임베딩이 동시에 같은
+        # doc_id의 Chroma를 건드릴 수 있다. 이 락으로 ingest+정리 전체를 감싸면 둘 중 나중에
+        # "시작"한 태스크가 항상 나중에 "끝나" 최종 상태(=최신 요청 결과)를 결정하게 된다.
+        with document_ingest_lock(doc_id):
+            # 1. 실제 청킹 및 임베딩 연산 수행 (CPU 헤비 태스크)
+            ingest_document(
+                doc_id,
+                title,
+                doc_type,
+                target_collection,
+                text,
+                effective_date=effective_date,
+                publisher=publisher,
+                authored_at=authored_at,
+                verification_status=verification_status,
+                embed_batch_id=embed_batch_id,
+            )
+            # 2. 성공한 뒤에만 초과 청크 정리
+            delete_stale_chunks(doc_id, target_collection, chunk_count)
+        logger.info(f"RAG 백그라운드 임베딩 완료: doc_id={doc_id}, 청크 수={chunk_count}")
+    except Exception as e:
+        logger.exception(f"RAG 백그라운드 임베딩 중 치명적 예외 발생 (doc_id={doc_id}): {e}")
+
+
+@router.post("/rag-documents/embed")
+def rag_documents_embed(req: RagDocumentEmbedRequest, background_tasks: BackgroundTasks) -> AIResponse:
+    """RAG 문서 임베딩(#22/HAJA-35, PRD FR-8-B) — 504 Gateway Timeout 방지를 위한 비동기 백그라운드 전환 패치.
+    청킹(텍스트 분할)은 가볍고 즉시 끝나므로 동기로 수행해 청크 수를 미리 구하고, bge-m3 임베딩 연산은 BackgroundTasks로
+    넘겨 즉시 200 OK를 리턴합니다.
+    """
+    from ai.core.chunking import split_general_text, split_regulation_text
+    from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS
+
+    try:
+        # 1. 청킹(텍스트 분할)은 가벼운 연산이므로 즉시 동기 수행하여 청크 개수를 얻음
+        if req.target_collection == COLLECTION_REGULATIONS:
+            chunks = split_regulation_text(req.text)
+        elif req.target_collection == COLLECTION_DEFECT_KB:
+            chunks = split_general_text(req.text)
+        else:
+            raise ValueError(f"unknown target_collection: {req.target_collection}")
+        
+        chunk_count = len(chunks)
     except ValueError as e:
-        # target_collection이 regulations/defect_kb가 아닌 경우 등 — 내부 경로/모델명 노출 없는 메시지.
         return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
-    except Exception:  # noqa: BLE001 — Chroma 쓰기 실패·임베딩 모델 오류 등 표준 폴백(다른 엔드포인트와 동일 패턴)
-        logger.exception("POST /ai/rag-documents/embed 처리 중 예상치 못한 예외 발생")
-        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "문서 임베딩 중 오류가 발생했습니다")
-    return AIResponse.ok({"chunk_count": chunk_count})
+    except Exception as e:
+        logger.exception("POST /ai/rag-documents/embed 청킹 처리 중 예외 발생")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "문서 청킹 중 오류가 발생했습니다")
+
+    # 2. 이번 임베딩 배치 식별자 — 배경 임베딩이 각 청크 메타데이터에 심고, embedding-status가
+    #    되돌려준다. Spring은 청크 수뿐 아니라 이 값까지 일치할 때만 완료로 확정한다(#1393 리뷰 P2 —
+    #    청크 수가 같은 재임베딩에서 옛 청크만 보고 거짓 완료로 확정하던 문제).
+    embed_batch_id = uuid4().hex
+
+    # 3. 임베딩 적재 및 초과분 삭제는 백그라운드 태스크로 연동
+    background_tasks.add_task(
+        _run_ingest_background,
+        req.doc_id,
+        req.title,
+        req.doc_type,
+        req.target_collection,
+        req.text,
+        req.effective_date,
+        req.publisher,
+        req.authored_at,
+        req.verification_status,
+        chunk_count,
+        embed_batch_id,
+    )
+
+    # 4. 즉시 계산된 청크 개수와 배치 식별자를 함께 성공 리턴
+    return AIResponse.ok({"chunk_count": chunk_count, "embed_batch_id": embed_batch_id})
+
+
+@router.get("/rag-documents/{doc_id}/embedding-status")
+async def rag_documents_embedding_status(doc_id: str, target_collection: str) -> AIResponse:
+    """RAG 문서 백그라운드 임베딩 완료 여부 확인용 read-only 엔드포인트(#1328).
+
+    /ai/rag-documents/embed가 청킹만 동기로 끝내고 실제 임베딩(ingest_document)은
+    BackgroundTasks로 넘기게 되면서(16ffe3bb), Spring이 그 즉시 completeEmbedding()을 호출하면
+    실제로는 아직 Chroma에 반영되지 않은 채로 DB만 DONE으로 마킹되는 거짓 완료가 생긴다.
+    Spring은 이 엔드포인트를 폴링해 실제 chunk_count가 기대치와 일치할 때만 완료로 확정한다.
+
+    임베딩 계산(모델 호출) 없이 Chroma 메타데이터 조회만 수행하는 가벼운 엔드포인트 —
+    rag_ingest.delete_document()/delete_stale_chunks()와 동일하게 vectorstore._collection을
+    직접 사용해 where={"doc_id": doc_id}로 조회한다(langchain_chroma==0.1.4 delete() 래퍼가
+    where를 버리는 것과 별개로, get()도 래퍼가 아닌 내부 컬렉션을 직접 쓰는 편이 다른 함수들과
+    일관적이다).
+
+    ⚠️ `async def`(#1393 리뷰 2차 P2) — `_run_ingest_background`(CPU 헤비 bge-m3 임베딩)는
+    `BackgroundTasks.add_task`로 등록된 sync 함수라 Starlette/anyio 공용 스레드풀에서 실행된다.
+    이 엔드포인트가 sync def였다면 같은 풀을 공유해, 임베딩 태스크가 스레드를 오래 점유하는 동안
+    이 조회가 큐잉·지연되고, 그러면 Spring 폴러가 25초 창 안에 응답을 못 받아 실제로는 성공한
+    임베딩도 실패로 오판할 위험이 커진다.
+
+    ⚠️ chromadb 클라이언트 자체는 sync라(#1393 리뷰 2차 P2 3차 검증) `vectorstore._collection.get()`을
+    이 코루틴 안에서 await 없이 직접 부르면 그 시간만큼 이벤트 루프 전체가 막힌다 — 다른 문서를 동시
+    폴링 중인 요청까지 지연된다. `anyio.to_thread.run_sync`로 별도 스레드에 offload해 이벤트 루프는
+    막지 않으면서, 위 문단의 CPU 헤비 임베딩 스레드풀과는 별개(anyio 기본 워커 스레드풀)라 서로
+    경합하지 않는다.
+    """
+    from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS, get_vectorstore
+
+    if target_collection not in (COLLECTION_REGULATIONS, COLLECTION_DEFECT_KB):
+        return AIResponse.fail(
+            AIErrorCode.VALIDATION_ERROR, f"unknown target_collection: {target_collection}"
+        )
+
+    try:
+        import anyio
+
+        vectorstore = get_vectorstore(target_collection)
+        # 블로킹 Chroma 호출(#1393 리뷰 2차 P2) — chromadb 클라이언트는 sync라 async def 코루틴 안에서
+        # await 없이 직접 부르면 그 시간 동안 이벤트 루프 전체가 막혀 다른 코루틴(다른 문서의 동시
+        # 폴링 등)을 지연시킨다. anyio.to_thread.run_sync로 별도 스레드에 offload한다.
+        result = await anyio.to_thread.run_sync(
+            lambda: vectorstore._collection.get(where={"doc_id": doc_id})
+        )
+        chunk_count = len(result.get("ids", []))
+        # 적재된 청크 전부가 같은 배치에서 나왔을 때만 그 배치 식별자를 돌려준다. 재임베딩 도중에는
+        # 새 배치 청크와 옛 배치 청크가 섞여 있어 None이 되고, Spring은 완료로 확정하지 않는다
+        # (#1393 리뷰 P2 — 청크 수가 같은 재임베딩의 거짓 완료 차단).
+        batch_ids = {
+            (metadata or {}).get("embed_batch_id") for metadata in (result.get("metadatas") or [])
+        }
+        embed_batch_id = batch_ids.pop() if len(batch_ids) == 1 else None
+    except Exception:  # noqa: BLE001 — Chroma 조회 실패 등 표준 폴백(모델 호출 없는 단순 조회 경로)
+        logger.exception(
+            "GET /ai/rag-documents/{doc_id}/embedding-status 처리 중 예상치 못한 예외 발생"
+        )
+        return AIResponse.fail(
+            AIErrorCode.VALIDATION_ERROR, "임베딩 상태 조회 중 오류가 발생했습니다"
+        )
+
+    return AIResponse.ok({"chunk_count": chunk_count, "embed_batch_id": embed_batch_id})
 
 
 class BusinessLicenseOcrRequest(BaseModel):

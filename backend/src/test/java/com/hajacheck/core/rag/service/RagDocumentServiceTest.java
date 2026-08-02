@@ -59,6 +59,8 @@ class RagDocumentServiceTest {
     @Mock
     private AiProxyService aiProxyService;
     @Mock
+    private RagEmbeddingCompletionPoller ragEmbeddingCompletionPoller;
+    @Mock
     private MultipartFile file;
 
     @InjectMocks
@@ -109,15 +111,19 @@ class RagDocumentServiceTest {
     }
 
     @Test
-    void upload_AI서버성공_완료상태로전환() {
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(12)));
+    void upload_AI서버성공_완료확인을폴러에위임한다() {
+        // #1328 — FastAPI 청킹 직후 응답만으로 completeEmbedding()을 직접 호출하지 않는다(아직 실제
+        // Chroma 임베딩이 끝났다는 보장이 없는 거짓 완료 방지). 대신 RagEmbeddingCompletionPoller에
+        // documentId+collection+expectedChunkCount를 넘겨 위임했는지만 검증한다 — 폴러는 별도
+        // 비동기 스레드(@Async)로 동작하므로 여기서는 완료 상태 전이 자체를 재현하지 않는다.
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(12, "batch-1")));
 
         RagDocumentResponse response = ragDocumentService.upload(file, REQUEST);
 
-        assertThat(response.embeddingStatus()).isEqualTo(RagEmbeddingStatus.DONE);
-        assertThat(response.chunkCount()).isEqualTo(12);
+        assertThat(response.embeddingStatus()).isEqualTo(RagEmbeddingStatus.EMBEDDING);
         verify(ragDocumentWriter).markEmbeddingStarted(any());
-        verify(ragDocumentWriter).completeEmbedding(any(), anyInt());
+        verify(ragEmbeddingCompletionPoller).pollUntilComplete(document.getId(), "regulations", 12, "batch-1");
+        verify(ragDocumentWriter, never()).completeEmbedding(any(), anyInt());
         verify(ragDocumentWriter, never()).failEmbedding(any());
     }
 
@@ -144,14 +150,15 @@ class RagDocumentServiceTest {
     }
 
     @Test
-    void upload_completeEmbedding이BusinessException아닌RuntimeException던지면_FAILED로전환되고EMBEDDING에고착되지않는다() {
-        // PR#685 리뷰 P2 회귀 방지 — completeEmbedding()이 @Version 낙관적 락 충돌 등
-        // BusinessException이 아닌 RuntimeException을 던지는 경우도 catch(BusinessException)만으로는
-        // 못 잡아 문서가 EMBEDDING 상태로 영구 고착됐었다. RuntimeException으로 넓힌 catch가
-        // 이 경로도 failEmbedding()으로 귀결시키는지 확인한다.
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3)));
+    void upload_폴러위임중RuntimeException발생해도_embed호출자체는예외전파없이FAILED로전환된다() {
+        // PR#685 리뷰 P2 취지 계승(#1328로 completeEmbedding() 호출 지점이 폴러로 옮겨간 뒤에도,
+        // embed()의 try 블록 안에서 일어나는 RuntimeException은 여전히 BusinessException 여부와
+        // 무관하게 failEmbedding()으로 귀결돼야 한다 — 여기서는 폴러 위임 호출 자체가 실패하는
+        // 경로를 재현한다. 폴러 내부(@Async 스레드)에서 발생하는 예외 처리는
+        // RagEmbeddingCompletionPollerTest가 별도로 검증한다.
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3, "batch-1")));
         doThrow(new OptimisticLockingFailureException("동시 갱신 충돌"))
-                .when(ragDocumentWriter).completeEmbedding(any(), anyInt());
+                .when(ragEmbeddingCompletionPoller).pollUntilComplete(any(), any(), anyInt(), any());
 
         RagDocumentResponse response = ragDocumentService.upload(file, REQUEST);
 
@@ -191,17 +198,17 @@ class RagDocumentServiceTest {
     }
 
     @Test
-    void reEmbed_완료문서를재추출하여다시완료로전환() {
+    void reEmbed_완료문서를재추출하고_완료확인을폴러에위임한다() {
         document.startEmbedding();
         document.completeEmbedding(5);
         when(fileStorage.read("rag-documents/stub.pdf")).thenReturn("dummy-pdf-bytes".getBytes());
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(9)));
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(9, "batch-1")));
 
         RagDocumentResponse response = ragDocumentService.reEmbed(document.getId());
 
-        assertThat(response.embeddingStatus()).isEqualTo(RagEmbeddingStatus.DONE);
-        assertThat(response.chunkCount()).isEqualTo(9);
+        assertThat(response.embeddingStatus()).isEqualTo(RagEmbeddingStatus.EMBEDDING);
         verify(ragDocumentWriter).markReEmbeddingStarted(any());
+        verify(ragEmbeddingCompletionPoller).pollUntilComplete(document.getId(), "regulations", 9, "batch-1");
     }
 
     @Test

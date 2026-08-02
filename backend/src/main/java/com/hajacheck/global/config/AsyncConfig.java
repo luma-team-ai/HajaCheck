@@ -88,4 +88,34 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    /** RAG 임베딩 완료 확인 폴러(#1328) 전용 실행기 — {@code @Async(RAG_EMBED_TASK_EXECUTOR)}로 참조한다. */
+    public static final String RAG_EMBED_TASK_EXECUTOR = "ragEmbedTaskExecutor";
+
+    /**
+     * RagEmbeddingCompletionPoller 전용 실행기(#1328). FastAPI가 청킹만 동기로 끝내고 실제 임베딩은
+     * BackgroundTasks로 넘기게 되면서(ai-server 16ffe3bb), Spring이 그 응답만 보고 completeEmbedding()을
+     * 호출하면 아직 Chroma에 반영되지 않은 상태를 DONE으로 잘못 마킹하는 거짓 완료가 생긴다. 이 실행기는
+     * 짧은 간격(2~3초)으로 최대 10회 재시도 폴링(Thread.sleep 포함)하는 동안 요청 스레드와 완전히 분리된
+     * 별도 스레드에서 동작해야 한다 — HTTP 응답은 이미 즉시 나간 뒤이므로 여기서 sleep해도 nginx/사용자
+     * 타임아웃과 무관하다.
+     *
+     * <p>mailTaskExecutor/analysisTaskExecutor와 풀을 공유하지 않는다(폴링 중 sleep으로 스레드를 오래
+     * 점유하는 성격이 다른 두 실행기의 처리량에 영향을 주면 안 됨). 큐가 가득 차면 기본 AbortPolicy로
+     * 예외를 던진다 — 계정 열거 등 보안 민감 경로가 아니므로 mailTaskExecutor처럼 조용히 삼킬 이유가
+     * 없고, 폴러가 아예 시작되지 못한 경우는 문서가 EMBEDDING 상태로 남아 관리자가 재임베딩으로 복구
+     * 가능하다(idempotent 설계, RagDocumentService 참고).
+     */
+    @Bean(name = RAG_EMBED_TASK_EXECUTOR)
+    public TaskExecutor ragEmbedTaskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(4);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("rag-embed-poll-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
 }

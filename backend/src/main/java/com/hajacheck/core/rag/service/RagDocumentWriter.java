@@ -46,4 +46,13 @@ public class RagDocumentWriter {
     public void markReEmbeddingStarted(Long id) {
         ragDocumentRepository.findByIdOrThrow(id).restartEmbedding();
     }
+
+    /**
+     * AI 서버가 임베딩 요청을 접수한 직후 이번 요청의 기대 청크 수·배치 식별자를 기록한다(#1393 리뷰
+     * 2차 P2) — RagEmbeddingStaleReconciler가 폴러 상한 이후 완료 재확인에 쓴다.
+     */
+    @Transactional
+    public void recordEmbedRequest(Long id, int expectedChunkCount, String embedBatchId) {
+        ragDocumentRepository.findByIdOrThrow(id).recordEmbedRequest(expectedChunkCount, embedBatchId);
+    }
 }
