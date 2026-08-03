@@ -356,6 +356,13 @@ public enum ErrorCode {
     // finalize 요청의 pdfUrl이 이 보고서용 업로드 엔드포인트 형식(/api/reports/{id}/pdf/{storageKey})을
     // 따르지 않으면 거부 — 임의 문자열/타 보고서 pdfUrl로 확정을 시도하는 것을 차단한다(#455 P2-2).
     REPORT_PDF_URL_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않은 보고서 PDF 경로입니다."),
+    // PR머신 리뷰(FAILED 재분석 바이패스 감사) — ANALYZING인데 비삭제 하자가 남아있으면 그건 원자적
+    // 선점 불변식상 FAILED 재분석이 진행 중이라는 뜻이다(ReportService#generateDraft 참고). 그 하자는
+    // 워커가 첫 탐지 성공 시점에 소프트삭제로 통째로 대체될 수 있어, 지금 그걸 근거로 보고서를 만들면
+    // 확정 직후 근거가 사라지는 보고서가 생길 수 있다. 일반적인 ANALYZING(첫 분석 중, 하자 0건)에서는
+    // 이 코드가 나오지 않는다 — generateDraft는 그 경우 여전히 항상 성공한다(팀 결정, 클래스 주석 참고).
+    REPORT_GENERATION_BLOCKED_ANALYSIS_IN_PROGRESS(HttpStatus.CONFLICT,
+            "재분석이 진행 중인 회차는 보고서를 생성할 수 없습니다. 분석이 끝난 뒤 다시 시도해 주세요."),
 
     // RAG 문서 관리(#22 / HAJA-35) — 플랫폼 관리자 콘솔 법규·지침 PDF 업로드 + 임베딩 파이프라인
     RAG_DOCUMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "RAG 문서를 찾을 수 없습니다."),

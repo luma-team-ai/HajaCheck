@@ -108,6 +108,30 @@ class PlatformAdminMonitoringServiceTest {
     }
 
     @Test
+    void FAILED_회차는_완료가아니라실패로_집계된다() {
+        // PR머신 리뷰 5차 P2 — FAILED(분석 실패)를 COMPLETED로 오분류하지 않는다. AnalysisJobStatus.
+        // FAILED/summary.failed()는 이 상태를 미리 대비해 만들어져 있었으나(#1408) 실제로 채워진 적이
+        // 없었다 — InspectionStatus.FAILED가 도입된 지금 여기서 이어져야 한다.
+        when(healthEndpoint.health()).thenReturn(Health.up().build());
+        when(metricsEndpoint.metric(any(), any())).thenReturn(null);
+        when(errorLogStore.recent(anyInt())).thenReturn(List.of());
+
+        Inspection failed = inspectionOf(1L, InspectionStatus.FAILED, "힐스테이트 광교 102동");
+        when(inspectionRepository.findRecentOrderByCreatedAtDesc(any()))
+                .thenReturn(List.of(failed));
+        when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
+        when(analysisProgressStore.find(anyLong())).thenReturn(Optional.empty());
+
+        SystemMonitoringResponse response = service().getMonitoring();
+
+        assertThat(response.jobQueue().summary().failed()).isEqualTo(1);
+        assertThat(response.jobQueue().summary().completed()).isEqualTo(0);
+        assertThat(response.jobQueue().summary().inProgress()).isEqualTo(0);
+        assertThat(response.jobQueue().jobs())
+                .allSatisfy(job -> assertThat(job.status()).isEqualTo(AnalysisJobStatus.FAILED));
+    }
+
+    @Test
     void 완료_회차는_진행률_캐시가_있으면_소요시간을_계산한다() {
         when(healthEndpoint.health()).thenReturn(Health.up().build());
         when(metricsEndpoint.metric(any(), any())).thenReturn(null);

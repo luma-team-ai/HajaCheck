@@ -349,20 +349,43 @@ public class InspectionService {
     }
 
     /**
-     * ANALYZING 고착 회차를 리퍼가 시스템 배치로 복원한다(코드 리뷰 P2 10차) — @Scheduled 리퍼는
-     * 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다(배치 전용, 외부 요청 경로 아님).
-     * 여전히 ANALYZING일 때만 UPLOADING으로 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미
-     * 정리했으면 아무것도 하지 않는다(멱등). 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로
-     * 검증한다(ANALYZING→UPLOADING 허용). RECOVERY_STATUS(=UPLOADING, InspectionAnalysisService)와
-     * 동일한 "업로드는 끝났고 분석 전" 상태로 되돌려, 사용자가 다시 분석을 시작할 수 있게 한다.
+     * ANALYZING 고착 회차를 리퍼(시스템 배치)나 사용자 취소(cancelAnalysis)가 복원한다(코드 리뷰
+     * P2 10차) — 배치 호출은 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다. 여전히
+     * ANALYZING일 때만 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미 정리했으면 아무것도
+     * 하지 않는다(멱등).
+     *
+     * <p><b>복원 목적지는 항상 UPLOADING이 아니다</b>(PR머신 리뷰 5차 P1) — FAILED 재분석은 원자적
+     * 선점이 "비삭제 하자 없음" 요건을 FAILED에 한해 건너뛰므로(InspectionRepository
+     * #startAnalyzingIfNotRunning statusesIgnoringExistingDefects), ANALYZING에 "비삭제 하자가
+     * 남은 채" 진입하는 것은 이 PR 이전엔 불가능했던 새 상태이고 오직 FAILED 소스에서만 가능하다.
+     * 실제 삭제는 워커가 첫 탐지 성공 시점에야 한다(InspectionAnalysisWorker
+     * #softDeleteAllForInspectionThenSave). 그 전에 이 메서드가 불려(취소·리퍼 고착 복구) 항상
+     * UPLOADING으로 되돌리면, "UPLOADING인데 비삭제 하자가 있는" 상태가 만들어진다 — 이건
+     * hasExistingDefects 기반 fail-closed 가드({@code status != FAILED}일 때만 거부)에 걸려
+     * 재분석은 영구 거부되고, ANALYZED도 아니라 검수 진입도 안 되는 dead-end다(이 PR이 없애려던
+     * FAILED dead-end가 다른 상태로 재발). 원자적 선점의 불변식상 "비삭제 하자가 남아있다"는 건
+     * 곧 "FAILED에서 왔다"는 뜻이므로, 그 경우엔 FAILED로 되돌려 재분석 시 fail-closed 예외가
+     * 다시 정확히 성립하게 한다. 하자가 없으면 기존과 동일하게 UPLOADING(RECOVERY_STATUS,
+     * InspectionAnalysisService)으로 되돌린다. 전이는 {@link Inspection#advanceTo}가 허용 전이
+     * 테이블로 검증한다(ANALYZING→UPLOADING·ANALYZING→FAILED 둘 다 허용).
+     */
+    /**
+     * @return 실제로 되돌린 목적지 상태(FAILED 또는 UPLOADING), 이미 ANALYZING이 아니어서 아무것도
+     *         안 했으면 {@code null} — 호출부(reapIfStuck/cancelAnalysis)가 하드코딩된 RECOVERY_STATUS
+     *         대신 이 실제 값으로 로그를 남겨야 한다(PR머신 리뷰 감사 — 로그가 항상 "UPLOADING으로
+     *         되돌림"이라고 찍어 FAILED로 되돌아간 경우를 오도했었다).
      */
     @Transactional
-    public void revertStuckAnalyzing(Long inspectionId) {
+    public InspectionStatus revertStuckAnalyzing(Long inspectionId) {
         Inspection inspection = inspectionRepository.findById(inspectionId).orElse(null);
         if (inspection == null || inspection.getStatus() != InspectionStatus.ANALYZING) {
-            return;
+            return null;
         }
-        inspection.advanceTo(InspectionStatus.UPLOADING);
+        InspectionStatus recoveryStatus = defectRepository.existsByInspectionIdAndDeletedFalse(inspectionId)
+                ? InspectionStatus.FAILED
+                : InspectionStatus.UPLOADING;
+        inspection.advanceTo(recoveryStatus);
+        return recoveryStatus;
     }
 
     /**

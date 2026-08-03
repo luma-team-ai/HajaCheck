@@ -303,6 +303,42 @@ class ReportServiceTest {
     }
 
     @Test
+    void generateDraft_ANALYZING인데비삭제하자가있으면_REPORT_GENERATION_BLOCKED_ANALYSIS_IN_PROGRESS() {
+        // PR머신 리뷰(FAILED 재분석 바이패스 감사) — ANALYZING인데 비삭제 하자가 남아있다는 건
+        // (원자적 선점 불변식상) FAILED 재분석이 지금 진행 중이라는 뜻이다. 그 하자는 워커가 첫 탐지
+        // 성공 시 소프트삭제로 통째로 대체될 수 있어, 지금 보고서를 만들면 확정 직후 근거가 사라지는
+        // 보고서가 생길 수 있다 — 재분석이 끝난 뒤 다시 시도하도록 막는다.
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspection(10L, InspectionStatus.ANALYZING));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(1L)).thenReturn(true);
+
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 200L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.REPORT_GENERATION_BLOCKED_ANALYSIS_IN_PROGRESS));
+        verify(facilityService, never()).get(any(), any(), any());
+        verify(aiProxyService, never()).generateReport(anyLong(), any());
+    }
+
+    @Test
+    void generateDraft_ANALYZING인데하자가없으면_기존대로정상생성한다() {
+        // 일반적인 "첫 분석 진행 중"(하자 0건) 케이스는 이 PR 이전과 동일하게 항상 성공해야 한다 —
+        // 위 가드는 FAILED 재분석 바이패스가 만드는 좁은 위험 구간(하자가 남아있는 경우)에만 걸린다.
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspection(10L, InspectionStatus.ANALYZING));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(1L)).thenReturn(false);
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.generateDraft(1L, 100L, 200L);
+
+        assertThat(response.version()).isEqualTo(1);
+    }
+
+    @Test
     void updateContent_수정후grounding필드를null로리셋() {
         Report report = Report.draft(1L, 1, "{\"a\":1}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));

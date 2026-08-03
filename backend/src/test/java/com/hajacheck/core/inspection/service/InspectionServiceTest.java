@@ -466,6 +466,47 @@ class InspectionServiceTest {
     }
 
     @Test
+    void revertStuckAnalyzing_비삭제하자가있으면_UPLOADING이아니라FAILED로되돌린다() {
+        // PR머신 리뷰 5차 P1 — FAILED 재분석의 원자적 선점은 "비삭제 하자 없음" 요건을 FAILED에 한해
+        // 건너뛰므로, ANALYZING에 비삭제 하자가 남은 채 진입하는 건 오직 FAILED 소스에서만 가능하다.
+        // 취소·리퍼가 이 사실을 무시하고 항상 UPLOADING으로 되돌리면 "UPLOADING+비삭제 하자"라는,
+        // 이 PR 이전엔 불가능했던 새 상태가 만들어져 fail-closed 가드에 걸려 재분석이 영구 거부되는
+        // dead-end가 된다. 비삭제 하자가 있으면 FAILED로 되돌려야 그 예외가 다시 정확히 성립한다.
+        Inspection inspection = Inspection.builder().facilityId(1L).status(InspectionStatus.ANALYZING).build();
+        setId(inspection, 10L);
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(10L)).thenReturn(true);
+
+        service.revertStuckAnalyzing(10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.FAILED);
+    }
+
+    @Test
+    void revertStuckAnalyzing_하자없으면_기존대로UPLOADING으로되돌린다() {
+        Inspection inspection = Inspection.builder().facilityId(1L).status(InspectionStatus.ANALYZING).build();
+        setId(inspection, 10L);
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(10L)).thenReturn(false);
+
+        service.revertStuckAnalyzing(10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.UPLOADING);
+    }
+
+    @Test
+    void revertStuckAnalyzing_ANALYZING이아니면_아무것도하지않는다() {
+        Inspection inspection = Inspection.builder().facilityId(1L).status(InspectionStatus.ANALYZED).build();
+        setId(inspection, 10L);
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+
+        service.revertStuckAnalyzing(10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.ANALYZED);
+        verify(defectRepository, never()).existsByInspectionIdAndDeletedFalse(any());
+    }
+
+    @Test
     void list_owner스코프로위임_필터그대로전달_시설물명담당자명하자건수포함매핑() {
         Pageable pageable = PageRequest.of(0, 20);
         Inspection inspection = inspectionWithFacility(10L, 1L, "테스트빌딩", 200L, InspectionStatus.ANALYZED, InspectionType.DETAILED);

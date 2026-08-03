@@ -383,9 +383,9 @@ public class InspectionAnalysisService {
         if (!isStuck(inspectionId)) {
             return false;
         }
-        inspectionService.revertStuckAnalyzing(inspectionId);
+        InspectionStatus revertedTo = inspectionService.revertStuckAnalyzing(inspectionId);
         progressStore.saveGeneration(inspectionId, java.util.UUID.randomUUID().toString());
-        log.warn("ANALYZING 고착 리퍼 복원 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
+        log.warn("ANALYZING 고착 리퍼 복원 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, revertedTo);
         return true;
     }
 
@@ -404,8 +404,10 @@ public class InspectionAnalysisService {
      * 이 메서드 자체는 워커의 실제 종료를 기다리지 않고 즉시 반환한다.
      *
      * <p>상태는 고착 복구와 동일하게 {@link InspectionService#revertStuckAnalyzing}로 되돌리고
-     * (ANALYZING→UPLOADING), 진행률 캐시는 지운다 — 이후 조회(getStatus)는 큐 포화 롤백과 동일하게
-     * {@link #rebuildFromDb}가 "분석된 적 없음" 분기로 자연스럽게 재구성한다(새 stage 값을 만들 필요 없음).
+     * (보통 ANALYZING→UPLOADING이지만, FAILED 재분석 도중이면 ANALYZING→FAILED — 비삭제 하자가
+     * 남아있는지로 판정한다, 그 메서드 참고), 진행률 캐시는 지운다 — 이후 조회(getStatus)는 큐 포화
+     * 롤백과 동일하게 {@link #rebuildFromDb}가 "분석된 적 없음" 분기로 자연스럽게 재구성한다(새
+     * stage 값을 만들 필요 없음).
      *
      * <p>⚠️ 순서 주의(PR 리뷰 P1) — {@link AnalysisProgressStore#delete}는 진행률 캐시뿐 아니라
      * 세대 토큰 키까지 함께 지운다({@link com.hajacheck.core.analysis.support.RedisAnalysisProgressStore#delete}/
@@ -421,10 +423,10 @@ public class InspectionAnalysisService {
         if (inspection.getStatus() != InspectionStatus.ANALYZING) {
             return;
         }
-        inspectionService.revertStuckAnalyzing(inspectionId);
+        InspectionStatus revertedTo = inspectionService.revertStuckAnalyzing(inspectionId);
         progressStore.delete(inspectionId);
         progressStore.saveGeneration(inspectionId, java.util.UUID.randomUUID().toString());
-        log.info("사용자 분석 취소 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
+        log.info("사용자 분석 취소 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, revertedTo);
     }
 
     private AnalysisStatusResponse rebuildFromDb(Inspection inspection) {

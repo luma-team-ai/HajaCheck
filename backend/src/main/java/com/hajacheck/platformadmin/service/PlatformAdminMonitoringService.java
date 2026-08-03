@@ -137,14 +137,25 @@ public class PlatformAdminMonitoringService {
 
         long inProgress = jobs.stream().filter(job -> job.status() == AnalysisJobStatus.IN_PROGRESS).count();
         long completed = jobs.stream().filter(job -> job.status() == AnalysisJobStatus.COMPLETED).count();
+        long failed = jobs.stream().filter(job -> job.status() == AnalysisJobStatus.FAILED).count();
 
-        return new AnalysisJobQueueResponse(new AnalysisJobQueueSummaryResponse(inProgress, completed, 0), jobs);
+        return new AnalysisJobQueueResponse(
+                new AnalysisJobQueueSummaryResponse(inProgress, completed, failed), jobs);
     }
 
     private AnalysisJobQueueItemResponse toJobQueueItem(Inspection inspection, Map<Long, Long> imageCountByInspectionId) {
-        AnalysisJobStatus status = IN_PROGRESS_STATUSES.contains(inspection.getStatus())
-                ? AnalysisJobStatus.IN_PROGRESS
-                : AnalysisJobStatus.COMPLETED;
+        // PR머신 리뷰 5차 P2 — FAILED(회차 분석 실패)를 COMPLETED로 오분류하지 않는다. AnalysisJobStatus
+        // 는 이 상태가 나올 걸 미리 대비해 FAILED 값을 이미 갖고 있었고(#1408, 프론트 라벨·색상도
+        // monitoring.constants.ts에 이미 준비돼 있었다) InspectionStatus에 FAILED가 실제로 도입된
+        // 지금 여기서 이어줘야 한다 — 안 그러면 분석 실패 잡이 관리자 모니터링에서 정상 완료로 보인다.
+        AnalysisJobStatus status;
+        if (IN_PROGRESS_STATUSES.contains(inspection.getStatus())) {
+            status = AnalysisJobStatus.IN_PROGRESS;
+        } else if (inspection.getStatus() == InspectionStatus.FAILED) {
+            status = AnalysisJobStatus.FAILED;
+        } else {
+            status = AnalysisJobStatus.COMPLETED;
+        }
         int imageCount = imageCountByInspectionId.getOrDefault(inspection.getId(), 0L).intValue();
         Facility facility = inspection.getFacility();
 

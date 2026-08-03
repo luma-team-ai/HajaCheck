@@ -17,8 +17,10 @@ import org.springframework.stereotype.Component;
  * ({@link InspectionAnalysisService#startAnalysis})는 사용자가 다시 분석을 눌러야 동작하므로, 사용자가
  * 방치하면 그 회차는 계속 ANALYZING으로 남고 회사별 동시실행 카운트도 갉아먹는다. 이 배치가 주기적으로
  * ANALYZING 회차를 훑어, {@link InspectionAnalysisService#isStuck}(Redis 진행률 하트비트 기준 —
- * inspections 테이블엔 updated_at이 없어 DB 타임스탬프는 쓰지 않는다)로 고착을 판정해 직전 상태
- * (UPLOADING)로 되돌린다. 회사별 동시실행 카운트가 이 배치와 <b>같은 isStuck 정의</b>를 공유하므로,
+ * inspections 테이블엔 updated_at이 없어 DB 타임스탬프는 쓰지 않는다)로 고착을 판정해 직전 상태로
+ * 되돌린다 — 보통 UPLOADING이지만, FAILED 재분석 도중 고착됐으면(비삭제 하자가 아직 남아있으면)
+ * FAILED로 되돌린다({@link com.hajacheck.core.inspection.service.InspectionService#revertStuckAnalyzing}
+ * 참고 — 무조건 UPLOADING이 아니다). 회사별 동시실행 카운트가 이 배치와 <b>같은 isStuck 정의</b>를 공유하므로,
  * 리퍼가 복원하기 전이라도 고착 회차는 카운트에서 제외돼 회사가 상한에 영구히 걸리지 않는다.
  *
  * <p>⚠️ 단일 인스턴스 실행 전제 — {@link com.hajacheck.core.facility.scheduler.InspectionDueNotificationScheduler}와

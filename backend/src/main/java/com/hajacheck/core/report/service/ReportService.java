@@ -112,6 +112,18 @@ public class ReportService {
                                                Set<String> sections, Boolean includePhoto) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         InspectionResponse inspection = inspectionService.getInspection(userId, companyId, inspectionId);
+        // PR머신 리뷰(FAILED 재분석 바이패스 감사) — ANALYZING인데 비삭제 하자가 남아있으면, 원자적
+        // 선점 불변식상(InspectionRepository#startAnalyzingIfNotRunning statusesIgnoringExistingDefects)
+        // 이건 FAILED 재분석이 지금 진행 중이라는 뜻뿐이다. 그 하자는 워커가 첫 탐지 성공 시점에
+        // 소프트삭제로 통째로 대체될 수 있어(DefectWriter#softDeleteAllForInspectionThenSave), 지금
+        // 이 순간 보고서를 만들면 확정 직후 근거 하자가 사라지는 보고서가 생길 수 있다. 일반적인
+        // ANALYZING(첫 분석 중, 하자 0건)에서는 이 분기를 안 타므로 "generateDraft는 회차 상태와
+        // 무관하게 항상 성공해야 한다"는 기존 결정(아래 markInspectionReported 주석 참고)은 그대로
+        // 유지된다 — 이건 그 결정의 예외가 아니라, 이 PR이 새로 만든 좁은 위험 구간만 막는 것이다.
+        if (inspection.status() == InspectionStatus.ANALYZING
+                && defectRepository.existsByInspectionIdAndDeletedFalse(inspectionId)) {
+            throw new BusinessException(ErrorCode.REPORT_GENERATION_BLOCKED_ANALYSIS_IN_PROGRESS);
+        }
         FacilityResponse facility = facilityService.get(userId, companyId, inspection.facilityId());
 
         List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
