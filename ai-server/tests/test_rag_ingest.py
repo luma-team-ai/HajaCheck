@@ -20,8 +20,9 @@ FLAT_LAW_SAMPLE = (
 )
 
 
+@patch("ai.core.rag_ingest.bm25_index")
 @patch("ai.core.rag_ingest.get_vectorstore")
-def test_ingest_document_regulations_청킹결과와메타데이터를add_texts에전달(mock_get_vectorstore):
+def test_ingest_document_regulations_청킹결과와메타데이터를add_texts에전달(mock_get_vectorstore, mock_bm25_index):
     mock_vs = MagicMock()
     mock_get_vectorstore.return_value = mock_vs
 
@@ -62,6 +63,8 @@ def test_ingest_document_regulations_청킹결과와메타데이터를add_texts�
     # defect_kb 전용 필드(authored_at/verification_status)는 regulations 청크에 없어야 한다.
     assert "authored_at" not in first
     assert "verification_status" not in first
+    # #1410 — 적재 성공 직후 BM25 캐시 무효화
+    mock_bm25_index.invalidate.assert_called_once_with(COLLECTION_REGULATIONS)
 
 
 @patch("ai.core.rag_ingest.get_vectorstore")
@@ -85,8 +88,9 @@ def test_ingest_document_결측필드는키자체를생략(mock_get_vectorstore)
         assert "publisher" not in metadata
 
 
+@patch("ai.core.rag_ingest.bm25_index")
 @patch("ai.core.rag_ingest.get_vectorstore")
-def test_ingest_document_defect_kb_authored_at과verification_status를포함(mock_get_vectorstore):
+def test_ingest_document_defect_kb_authored_at과verification_status를포함(mock_get_vectorstore, mock_bm25_index):
     mock_vs = MagicMock()
     mock_get_vectorstore.return_value = mock_vs
 
@@ -110,6 +114,8 @@ def test_ingest_document_defect_kb_authored_at과verification_status를포함(mo
     assert "article" not in first
     assert "effective_date" not in first
     assert "publisher" not in first
+    # #1410 — invalidate 자체가 regulations 외에는 no-op이라 분기 없이 항상 호출된다.
+    mock_bm25_index.invalidate.assert_called_once_with(COLLECTION_DEFECT_KB)
 
 
 def test_ingest_document_알수없는컬렉션은ValueError():
@@ -123,8 +129,9 @@ def test_ingest_document_알수없는컬렉션은ValueError():
         assert "unknown target_collection" in str(e)
 
 
+@patch("ai.core.rag_ingest.bm25_index")
 @patch("ai.core.rag_ingest.get_vectorstore")
-def test_delete_document_doc_id로where삭제(mock_get_vectorstore):
+def test_delete_document_doc_id로where삭제(mock_get_vectorstore, mock_bm25_index):
     mock_vs = MagicMock()
     mock_get_vectorstore.return_value = mock_vs
 
@@ -134,10 +141,13 @@ def test_delete_document_doc_id로where삭제(mock_get_vectorstore):
     # langchain_chroma==0.1.4의 Chroma.delete()가 where를 무시해(code-review P1) 내부 _collection을
     # 직접 호출하도록 고쳤다 — 이 테스트도 실제 구현과 같은 대상을 검증해야 회귀를 잡는다.
     mock_vs._collection.delete.assert_called_once_with(where={"doc_id": "42"})
+    # #1410 — BM25 캐시 무효화 훅
+    mock_bm25_index.invalidate.assert_called_once_with(COLLECTION_REGULATIONS)
 
 
+@patch("ai.core.rag_ingest.bm25_index")
 @patch("ai.core.rag_ingest.get_vectorstore")
-def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstore):
+def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstore, mock_bm25_index):
     mock_vs = MagicMock()
     mock_get_vectorstore.return_value = mock_vs
 
@@ -147,6 +157,8 @@ def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstor
     mock_vs._collection.delete.assert_called_once_with(
         where={"$and": [{"doc_id": "42"}, {"chunk_index": {"$gte": 3}}]}
     )
+    # #1410 — BM25 캐시 무효화 훅
+    mock_bm25_index.invalidate.assert_called_once_with(COLLECTION_REGULATIONS)
 
 
 # ── /ai/rag-documents/embed 엔드포인트 ──
