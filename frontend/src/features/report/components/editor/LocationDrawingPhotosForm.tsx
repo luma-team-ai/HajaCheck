@@ -47,10 +47,7 @@ export function LocationDrawingPhotosForm({ data, onChange, readOnly }: Location
 
   return (
     <section className="flex flex-col gap-4">
-      <p className="text-sm text-text-muted">
-        위치도·전경 사진·종ㆍ평면도·현황도처럼 이미지 자체가 내용인 섹션입니다. 이미지를 추가하고 각 사진에
-        캡션(예: "한남대교 위치도")을 입력하면 PDF에 원본과 같은 형식(사진 + 캡션)으로 반영됩니다.
-      </p>
+      <p className="text-sm text-text-muted">이미지와 캡션을 추가하면 PDF에 사진+캡션 형식으로 반영됩니다.</p>
 
       {!readOnly && (
         <div>

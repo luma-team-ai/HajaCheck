@@ -81,11 +81,11 @@ export function ReportContentEditor({
     onChange({ ...content, sectionOrder: moveItem(order, fromIndex, toIndex) });
   };
 
-  const addManualSection = (type: ManualSectionType) => {
+  const addManualSection = (type: ManualSectionType, title?: string) => {
     const section: ManualSection = {
       id: createManualSectionId(type),
       type,
-      title: MANUAL_SECTION_LABELS[type],
+      title: title ?? MANUAL_SECTION_LABELS[type],
       data: defaultManualData(type, companyName),
     };
     onChange({
