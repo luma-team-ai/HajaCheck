@@ -99,8 +99,25 @@
 
 .defect-detection-box {
   position: absolute;
+  margin: 0;
+  border-radius: 10px;
   border: 2px solid #f000e8;
   background: rgba(240, 0, 232, 0.12);
+  padding: 0;
+  cursor: pointer;
+  transition: border-width 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.defect-detection-box:hover,
+.defect-detection-box.is-selected {
+  border-width: 3px;
+  background: rgba(240, 0, 232, 0.22);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+}
+
+.defect-detection-box:focus-visible {
+  outline: 3px solid var(--color-point);
+  outline-offset: 2px;
 }
 
 .defect-status-panel { padding: 26px; }

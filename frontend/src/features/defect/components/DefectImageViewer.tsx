@@ -1,18 +1,20 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import {
   calculateImageCanvasSize,
+  getBboxArea,
   getBboxStyle,
 } from "../utils/defectImageGeometry";
 import type { Size } from "../utils/defectImageGeometry";
+import type { Defect } from "../types";
+import { formatDefectCode } from "../utils/defectFormat";
 
 type Props = {
   imageUrl: string | null;
   typeLabel: string;
-  bboxX: number | null;
-  bboxY: number | null;
-  bboxW: number | null;
-  bboxH: number | null;
+  defects?: Defect[];
+  selectedDefectId?: number;
+  onSelectDefect?: (defectId: number) => void;
 };
 
 type LoadedImage = Size & {
@@ -25,10 +27,9 @@ type LoadedImage = Size & {
 export function DefectImageViewer({
   imageUrl,
   typeLabel,
-  bboxX,
-  bboxY,
-  bboxW,
-  bboxH,
+  defects = [],
+  selectedDefectId,
+  onSelectDefect,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState<Size>({ width: 0, height: 0 });
@@ -36,7 +37,18 @@ export function DefectImageViewer({
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
   const isLoaded = imageUrl != null && loadedImage?.src === imageUrl;
   const hasLoadError = imageUrl != null && failedImageUrl === imageUrl;
-  const bboxStyle = getBboxStyle(bboxX, bboxY, bboxW, bboxH);
+  const drawableDefects = useMemo(
+    () =>
+      defects
+        .map((defect) => ({
+          defect,
+          area: getBboxArea(defect.bboxX, defect.bboxY, defect.bboxW, defect.bboxH),
+          style: getBboxStyle(defect.bboxX, defect.bboxY, defect.bboxW, defect.bboxH),
+        }))
+        .filter((item) => item.area != null && item.style != null)
+        .sort((a, b) => (b.area ?? 0) - (a.area ?? 0)),
+    [defects],
+  );
   const canvasSize =
     isLoaded && loadedImage
       ? calculateImageCanvasSize(
@@ -118,13 +130,21 @@ export function DefectImageViewer({
                   onLoad={handleImageLoad}
                   onError={handleImageError}
                 />
-                {isLoaded && bboxStyle && (
-                  <div
-                    className="defect-detection-box"
-                    aria-label="AI 감지 영역"
-                    style={bboxStyle}
-                  />
-                )}
+                {isLoaded &&
+                  drawableDefects.map(({ defect, style }) => {
+                    const isSelected = defect.id === selectedDefectId;
+                    return (
+                      <button
+                        key={defect.id}
+                        type="button"
+                        className={`defect-detection-box${isSelected ? " is-selected" : ""}`}
+                        aria-label={`${formatDefectCode(defect.id)} ${defect.typeLabel} 하자 영역 선택`}
+                        aria-pressed={isSelected}
+                        style={{ ...style, zIndex: isSelected ? 2 : 1 }}
+                        onClick={() => onSelectDefect?.(defect.id)}
+                      />
+                    );
+                  })}
               </div>
             )}
             {hasLoadError && (

@@ -7,14 +7,17 @@ import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { useDefect } from '../hooks/useDefect';
 import { useDefectActionLogs } from '../hooks/useDefectActionLogs';
 import { DEFECT_GRADE_LABEL, DEFECT_STATUS_LABEL } from '../types';
+import type { Defect } from '../types';
 import { formatDefectCode } from '../utils/defectFormat';
+import { getBboxStyle } from '../utils/defectImageGeometry';
 import { ActivityHistoryPanel } from './ActivityHistoryPanel';
 import { DefectActionForm } from './DefectActionForm';
 import { DefectExplainPanel } from './DefectExplainPanel';
 import { DefectImageViewer } from './DefectImageViewer';
 
 type Props = {
-  defectId: number;
+  defects: Defect[];
+  initialDefectId: number;
   onClose: () => void;
 };
 
@@ -34,8 +37,9 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
 // 컴포넌트를 position:absolute; inset:0으로 렌더링한다 — 별도 fullscreen 오버레이 메커니즘을 새로
 // 만들지 말라는 handoff 지시에 따른 의도적 설계(공통 Modal 재사용 원칙의 예외). 포지셔닝만 예외이고,
 // 포커스 트랩/초기 포커스/포커스 복원은 shared Modal과 동일한 로직을 그대로 따른다.
-export function DefectDetailModal({ defectId, onClose }: Props) {
-  const { data: defect, isLoading, isError, refetch } = useDefect(defectId);
+export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) {
+  const [selectedDefectId, setSelectedDefectId] = useState(initialDefectId);
+  const { data: defect, isLoading, isError, refetch } = useDefect(selectedDefectId);
   // 조치 전/조치/조치 완료 사진 탭(#969, #1193/HAJA-569로 3탭 확장) — 사진 등록 전후에
   // 레이아웃이 바뀌지 않도록 탭바는 항상 노출하고, "조치 사진"/"조치 완료 사진" 탭은 각 phase
   // 이력이 1건 이상일 때만 추가한다. 기본은 언제나 "조치 전" 탭이다.
@@ -65,6 +69,16 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
   // onClose가 부모 렌더마다 새로 생성돼도 effect가 재실행되지 않도록 ref로 최신값만 참조(Modal.tsx와 동일)
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const imageUrl = defects.find((item) => item.imageUrl != null)?.imageUrl ?? null;
+  const unpositionedDefects = defects.filter(
+    (item) => getBboxStyle(item.bboxX, item.bboxY, item.bboxW, item.bboxH) == null,
+  );
+
+  useEffect(() => {
+    setActivePhotoTab('before');
+    setSelectedInProgressLogId(null);
+    setSelectedResolvedLogId(null);
+  }, [selectedDefectId]);
 
   useEffect(() => {
     // 열리기 직전 포커스를 기억해뒀다가, 닫힐 때 트리거 요소(카드 등)로 복귀시킨다.
@@ -225,20 +239,33 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
                       <DefectImageViewer
                         imageUrl={activeTabLog.photoUrl}
                         typeLabel={defect.typeLabel}
-                        bboxX={null}
-                        bboxY={null}
-                        bboxW={null}
-                        bboxH={null}
                       />
                     ) : (
-                      <DefectImageViewer
-                        imageUrl={defect.imageUrl}
-                        typeLabel={defect.typeLabel}
-                        bboxX={defect.bboxX}
-                        bboxY={defect.bboxY}
-                        bboxW={defect.bboxW}
-                        bboxH={defect.bboxH}
-                      />
+                      <>
+                        <DefectImageViewer
+                          imageUrl={imageUrl}
+                          typeLabel={defect.typeLabel}
+                          defects={defects}
+                          selectedDefectId={selectedDefectId}
+                          onSelectDefect={setSelectedDefectId}
+                        />
+                        {unpositionedDefects.length > 0 && (
+                          <div className="defect-detail-modal__unpositioned" aria-label="위치 미지정 하자">
+                            <span>위치 미지정</span>
+                            {unpositionedDefects.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                className={item.id === selectedDefectId ? 'is-selected' : ''}
+                                aria-pressed={item.id === selectedDefectId}
+                                onClick={() => setSelectedDefectId(item.id)}
+                              >
+                                {formatDefectCode(item.id)} · {item.typeLabel}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -282,12 +309,13 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
 
               <div className="defect-detail-modal__secondary">
                 <DefectActionForm
+                  key={`action-${defect.id}`}
                   defectId={defect.id}
                   inspectionId={defect.inspectionId}
                   status={defect.status}
                   actionResult={defect.actionResult}
                 />
-                <ActivityHistoryPanel key={defect.id} defectId={defect.id} />
+                <ActivityHistoryPanel key={`history-${defect.id}`} defectId={defect.id} />
               </div>
             </div>
           </>

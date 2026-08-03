@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { DefectCardGrid } from '../components/DefectCardGrid';
@@ -7,6 +7,7 @@ import { InspectionActivityPanel } from '../components/InspectionActivityPanel';
 import { InspectionKpiSummary } from '../components/InspectionKpiSummary';
 import { useInspectionDefects } from '../hooks/useInspectionDefects';
 import { formatInspectionCode } from '../utils/defectFormat';
+import { findDefectImageGroup, groupDefectsByImage } from '../utils/defectImageGroups';
 import './InspectionDefectsPage.css';
 
 // 점검 상세(카드형, HAJA-393/394 §화면 구조 ②, contract.md 확정) — 하자 목록의 점검 로우를 클릭하면
@@ -44,7 +45,10 @@ export function InspectionDefectsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시 1회만 소비, 이후 URL 변경엔 반응하지 않는다
   }, []);
 
-  const isModalOpen = selectedDefectId != null;
+  const defectGroups = useMemo(() => groupDefectsByImage(defects ?? []), [defects]);
+  const selectedGroup =
+    selectedDefectId == null ? null : findDefectImageGroup(defectGroups, selectedDefectId);
+  const isModalOpen = selectedGroup != null;
 
   return (
     <div className="inspection-defects-page">
@@ -92,8 +96,12 @@ export function InspectionDefectsPage() {
         )}
       </div>
 
-      {selectedDefectId != null && (
-        <DefectDetailModal defectId={selectedDefectId} onClose={() => setSelectedDefectId(null)} />
+      {selectedDefectId != null && selectedGroup != null && (
+        <DefectDetailModal
+          defects={selectedGroup.defects}
+          initialDefectId={selectedDefectId}
+          onClose={() => setSelectedDefectId(null)}
+        />
       )}
     </div>
   );

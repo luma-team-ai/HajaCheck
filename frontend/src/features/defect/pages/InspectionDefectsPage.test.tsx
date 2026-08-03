@@ -59,8 +59,8 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 
     // inspectionId=101 mock은 철근 노출(CONFIRMED)과 균열(DETECTED)이다. 카드 그리드는 검수 전
     // DETECTED를 숨기므로 철근 노출만 버튼으로 렌더링하고, KPI의 원본 하자 집계는 2건을 유지한다.
-    expect(await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' })).not.toBeNull();
-    expect(screen.queryByRole('button', { name: '균열 하자 상세 보기' })).toBeNull();
+    expect(await screen.findByRole('button', { name: '철근 노출 이미지 카드 상세 보기' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '균열 이미지 카드 상세 보기' })).toBeNull();
 
     const kpi = screen.getByLabelText('점검 하자 요약');
     expect(within(kpi).getByText('총 하자')).not.toBeNull();
@@ -82,7 +82,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
   it('카드를 클릭하면 하자 상세 모달이 열리고, 조치 결과 등록 폼과 활동 기록을 보여준다', async () => {
     renderPage('101');
 
-    const card = await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
+    const card = await screen.findByRole('button', { name: '철근 노출 이미지 카드 상세 보기' });
     fireEvent.click(card);
 
     const modal = await screen.findByRole('dialog', { name: '하자 상세' });
@@ -98,6 +98,46 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
   it('URL에 defectId 쿼리파라미터가 있으면 카드 클릭 없이도 하자 상세 모달이 자동으로 열린다', async () => {
     renderPage('101', '?defectId=1');
 
+    const modal = await screen.findByRole('dialog', { name: '하자 상세' });
+    expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
+  });
+
+  it('같은 mediaId의 하자는 카드 하나로 묶고 딥링크는 대표 하자가 아닌 지정 하자를 정확히 연다', async () => {
+    const groupedDefects = [
+      { ...mockDefects[0], mediaId: 901 },
+      {
+        ...mockDefects[0],
+        id: 6,
+        mediaId: 901,
+        type: 'CRACK' as const,
+        typeLabel: '균열',
+        grade: 'E' as const,
+        status: 'IN_PROGRESS' as const,
+        confidence: 0.97,
+        bboxX: 0.55,
+        bboxY: 0.45,
+        bboxW: 0.18,
+        bboxH: 0.22,
+      },
+    ];
+    server.use(
+      http.get('/api/inspections/:id/defects', () =>
+        HttpResponse.json({ success: true, data: groupedDefects }),
+      ),
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = groupedDefects.find((defect) => defect.id === Number(params.id));
+        return HttpResponse.json({ success: true, data: found });
+      }),
+    );
+
+    renderPage('101', '?defectId=1');
+
+    const cards = await screen.findAllByRole('button', {
+      name: '균열 · 철근 노출 이미지 카드 상세 보기',
+      hidden: true,
+    });
+    expect(cards).toHaveLength(1);
+    expect(screen.getByText('하자 2건')).not.toBeNull();
     const modal = await screen.findByRole('dialog', { name: '하자 상세' });
     expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
   });
@@ -134,7 +174,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
   it('모달의 닫기 버튼을 클릭하면 모달이 닫힌다', async () => {
     renderPage('101');
 
-    const card = await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
+    const card = await screen.findByRole('button', { name: '철근 노출 이미지 카드 상세 보기' });
     fireEvent.click(card);
     await screen.findByRole('dialog', { name: '하자 상세' });
 
@@ -159,7 +199,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 
     renderPage('101');
 
-    const card = await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
+    const card = await screen.findByRole('button', { name: '철근 노출 이미지 카드 상세 보기' });
     fireEvent.click(card);
     const modal = await screen.findByRole('dialog', { name: '하자 상세' });
     await within(modal).findByText('DEF-0001');
@@ -222,7 +262,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 
   it('우측 활동 기록 사이드바에 점검에 속한 하자들의 변경 이력을 모아 보여준다', async () => {
     renderPage('101');
-    await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
+    await screen.findByRole('button', { name: '철근 노출 이미지 카드 상세 보기' });
 
     const activityPanel = screen.getByLabelText('점검 활동 기록');
     // mockDefectRevisions[1]: 과거 CONFIRMED→ACTION_PENDING 변경 이력이 존재(defect.mock.ts).

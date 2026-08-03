@@ -35,10 +35,15 @@ afterEach(() => {
 afterAll(() => server.close());
 
 function renderModal(defectId: number) {
+  const groupDefects = mockDefects.filter((defect) => defect.id === defectId);
+  renderModalGroup(groupDefects, defectId);
+}
+
+function renderModalGroup(defects: Defect[], initialDefectId: number) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <DefectDetailModal defectId={defectId} onClose={() => {}} />
+      <DefectDetailModal defects={defects} initialDefectId={initialDefectId} onClose={() => {}} />
     </QueryClientProvider>,
   );
 }
@@ -82,6 +87,7 @@ function mockActionLogsHandler(logs: { IN_PROGRESS?: DefectActionLogEntry[]; RES
 
 describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#1193/HAJA-569)', () => {
   it('actionResult와 조치 이력이 없어도 조치 전 사진 탭 디자인을 유지한다', async () => {
+    server.use(mockActionLogsHandler({}));
     renderModal(1); // mockDefects id=1: actionResult 없음
 
     await screen.findByText('철근 노출');
@@ -198,5 +204,63 @@ describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#119
     expect(resolvedTab.getAttribute('aria-selected')).toBe('true');
     const image = screen.getByRole('img', { name: '철근 노출 촬영 이미지' }) as HTMLImageElement;
     expect(image.src).toContain('/api/media/996/thumbnail');
+  });
+
+  it('복수 bbox와 위치 미지정 칩 선택 시 상세 헤더와 지표를 해당 하자로 전환한다', async () => {
+    const group: Defect[] = [
+      { ...mockDefects[0], id: 11, mediaId: 901, confidence: 0.91 },
+      {
+        ...mockDefects[0],
+        id: 12,
+        mediaId: 901,
+        type: 'CRACK',
+        typeLabel: '균열',
+        grade: 'E',
+        confidence: 0.73,
+        bboxX: 0.55,
+        bboxY: 0.45,
+        bboxW: 0.12,
+        bboxH: 0.18,
+      },
+      {
+        ...mockDefects[0],
+        id: 13,
+        mediaId: 901,
+        type: 'SPALLING',
+        typeLabel: '박리·박락',
+        grade: 'B',
+        confidence: 0.66,
+        bboxX: null,
+        bboxY: null,
+        bboxW: null,
+        bboxH: null,
+      },
+    ];
+    server.use(
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = group.find((item) => item.id === Number(params.id));
+        return HttpResponse.json({ success: true, data: found } satisfies ApiResponse<Defect | undefined>);
+      }),
+      mockActionLogsHandler({}),
+    );
+
+    renderModalGroup(group, 11);
+    expect(await screen.findByText('DEF-0011')).not.toBeNull();
+
+    const image = screen.getByRole('img', { name: '철근 노출 촬영 이미지' }) as HTMLImageElement;
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 800 },
+      naturalHeight: { configurable: true, value: 1000 },
+    });
+    fireEvent.load(image);
+
+    fireEvent.click(screen.getByRole('button', { name: 'DEF-0012 균열 하자 영역 선택' }));
+    expect(await screen.findByText('DEF-0012')).not.toBeNull();
+    expect(screen.getByText('73').textContent).toBe('73 %');
+
+    fireEvent.click(screen.getByRole('button', { name: 'DEF-0013 · 박리·박락' }));
+    expect(await screen.findByText('DEF-0013')).not.toBeNull();
+    expect(screen.getByText('66').textContent).toBe('66 %');
+    expect(screen.getByRole('tab', { name: '조치 전 사진' }).getAttribute('aria-selected')).toBe('true');
   });
 });

@@ -57,9 +57,9 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
     expect(within(tabs).getByRole('tab', { name: '조치중 1' })).not.toBeNull();
     expect(within(tabs).getByRole('tab', { name: '조치완료 1' })).not.toBeNull();
 
-    expect(screen.getByRole('button', { name: '균열 하자 상세 보기' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: '철근 노출 하자 상세 보기' })).not.toBeNull();
-    expect(screen.getByRole('button', { name: '박리·박락 하자 상세 보기' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: '균열 이미지 카드 상세 보기' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: '철근 노출 이미지 카드 상세 보기' })).not.toBeNull();
+    expect(screen.getByRole('button', { name: '박리·박락 이미지 카드 상세 보기' })).not.toBeNull();
   });
 
   it('조치중 탭을 클릭하면 조치중 상태 카드만 보여준다', () => {
@@ -67,19 +67,19 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: '조치중 1' }));
 
-    expect(screen.getByRole('button', { name: '철근 노출 하자 상세 보기' })).not.toBeNull();
-    expect(screen.queryByRole('button', { name: '균열 하자 상세 보기' })).toBeNull();
-    expect(screen.queryByRole('button', { name: '박리·박락 하자 상세 보기' })).toBeNull();
+    expect(screen.getByRole('button', { name: '철근 노출 이미지 카드 상세 보기' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '균열 이미지 카드 상세 보기' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '박리·박락 이미지 카드 상세 보기' })).toBeNull();
   });
 
   it('DETECTED 하자는 statusFilter 값과 무관하게 렌더링하지 않는다', () => {
     render(<DefectCardGrid defects={[...defects, detectedDefect]} onSelectDefect={vi.fn()} />);
 
-    expect(screen.queryByRole('button', { name: '도장 손상 하자 상세 보기' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '도장 손상 이미지 카드 상세 보기' })).toBeNull();
 
     for (const tabName of ['검수확정 1', '조치중 1', '조치완료 1', '전체 3']) {
       fireEvent.click(screen.getByRole('tab', { name: tabName }));
-      expect(screen.queryByRole('button', { name: '도장 손상 하자 상세 보기' })).toBeNull();
+      expect(screen.queryByRole('button', { name: '도장 손상 이미지 카드 상세 보기' })).toBeNull();
     }
   });
 
@@ -89,6 +89,37 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
     const tabs = screen.getByRole('tablist', { name: '상태 필터' });
     expect(within(tabs).getByRole('tab', { name: '전체 3' })).not.toBeNull();
     expect(within(tabs).queryByRole('tab', { name: '전체 4' })).toBeNull();
+  });
+
+  it('같은 이미지의 혼합 상태 하자를 카드 하나로 표시하고 각 상태 탭에 이미지 수를 센다', () => {
+    const grouped = [
+      makeDefect({ id: 10, mediaId: 77, type: 'CRACK', typeLabel: '균열', grade: 'C', status: 'CONFIRMED' }),
+      makeDefect({
+        id: 11,
+        mediaId: 77,
+        type: 'SPALLING',
+        typeLabel: '박리·박락',
+        grade: 'E',
+        status: 'IN_PROGRESS',
+        confidence: 0.95,
+        crackWidthMm: 2.4,
+      }),
+    ];
+    const onSelectDefect = vi.fn();
+    render(<DefectCardGrid defects={grouped} onSelectDefect={onSelectDefect} />);
+
+    const tabs = screen.getByRole('tablist', { name: '상태 필터' });
+    expect(within(tabs).getByRole('tab', { name: '전체 1' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '검수확정 1' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '조치중 1' })).not.toBeNull();
+    expect(screen.getByText('하자 2건')).not.toBeNull();
+    expect(screen.getByText('검수확정 1')).not.toBeNull();
+    expect(screen.getByText('조치중 1')).not.toBeNull();
+    expect(screen.getByText('최고 신뢰도 95%')).not.toBeNull();
+    expect(screen.getByText('최대폭 2.4mm')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '박리·박락 · 균열 이미지 카드 상세 보기' }));
+    expect(onSelectDefect).toHaveBeenCalledWith(11);
   });
 });
 
@@ -110,8 +141,8 @@ describe('DefectCardGrid — 퍼넬(유형·등급) 필터', () => {
     fireEvent.click(screen.getByRole('button', { name: '유형·등급 필터' }));
     fireEvent.change(screen.getByLabelText('유형 필터'), { target: { value: 'REBAR_EXPOSURE' } });
 
-    expect(screen.getByRole('button', { name: '철근 노출 하자 상세 보기' })).not.toBeNull();
-    expect(screen.queryByRole('button', { name: '균열 하자 상세 보기' })).toBeNull();
+    expect(screen.getByRole('button', { name: '철근 노출 이미지 카드 상세 보기' })).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '균열 이미지 카드 상세 보기' })).toBeNull();
   });
 
   it('바깥 영역을 클릭하면 필터 패널이 닫힌다', () => {
