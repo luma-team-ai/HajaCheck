@@ -228,11 +228,20 @@ export function InspectionCreatePage() {
   // 첨부 파일(Blob)은 sessionStorage 용량을 훌쩍 넘길 수 있어 IndexedDB에 별도 저장한다.
   // 위 복원 effect가 끝나기 전에는(hasHydratedMediaRef.current === false) 쓰지 않는다 — 마운트
   // 직후 mediaFiles 초기값([])으로 먼저 저장해버리면 복원 대상 파일을 지울 수 있다(PR 리뷰 P2).
+  // 저장은 매번 현재 mediaFiles 전체(Blob 포함)를 다시 쓴다 — 파일을 여러 번에 나눠 추가하거나
+  // 한 장씩 삭제하면 그때마다 이미 저장돼 있던 파일까지 통째로 재직렬화돼 파일 수가 많을수록
+  // 느려진다. 짧은 디바운스로 연속된 추가/삭제를 한 번의 저장으로 묶는다(형식 변경 없이 호출
+  // 빈도만 줄임 — delta 저장으로 바꾸는 근본 개선은 더 큰 구조 변경이라 범위 밖).
+  const saveDraftMediaTimerRef = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
     if (hasSubmittedRef.current || !hasHydratedMediaRef.current) {
       return;
     }
-    void saveDraftMediaFiles(mediaFiles.map((entry) => entry.file));
+    clearTimeout(saveDraftMediaTimerRef.current);
+    saveDraftMediaTimerRef.current = setTimeout(() => {
+      void saveDraftMediaFiles(mediaFiles.map((entry) => entry.file));
+    }, 400);
+    return () => clearTimeout(saveDraftMediaTimerRef.current);
   }, [mediaFiles]);
 
   // 언마운트 시 대기 중인 "임시저장됨" 안내 타이머 정리(SideNavBar notice와 동일 패턴).

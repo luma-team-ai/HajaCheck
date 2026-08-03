@@ -274,13 +274,15 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5) — jsdom은 실제 로딩을 안 하므로 직접 쏴준다.
+    fireEvent.load(screen.getByAltText('점검 이미지'));
     // id=2(박리박락, confidence 0.81)를 선택
-    fireEvent.click(screen.getByTitle(/박리박락/));
+    fireEvent.click(screen.getByTitle(/박리박락 · B등급/));
     // AI 패널에서 AI response 확인
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
 
-    // 신뢰도 threshold를 0.9로 올려 id=2를 필터에서 제외
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '0.9' } });
+    // B등급 필터를 꺼서 id=2(박리박락, B등급)를 필터에서 제외(신뢰도 슬라이더는 페이즈4에서 제거)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'B' }));
 
     // 선택이 남아있는 첫 항목(id=1, 균열)으로 자동 대체된다 — AI 패널도 재렌더
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
@@ -290,8 +292,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    // 신뢰도 threshold를 최대로 올려 모든 하자(최고 confidence 0.98)를 필터에서 제외
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
+    // 등급 필터를 전부 꺼서 모든 하자를 필터에서 제외(신뢰도 슬라이더는 페이즈4에서 제거)
+    for (const grade of ['A', 'B', 'C', 'D', 'E']) {
+      fireEvent.click(screen.getByRole('checkbox', { name: grade }));
+    }
 
     expect(await screen.findByText('조건에 맞는 하자가 없습니다.')).not.toBeNull();
   });
@@ -352,6 +356,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     renderPage();
     await screen.findByText('DEF-0001');
+    // id=1(CONFIRMED)을 명시적으로 선택 — 기본 선택은 미확정 우선이라(페이즈7) 이제 id=1이
+    // 자동으로 선택되지 않는다.
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+    fireEvent.click(screen.getByTitle(/균열 · C등급/));
 
     const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
     expect(button.hasAttribute('disabled')).toBe(true);
@@ -373,6 +381,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     renderPage();
     await screen.findByText('DEF-0001');
+    // id=1(RESOLVED)을 명시적으로 선택 — 기본 선택은 미확정 우선이라(페이즈7) 이제 id=1이
+    // 자동으로 선택되지 않는다.
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+    fireEvent.click(screen.getByTitle(/균열 · C등급/));
 
     const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
     expect(button.hasAttribute('disabled')).toBe(true);
@@ -424,8 +436,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await screen.findByText('DEF-0001');
     expect(await screen.findByText('이미지 1/2')).not.toBeNull();
 
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5)
+    fireEvent.load(screen.getByAltText('점검 이미지'));
     // 이미지1의 유일한 DETECTED 하자(id=2, 박리박락)를 선택 후 확정
-    fireEvent.click(screen.getByTitle(/박리박락/));
+    fireEvent.click(screen.getByTitle(/박리박락 · B등급/));
     fireEvent.click(screen.getByRole('button', { name: '이 하자 검수 확정' }));
 
     // 자동 이동하지 않는다 — 안내 배너(문구만)가 뜨고, 상단 네비게이션으로 직접 이동한다(#1255).
@@ -628,8 +642,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     // 초기 상태: id=1(균열)의 AI 설명 표시
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
 
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5)
+    fireEvent.load(screen.getByAltText('점검 이미지'));
     // id=2(박리박락) 마커 클릭
-    const secondDefectButton = screen.getByTitle(/박리박락/);
+    const secondDefectButton = screen.getByTitle(/박리박락 · B등급/);
     fireEvent.click(secondDefectButton);
 
     // AI 패널의 설명이 id=2로 갱신됨 (같은 mock 응답 재사용)
@@ -651,8 +667,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5)
+    fireEvent.load(screen.getByAltText('점검 이미지'));
     // id=2(박리박락) 마커 클릭 — areaRatio 미제공이라 '준비 중'으로 표시된다.
-    fireEvent.click(screen.getByTitle(/박리박락/));
+    fireEvent.click(screen.getByTitle(/박리박락 · B등급/));
 
     expect(screen.getByText('면적 비율')).not.toBeNull();
     expect(screen.getByText('준비 중')).not.toBeNull();
