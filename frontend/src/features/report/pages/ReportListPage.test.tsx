@@ -504,9 +504,10 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
+    // 서버가 준 구체 사유(예: 근거 재검증 실패)를 일반 문구로 덮지 않고 그대로 보여준다
+    // (PR머신 리뷰 P3, #1418 — 예전엔 catch가 항상 일반 문구로 대체해 이 사유가 버려졌음).
     const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toContain('보고서를 발행하지 못했습니다. 보고서 내용과 검증 상태를 확인해 주세요.');
-    expect(alert.textContent).not.toContain('근거 재검증 실패');
+    expect(alert.textContent).toContain('근거 재검증 실패');
     fireEvent.click(screen.getByRole('menuitem', { name: '발행' }));
 
     await waitFor(() => expect(detailCount).toBe(2));
