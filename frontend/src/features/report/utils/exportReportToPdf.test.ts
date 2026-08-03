@@ -212,6 +212,29 @@ describe("exportReportToPdf", () => {
     expect(renderedText).not.toContain("입회자");
   });
 
+  it("기본현황 나.는 원본처럼 `점검 실시결과 현황`을 기존 하자·권고 데이터에서 파생해 채운다", async () => {
+    await exportReportToPdf(makeContent());
+
+    const renderedText = mockText.mock.calls.map(([text]) => text).flat();
+    expect(renderedText).toContain("나. 점검 실시결과 현황");
+    expect(renderedText).toContain("다. 참고사항");
+    expect(renderedText).not.toContain("나. 점검 개요");
+
+    const options = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    expect(options?.body).toEqual([
+      // C등급뿐이라 중대한 결함은 없음, 공중이용부위는 판정 근거가 없어 빈칸.
+      ["중대한 결함 등", "없음"],
+      ["공중이 이용하는\n부위의 결함", "-"],
+      [
+        "점검 주요결과",
+        "금회 조사결과 주요 결함은 다음과 같다.\n//1층 벽체 1)균열 1건",
+      ],
+      ["주요 보수ㆍ보강", "-중 : 보수"],
+    ]);
+  });
+
   it("결과 요약은 소절 없이 `책임기술자 종합의견` 표 하나로 렌더링하고 하단에 서명란을 붙인다", async () => {
     await exportReportToPdf(makeContent(), {
       responsibleEngineerName: "김기준",

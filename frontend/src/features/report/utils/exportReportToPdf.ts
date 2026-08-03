@@ -4,6 +4,8 @@ import type {
   GenericManualSectionData,
   ParticipantsSectionData,
   ReportContent,
+  ReportDetail,
+  ReportRecommendation,
   ReportSummary,
   SubmissionSectionData,
 } from "../types";
@@ -240,6 +242,64 @@ function toBulletCell(values: string[], fallback: string): string {
 }
 
 /**
+ * 원본 1.나 첫 행 `중대한 결함 등`. 시설물안전법상 "중대한 결함"은 우리 데이터에 별도 플래그가
+ * 없으므로, 판정 근거가 분명한 최하위 등급(d·e)만 뽑아 나열하고 없으면 원본 관용구대로 `없음`.
+ */
+function criticalDefectSummary(detail: ReportDetail): string {
+  const severe = detail.items.filter((item) =>
+    ["D", "E"].includes(item.severity_grade.trim().toUpperCase()),
+  );
+  if (severe.length === 0) return "없음";
+  return toBulletCell(
+    severe.map(
+      (item) =>
+        `${item.location || "위치 미기재"} ${item.defect_type || "결함"}(${toMemberGrade(item.severity_grade)}등급)`,
+    ),
+    "없음",
+  );
+}
+
+/**
+ * 원본 1.나 `점검 주요결과` — 부재별로 `//부재 1)유형 n건` 형태로 묶어 적는다(원본은 수량을
+ * ㎡·m로 적지만 우리는 물량을 수집하지 않으므로 건수로 센다).
+ */
+function inspectionResultSummary(content: ReportContent): string {
+  const byLocation = new Map<string, Map<string, number>>();
+  for (const item of content.detail.items) {
+    const location = item.location?.trim() || "부재 미기재";
+    const type = item.defect_type?.trim() || "결함";
+    const types = byLocation.get(location) ?? new Map<string, number>();
+    types.set(type, (types.get(type) ?? 0) + 1);
+    byLocation.set(location, types);
+  }
+  if (byLocation.size === 0) return "확인된 결함이 없습니다.";
+  const lines = [...byLocation].map(
+    ([location, types]) =>
+      `//${location} ${[...types]
+        .map(([type, count], index) => `${index + 1})${type} ${count}건`)
+        .join(", ")}`,
+  );
+  return `금회 조사결과 주요 결함은 다음과 같다.\n${lines.join(" ")}`;
+}
+
+/** 원본 1.나 `주요 보수ㆍ보강` — 조치 우선순위별로 묶어 `-1순위 : 공법, 공법` 형태로 적는다. */
+function majorRepairSummary(recommendation: ReportRecommendation): string {
+  const byPriority = new Map<string, string[]>();
+  for (const item of recommendation.items) {
+    const priority = item.priority?.trim() || "우선순위 미지정";
+    const method = item.method?.trim();
+    if (!method) continue;
+    byPriority.set(priority, [...(byPriority.get(priority) ?? []), method]);
+  }
+  if (byPriority.size === 0) return "해당 없음";
+  return [...byPriority]
+    .map(
+      ([priority, methods]) => `-${priority} : ${[...new Set(methods)].join(", ")}`,
+    )
+    .join("\n");
+}
+
+/**
  * `2. 결과 요약` 본문 한 칸. 원본은 이 절만 소절로 나누지 않고 종합의견을 문단 불릿으로 죽
  * 나열한다 — 표 안 목록에 쓰는 `ㆍ`가 아니라 `•`를 쓰고, 문단 사이를 한 줄 띄운다(계측 결과).
  * 그래서 소절 표로 따로 뽑던 주요 발견사항·등급별 건수도 같은 불릿 흐름에 이어 붙이되,
@@ -466,7 +526,29 @@ export async function exportReportToPdf(
       },
     });
 
-    y = subsectionTitle("나. 점검 개요", lastTableY() + 6);
+    // 원본 1.나는 "점검 개요"가 아니라 `점검 실시결과 현황` — 중대한 결함 / 공중이 이용하는
+    // 부위의 결함 / 점검 주요결과 / 주요 보수ㆍ보강 4행짜리 라벨 표다. 네 값 모두 이미 있는
+    // content(하자 목록·권고 조치)에서 파생할 수 있어 스키마 변경 없이 서식만 맞춘다.
+    y = subsectionTitle("나. 점검 실시결과 현황", lastTableY() + 6);
+    autoTable(doc, {
+      ...tableDefaults,
+      startY: y,
+      body: [
+        ["중대한 결함 등", criticalDefectSummary(content.detail)],
+        // 원본은 "공중이 이용하는 부위"(보도·난간 등)를 따로 판정해 적지만, 우리 하자 데이터엔
+        // 그 구분이 없다. 근거 없이 "없음"이라 단정하면 허위가 되므로 빈칸으로 두고 점검자가
+        // 편집기에서 채우도록 한다.
+        ["공중이 이용하는\n부위의 결함", "-"],
+        ["점검 주요결과", inspectionResultSummary(content)],
+        ["주요 보수ㆍ보강", majorRepairSummary(content.recommendation)],
+      ],
+      columnStyles: { 0: labelColumn(28), 1: { cellWidth: "auto" } },
+      bodyStyles: { valign: "top", halign: "left" },
+    });
+
+    // 원본 1.다·1.라(참여기술자·참고사항)에 해당하는 자리. 참여기술진은 별도 수동 섹션이라
+    // 여기서는 점검 목적·개요·범위를 참고사항으로 남긴다(기존 "나. 점검 개요"의 내용).
+    y = subsectionTitle("다. 참고사항", ensureSpace(lastTableY() + 6, 30));
     autoTable(doc, {
       ...tableDefaults,
       startY: y,
@@ -476,6 +558,7 @@ export async function exportReportToPdf(
         ["점검 범위", content.overview.scope || "-"],
       ],
       columnStyles: { 0: labelColumn(28), 1: { cellWidth: "auto" } },
+      bodyStyles: { valign: "top", halign: "left" },
     });
     return lastTableY();
   };
