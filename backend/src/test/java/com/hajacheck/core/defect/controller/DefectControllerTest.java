@@ -135,12 +135,16 @@ class DefectControllerTest extends PostgresTestSupport {
 
     // PR머신 리뷰 4차 P1 — FAILED 회차의 하자 쓰기 가드(DefectInspectionWriteGuard) 테스트용.
     private Inspection saveFailedInspection(Long facilityId, Long ownerId) {
+        return saveFailedInspection(facilityId, ownerId, 1);
+    }
+
+    private Inspection saveFailedInspection(Long facilityId, Long ownerId, int roundNo) {
         return inspectionRepository.save(Inspection.builder()
                 .facilityId(facilityId)
                 .createdBy(ownerId)
                 .assignedInspectorId(ownerId)
-                .roundNo(1)
-                .inspectionDate(LocalDate.of(2026, 7, 1))
+                .roundNo(roundNo)
+                .inspectionDate(LocalDate.of(2026, 7, 1).plusMonths(roundNo - 1))
                 .status(InspectionStatus.FAILED)
                 .build());
     }
@@ -715,7 +719,7 @@ class DefectControllerTest extends PostgresTestSupport {
         User owner = saveOwner("owner32@haja.com");
         Facility facility = saveFacility(owner.getId());
         Inspection round1 = saveInspection(facility.getId(), owner.getId(), 1);
-        Inspection failedRound2 = saveFailedInspection(facility.getId(), owner.getId());
+        Inspection failedRound2 = saveFailedInspection(facility.getId(), owner.getId(), 2);
         Defect previous = saveDefect(round1.getId(), DefectGrade.C, DefectStatus.DETECTED);
         Defect current = saveDefect(failedRound2.getId(), DefectGrade.C, DefectStatus.DETECTED);
 

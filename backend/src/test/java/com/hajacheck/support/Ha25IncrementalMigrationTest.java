@@ -511,7 +511,14 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V40__add_rag_documents_expected_embed_batch.sql"),
-                        CONTAINER_ROOT + "V40__add_rag_documents_expected_embed_batch.sql");
+                        CONTAINER_ROOT + "V40__add_rag_documents_expected_embed_batch.sql")
+                // PR머신 리뷰 P1 — Flyway V41(inspection_status_type에 FAILED 라벨 추가)도 이어서
+                // forward-apply한다. 캐노니컬 DDL에 이 라벨이 반영돼 있으므로 이 증분 경로에서도
+                // 적용해야 assertCanonicalSchemaParity가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V41__add_inspection_status_failed.sql"),
+                        CONTAINER_ROOT + "V41__add_inspection_status_failed.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -660,6 +667,10 @@ class Ha25IncrementalMigrationTest {
         // 이어서 forward-apply한다. ADD COLUMN IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다.
         runPsql(postgres, "V40__add_rag_documents_expected_embed_batch.sql");
         runPsql(postgres, "V40__add_rag_documents_expected_embed_batch.sql");
+        // PR머신 리뷰 P1 — Flyway V41(inspection_status_type에 FAILED 라벨 추가)도 이어서 forward-apply
+        // 한다. ALTER TYPE ... ADD VALUE IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다.
+        runPsql(postgres, "V41__add_inspection_status_failed.sql");
+        runPsql(postgres, "V41__add_inspection_status_failed.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

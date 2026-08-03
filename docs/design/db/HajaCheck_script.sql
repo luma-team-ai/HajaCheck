@@ -49,11 +49,16 @@ alter type scheduled_plan_change_status_type owner to postgres;
 
 comment on type scheduled_plan_change_status_type is '플랜 하향 예약 상태(대기/적용됨/취소됨/실패)';
 
-create type inspection_status_type as enum ('CREATED', 'UPLOADING', 'ANALYZING', 'ANALYZED', 'FAILED', 'REVIEWED', 'REPORTED');
+-- FAILED는 목록 끝에 둔다(V15의 user_status_type WAITING 추가와 동일 관례) — Flyway V41이
+-- ALTER TYPE ... ADD VALUE(위치 지정 없음)로 추가해 PG 내부 enumsortorder가 항상 끝에 붙으므로,
+-- 이 스냅샷도 그 물리적 순서를 그대로 반영해야 Ha25IncrementalMigrationTest의 스키마 시그니처
+-- (enumsortorder 기준 정렬) 대조가 통과한다. 애플리케이션은 named enum(문자열) 매핑이라 순서와
+-- 무관하게 동작한다 — 이건 순수 카탈로그 표현 일치 목적.
+create type inspection_status_type as enum ('CREATED', 'UPLOADING', 'ANALYZING', 'ANALYZED', 'REVIEWED', 'REPORTED', 'FAILED');
 
 alter type inspection_status_type owner to postgres;
 
-comment on type inspection_status_type is '점검 처리 상태(생성/업로드중/분석중/분석완료/분석실패/검토완료/보고서화)';
+comment on type inspection_status_type is '점검 처리 상태(생성/업로드중/분석중/분석완료/검토완료/보고서화/분석실패)';
 
 create type inspection_type as enum ('REGULAR', 'DETAILED', 'EMERGENCY');
 
