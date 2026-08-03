@@ -108,10 +108,6 @@ public class InspectionAnalysisWorker {
     private final NotificationService notificationService;
 
     /**
-     * @param statusBeforeAnalysis 분석 시작 직전 상태(ANALYZING으로 전이되기 전 값) — 코드 리뷰 P2
-     *                             픽스: 이미지 전체가 실패하면 이 값으로 되돌려 ANALYZED(완료)로
-     *                             오인 전이하지 않는다(InspectionAnalysisService가 큐잉 실패 시
-     *                             동일 값으로 롤백하는 것과 대칭 — 정상 완료가 아니면 항상 이 값으로 복귀).
      * @param generation 이 실행이 선점될 때 발급된 세대 토큰(코드 리뷰 P1, 클래스 javadoc "세대 토큰
      *                   펜싱" 참고) — DB 쓰기 직전마다 {@link #isCurrentGeneration}으로 유효성을 재확인한다.
      * @param charge {@link InspectionAnalysisService}가 큐 적재 전에 차감한 월 분석 사용량의 좌표
@@ -121,8 +117,7 @@ public class InspectionAnalysisWorker {
      */
     @Async(AsyncConfig.ANALYSIS_TASK_EXECUTOR)
     public void runAsync(Long requesterUserId, Long companyId, Long inspectionId, List<Media> images,
-                          InspectionStatus statusBeforeAnalysis, String generation,
-                          AnalysisQuotaCharge charge) {
+                          String generation, AnalysisQuotaCharge charge) {
         List<FileProgress> files = new ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
             files.add(new FileProgress(
@@ -203,9 +198,9 @@ public class InspectionAnalysisWorker {
                     gradeCounts, failedCount);
         }
 
-        // 코드 리뷰 P2 픽스 — 성공 0건(AI 서버 전면 다운 등)이면 ANALYZED(완료)로 전이하지 않는다.
-        // 그대로 두면 프론트가 100%/"분석 완료"로 표시해 검수 단계 진입을 허용해버린다(아무것도
-        // 분석되지 않았는데 완료로 오인). 상태를 시작 전으로 되돌려 재시도 가능하게 남긴다.
+        // 사진 하나라도 분석 실패면 FAILED, 전부 성공이면 ANALYZED — 회차에 속한 사진들의 분석이
+        // 전부 끝난 시점(이 지점)에 한 번에 집계해서 결정한다. 개별 사진이 실패로 떨어질 때마다
+        // 바로 판정하지 않는 이유는 아직 분석 중인 다른 사진이 남아있을 수 있어서다.
         // stage를 "aiDetection"이 아니라 "failed"로 명시한다(코드 리뷰 P2, 프론트 폴링 종료 신호) —
         // "aiDetection"으로 두면 useAnalysisStatus가 stage==='done'만 폴링 중단 조건으로 보므로
         // 실패한 잡을 영원히 "진행 중 0%"로 오인해 폴링을 멈추지 않는다.
@@ -218,11 +213,13 @@ public class InspectionAnalysisWorker {
             return;
         }
 
-        if (successCount == 0 && !images.isEmpty()) {
-            log.warn("AI 분석 전체 실패 — inspectionId={} totalImages={} — ANALYZED 전이를 건너뛰고 {}로 되돌린다",
-                    inspectionId, images.size(), statusBeforeAnalysis);
-            // 코드 리뷰 P1(#843) — 상태만 되돌리고 월 분석 사용량을 그대로 소진시키면, 재시도할 때마다
-            // 한도만 깎인다(InspectionAnalysisService 의 큐 포화 보상과 대칭). 클래스 javadoc 참고.
+        if (failedCount > 0) {
+            log.warn("AI 분석 실패 사진 발생 — inspectionId={} totalImages={} failedCount={} successCount={} — FAILED로 전이한다",
+                    inspectionId, images.size(), failedCount, successCount);
+            // 코드 리뷰 P1(#843) — 상태를 FAILED로 바꾸고도 월 분석 사용량을 그대로 소진시키면,
+            // 결과를 하나도 못 남긴 채(successCount==0) 재시도할 때마다 한도만 깎인다(클래스 javadoc
+            // "월 분석 사용량 보상" 참고). successCount>0(부분 실패)이면 결과가 남았으므로 보상하지 않는다
+            // (refundIfNothingPersisted 내부 분기).
             //
             // 재검토 P3 — advanceStatus 보다 **먼저** 보상한다. advanceStatus 는 내부적으로
             // CompanyScopeGuard 재검증을 타므로, 분석이 도는 동안 요청자의 회사 소속이 해제되면 여기서
@@ -230,9 +227,9 @@ public class InspectionAnalysisWorker {
             // 보정 API 없음). 순서를 뒤집으면 최악이라도 "상태가 ANALYZING 으로 잔류"인데 그건
             // StuckAnalysisReaper 가 복구한다.
             refundIfNothingPersisted(inspectionId, charge, successCount);
-            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
+            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, InspectionStatus.FAILED);
             AnalysisStatusResponse failedProgress = new AnalysisStatusResponse(
-                    inspectionId, "failed", 0, images.size(), 0, files,
+                    inspectionId, "failed", 100, images.size(), images.size(), files,
                     detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount,
                     Instant.now());
             progressStore.save(failedProgress);

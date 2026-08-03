@@ -26,8 +26,10 @@ class InspectionTransitionTest {
         m.put(InspectionStatus.CREATED, EnumSet.of(InspectionStatus.UPLOADING, InspectionStatus.ANALYZING));
         m.put(InspectionStatus.UPLOADING, EnumSet.of(InspectionStatus.ANALYZING));
         m.put(InspectionStatus.ANALYZING,
-                EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED));
+                EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED,
+                        InspectionStatus.FAILED));
         m.put(InspectionStatus.ANALYZED, EnumSet.of(InspectionStatus.ANALYZING, InspectionStatus.REVIEWED));
+        m.put(InspectionStatus.FAILED, EnumSet.of(InspectionStatus.ANALYZING));
         m.put(InspectionStatus.REVIEWED, EnumSet.of(InspectionStatus.REPORTED));
         m.put(InspectionStatus.REPORTED, EnumSet.noneOf(InspectionStatus.class));
         EXPECTED_ALLOWED = m;

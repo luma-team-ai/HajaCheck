@@ -1,7 +1,7 @@
 import type { AdminAnalysisJob } from '../analysisJobTypes';
 
-// AI 분석 현황 모니터링 예제 데이터 — PENDING/ANALYZING/COMPLETED 세 상태를 모두 포함해 화면
-// 필터·배지·진행률 렌더를 로컬에서 확인할 수 있게 한다. 전부 example.com 합성값(실데이터 아님).
+// AI 분석 현황 모니터링 예제 데이터 — PENDING/ANALYZING/FAILED/COMPLETED 네 상태를 모두 포함해
+// 화면 필터·배지·진행률 렌더를 로컬에서 확인할 수 있게 한다. 전부 example.com 합성값(실데이터 아님).
 export const mockAnalysisJobs: AdminAnalysisJob[] = [
   {
     jobId: 101,
@@ -37,6 +37,15 @@ export const mockAnalysisJobs: AdminAnalysisJob[] = [
     inspectorName: '최서준',
     inspectionDate: '2026-07-27',
     status: 'PENDING',
+    progressPercent: null,
+  },
+  {
+    jobId: 99,
+    facilityName: '송파 물류센터',
+    inspectorId: 2,
+    inspectorName: '박진우',
+    inspectionDate: '2026-07-26',
+    status: 'FAILED',
     progressPercent: null,
   },
 ];

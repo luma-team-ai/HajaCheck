@@ -16,6 +16,7 @@ const BODY_CELL = 'px-4 py-3 align-middle';
 const STATUS_BADGE: Record<AdminAnalysisJobStatus, { label: string; bg: string; fg: string; dot: string }> = {
   PENDING: { label: '대기', bg: '#F4F4F5', fg: '#7A7582', dot: '#A1A1AA' },
   ANALYZING: { label: '진행중', bg: '#E3F2FD', fg: '#1565C0', dot: '#2196F3' },
+  FAILED: { label: '실패', bg: '#FDECEA', fg: '#C62828', dot: '#E53935' },
   COMPLETED: { label: '완료', bg: '#E8F5E9', fg: '#2E7D32', dot: '#4CAF50' },
 };
 

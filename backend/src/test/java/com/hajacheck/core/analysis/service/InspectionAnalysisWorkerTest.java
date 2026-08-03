@@ -118,17 +118,17 @@ class InspectionAnalysisWorkerTest {
     }
 
     @Test
-    void runAsync_전체이미지실패시_ANALYZED로전이하지않고직전상태로되돌린다() {
+    void runAsync_전체이미지실패시_ANALYZED로전이하지않고FAILED로전이한다() {
         when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
         when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         verify(inspectionService, never())
                 .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
         verify(inspectionService)
-                .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
+                .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.FAILED);
         verify(defectWriter, never()).saveAll(argThatNonEmpty());
 
         ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
@@ -142,24 +142,29 @@ class InspectionAnalysisWorkerTest {
     }
 
     @Test
-    void runAsync_일부만성공해도_ANALYZED로정상전이한다() {
+    void runAsync_일부만실패해도_ANALYZED가아니라FAILED로전이한다() {
+        // 사진 하나라도 분석 실패면 회차 전체를 FAILED로 표시한다 — 성공한 사진의 결과(하자)는
+        // 그대로 저장되지만, 상태는 성공/실패가 섞였다는 사실을 정직하게 반영해야 검수 단계로
+        // 조용히 진입해버리는 것을 막을 수 있다.
         Media ok = image(1L);
         Media fail = image(2L);
         when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
         when(aiProxyService.detectDefects(anyString()))
                 .thenReturn(List.of(detection("CRACK", "A")))
                 .thenThrow(new RuntimeException("타임아웃"));
-        when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(defectWriter.softDeleteAllForInspectionThenSave(any(), any(), any())).thenAnswer(inv -> inv.getArgument(2));
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(ok, fail), InspectionStatus.UPLOADING, GENERATION, CHARGE);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(ok, fail), GENERATION, CHARGE);
 
-        verify(inspectionService)
+        verify(inspectionService, never())
                 .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
+        verify(inspectionService)
+                .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.FAILED);
 
         ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
         verify(progressStore, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
         AnalysisStatusResponse last = captor.getAllValues().get(captor.getAllValues().size() - 1);
-        assertThat(last.stage()).isEqualTo("done");
+        assertThat(last.stage()).isEqualTo("failed");
         assertThat(last.failedCount()).isEqualTo(1);
         assertThat(last.detectedDefectCount()).isEqualTo(1);
     }
@@ -174,7 +179,7 @@ class InspectionAnalysisWorkerTest {
         ));
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION, CHARGE);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), GENERATION, CHARGE);
 
         ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
         verify(progressStore, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
@@ -196,7 +201,7 @@ class InspectionAnalysisWorkerTest {
         when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any(), any());
     }
@@ -211,7 +216,7 @@ class InspectionAnalysisWorkerTest {
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L), image(3L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         verify(defectWriter, org.mockito.Mockito.times(1))
                 .softDeleteAllForInspectionThenSave(any(), eq(INSPECTION_ID), any());
@@ -225,7 +230,7 @@ class InspectionAnalysisWorkerTest {
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         InOrder inOrder = Mockito.inOrder(defectWriter);
         inOrder.verify(defectWriter).softDeleteAllForInspectionThenSave(any(), eq(INSPECTION_ID), any());
@@ -243,7 +248,7 @@ class InspectionAnalysisWorkerTest {
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         verify(defectWriter, org.mockito.Mockito.times(1))
                 .softDeleteAllForInspectionThenSave(any(), eq(INSPECTION_ID), any());
@@ -260,7 +265,7 @@ class InspectionAnalysisWorkerTest {
         org.mockito.Mockito.doThrow(new RuntimeException("제약 위반"))
                 .when(defectWriter).softDeleteAllForInspectionThenSave(any(), any(), any());
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION, CHARGE);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), GENERATION, CHARGE);
 
         verify(inspectionService, never())
                 .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
@@ -277,7 +282,7 @@ class InspectionAnalysisWorkerTest {
         when(progressStore.findGeneration(INSPECTION_ID)).thenReturn(java.util.Optional.of("other-gen-추월함"));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any(), any());
         verify(defectWriter, never()).saveAll(any());
@@ -294,7 +299,7 @@ class InspectionAnalysisWorkerTest {
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
         when(progressStore.findGeneration(INSPECTION_ID)).thenReturn(java.util.Optional.empty());
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION, CHARGE);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), GENERATION, CHARGE);
 
         verify(inspectionService)
                 .advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.ANALYZED);
@@ -310,7 +315,7 @@ class InspectionAnalysisWorkerTest {
         when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         // 보상이 없으면 AI 서버 다운 상태에서 재시도할 때마다 한도만 깎인다(FREE는 월 50장, 복구 API 없음).
         verify(quotaService).refundAnalysisQuota(CHARGE);
@@ -325,7 +330,7 @@ class InspectionAnalysisWorkerTest {
         when(defectWriter.softDeleteAllForInspectionThenSave(any(), any(), any())).thenAnswer(inv -> inv.getArgument(2));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         // 성공한 장수만큼 결과(하자)가 실제로 남았으므로 사용량은 소비된 것이 맞다.
         verify(quotaService, never()).refundAnalysisQuota(any());
@@ -338,7 +343,7 @@ class InspectionAnalysisWorkerTest {
         when(progressStore.findGeneration(INSPECTION_ID)).thenReturn(java.util.Optional.of("other-gen-추월함"));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         // 자리를 넘겨받은 실행은 자기 몫을 따로 차감했고, 이 실행은 결과를 하나도 남기지 못했다.
         verify(quotaService).refundAnalysisQuota(CHARGE);
@@ -353,7 +358,7 @@ class InspectionAnalysisWorkerTest {
                 .when(quotaService).refundAnalysisQuota(any());
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
         verify(progressStore, Mockito.atLeastOnce()).save(captor.capture());
@@ -368,7 +373,7 @@ class InspectionAnalysisWorkerTest {
         when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(detection("CRACK", "A")));
         when(defectWriter.saveAll(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION, CHARGE);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), GENERATION, CHARGE);
 
         verify(notificationService).notify(eq(CREATED_BY), eq(NotificationType.ANALYSIS_DONE), anyString());
         verify(notificationService).notify(eq(ASSIGNED_INSPECTOR_ID), eq(NotificationType.REVIEW_PENDING), anyString());
@@ -380,7 +385,7 @@ class InspectionAnalysisWorkerTest {
         when(aiProxyService.detectDefects(anyString())).thenThrow(new RuntimeException("AI 서버 다운"));
 
         worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L), image(2L)),
-                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+                GENERATION, CHARGE);
 
         verify(notificationService, never()).notify(any(), any(), anyString());
     }
@@ -395,7 +400,7 @@ class InspectionAnalysisWorkerTest {
         Mockito.doThrow(new RuntimeException("알림 발행 실패"))
                 .when(notificationService).notify(any(), any(), anyString());
 
-        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), InspectionStatus.UPLOADING, GENERATION, CHARGE);
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)), GENERATION, CHARGE);
 
         ArgumentCaptor<AnalysisStatusResponse> captor = ArgumentCaptor.forClass(AnalysisStatusResponse.class);
         verify(progressStore, Mockito.atLeastOnce()).save(captor.capture());

@@ -10,6 +10,7 @@ const STATUS_FILTER_OPTIONS: { value: FilterValue<AdminAnalysisJobStatus>; label
   { value: '', label: '전체' },
   { value: 'PENDING', label: '대기' },
   { value: 'ANALYZING', label: '진행중' },
+  { value: 'FAILED', label: '실패' },
   { value: 'COMPLETED', label: '완료' },
 ];
 

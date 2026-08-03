@@ -72,4 +72,14 @@ describe('AdminAnalysisJobsPage (통합 테스트)', () => {
     await waitFor(() => expect(screen.queryByText('강남 오피스빌딩')).toBeNull());
     expect(screen.getByText('서초 주상복합')).toBeTruthy();
   });
+
+  it('상태 필터를 "실패"로 바꾸면 FAILED 건만 남는다', async () => {
+    renderPage();
+
+    await screen.findByText('강남 오피스빌딩'); // 필터 전 초기 목록이 뜰 때까지 대기
+    fireEvent.click(screen.getByRole('tab', { name: '실패' }));
+
+    await waitFor(() => expect(screen.queryByText('강남 오피스빌딩')).toBeNull());
+    expect(screen.getByText('송파 물류센터')).toBeTruthy();
+  });
 });

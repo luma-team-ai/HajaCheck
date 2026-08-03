@@ -156,7 +156,7 @@ public class FacilityInspectionOverviewService {
         return switch (status) {
             case REPORTED -> "완료";
             case REVIEWED -> "검수완료";
-            case ANALYZED, CREATED, UPLOADING, ANALYZING -> "진행중";
+            case ANALYZED, CREATED, UPLOADING, ANALYZING, FAILED -> "진행중";
         };
     }
 }

@@ -239,8 +239,7 @@ public class InspectionAnalysisService {
                 emptyGradeMap(), 0, Instant.now()));
 
         try {
-            worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis,
-                    generation, charge);
+            worker.runAsync(requesterUserId, companyId, inspectionId, images, generation, charge);
         } catch (TaskRejectedException e) {
             // 코드 리뷰 P2 — analysisTaskExecutor는 테넌트 구분 없는 전역 공유 풀이라(AsyncConfig),
             // 어떤 회사가 큐를 채워 다른 회사까지 503을 받게 됐는지 나중에 로그로 추적할 수 있도록

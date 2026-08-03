@@ -4,7 +4,7 @@ import { mockAnalysisJobs } from '../mocks/analysisJobs.mock';
 import type { AdminAnalysisJob, AdminAnalysisJobStatus } from '../analysisJobTypes';
 
 const DEFAULT_PAGE_SIZE = 10;
-const VALID_STATUSES = new Set<AdminAnalysisJobStatus>(['PENDING', 'ANALYZING', 'COMPLETED']);
+const VALID_STATUSES = new Set<AdminAnalysisJobStatus>(['PENDING', 'ANALYZING', 'FAILED', 'COMPLETED']);
 
 function parseStatusParam(value: string | null): AdminAnalysisJobStatus | null {
   return value !== null && VALID_STATUSES.has(value as AdminAnalysisJobStatus)

@@ -15,7 +15,7 @@ public enum MyInspectionDisplayStatus {
         return switch (status) {
             case REVIEWED, REPORTED -> REVIEW_DONE;
             case ANALYZED -> REVIEW_PENDING;
-            case CREATED, UPLOADING, ANALYZING -> ANALYZING;
+            case CREATED, UPLOADING, ANALYZING, FAILED -> ANALYZING;
         };
     }
 }

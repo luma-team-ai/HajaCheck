@@ -4,10 +4,9 @@
 // jobId는 별도 "분석 실행" 테이블이 없어 inspection.id를 그대로 재사용한다(AiAnalysisStatusPage의
 // "점검 ID" 표시와 동일한 결정 — 관리자 AI 분석 모니터링 설계 논의 참고).
 
-// 실패(FAILED) 상태는 없다 — InspectionStatus 자체에 FAILED가 없고, 분석 실패 시 ANALYZING이
-// PENDING 버킷(CREATED/UPLOADING)으로 롤백된다. 그래서 PENDING은 "아직 시작 안 함"과 "직전 시도
-// 실패로 대기 복귀"를 구분하지 못한다(백엔드 AdminAnalysisJobStatus 주석과 동일한 한계).
-export type AdminAnalysisJobStatus = 'PENDING' | 'ANALYZING' | 'COMPLETED';
+// FAILED — 회차에 속한 사진 중 하나라도 AI 분석에 실패하면 ANALYZING에서 이 상태로 전이한다
+// (백엔드 AdminAnalysisJobStatus 참고). COMPLETED와 분리된 별도 상태다.
+export type AdminAnalysisJobStatus = 'PENDING' | 'ANALYZING' | 'FAILED' | 'COMPLETED';
 
 export interface AdminAnalysisJob {
   jobId: number;

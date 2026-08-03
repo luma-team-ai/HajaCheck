@@ -126,7 +126,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
     }
 
@@ -145,7 +145,7 @@ class InspectionAnalysisServiceTest {
         // 고착 복구 — UPLOADING으로 강제 되돌린 뒤에야 원자적 선점을 시도한다.
         verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                any(), any());
     }
 
     @Test
@@ -164,7 +164,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -184,7 +184,7 @@ class InspectionAnalysisServiceTest {
 
         verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                any(), any());
     }
 
     @Test
@@ -199,7 +199,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -227,7 +227,7 @@ class InspectionAnalysisServiceTest {
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
         verify(progressStore, never()).save(any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -245,7 +245,7 @@ class InspectionAnalysisServiceTest {
 
         verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -264,7 +264,7 @@ class InspectionAnalysisServiceTest {
 
         verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -279,7 +279,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -295,7 +295,7 @@ class InspectionAnalysisServiceTest {
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.ANALYZED), any(), any());
+                any(), any());
     }
 
     @Test
@@ -310,7 +310,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NO_MEDIA);
 
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -332,7 +332,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_COMPANY_CONCURRENCY_LIMIT);
 
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -349,7 +349,7 @@ class InspectionAnalysisServiceTest {
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                any(), any());
     }
 
     @Test
@@ -372,7 +372,7 @@ class InspectionAnalysisServiceTest {
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                any(), any());
     }
 
     @Test
@@ -412,7 +412,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(progressStore, never()).save(any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -427,7 +427,7 @@ class InspectionAnalysisServiceTest {
 
         verify(progressStore).save(any(AnalysisStatusResponse.class));
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                any(), any());
     }
 
     @Test
@@ -448,7 +448,7 @@ class InspectionAnalysisServiceTest {
         InOrder inOrder = Mockito.inOrder(inspectionService, progressStore, worker);
         inOrder.verify(inspectionService).tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any());
         inOrder.verify(progressStore).save(any(AnalysisStatusResponse.class));
-        inOrder.verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), any(), any(), any());
+        inOrder.verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), any(), any());
     }
 
     @Test
@@ -469,7 +469,7 @@ class InspectionAnalysisServiceTest {
         assertThat(generationCaptor.getValue()).isNotBlank();
         // 워커에도 저장소에 기록한 것과 "같은" 토큰이 전달돼야 스스로 비교할 수 있다.
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), eq(generationCaptor.getValue()), any());
+                eq(generationCaptor.getValue()), any());
     }
 
     @Test
@@ -498,7 +498,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
         org.mockito.Mockito.doThrow(new TaskRejectedException("full"))
-                .when(worker).runAsync(any(), any(), any(), any(), any(), any(), any());
+                .when(worker).runAsync(any(), any(), any(), any(), any(), any());
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
@@ -521,7 +521,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(List.of(image(1L), image(2L), image(3L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
         Mockito.doThrow(new TaskRejectedException("full"))
-                .when(worker).runAsync(any(), any(), any(), any(), any(), any(), any());
+                .when(worker).runAsync(any(), any(), any(), any(), any(), any());
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
@@ -559,7 +559,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
         Mockito.doThrow(new TaskRejectedException("full"))
-                .when(worker).runAsync(any(), any(), any(), any(), any(), any(), any());
+                .when(worker).runAsync(any(), any(), any(), any(), any(), any());
         // 보상 트랜잭션 커밋 단계의 UnexpectedRollbackException 등 — 원인을 덮으면 사용자가 500을 받는다.
         Mockito.doThrow(new IllegalStateException("보상 트랜잭션 롤백"))
                 .when(quotaService).refundAnalysisQuota(any());
