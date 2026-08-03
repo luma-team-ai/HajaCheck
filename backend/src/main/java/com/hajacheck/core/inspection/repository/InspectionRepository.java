@@ -127,4 +127,10 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
             @Param("companyId") Long companyId,
             @Param("userId") Long userId,
             @Param("statuses") Collection<InspectionStatus> statuses);
+
+    // 플랫폼 관리자 분석 잡 큐(#1408) — 회사 스코프 없이 전체 최근 N건, facility(주소 표시용) N+1
+    // 방지를 위해 join fetch. findRecentByFacilityIds(#351)와 동일하게 건수 제한은 파생 쿼리가
+    // 아니라 Pageable로 받는다.
+    @Query("select i from Inspection i join fetch i.facility order by i.createdAt desc, i.id desc")
+    List<Inspection> findRecentOrderByCreatedAtDesc(Pageable pageable);
 }
