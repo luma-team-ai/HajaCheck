@@ -11,15 +11,20 @@ public record ReportSummaryResponse(
         int version,
         ReportStatus status,
         Boolean groundingCheckPassed,
-        LocalDateTime createdAt) {
+        LocalDateTime createdAt,
+        String createdByName) {
 
-    public static ReportSummaryResponse from(Report report) {
+    // createdByName은 Report.createdBy(userId)를 이름으로 변환한 값 — User 조회가 필요해
+    // 호출부(ReportService)가 배치 조회 후 넘겨준다. 조회 실패/탈퇴 등으로 못 찾으면 null이며,
+    // 프론트는 이 경우 "알 수 없음"으로 표시한다(신규 필드 추가, DB 마이그레이션 없음).
+    public static ReportSummaryResponse from(Report report, String createdByName) {
         return new ReportSummaryResponse(
                 report.getId(),
                 report.getInspectionId(),
                 report.getVersion(),
                 report.getStatus(),
                 report.getGroundingCheckPassed(),
-                report.getCreatedAt());
+                report.getCreatedAt(),
+                createdByName);
     }
 }

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { RecommendationItem, ReportContent } from "../../types";
 import { LabeledTextArea } from "./LabeledTextArea";
 
@@ -36,12 +37,23 @@ const READONLY_TARGET_TEXTAREA_CLASS =
 
 const noop = () => {};
 
+const PAGE_SIZE = 4;
+
 export function RecommendationSection({
   content,
   onChange,
   readOnly,
 }: RecommendationSectionProps) {
+  const [page, setPage] = useState(0);
   const items = content.recommendation.items;
+
+  const totalPages = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const safePage = Math.min(Math.max(0, page), totalPages - 1);
+  const indexedItems = items.map((item, index) => ({ item, index }));
+  const pageItems = indexedItems.slice(
+    safePage * PAGE_SIZE,
+    safePage * PAGE_SIZE + PAGE_SIZE,
+  );
 
   const updateItem = (index: number, patch: Partial<RecommendationItem>) => {
     const next = items.map((item, itemIndex) =>
@@ -61,13 +73,67 @@ export function RecommendationSection({
 
   return (
     <section className="flex flex-col gap-6">
+      {items.length > 0 && (
+        <div className="flex items-center justify-end">
+          <div className="ml-1 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(0, current - 1))}
+              disabled={safePage === 0}
+              aria-label="이전 페이지"
+              className="size-8 rounded-full border border-zinc-200 flex justify-center items-center text-zinc-700 disabled:opacity-35 hover:bg-zinc-100 transition cursor-pointer"
+            >
+              <svg
+                className="size-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+            </button>
+            <div
+              className="px-2 flex items-center gap-1 text-xs"
+              aria-live="polite"
+            >
+              <span className="font-bold text-zinc-900">{safePage + 1}</span>
+              <span className="text-zinc-500 font-normal">/ {totalPages}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                setPage((current) => Math.min(totalPages - 1, current + 1))
+              }
+              disabled={safePage === totalPages - 1}
+              aria-label="다음 페이지"
+              className="size-8 rounded-full border border-zinc-200 flex justify-center items-center text-zinc-700 disabled:opacity-35 hover:bg-zinc-100 transition cursor-pointer"
+            >
+              <svg
+                className="size-3.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
       {items.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-8 text-center text-sm text-text-muted">
           보수ㆍ보강 항목이 없습니다.
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {items.map((item, index) => (
+          {pageItems.map(({ item, index }) => (
             <article
               key={index}
               className="flex flex-col gap-6 rounded-lg border border-border bg-surface px-7 py-6"

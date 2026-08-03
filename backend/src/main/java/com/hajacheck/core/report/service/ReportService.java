@@ -165,8 +165,15 @@ public class ReportService {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         // 소유권 검증(IDOR 방지) — 미존재/타인소유 모두 InspectionService.getInspection() 이 통일 응답.
         inspectionService.getInspection(userId, companyId, inspectionId);
-        return reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(inspectionId).stream()
-                .map(ReportSummaryResponse::from)
+        List<Report> reports = reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(inspectionId);
+        // 작성자 이름은 Report.createdBy(userId)를 조회해야 알 수 있다 — 버전 개수만큼 개별 조회하지
+        // 않도록 여기서 한 번에 배치 조회한다(usersById가 이미 이 회사 도메인 전역에서 쓰는 패턴).
+        Map<Long, User> usersById = usersById(reports.stream().map(Report::getCreatedBy).toArray(Long[]::new));
+        return reports.stream()
+                .map(report -> {
+                    User creator = usersById.get(report.getCreatedBy());
+                    return ReportSummaryResponse.from(report, creator == null ? null : creator.getName());
+                })
                 .toList();
     }
 

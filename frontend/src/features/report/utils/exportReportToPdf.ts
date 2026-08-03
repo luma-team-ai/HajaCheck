@@ -3,7 +3,12 @@ import notoRegularUrl from "../../../assets/fonts/NotoSansKR-Regular.subset.ttf?
 import type {
   GenericManualSectionData,
   ParticipantsSectionData,
+  LocationDrawingPhotoItem,
+  LocationDrawingPhotosSectionData,
   ReportContent,
+  ReportDetail,
+  ReportRecommendation,
+  ReportSummary,
   SubmissionSectionData,
 } from "../types";
 import { isFixedSectionKey, resolveSectionOrder } from "./sectionOrder";
@@ -39,11 +44,20 @@ const PAGE_WIDTH = 210;
 const PAGE_HEIGHT = 297;
 const MARGIN_X = 23;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2;
-/** 소절(`가.`, `나.`) 아래 딸린 표는 원본에서 본문보다 약 3.5mm 들여쓴다. */
+/**
+ * 소절 제목(`가.`, `나.`)만 본문보다 약 3.5mm 들여쓴다. 표는 들여쓰지 않는다 — 원본은 절·소절을
+ * 가리지 않고 모든 표가 같은 본문 폭(좌우 여백 23mm)을 쓰고, 제목만 살짝 안으로 들어간다.
+ */
 const SUB_TABLE_INDENT = 3.5;
 const BOTTOM_LIMIT = PAGE_HEIGHT - MARGIN_X;
 /** 부위별 사진 표에서 사진 1장이 차지하는 셀 높이(원본 실측 96mm). */
 const PHOTO_ROW_HEIGHT = 96;
+/** 절 제목 한 줄이 차지하는 높이(sectionTitle이 커서를 밀어내는 양). */
+const SECTION_TITLE_HEIGHT = 6;
+/** 사진 아래 캡션 행 높이. */
+const PHOTO_CAPTION_HEIGHT = 9;
+/** 사진 1장 표(이미지 행 + 캡션 행)가 통째로 들어가야 하는 높이 — 이만큼 없으면 페이지를 넘긴다. */
+const PHOTO_BLOCK_HEIGHT = PHOTO_ROW_HEIGHT + 4 + PHOTO_CAPTION_HEIGHT;
 
 const FONT_SIZE = {
   documentTitle: 25,
@@ -60,6 +74,15 @@ const FONT_SIZE = {
 const BLACK: [number, number, number] = [0, 0, 0];
 /** 표 헤더·라벨 배경. 원본 계측 0.8 → 204. */
 const HEAD_FILL: [number, number, number] = [204, 204, 204];
+/**
+ * 회색이 들어가는 자리(표 헤더 행·표 위 구분 행·좌측 라벨 열)는 전부 이 한 벌을 쓴다 —
+ * 절마다 다른 회색·정렬이 섞이면 같은 문서에서 톤이 달라 보인다(원본은 #CCCCCC·Bold·중앙 하나뿐).
+ */
+const GRAY_HEADER_STYLES = {
+  fillColor: HEAD_FILL,
+  fontStyle: "bold" as const,
+  halign: "center" as const,
+};
 // 하자 박스 색(#1333) — 흑백 괘선뿐인 관공서 서식에서 사진 위 마킹만 눈에 띄어야 하므로
 // 화면 오버레이(--color-selection, 마젠타 #d946ef)와 같은 색을 쓴다.
 const BOX_COLOR: [number, number, number] = [217, 70, 239];
@@ -74,6 +97,7 @@ export interface ReportPdfContext {
   facilityName?: string;
   inspectionRound?: number;
   issuedAt?: Date;
+  responsibleEngineerName?: string;
   defectImages?: ReportPdfImage[];
 }
 
@@ -99,6 +123,34 @@ export interface ReportPdfImage {
 }
 
 const PHOTO_CAPTION_SUMMARY_MAX = 40;
+
+/** 원본 서식의 소절 번호(`가.`, `나.` …). */
+const KOREAN_ORDINALS = [
+  "가",
+  "나",
+  "다",
+  "라",
+  "마",
+  "바",
+  "사",
+  "아",
+  "자",
+  "차",
+] as const;
+
+/**
+ * `2. 결과 요약`의 소절로 들어가는 섹션 종류 — 원본은 진단 외관조사결과·상태평가·안전성평가·
+ * 현장시험을 모두 `2. 결과 요약` 아래 `가./나./다./라.`로 묶는다(별도 절 번호를 주지 않는다).
+ * 섹션 순서·구성은 그대로 두고 번호 표기만 이 규칙에 맞춘다.
+ */
+const SUMMARY_SUBSECTION_TYPES = new Set<string>([
+  "detail",
+  "recommendation",
+  "inspection-result-repair",
+  "member-condition-repair",
+  "safety-assessment",
+  "field-test",
+]);
 
 /**
  * 사진 캡션은 유형명만 단독으로 쓰지 않는다 — "균열"만으로는 어느 사진인지 구별이 안 된다.
@@ -181,11 +233,119 @@ function legalBasisLabel(legalBasis: string, verified: boolean): string {
   return verified ? basis : `${basis} (미검증)`;
 }
 
-/** 셀 안의 목록은 원본처럼 `ㆍ` 불릿을 붙여 줄바꿈으로 나열한다(번호 없음). */
-function toBulletCell(values: string[], fallback: string): string {
+function formatResponsibleEngineerName(name?: string): string {
+  const normalized = (name ?? "").trim();
+  if (!normalized) return "";
+  if (normalized.includes(" ")) return normalized;
+  return /^[가-힣]{2,4}$/.test(normalized)
+    ? normalized.split("").join(" ")
+    : normalized;
+}
+
+/**
+ * 문서 전체에서 목록 표기는 이 불릿 하나로만 한다 — 절마다 `•`/`-`/`1)`/`//`가 섞이면
+ * 같은 보고서 안에서 문단 표기가 제멋대로로 보인다(원본도 표 안 목록은 `ㆍ` 하나뿐).
+ */
+const BULLET = "ㆍ";
+
+/** 셀 안의 목록은 `ㆍ` 불릿을 붙여 줄바꿈으로 나열한다(번호 없음). */
+function toBulletCell(
+  values: string[],
+  fallback: string,
+  separator = "\n",
+): string {
   return values.length > 0
-    ? values.map((value) => `ㆍ${value}`).join("\n")
+    ? values.map((value) => `${BULLET}${value}`).join(separator)
     : fallback;
+}
+
+/**
+ * 원본 1.나 첫 행 `중대한 결함 등`. 시설물안전법상 "중대한 결함"은 우리 데이터에 별도 플래그가
+ * 없으므로, 판정 근거가 분명한 최하위 등급(d·e)만 뽑아 나열하고 없으면 원본 관용구대로 `없음`.
+ */
+function criticalDefectSummary(detail: ReportDetail): string {
+  const severe = detail.items.filter((item) =>
+    ["D", "E"].includes(item.severity_grade.trim().toUpperCase()),
+  );
+  if (severe.length === 0) return "없음";
+  return toBulletCell(
+    severe.map(
+      (item) =>
+        `${item.location || "위치 미기재"} ${item.defect_type || "결함"}(${toMemberGrade(item.severity_grade)}등급)`,
+    ),
+    "없음",
+  );
+}
+
+/**
+ * 원본 1.나 `점검 주요결과` — 부재별로 `//부재 1)유형 n건` 형태로 묶어 적는다(원본은 수량을
+ * ㎡·m로 적지만 우리는 물량을 수집하지 않으므로 건수로 센다).
+ */
+function inspectionResultSummary(content: ReportContent): string {
+  const byLocation = new Map<string, Map<string, number>>();
+  for (const item of content.detail.items) {
+    const location = item.location?.trim() || "부재 미기재";
+    const type = item.defect_type?.trim() || "결함";
+    const types = byLocation.get(location) ?? new Map<string, number>();
+    types.set(type, (types.get(type) ?? 0) + 1);
+    byLocation.set(location, types);
+  }
+  if (byLocation.size === 0) return "확인된 결함이 없습니다.";
+  const lines = [...byLocation].map(
+    ([location, types]) =>
+      `${location} : ${[...types]
+        .map(([type, count]) => `${type} ${count}건`)
+        .join(", ")}`,
+  );
+  // 문장 종결은 AI가 생성하는 본문(존댓말)에 맞춘다 — 한 보고서 안에서 평서체와 섞이지 않게.
+  return `금회 조사 결과 주요 결함은 다음과 같습니다.\n${toBulletCell(lines, "")}`;
+}
+
+/** 원본 1.나 `주요 보수ㆍ보강` — 조치 우선순위별로 묶어 `-1순위 : 공법, 공법` 형태로 적는다. */
+function majorRepairSummary(recommendation: ReportRecommendation): string {
+  const byPriority = new Map<string, string[]>();
+  for (const item of recommendation.items) {
+    const priority = item.priority?.trim() || "우선순위 미지정";
+    const method = item.method?.trim();
+    if (!method) continue;
+    byPriority.set(priority, [...(byPriority.get(priority) ?? []), method]);
+  }
+  if (byPriority.size === 0) return "해당 없음";
+  return toBulletCell(
+    [...byPriority].map(
+      ([priority, methods]) => `${priority} : ${[...new Set(methods)].join(", ")}`,
+    ),
+    "해당 없음",
+  );
+}
+
+/**
+ * `2. 결과 요약` 본문 한 칸. 원본은 이 절만 소절로 나누지 않고 종합의견을 문단 불릿으로 죽
+ * 나열한다 — 불릿은 문서 공용 표기(`ㆍ`)를 쓰고 문단 사이만 한 줄 띄운다.
+ * 그래서 소절 표로 따로 뽑던 주요 발견사항·등급별 건수도 같은 불릿 흐름에 이어 붙이되,
+ * 건수는 원본 문체(서술형 종결)에 맞춰 한 문장으로 적는다 — 새 데이터 없이 표기만 정합화.
+ */
+function buildSummaryOpinionCell(summary: ReportSummary): string {
+  const paragraphs = summary.overall_opinion
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  paragraphs.push(
+    ...summary.key_findings.map((finding) => finding.trim()).filter(Boolean),
+  );
+  if (summary.total_count > 0) {
+    const breakdown = (["A", "B", "C", "D", "E"] as const)
+      .map(
+        (grade) =>
+          `${grade.toLowerCase()} ${normalizeGradeCount(summary.count_by_grade, grade)}건`,
+      )
+      .join(", ");
+    paragraphs.push(
+      `금회 조사 결과 확인된 결함은 총 ${summary.total_count}건으로, 등급별로는 ${breakdown}으로 조사되었습니다.`,
+    );
+  }
+  // 문단 사이만 한 줄 띄우고, 불릿은 문서 공용 표기(`ㆍ`)를 그대로 쓴다.
+  return toBulletCell(paragraphs, "종합의견이 작성되지 않았습니다.", "\n\n");
 }
 
 async function loadPdfImage(
@@ -307,32 +467,17 @@ export async function exportReportToPdf(
     },
     headStyles: {
       font: FONT_NAME,
-      fontStyle: "bold" as const,
-      fillColor: HEAD_FILL,
+      ...GRAY_HEADER_STYLES,
       textColor: BLACK,
-      halign: "center" as const,
       lineWidth: LINE_INNER,
     },
   };
 
-  /** 회색 배경 + Bold 중앙정렬 라벨열 스타일(원본의 좌측 구분열). */
+  /** 좌측 라벨 열 — 회색 관용구는 헤더 행과 동일하게 쓴다. */
   const labelColumn = (cellWidth: number) => ({
     cellWidth,
-    fontStyle: "bold" as const,
-    fillColor: HEAD_FILL,
-    halign: "center" as const,
+    ...GRAY_HEADER_STYLES,
   });
-
-  /** 소절 표는 본문보다 들여쓰고 그만큼 폭을 줄인다. */
-  const subTable = {
-    margin: {
-      left: MARGIN_X + SUB_TABLE_INDENT,
-      right: MARGIN_X,
-      top: MARGIN_X,
-      bottom: MARGIN_X,
-    },
-    tableWidth: CONTENT_WIDTH - SUB_TABLE_INDENT,
-  };
 
   const lastTableY = () =>
     (doc as typeof doc & { lastAutoTable: { finalY: number } }).lastAutoTable
@@ -356,6 +501,17 @@ export async function exportReportToPdf(
     return y + 4.2;
   };
 
+  /**
+   * 원본은 깊이마다 번호 체계를 바꾼다 — 절 `1.` → 소절 `가.` → 소소절 `1)`.
+   * `2. 결과 요약` 아래로 들어가는 블록(nested)은 절 제목 대신 소절 제목으로 찍고,
+   * 그 블록이 자체적으로 갖고 있던 `가./나.`는 한 단계 더 내려 `1)/2)`로 적는다.
+   */
+  const blockTitle = (label: string, y: number, nested: boolean) =>
+    nested ? subsectionTitle(label, y) : sectionTitle(label, y);
+
+  const childMarker = (nested: boolean, index: number) =>
+    nested ? `${index + 1})` : `${KOREAN_ORDINALS[index] ?? "기타"}.`;
+
   /** 남은 지면이 부족하면 새 페이지로 넘긴다(소절 제목이 페이지 끝에 홀로 남는 것 방지). */
   const ensureSpace = (y: number, needed: number) => {
     if (y + needed <= BOTTOM_LIMIT) return y;
@@ -372,7 +528,6 @@ export async function exportReportToPdf(
     // 라벨 텍스트에 넣은 공백은 원본이 글자수를 맞추는 방식이라 그대로 따른다.
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [
         ["시 설 물 명", facilityName, "점검 회차", inspectionLabel],
@@ -391,10 +546,34 @@ export async function exportReportToPdf(
       },
     });
 
-    y = subsectionTitle("나. 점검 개요", lastTableY() + 6);
+    // 원본 1.나는 "점검 개요"가 아니라 `점검 실시결과 현황` — 중대한 결함 / 공중이 이용하는
+    // 부위의 결함 / 점검 주요결과 / 주요 보수ㆍ보강 4행짜리 라벨 표다. 네 값 모두 이미 있는
+    // content(하자 목록·권고 조치)에서 파생할 수 있어 스키마 변경 없이 서식만 맞춘다.
+    y = subsectionTitle("나. 점검 실시결과 현황", lastTableY() + 6);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
+      startY: y,
+      body: [
+        ["중대한 결함 등", criticalDefectSummary(content.detail)],
+        // 하자 데이터엔 "공중이 이용하는 부위"(보도·난간 등) 여부 구분이 없어 자동 판정할 수
+        // 없다 — 근거 없이 "없음"이라 단정하면 허위가 되므로, 편집기(1.기본현황)에서 점검자가
+        // 직접 입력한 값만 쓰고 미입력이면 "-"로 표기한다.
+        [
+          "공중이 이용하는\n부위의 결함",
+          content.overview.public_use_area_defect?.trim() || "-",
+        ],
+        ["점검 주요결과", inspectionResultSummary(content)],
+        ["주요 보수ㆍ보강", majorRepairSummary(content.recommendation)],
+      ],
+      columnStyles: { 0: labelColumn(28), 1: { cellWidth: "auto" } },
+      bodyStyles: { valign: "top", halign: "left" },
+    });
+
+    // 원본 1.다·1.라(참여기술자·참고사항)에 해당하는 자리. 참여기술진은 별도 수동 섹션이라
+    // 여기서는 점검 목적·개요·범위를 참고사항으로 남긴다(기존 "나. 점검 개요"의 내용).
+    y = subsectionTitle("다. 참고사항", ensureSpace(lastTableY() + 6, 30));
+    autoTable(doc, {
+      ...tableDefaults,
       startY: y,
       body: [
         ["점검 목적", content.overview.purpose || "-"],
@@ -402,74 +581,51 @@ export async function exportReportToPdf(
         ["점검 범위", content.overview.scope || "-"],
       ],
       columnStyles: { 0: labelColumn(28), 1: { cellWidth: "auto" } },
-    });
-    return lastTableY();
-  };
-
-  // ── 2. 결과 요약 ─────────────────────────────────────────────────────────
-  const renderSummaryBlock = (label: string, startY: number): number => {
-    let y = sectionTitle(label, startY);
-    y = subsectionTitle("가. 책임기술자 종합의견", y);
-    autoTable(doc, {
-      ...tableDefaults,
-      ...subTable,
-      startY: y,
-      body: [
-        [content.summary.overall_opinion || "종합의견이 작성되지 않았습니다."],
-      ],
-      bodyStyles: { minCellHeight: 40, valign: "top", halign: "left" },
-    });
-
-    y = subsectionTitle(
-      "나. 결함 등급별 현황",
-      ensureSpace(lastTableY() + 6, 30),
-    );
-    autoTable(doc, {
-      ...tableDefaults,
-      ...subTable,
-      startY: y,
-      head: [["구  분", "a", "b", "c", "d", "e", "합  계"]],
-      body: [
-        [
-          "건  수",
-          normalizeGradeCount(content.summary.count_by_grade, "A"),
-          normalizeGradeCount(content.summary.count_by_grade, "B"),
-          normalizeGradeCount(content.summary.count_by_grade, "C"),
-          normalizeGradeCount(content.summary.count_by_grade, "D"),
-          normalizeGradeCount(content.summary.count_by_grade, "E"),
-          String(content.summary.total_count),
-        ],
-      ],
-      styles: { ...tableDefaults.styles, halign: "center" },
-      columnStyles: { 0: labelColumn(28), 6: { fontStyle: "bold" } },
-    });
-
-    y = subsectionTitle("다. 주요 발견사항", ensureSpace(lastTableY() + 6, 30));
-    autoTable(doc, {
-      ...tableDefaults,
-      ...subTable,
-      startY: y,
-      body: [
-        [
-          toBulletCell(
-            content.summary.key_findings,
-            "주요 발견사항이 없습니다.",
-          ),
-        ],
-      ],
       bodyStyles: { valign: "top", halign: "left" },
     });
     return lastTableY();
   };
 
-  // ── 3. 진단 외관조사결과 ─────────────────────────────────────────────────
-  const renderDetailBlock = (label: string, startY: number): number => {
+  // ── 2. 결과 요약 ─────────────────────────────────────────────────────────
+  // 원본은 이 절만 소절(가./나./다.)로 쪼개지 않는다 — 절 제목 바로 아래에 헤더 한 칸
+  // (`책임기술자 종합의견`)짜리 표가 본문 폭 전체로 놓이고, 그 안에 의견 불릿이 이어지다
+  // 우측 하단에 서명란이 붙는 단일 구성이다. 소절이 없으니 표도 들여쓰지 않는다(subTable 미적용).
+  // 기존 소절이 담던 등급별 건수·주요 발견사항은 표를 따로 만들지 않고 같은 불릿 흐름에 흡수한다
+  // — 새 데이터를 붙이지 않고 표시 구조만 원본에 맞춘다(#1409).
+  const renderSummaryBlock = (label: string, startY: number): number => {
     const y = sectionTitle(label, startY);
+    autoTable(doc, {
+      ...tableDefaults,
+      startY: y,
+      head: [["책임기술자 종합의견"]],
+      // 서명은 본문 셀에 겹쳐 그리지 않고 아래 행으로 분리한다 — 의견이 길어지면 마지막 줄과
+      // 겹친다. 본문·서명 두 행 모두 괘선을 지워(lineWidth 0) 원본처럼 칸막이 없는 한 상자로
+      // 보이게 하고, 상자 테두리는 tableLineWidth(외곽)가 그대로 그린다.
+      body: [
+        [{ content: buildSummaryOpinionCell(content.summary), styles: { minCellHeight: 40 } }],
+        [
+          {
+            content: `책임기술자 : ${formatResponsibleEngineerName(content.summary.responsible_engineer_name ?? context.responsibleEngineerName)}    (서명)`,
+            styles: { halign: "right" as const, minCellHeight: 12 },
+          },
+        ],
+      ],
+      bodyStyles: { valign: "top", halign: "left", lineWidth: 0 },
+    });
+    return lastTableY();
+  };
+
+  // ── 3. 진단 외관조사결과 ─────────────────────────────────────────────────
+  const renderDetailBlock = (
+    label: string,
+    startY: number,
+    nested = false,
+  ): number => {
+    const y = blockTitle(label, startY, nested);
     // 원본은 표 위에 "상태평가 결과 : b" 를 회색 배경 한 행으로 얹는다. 등급별 건수에서
     // 최악 등급을 뽑아 같은 자리에 채운다(새 데이터 요구 없음).
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [
         [
@@ -477,13 +633,12 @@ export async function exportReportToPdf(
           `상태평가 결과 : ${worstGrade(content.summary.count_by_grade)}`,
         ],
       ],
-      bodyStyles: { fillColor: HEAD_FILL, fontStyle: "bold", halign: "center" },
+      bodyStyles: GRAY_HEADER_STYLES,
       columnStyles: { 0: { cellWidth: 96 }, 1: { cellWidth: "auto" } },
     });
 
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: lastTableY(),
       head: [
         [
@@ -520,12 +675,16 @@ export async function exportReportToPdf(
   };
 
   // ── 4. 보수ㆍ보강(안) ────────────────────────────────────────────────────
-  const renderRecommendationBlock = (label: string, startY: number): number => {
-    let y = sectionTitle(label, startY);
-    y = subsectionTitle("가. 보수ㆍ보강(안)", y);
+  const renderRecommendationBlock = (
+    label: string,
+    startY: number,
+    nested = false,
+  ): number => {
+    // 보수ㆍ보강(안) 표는 소절 제목을 따로 달지 않는다 — 블록 제목이 이미 `보수ㆍ보강(안)`이라
+    // 소절까지 같은 이름을 붙이면 같은 문구가 연달아 두 번 나온다.
+    let y = blockTitle(label, startY, nested);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       head: [
         ["연번", "대상 부위", "보수ㆍ보강(안)", "조치\n우선순위", "적용 근거"],
@@ -550,12 +709,11 @@ export async function exportReportToPdf(
     });
 
     y = subsectionTitle(
-      "나. 지속 관찰 부위",
+      `${childMarker(nested, 0)} 지속 관찰 부위`,
       ensureSpace(lastTableY() + 6, 30),
     );
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [
         [
@@ -636,7 +794,6 @@ export async function exportReportToPdf(
     const y = sectionTitle(label, startY);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       head: [["구  분", "성  명", "자격 및 주요경력", "과업 참여기간"]],
       body:
@@ -665,11 +822,11 @@ export async function exportReportToPdf(
     label: string,
     data: GenericManualSectionData,
     startY: number,
+    nested = false,
   ): number => {
-    const y = sectionTitle(label, startY);
+    const y = blockTitle(label, startY, nested);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [[data.body?.trim() || "입력된 내용이 없습니다."]],
       bodyStyles: { minCellHeight: 24, valign: "top", halign: "left" },
@@ -686,30 +843,49 @@ export async function exportReportToPdf(
   // 이후의 실제 위치이기 때문이다.
   const renderPhotosBlock = (label: string, startY: number): number => {
     if (photoEntries.length === 0) return startY;
-    const y = sectionTitle(label, startY);
+    // 절 제목만 페이지 끝에 남고 사진이 다음 장으로 넘어가지 않도록, 제목 높이까지 합쳐 자리를 본다.
+    let y = sectionTitle(
+      label,
+      ensureSpace(startY, SECTION_TITLE_HEIGHT + PHOTO_BLOCK_HEIGHT),
+    );
+    // 사진 1장 = 표 1개(이미지 행 + 캡션 행). 한 표에 전부 몰아넣으면 이미지 행이 다음 페이지로
+    // 밀릴 때 표 윗선·캡션만 현재 페이지에 남아 "선 하나만 걸친" 페이지가 생긴다. 장마다 표를
+    // 끊고 들어갈 자리(PHOTO_BLOCK_HEIGHT)가 없으면 먼저 페이지를 넘겨 그 상황 자체를 없앤다.
+    photoEntries.forEach((entry) => {
+      y = ensureSpace(y, PHOTO_BLOCK_HEIGHT);
+      renderPhotoTable(entry, y);
+      y = lastTableY();
+    });
+    return y;
+  };
+
+  const renderPhotoTable = (
+    entry: (typeof photoEntries)[number],
+    startY: number,
+  ): void => {
     autoTable(doc, {
       ...tableDefaults,
-      startY: y,
+      startY,
       tableWidth: CONTENT_WIDTH,
-      body: photoEntries.flatMap((image) => [
+      body: [
         [{ content: "", styles: { minCellHeight: PHOTO_ROW_HEIGHT + 4 } }],
         [
           {
-            content: `< ${formatPhotoCaption(image)} >`,
+            content: `< ${formatPhotoCaption(entry)} >`,
             styles: {
               halign: "center" as const,
               fontStyle: "bold" as const,
               fontSize: FONT_SIZE.caption,
-              minCellHeight: 9,
+              minCellHeight: PHOTO_CAPTION_HEIGHT,
             },
           },
         ],
-      ]),
+      ],
       columnStyles: { 0: { cellWidth: CONTENT_WIDTH } },
       didDrawCell: (data: AutoTableCellHookData) => {
-        // 이미지 행(짝수 인덱스)에만 그린다 — 캡션 행은 autoTable이 text로 알아서 그린다.
-        if (data.section !== "body" || data.row.index % 2 !== 0) return;
-        const image = photoEntries[data.row.index / 2];
+        // 이미지 행(0번)에만 그린다 — 캡션 행은 autoTable이 text로 알아서 그린다.
+        if (data.section !== "body" || data.row.index !== 0) return;
+        const image = entry;
         if (!image) return;
         const padding = 2;
         const imageX = data.cell.x + padding;
@@ -744,7 +920,78 @@ export async function exportReportToPdf(
         doc.setLineWidth(LINE_INNER);
       },
     });
-    return lastTableY();
+  };
+
+  // ── 위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도(수동 섹션) ─────────────────────────
+  // 원본에서 이 섹션은 텍스트가 아니라 이미지 자체가 본문이다(위치 지도, 전경 사진, 도면 스캔본).
+  // 편집기가 업로드 시점에 이미 리사이즈된 JPEG data URL로 저장해 두므로(resizeImageToDataUrl),
+  // 부위별 사진과 달리 fetch로 불러올 필요 없이 바로 그린다 — 페이지 경계 처리는 부위별 사진과
+  // 동일한 "사진 1장 = 표 1개, 통째로 들어갈 자리 확인 후 그리기" 패턴을 그대로 재사용한다(#1409).
+  const renderLocationDrawingPhotoTable = (
+    image: LocationDrawingPhotoItem,
+    startY: number,
+  ): void => {
+    autoTable(doc, {
+      ...tableDefaults,
+      startY,
+      tableWidth: CONTENT_WIDTH,
+      body: [
+        [{ content: "", styles: { minCellHeight: PHOTO_ROW_HEIGHT + 4 } }],
+        [
+          {
+            content: `< ${image.caption.trim() || "이미지"} >`,
+            styles: {
+              halign: "center" as const,
+              fontStyle: "bold" as const,
+              fontSize: FONT_SIZE.caption,
+              minCellHeight: PHOTO_CAPTION_HEIGHT,
+            },
+          },
+        ],
+      ],
+      columnStyles: { 0: { cellWidth: CONTENT_WIDTH } },
+      didDrawCell: (data: AutoTableCellHookData) => {
+        if (data.section !== "body" || data.row.index !== 0) return;
+        const padding = 2;
+        doc.addImage(
+          image.dataUrl,
+          "JPEG",
+          data.cell.x + padding,
+          data.cell.y + padding,
+          data.cell.width - padding * 2,
+          data.cell.height - padding * 2,
+        );
+      },
+    });
+  };
+
+  const renderLocationDrawingPhotosBlock = (
+    label: string,
+    data: LocationDrawingPhotosSectionData,
+    startY: number,
+  ): number => {
+    if (data.images.length === 0) {
+      // 다른 수동 섹션과 동일하게, 비어 있어도 섹션 자체는 생략하지 않고 상태를 표시한다
+      // (부위별 사진과 달리 이 섹션은 순서에 사용자가 직접 추가한 항목이라 자동 생략 대상이 아님).
+      const y = blockTitle(label, startY, false);
+      autoTable(doc, {
+        ...tableDefaults,
+        startY: y,
+        body: [["추가된 이미지가 없습니다."]],
+        bodyStyles: { minCellHeight: 24, valign: "top", halign: "left" },
+      });
+      return lastTableY();
+    }
+    let y = sectionTitle(
+      label,
+      ensureSpace(startY, SECTION_TITLE_HEIGHT + PHOTO_BLOCK_HEIGHT),
+    );
+    data.images.forEach((image) => {
+      y = ensureSpace(y, PHOTO_BLOCK_HEIGHT);
+      renderLocationDrawingPhotoTable(image, y);
+      y = lastTableY();
+    });
+    return y;
   };
 
   // ── 편집기 순서(sectionOrder)대로 렌더링 ────────────────────────────────
@@ -762,13 +1009,27 @@ export async function exportReportToPdf(
     (key) => key !== "photos" || photoEntries.length > 0,
   );
   let cursorY = MARGIN_X;
+  // 절 번호는 "번호를 받는 섹션"만 센다 — 제출문은 원본에서도 번호 없는 커버 페이지라
+  // 1번을 잡아먹으면 뒤 번호가 통째로 밀린다. 결과 요약 뒤에 오는 진단 외관조사결과·상태평가·
+  // 안전성평가·현장시험은 절 번호 대신 `가./나./다./라.` 소절 번호를 이어 받는다.
+  let sectionNumber = 0;
+  let summarySubsectionIndex = 0;
+  let summaryRendered = false;
 
   order.forEach((key, index) => {
     const manual = !isFixedSectionKey(key)
       ? manualSections.find((section) => section.id === key)
       : undefined;
     const isSubmission = manual?.type === "submission";
-    const number = index + 1;
+    const nested =
+      summaryRendered &&
+      SUMMARY_SUBSECTION_TYPES.has(isFixedSectionKey(key) ? key : (manual?.type ?? ""));
+    const marker = isSubmission
+      ? ""
+      : nested
+        ? `${KOREAN_ORDINALS[summarySubsectionIndex++] ?? "기타"}.`
+        : `${++sectionNumber}.`;
+    if (key === "summary") summaryRendered = true;
 
     if (index === 0) {
       cursorY = MARGIN_X;
@@ -781,20 +1042,22 @@ export async function exportReportToPdf(
 
     if (isFixedSectionKey(key)) {
       if (key === "overview")
-        cursorY = renderOverviewBlock(`${number}. 기본현황`, cursorY);
+        cursorY = renderOverviewBlock(`${marker} 기본현황`, cursorY);
       else if (key === "summary")
-        cursorY = renderSummaryBlock(`${number}. 결과 요약`, cursorY);
+        cursorY = renderSummaryBlock(`${marker} 결과 요약`, cursorY);
       else if (key === "detail")
         cursorY = renderDetailBlock(
-          `${number}. 진단 외관조사결과 기본사항`,
+          `${marker} 진단 외관조사결과 기본사항`,
           cursorY,
+          nested,
         );
       else if (key === "recommendation")
         cursorY = renderRecommendationBlock(
-          `${number}. 보수ㆍ보강(안)`,
+          `${marker} 보수ㆍ보강(안)`,
           cursorY,
+          nested,
         );
-      else cursorY = renderPhotosBlock(`${number}. 부위별 사진`, cursorY);
+      else cursorY = renderPhotosBlock(`${marker} 부위별 사진`, cursorY);
       return;
     }
 
@@ -806,15 +1069,22 @@ export async function exportReportToPdf(
       cursorY = BOTTOM_LIMIT + 1;
     } else if (manual.type === "participants") {
       cursorY = renderParticipantsBlock(
-        `${number}. 참여기술진 명단`,
+        `${marker} 참여기술진 명단`,
         manual.data as ParticipantsSectionData,
+        cursorY,
+      );
+    } else if (manual.type === "location-drawing-photos") {
+      cursorY = renderLocationDrawingPhotosBlock(
+        `${marker} ${manual.title}`,
+        manual.data as LocationDrawingPhotosSectionData,
         cursorY,
       );
     } else {
       cursorY = renderGenericManualBlock(
-        `${number}. ${manual.title}`,
+        `${marker} ${manual.title}`,
         manual.data as GenericManualSectionData,
         cursorY,
+        nested,
       );
     }
   });

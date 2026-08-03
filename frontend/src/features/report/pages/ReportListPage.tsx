@@ -14,6 +14,7 @@ import { ReportVersionHistoryPanel } from '../components/ReportVersionHistoryPan
 import { isReportContent } from '../types';
 import type { ReportListFilters, ReportListItem } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { getMissingFinalReportRequiredLabels } from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { formatReportListTitle } from '../utils/reportListFormat';
 
@@ -126,6 +127,10 @@ export function ReportListPage() {
         throw new Error('보고서 본문 형식이 올바르지 않습니다.');
       }
       const content = report.content;
+      const missingFinalRequiredLabels = getMissingFinalReportRequiredLabels(content);
+      if (missingFinalRequiredLabels.length > 0) {
+        throw new Error(`최종 보고서 확정 전 필수 항목을 작성해 주세요: ${missingFinalRequiredLabels.join(', ')}`);
+      }
       if (report.groundingCheckPassed !== true) {
         report = (await reportApi.groundingRecheck(row.id)).data;
         if (report.groundingCheckPassed !== true) {

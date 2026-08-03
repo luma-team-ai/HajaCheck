@@ -106,6 +106,31 @@ function findTableOptions(
     .find(predicate);
 }
 
+/** `2. 결과 요약`의 단일 표(헤더 = 책임기술자 종합의견). */
+function findSummaryTableOptions(): Record<string, unknown> | undefined {
+  return findTableOptions(
+    (options) =>
+      JSON.stringify(options.head) ===
+      JSON.stringify([["책임기술자 종합의견"]]),
+  );
+}
+
+/** 결과 요약 표의 본문 행 텍스트(셀 정의 객체에서 content만 뽑는다). */
+function summaryCellContents(
+  options: Record<string, unknown> | undefined,
+): string[] {
+  const body = (options?.body ?? []) as { content: string }[][];
+  return body.map(([cell]) => cell.content);
+}
+
+function findPhotoTableOptions(): Record<string, unknown> | undefined {
+  return findTableOptions((options) => {
+    if (typeof options.didDrawCell !== "function") return false;
+    const body = options.body as unknown;
+    return Array.isArray(body) && JSON.stringify(body).includes("< ");
+  });
+}
+
 describe("exportReportToPdf", () => {
   beforeEach(() => {
     mockOutput.mockClear();
@@ -171,13 +196,106 @@ describe("exportReportToPdf", () => {
     expect(renderedText).toContain("1. 기본현황");
     expect(renderedText).toContain("가. 일반현황");
     expect(renderedText).toContain("2. 결과 요약");
-    expect(renderedText).toContain("3. 진단 외관조사결과 기본사항");
-    expect(renderedText).toContain("4. 보수ㆍ보강(안)");
+    // 원본은 진단 외관조사결과·보수ㆍ보강을 별도 절이 아니라 `2. 결과 요약`의 소절로 묶는다.
+    expect(renderedText).toContain("가. 진단 외관조사결과 기본사항");
+    expect(renderedText).toContain("나. 보수ㆍ보강(안)");
+    expect(renderedText).not.toContain("3. 진단 외관조사결과 기본사항");
+    // 소절로 내려간 블록의 자체 소절은 한 단계 더 내려간다(가./나. → 1)/2)).
+    expect(renderedText).toContain("1) 지속 관찰 부위");
+    // 블록 제목과 같은 이름의 소절 제목을 또 달지 않는다(`보수ㆍ보강(안)` 중복 표기 방지).
+    expect(renderedText.filter((text) => text.includes("보수ㆍ보강(안)"))).toEqual(
+      ["나. 보수ㆍ보강(안)"],
+    );
     // 지원되지 않는 서명·참여자 필드는 만들지 않는다(수동 섹션을 추가하지 않은 기본 상태).
     expect(renderedText).not.toContain("제  출  문");
     expect(renderedText).not.toContain("작성자");
-    expect(renderedText).not.toContain("(서명)");
     expect(renderedText).not.toContain("입회자");
+  });
+
+  it("기본현황 나.는 원본처럼 `점검 실시결과 현황`을 기존 하자·권고 데이터에서 파생해 채운다", async () => {
+    await exportReportToPdf(makeContent());
+
+    const renderedText = mockText.mock.calls.map(([text]) => text).flat();
+    expect(renderedText).toContain("나. 점검 실시결과 현황");
+    expect(renderedText).toContain("다. 참고사항");
+    expect(renderedText).not.toContain("나. 점검 개요");
+
+    const options = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    expect(options?.body).toEqual([
+      // C등급뿐이라 중대한 결함은 없음, 공중이용부위는 판정 근거가 없어 빈칸.
+      ["중대한 결함 등", "없음"],
+      ["공중이 이용하는\n부위의 결함", "-"],
+      // 목록 표기는 문서 전체가 `ㆍ` 하나로 통일된다(`-`/`1)`/`//` 혼용 금지).
+      [
+        "점검 주요결과",
+        "금회 조사 결과 주요 결함은 다음과 같습니다.\nㆍ1층 벽체 : 균열 1건",
+      ],
+      ["주요 보수ㆍ보강", "ㆍ중 : 보수"],
+    ]);
+  });
+
+  it("공중이 이용하는 부위의 결함은 편집기 수동 입력값을 그대로 쓰고 자동 판정하지 않는다", async () => {
+    const content = makeContent();
+    await exportReportToPdf({
+      ...content,
+      overview: { ...content.overview, public_use_area_defect: "3층 보도 난간 파손" },
+    });
+
+    const options = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    expect(options?.body).toEqual(
+      expect.arrayContaining([
+        ["공중이 이용하는\n부위의 결함", "3층 보도 난간 파손"],
+      ]),
+    );
+  });
+
+  it("결과 요약은 소절 없이 `책임기술자 종합의견` 표 하나로 렌더링하고 하단에 서명란을 붙인다", async () => {
+    await exportReportToPdf(makeContent(), {
+      responsibleEngineerName: "김기준",
+    });
+
+    // 원본 서식대로 가./나./다. 소절 제목을 만들지 않는다.
+    const renderedText = mockText.mock.calls.map(([text]) => text).flat();
+    expect(renderedText).not.toContain("가. 책임기술자 종합의견");
+    expect(renderedText).not.toContain("나. 결함 등급별 현황");
+    expect(renderedText).not.toContain("다. 주요 발견사항");
+
+    const summaryOptions = findSummaryTableOptions();
+    expect(summaryOptions?.head).toEqual([["책임기술자 종합의견"]]);
+    // 종합의견·주요 발견사항·등급별 건수가 공용 불릿(`ㆍ`) + 문단 사이 한 줄로 합쳐지고,
+    // 서명은 본문에 겹쳐 그리지 않고 아래 행으로 분리된다(긴 의견에서 마지막 줄과 겹침 방지).
+    expect(summaryCellContents(summaryOptions)).toEqual([
+      "ㆍ양호\n\nㆍ균열 발견\n\nㆍ금회 조사 결과 확인된 결함은 총 1건으로, 등급별로는 a 0건, b 0건, c 1건, d 0건, e 0건으로 조사되었습니다.",
+      "책임기술자 : 김 기 준    (서명)",
+    ]);
+    // 두 행 모두 칸막이 괘선 없이 한 상자로 보이게 한다(외곽선은 tableLineWidth가 그림).
+    expect(summaryOptions?.bodyStyles).toEqual(
+      expect.objectContaining({ lineWidth: 0 }),
+    );
+    expect(summaryOptions?.didDrawCell).toBeUndefined();
+    expect(mockAddImage).not.toHaveBeenCalled();
+  });
+
+  it("책임기술자 서명란 이름은 수동 입력값을 담당자 fallback보다 우선한다", async () => {
+    const content = makeContent();
+    await exportReportToPdf(
+      {
+        ...content,
+        summary: {
+          ...content.summary,
+          responsible_engineer_name: "박수정",
+        },
+      },
+      { responsibleEngineerName: "김기준" },
+    );
+
+    expect(summaryCellContents(findSummaryTableOptions())).toContain(
+      "책임기술자 : 박 수 정    (서명)",
+    );
   });
 
   it("여러 섹션이 한 페이지에 들어갈 만큼 남으면 새 페이지로 넘기지 않는다(원본처럼 소절을 채움)", async () => {
@@ -234,7 +352,10 @@ describe("exportReportToPdf", () => {
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     expect(renderedText).toContain("제  출  문");
     expect(renderedText).toContain("서울특별시장 귀하");
-    expect(renderedText).toContain("6. 참여기술진 명단");
+    // 제출문은 원본에서도 번호 없는 커버 페이지라 절 번호를 소비하지 않고, 결과 요약 소절로
+    // 내려간 진단 외관조사결과·보수ㆍ보강도 번호를 쓰지 않는다 → 기본현황1·결과요약2·명단3.
+    expect(renderedText).toContain("1. 기본현황");
+    expect(renderedText).toContain("3. 참여기술진 명단");
 
     const participantsOptions = findTableOptions(
       (options) =>
@@ -282,6 +403,95 @@ describe("exportReportToPdf", () => {
     expect(genericOptions?.body).toEqual([
       ["구조 안전성 검토 결과를 입력합니다."],
     ]);
+  });
+
+  it("위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도는 편집기에 저장된 base64 이미지를 사진과 같은 형식(사진+캡션)으로 렌더링한다", async () => {
+    const content = makeContent({
+      manualSections: [
+        {
+          id: "manual-location-1",
+          type: "location-drawing-photos",
+          title: "위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도",
+          data: {
+            images: [
+              { dataUrl: "data:image/jpeg;base64,AAA", caption: "한남대교 위치도" },
+              { dataUrl: "data:image/jpeg;base64,BBB", caption: "" },
+            ],
+          },
+        },
+      ],
+      sectionOrder: [
+        "overview",
+        "summary",
+        "detail",
+        "recommendation",
+        "manual-location-1",
+      ],
+    });
+
+    await exportReportToPdf(content);
+
+    const renderedText = mockText.mock.calls.map(([text]) => text).flat();
+    // 폰트 로딩 외에는 어떤 media 엔드포인트도 fetch하지 않는다 — 부위별 사진(defectImages)과
+    // 달리 이 섹션은 편집기에서 이미 완성된 data URL을 들고 있다(#1409).
+    const fetchedUrls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(fetchedUrls.some((url) => url.includes("/api/media"))).toBe(false);
+
+    // 사진 1장 = 표 1개(사진 표와 동일한 구조). 캡션이 없으면 "이미지"로 폴백한다.
+    const photoTables = mockAutoTable.mock.calls.filter(([, options]) =>
+      JSON.stringify((options as Record<string, unknown>).body).includes("< "),
+    );
+    expect(photoTables).toHaveLength(2);
+    // overview=1, summary=2(진단 외관조사결과·보수ㆍ보강은 그 소절로 편입돼 번호를 안 씀) →
+    // 이 섹션은 sectionOrder상 summary 이후에 와도 소절 대상이 아니므로 다음 절 번호 3을 받는다.
+    expect(renderedText).toContain("3. 위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도");
+
+    const [, firstOptions] = photoTables[0] as [unknown, Record<string, unknown>];
+    const didDrawCell = firstOptions.didDrawCell as (data: {
+      section: string;
+      row: { index: number };
+      cell: { x: number; y: number; width: number; height: number };
+    }) => void;
+    didDrawCell({
+      section: "body",
+      row: { index: 0 },
+      cell: { x: 23, y: 50, width: 164, height: 96 },
+    });
+    expect(mockAddImage).toHaveBeenCalledWith(
+      "data:image/jpeg;base64,AAA",
+      "JPEG",
+      25,
+      52,
+      160,
+      92,
+    );
+  });
+
+  it("위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도에 이미지가 없으면 다른 수동 섹션처럼 빈 상태를 안내한다", async () => {
+    const content = makeContent({
+      manualSections: [
+        {
+          id: "manual-location-1",
+          type: "location-drawing-photos",
+          title: "위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도",
+          data: { images: [] },
+        },
+      ],
+      sectionOrder: [
+        "overview",
+        "summary",
+        "detail",
+        "recommendation",
+        "manual-location-1",
+      ],
+    });
+
+    await exportReportToPdf(content);
+
+    const options = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("추가된 이미지가 없습니다."),
+    );
+    expect(options?.body).toEqual([["추가된 이미지가 없습니다."]]);
   });
 
   it("부위별 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다", async () => {
@@ -466,9 +676,7 @@ describe("exportReportToPdf", () => {
     // 호출해 "이미지 행에서만, 셀 좌표에 패딩을 두고" 그리는지 검증한다. rowPageBreak:'avoid'로
     // 표가 페이지를 넘을 때도 사진 1장이 중간에 잘리지 않게 보장한다(예전 방식은 고정 좌표
     // 계산이라 페이지 하단을 넘으면 그대로 잘려나갔다).
-    const photoOptions = findTableOptions(
-      (options) => typeof options.didDrawCell === "function",
-    );
+    const photoOptions = findPhotoTableOptions();
     expect(photoOptions?.rowPageBreak).toBe("avoid");
 
     const didDrawCell = photoOptions?.didDrawCell as (data: {
@@ -500,6 +708,44 @@ describe("exportReportToPdf", () => {
     expect(mockAddImage).not.toHaveBeenCalled();
   });
 
+  it("사진이 남은 지면에 통째로 못 들어가면 표 윗선만 걸치지 않고 새 페이지에서 시작한다", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      if (String(input) === "/api/media/1/thumbnail") {
+        return Promise.resolve({
+          ok: true,
+          blob: () =>
+            Promise.resolve(new Blob(["jpeg-bytes"], { type: "image/jpeg" })),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        blob: () => Promise.resolve(new Blob(["font-bytes"])),
+      } as Response);
+    });
+    // 앞 섹션들이 페이지 하단(220mm)까지 차 있는 상황 — 사진 1장(109mm)이 들어갈 자리가 없다.
+    mockAutoTable.mockImplementation((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 220 };
+    });
+
+    await exportReportToPdf(makeContent(), {
+      defectImages: [
+        { defectType: "균열", imageUrl: "/api/media/1/thumbnail" },
+        { defectType: "박리", imageUrl: "/api/media/1/thumbnail" },
+      ],
+    });
+
+    // 사진마다 표를 끊고(장수만큼 표 호출), 자리가 없으면 페이지를 넘긴 뒤 그린다.
+    const photoTables = mockAutoTable.mock.calls.filter(([, options]) =>
+      JSON.stringify((options as Record<string, unknown>).body).includes("< "),
+    );
+    expect(photoTables).toHaveLength(2);
+    expect(mockAddPage).toHaveBeenCalled();
+
+    mockAutoTable.mockImplementation((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 120 };
+    });
+  });
+
   it("사진 캡션은 하자 유형명 단독 표기가 아니라 등급·분석요약을 함께 붙인다", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === "/api/media/1/thumbnail") {
@@ -527,9 +773,7 @@ describe("exportReportToPdf", () => {
       ],
     });
 
-    const photoOptions = findTableOptions(
-      (options) => typeof options.didDrawCell === "function",
-    );
+    const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
     expect(captionRow[0].content).toBe(
       "< 균열(A등급) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >",
@@ -557,9 +801,7 @@ describe("exportReportToPdf", () => {
       ],
     });
 
-    const photoOptions = findTableOptions(
-      (options) => typeof options.didDrawCell === "function",
-    );
+    const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
     expect(captionRow[0].content).toBe("< 균열 >");
   });
@@ -590,9 +832,7 @@ describe("exportReportToPdf", () => {
       ],
     });
 
-    const photoOptions = findTableOptions(
-      (options) => typeof options.didDrawCell === "function",
-    );
+    const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
     expect(captionRow[0].content).toBe("< 균열(B등급) >");
     expect(captionRow[0].content).not.toContain("외");

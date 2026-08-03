@@ -35,8 +35,18 @@ const REPORT_103_TITLE = formatReportListTitle('강남 파이낸스센터', '202
 const reportContent = {
   overview: { purpose: '정기점검', facility_summary: '시설물 개요', scope: '공용부' },
   summary: { overall_opinion: '양호', total_count: 0, count_by_grade: {}, key_findings: [] },
-  detail: { items: [] },
-  recommendation: { items: [], monitoring_points: [] },
+  detail: {
+    items: [
+      {
+        location: '슬래브',
+        type: '균열',
+        grade: 'C',
+        description: '균열 1건 확인',
+        cause: '건조수축 추정',
+      },
+    ],
+  },
+  recommendation: { items: [{ target: '슬래브 균열', method: '표면처리' }], monitoring_points: [] },
 };
 
 const server = setupServer(...reportHandlers, ...facilityHandlers, ...platformAdminCompanyHandlers);
@@ -231,6 +241,54 @@ describe('ReportListPage', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
     await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'upload', 'finalize']));
+  });
+
+  it('DRAFT 행 제출 시 종합 의견이 비어 있으면 PDF 생성과 확정을 수행하지 않는다', async () => {
+    const calls: string[] = [];
+    vi.mocked(exportReportToPdf).mockClear();
+    const contentWithoutOpinion = {
+      ...reportContent,
+      summary: { ...reportContent.summary, overall_opinion: '   ' },
+    };
+    server.use(
+      http.get('/api/reports/103', () => {
+        calls.push('detail');
+        return HttpResponse.json({
+          success: true,
+          data: {
+            id: 103,
+            inspectionId: 3,
+            version: 3,
+            status: 'DRAFT',
+            groundingCheckPassed: true,
+            content: contentWithoutOpinion,
+            createdBy: 1,
+            createdAt: '2026-06-23T09:15:00',
+          },
+        });
+      }),
+      http.post('/api/reports/103/grounding-recheck', () => {
+        calls.push('recheck');
+        return HttpResponse.json({ success: true, data: {} });
+      }),
+      http.post('/api/reports/103/pdf', () => {
+        calls.push('upload');
+        return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/103/pdf/generated.pdf' } });
+      }),
+      http.post('/api/reports/103/finalize', () => {
+        calls.push('finalize');
+        return HttpResponse.json({ success: true, data: {} });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
+
+    await waitFor(() => expect(calls).toEqual(['detail']));
+    expect(exportReportToPdf).not.toHaveBeenCalled();
   });
 
   it('DRAFT 행 제출 시 대표 사진 제외 옵션이면 PDF에 하자 이미지를 넣지 않는다', async () => {

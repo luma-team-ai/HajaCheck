@@ -187,16 +187,16 @@ export default function LandingPage() {
           미세한 결함
         </h2>
         <p>
-          현장 사진과 영상을 업로드하면, AI 비전 기술이 균열, 누수, 박리·박락 등{' '}
+          현장 사진과 영상을 업로드하면, AI 비전 기술이 균열, 박리·박락, 철근 노출 등{' '}
           <span className="landing-nowrap">육안으로 놓치기</span> 쉬운 하자를 자동으로
           탐지하고 등급과 위치를 확인할 수 있습니다.
         </p>
         <div className="landing-badge-row">
           <span className="landing-pill landing-pill--danger">
-            <span className="landing-pill-dot" aria-hidden="true">●</span> 크랙 심각도 High
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 균열 심각도 High
           </span>
           <span className="landing-pill landing-pill--warning">
-            <span className="landing-pill-dot" aria-hidden="true">●</span> 누수 징후 Medium
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 박리·박락 위험 Medium
           </span>
         </div>
         <div className="landing-visual landing-screen-visual">

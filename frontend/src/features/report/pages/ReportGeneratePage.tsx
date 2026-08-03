@@ -20,7 +20,10 @@ import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
-import { getEmptyManualSectionLabels } from '../utils/manualSectionValidation';
+import {
+  getEmptyManualSectionLabels,
+  getMissingFinalReportRequiredLabels,
+} from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -249,8 +252,18 @@ export function ReportGeneratePage() {
   const applyReport = useCallback((data: ReportDetailResponse) => {
     setReport(data);
     if (isReportContent(data.content)) {
-      setContent(data.content);
-      setSavedContent(data.content);
+      const nextContent: ReportContent = {
+        ...data.content,
+        summary: {
+          ...data.content.summary,
+          responsible_engineer_name:
+            data.content.summary.responsible_engineer_name ??
+            data.context?.assignedInspector?.name ??
+            '',
+        },
+      };
+      setContent(nextContent);
+      setSavedContent(nextContent);
     }
   }, []);
 
@@ -268,6 +281,8 @@ export function ReportGeneratePage() {
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
   const emptyManualSectionLabels = useMemo(() => getEmptyManualSectionLabels(content), [content]);
   const hasEmptyManualSections = emptyManualSectionLabels.length > 0;
+  const missingFinalRequiredLabels = useMemo(() => getMissingFinalReportRequiredLabels(content), [content]);
+  const hasMissingFinalRequiredContent = missingFinalRequiredLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
   const [isLeavingAfterSave, setIsLeavingAfterSave] = useState(false);
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
@@ -419,6 +434,15 @@ export function ReportGeneratePage() {
       return;
     }
 
+    if (hasMissingFinalRequiredContent) {
+      setAlertModal({
+        open: true,
+        title: '확정할 수 없습니다',
+        message: `최종 보고서 확정 전 필수 항목을 작성해 주세요: ${missingFinalRequiredLabels.join(', ')}`,
+      });
+      return;
+    }
+
     const recheckResult = await handleGroundingRecheck();
     if (!recheckResult.success) {
       setAlertModal({
@@ -535,7 +559,10 @@ export function ReportGeneratePage() {
 
   // 이제 버튼 하나로 저장→검증→PDF 생성/확정을 순차 진행하므로(#1338), 아직 저장/검증 전이어도
   // 클릭 가능해야 한다. 진행 중(각 단계 loading state)에는 비활성화한다.
-  const canFinalize = !isFinalized && !hasEmptyManualSections;
+  // 필수값 누락은 버튼을 죽여 이유를 숨기지 않고, 클릭 시 handleFinalizeAll이 AlertModal로
+  // "무엇이 비었는지" 알려준다(#1341 원 설계) — hasEmptyManualSections를 canFinalize에 넣어
+  // 버튼을 조용히 비활성화했던 것은 #1375/#1377에서 이 주석과 모순되게 들어간 회귀였다(#1409).
+  const canFinalize = !isFinalized;
   const isFinalizeBusy = isSaving || isRechecking || isFinalizing;
   const finalizeLabel = isSaving
     ? '저장 중...'

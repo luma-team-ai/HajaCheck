@@ -317,7 +317,13 @@ describe('ReportGeneratePage', () => {
       expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
     });
     expect(exportReportToPdf).toHaveBeenCalledWith(
-      realContractContent,
+      {
+        ...realContractContent,
+        summary: {
+          ...realContractContent.summary,
+          responsible_engineer_name: '',
+        },
+      },
       expect.objectContaining({ facilityName: '테스트 시설물', inspectionRound: 1 }),
     );
     expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
@@ -625,7 +631,10 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByRole('button', { name: '확정 검증' })).toBeNull();
   });
 
-  it('저장된 보고서에 내용이 비어 있는 수동 섹션이 있으면 최종 보고서 확정 버튼을 비활성화한다', async () => {
+  it('저장된 보고서에 내용이 비어 있는 수동 섹션이 있으면 최종 보고서 확정 버튼 클릭 시 어떤 섹션을 채워야 하는지 모달로 안내한다', async () => {
+    // #1341 원 설계: 버튼을 비활성화해 이유를 숨기지 않는다 — 항상 클릭 가능하고, 클릭 시
+    // AlertModal이 무엇이 비었는지 알려준다(#1375/#1377에서 버튼을 조용히 비활성화하도록 되돌아간
+    // 회귀를 #1409에서 원복).
     reportState = {
       ...mockReport,
       groundingCheckPassed: true,
@@ -646,7 +655,123 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
 
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(true);
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(/필수값이 누락된 추가 섹션.*안전성평가 결과/)).toBeTruthy();
+  });
+
+  it('종합 의견이 비어 있으면 최종 보고서 확정 버튼 클릭 시 모달로 안내한다', async () => {
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content: {
+        ...mockContent,
+        summary: {
+          ...mockContent.summary,
+          overall_opinion: '   ',
+        },
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(/결과 요약 > 종합 의견/)).toBeTruthy();
+  });
+
+  it('결과 요약 책임기술자는 배정 점검자 이름으로 기본 표시되고 수동 수정할 수 있다', async () => {
+    const updatedContent = {
+      ...mockContent,
+      summary: { ...mockContent.summary, responsible_engineer_name: '박수정' },
+    };
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      context: {
+        ...mockReport.context,
+        assignedInspector: { id: 1, name: '김기준', role: 'INSPECTOR' },
+        defects: [],
+        media: [],
+      },
+      content: mockContent,
+    };
+    server.use(
+      http.patch('/api/reports/:id', async ({ request }) => {
+        updateReportCallCount += 1;
+        const body = (await request.json()) as { contentJson: string };
+        expect(JSON.parse(body.contentJson)).toEqual(updatedContent);
+        return HttpResponse.json({
+          success: true,
+          data: {
+            ...reportState,
+            content: updatedContent,
+          },
+        });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const engineerInput = screen.getByLabelText('책임기술자') as HTMLInputElement;
+    expect(engineerInput.value).toBe('김기준');
+    fireEvent.change(engineerInput, { target: { value: '박수정' } });
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
+
+    await waitFor(() => expect(updateReportCallCount).toBe(1));
+  });
+
+  it.each([
+    {
+      label: '기본현황',
+      expectedLabel: '기본현황 > 점검 목적',
+      content: {
+        ...mockContent,
+        overview: { ...mockContent.overview, purpose: '   ' },
+      },
+    },
+    {
+      label: '진단 외관조사결과 기본사항',
+      expectedLabel: '진단 외관조사결과 기본사항 > 하자 #1 설명',
+      content: {
+        ...mockContent,
+        detail: { items: [{ ...mockContent.detail.items[0], description: '' }] },
+      },
+    },
+    {
+      label: '보수ㆍ보강(안)',
+      expectedLabel: '보수ㆍ보강(안) > 권고 #1 방법',
+      content: {
+        ...mockContent,
+        recommendation: { ...mockContent.recommendation, items: [{ ...mockContent.recommendation.items[0], method: '' }] },
+      },
+    },
+  ])('$label 편집 필드가 비어 있으면 최종 보고서 확정 버튼 클릭 시 모달로 안내한다', async ({ content, expectedLabel }) => {
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content,
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(new RegExp(expectedLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeTruthy();
   });
 
   it('제출문은 회사명만 있어도 필수값 누락이면 저장과 최종 확정을 막는다', async () => {
@@ -676,7 +801,14 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
 
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(true);
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const finalizeDialog = await screen.findByRole('dialog');
+    expect(within(finalizeDialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(finalizeDialog).getByText(/필수값이 누락된 추가 섹션.*제출문/)).toBeTruthy();
+    fireEvent.click(within(finalizeDialog).getByRole('button', { name: '확인' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '제출문 누락 저장 방지' } });
     fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
@@ -688,22 +820,26 @@ describe('ReportGeneratePage', () => {
     expect(updateReportCallCount).toBe(0);
   });
 
-  it('서식 섹션 추가 메뉴에 표준서식 수동 입력 항목을 모두 노출한다', async () => {
+  it('서식 섹션 추가 메뉴에는 결과 요약 하위인 종합의견 및 고정 섹션과 중복되는 항목을 노출하지 않는다', async () => {
     renderPage();
 
     await screen.findByText('보고서 생성 결과');
     fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
 
     expect(screen.getByRole('button', { name: '제출문' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '기본현황' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '참여 기술진 명단' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '책임기술자 종합의견' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '부위별 상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '안전성평가 결과' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '현장시험(비파괴 및 추가시험)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '시설물 현황' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도' })).toBeTruthy();
+    // 결과 요약 하위 개념(종합의견)은 별도 항목으로 노출하지 않는다.
+    expect(screen.queryByRole('button', { name: '책임기술자 종합의견' })).toBeNull();
+    // 고정 섹션과 제목/문구가 그대로 겹치는 수동 섹션 스캐폴딩은 메뉴에서 뺀다(#1409) —
+    // 'overview-form'="기본현황"(고정 overview 라벨과 동일), 'inspection-result-repair'/
+    // 'member-condition-repair'는 고정 detail 섹션이 이미 표로 렌더링하는 문구와 중복.
+    expect(screen.queryByRole('button', { name: '기본현황' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '상태평가 결과 및 보수ㆍ보강' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '부위별 상태평가 결과 및 보수ㆍ보강' })).toBeNull();
   });
 
   it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {
@@ -802,10 +938,10 @@ describe('ReportGeneratePage', () => {
   it('진단 외관조사결과 기본사항 페이지네이션 컨트롤이 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
     const detailSection = screen.getByText('진단 외관조사결과 기본사항').closest('.rounded-lg') as HTMLElement | null;
     expect(detailSection).toBeTruthy();
+    expect(within(detailSection!).getByRole('button', { name: '이전 페이지' })).toBeTruthy();
+    expect(within(detailSection!).getByRole('button', { name: '다음 페이지' })).toBeTruthy();
     expect(within(detailSection!).getByText('1', { selector: 'span.font-bold' })).toBeTruthy();
     expect(within(detailSection!).getByText('/ 1', { selector: 'span.text-zinc-500' })).toBeTruthy();
   });

@@ -135,4 +135,13 @@ describe('PhotosSectionPreview', () => {
     render(<PhotosSectionPreview photoGroups={[]} />);
     expect(screen.getByText('점검 촬영 축소본이 없습니다.')).toBeTruthy();
   });
+
+  it('하자가 1건인 사진에도 하자 1건 문구를 표기한다', () => {
+    const groups = groupDefectsByMedia([
+      defect(1, 101, { x: 0.32, y: 0.1, width: 0.05, height: 0.71 }),
+    ]);
+    render(<PhotosSectionPreview photoGroups={groups} />);
+
+    expect(screen.getByText('하자 1건')).toBeTruthy();
+  });
 });

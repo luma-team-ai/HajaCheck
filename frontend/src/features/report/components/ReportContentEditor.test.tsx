@@ -76,6 +76,53 @@ describe("ReportContentEditor", () => {
     expect(screen.getByText("법적 근거 (검증됨)")).not.toBeNull();
   });
 
+  it("기본현황에서 공중이 이용하는 부위의 결함을 입력할 수 있다", () => {
+    const handleChange = vi.fn();
+    render(
+      <ReportContentEditor
+        content={mockContent}
+        onChange={handleChange}
+        readOnly={false}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("공중이 이용하는 부위의 결함"), {
+      target: { value: "3층 보도 난간 파손" },
+    });
+
+    expect(handleChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        overview: expect.objectContaining({
+          public_use_area_defect: "3층 보도 난간 파손",
+        }),
+      }),
+    );
+  });
+
+  it("결과 요약에서 책임기술자명을 수동 수정할 수 있다", () => {
+    const handleChange = vi.fn();
+    render(
+      <ReportContentEditor
+        content={{
+          ...mockContent,
+          summary: { ...mockContent.summary, responsible_engineer_name: "김기준" },
+        }}
+        onChange={handleChange}
+        readOnly={false}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("책임기술자"), {
+      target: { value: "박수정" },
+    });
+
+    expect(handleChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        summary: expect.objectContaining({ responsible_engineer_name: "박수정" }),
+      }),
+    );
+  });
+
   // 법적 근거는 RAG로 생성되는 값이라 사용자가 직접 고치면 근거와 어긋날 수 있어 항상 읽기
   // 전용이다(readOnly prop과 무관 — content 편집 가능 여부와 별개로 이 필드만 고정).
   it("법적 근거는 readOnly=false인 편집 화면에서도 항상 읽기 전용이다", () => {
