@@ -369,7 +369,7 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | `user_status_type` | `ACTIVE`, `SUSPENDED` | 사용자 계정 상태 | `users.status` |
 | `plan_name_type` | `FREE`, `STANDARD`, `ENTERPRISE` | 구독 요금제 명칭 | `plans.name` |
 | `user_plan_status_type` | `ACTIVE`, `EXPIRED`, `UPGRADE_REQUESTED` | 사용자 구독 상태 | `user_plans.status` |
-| `inspection_status_type` | `CREATED`, `UPLOADING`, `ANALYZING`, `ANALYZED`, `REVIEWED`, `REPORTED` | 점검 처리 상태(생성→업로드→분석→분석완료→검토완료→보고서화) | `inspections.status` |
+| `inspection_status_type` | `CREATED`, `UPLOADING`, `ANALYZING`, `ANALYZED`, `FAILED`, `REVIEWED`, `REPORTED` | 점검 처리 상태(생성→업로드→분석→분석완료(또는 분석실패)→검토완료→보고서화) | `inspections.status` |
 | `inspection_type` | `REGULAR`, `DETAILED`, `EMERGENCY` | 점검 유형(정기/정밀/긴급) | `inspections.type` |
 | `media_file_type` | `IMAGE`, `VIDEO` | 미디어 파일 유형 | `media.file_type` |
 | `defect_type` | `CRACK`, `SPALLING`, `LEAK_EFFLORESCENCE`, `REBAR_EXPOSURE`, `PAINT_DAMAGE` | 결함 유형(균열/박리·박락/누수·백태/철근노출/도장손상) | `defects.type` |

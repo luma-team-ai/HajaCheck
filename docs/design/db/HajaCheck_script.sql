@@ -49,11 +49,11 @@ alter type scheduled_plan_change_status_type owner to postgres;
 
 comment on type scheduled_plan_change_status_type is '플랜 하향 예약 상태(대기/적용됨/취소됨/실패)';
 
-create type inspection_status_type as enum ('CREATED', 'UPLOADING', 'ANALYZING', 'ANALYZED', 'REVIEWED', 'REPORTED');
+create type inspection_status_type as enum ('CREATED', 'UPLOADING', 'ANALYZING', 'ANALYZED', 'FAILED', 'REVIEWED', 'REPORTED');
 
 alter type inspection_status_type owner to postgres;
 
-comment on type inspection_status_type is '점검 처리 상태(생성/업로드중/분석중/분석완료/검토완료/보고서화)';
+comment on type inspection_status_type is '점검 처리 상태(생성/업로드중/분석중/분석완료/분석실패/검토완료/보고서화)';
 
 create type inspection_type as enum ('REGULAR', 'DETAILED', 'EMERGENCY');
 
