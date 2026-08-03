@@ -915,6 +915,36 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('보고서 진입점 프로브')).not.toBeNull();
   });
 
+  it('검수 확정(confirm-review) API가 실패해도 보고서 진입점으로 이동한다 (PR #1429 P2)', async () => {
+    // 서버는 REVIEWED/REPORTED에 멱등이라 실패해도 다음 재진입 때 자연히 재시도된다 —
+    // 확정 실패를 하드 블로커로 두면 "검수 다 끝낸 회차인데 확정 API만 실패해서 보고서
+    // 화면에 영영 못 들어감"이라는 막다른 길이 생기므로 실패해도 이동은 막지 않는다.
+    const allConfirmedDefects: DefectDetailItem[] = mockDefects.map((d) => ({
+      ...d,
+      status: 'CONFIRMED' as const,
+      isReviewed: true,
+    }));
+
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: allConfirmedDefects };
+        return HttpResponse.json(body);
+      }),
+      http.post('/api/inspections/:id/confirm-review', () =>
+        HttpResponse.json({ success: false, error: { message: '다른 요청과 충돌했습니다.' } }, { status: 409 }),
+      ),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '점검 요약' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(button);
+    expect(await screen.findByText('보고서 진입점 프로브')).not.toBeNull();
+  });
+
   // 등급 수정 모달 테스트 (#827)
   it('"등급 수정" 버튼을 클릭하면 라디오 버튼 모달이 열린다 (#827)', async () => {
     renderPage();

@@ -171,7 +171,11 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     long countByInspectionIdInAndDeletedFalseAndStatusNot(
             Collection<Long> inspectionIds, DefectStatus resolvedStatus);
 
-    // 점검 요약 검수 확정 가드(InspectionService.confirmReview) — 미확정(DETECTED) 하자가 하나라도
-    // 남아있으면 회차 검수 확정을 거부한다.
-    boolean existsByInspectionIdAndDeletedFalseAndStatus(Long inspectionId, DefectStatus status);
+    // 점검 요약 검수 확정 가드(InspectionService.confirmReview, PR머신 리뷰 P1 정정) — 프론트
+    // "점검 요약" 버튼 활성 조건·reviewedCount가 보는 필드는 status가 아니라 is_reviewed다
+    // (useInspectionResultReal.ts는 defect.isReviewed로 센다). Defect.review(grade)(등급 수정)는
+    // reviewed=true만 세우고 status는 그대로 두므로(status는 changeStatus로만 바뀜), status=DETECTED
+    // 존재 여부로 막으면 "등급 수정만 하고 검수 확정 버튼은 안 누른" 정상 검수 완료 회차까지
+    // 항상 거부됐다 — 프론트와 같은 기준(is_reviewed)으로 맞춘다.
+    boolean existsByInspectionIdAndDeletedFalseAndReviewedFalse(Long inspectionId);
 }

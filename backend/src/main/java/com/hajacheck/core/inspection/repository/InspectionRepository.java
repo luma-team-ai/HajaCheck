@@ -98,6 +98,21 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
             @Param("analyzingStatus") InspectionStatus analyzingStatus,
             @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses);
 
+    // 검수 확정(InspectionService.confirmReview, PR머신 리뷰 P2) — read-then-advanceTo(더티 체킹)
+    // 대신 원자적 조건부 UPDATE로 ANALYZED→REVIEWED를 쓴다. 위 startAnalyzingIfNotRunning과 같은
+    // 이유: 사전에 읽은 엔티티의 status를 그대로 믿고 advanceTo만 하면, 그 사이(특히 하자 0건
+    // 회차에서) 다른 요청이 재분석을 원자적으로 선점(ANALYZED→ANALYZING)해도 이 read-then-write가
+    // 그걸 못 보고 그대로 REVIEWED로 덮어써 실행 중인 워커를 고아화한다. WHERE에 "여전히 ANALYZED"를
+    // 강제해 그 경합을 원천 차단하고, 영향 행 0건이면 호출부가 다른 요청이 먼저 상태를 바꿨다고
+    // 판정한다.
+    @Modifying
+    @Query("update Inspection i set i.status = :reviewedStatus "
+            + "where i.id = :id and i.status = :fromStatus")
+    int confirmReviewIfAnalyzed(
+            @Param("id") Long id,
+            @Param("reviewedStatus") InspectionStatus reviewedStatus,
+            @Param("fromStatus") InspectionStatus fromStatus);
+
     // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차/10차) — analysisTaskExecutor는 테넌트 구분 없는
     // 전역 공유 풀이라, 한 회사가 대량 요청으로 큐를 독점하면 다른 회사까지 막힌다(noisy-neighbor).
     // 공유 풀에 넣기 전에 이 목록으로 회사별 상한을 강제하되, "살아있는 잡"만 세도록 호출부가

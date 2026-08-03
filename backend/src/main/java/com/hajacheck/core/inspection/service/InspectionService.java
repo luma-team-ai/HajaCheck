@@ -302,8 +302,21 @@ public class InspectionService {
      * 앞당겨 반영한다 — REPORTED로의 최종 전이는 그대로 보고서 확정 시점에 일어난다.
      *
      * <p>이미 REVIEWED/REPORTED면 멱등하게 아무것도 하지 않는다(페이지 재진입·중복 클릭 대비).
-     * ANALYZED가 아닌 그 이전 상태(분석 미완료)면 거부한다. 미확정(DETECTED) 하자가 남아있으면도
-     * 거부한다 — 프론트 버튼도 같은 조건으로 막지만 서버에서 독립적으로 재검증한다(입력 신뢰 금지).
+     * ANALYZED가 아닌 그 이전 상태(분석 미완료)면 거부한다.
+     *
+     * <p>미확정 판정 기준(PR머신 리뷰 P1 정정) — status=DETECTED가 아니라 is_reviewed=false 잔존
+     * 여부로 막는다. 프론트 "점검 요약" 버튼·reviewedCount는 is_reviewed 기준인데(등급 수정만으로도
+     * true가 됨, status는 별도 changeStatus로만 바뀜), status 기준으로 막으면 등급 수정만 하고
+     * "이 하자 검수 확정" 버튼은 안 누른 정상 검수 완료 회차도 항상 거부돼 보고서 화면에 영영
+     * 진입할 수 없었다. 프론트와 같은 필드로 맞춰야 두 게이트가 항상 같은 결론을 낸다.
+     *
+     * <p>원자적 조건부 UPDATE(PR머신 리뷰 P2) — read-then-advanceTo(더티 체킹) 대신
+     * {@link InspectionRepository#confirmReviewIfAnalyzed}로 "여전히 ANALYZED일 때만" 전이한다.
+     * 하자 0건 회차에서 이 메서드가 ANALYZED를 읽은 직후(커밋 전) 다른 요청이 재분석을 원자적으로
+     * 선점(ANALYZED→ANALYZING)하면, read-then-write 방식은 그 사실을 못 보고 그대로 REVIEWED로
+     * 덮어써 방금 시작된 워커를 고아화한다 — 조건부 UPDATE가 영향 행 0건이면 그 경합이 일어난
+     * 것이므로 재시도를 요청한다(멱등 재시도 안전 — 호출부인 ResultViewerPage가 이미 재진입마다
+     * 다시 부른다).
      */
     @Transactional
     public void confirmReview(Long requesterUserId, Long companyId, Long inspectionId) {
@@ -315,10 +328,17 @@ public class InspectionService {
         if (inspection.getStatus() != InspectionStatus.ANALYZED) {
             throw new BusinessException(ErrorCode.INSPECTION_REVIEW_NOT_READY);
         }
-        if (defectRepository.existsByInspectionIdAndDeletedFalseAndStatus(inspectionId, DefectStatus.DETECTED)) {
+        if (defectRepository.existsByInspectionIdAndDeletedFalseAndReviewedFalse(inspectionId)) {
             throw new BusinessException(ErrorCode.INSPECTION_REVIEW_INCOMPLETE);
         }
-        inspection.advanceTo(InspectionStatus.REVIEWED);
+        int updated = inspectionRepository.confirmReviewIfAnalyzed(
+                inspectionId, InspectionStatus.REVIEWED, InspectionStatus.ANALYZED);
+        if (updated == 0) {
+            // 사전 체크 이후 다른 요청(재분석 선점 등)이 상태를 먼저 바꿨다 — 회차 자체는 여전히
+            // 유효하니 사용자에게는 "다시 시도해 달라"는 충돌로 안내한다(재조회는 하지 않는다,
+            // 클래스 docstring 참고 — 호출부가 재진입 시 다시 부르므로 멱등하게 해소된다).
+            throw new BusinessException(ErrorCode.INSPECTION_ROUND_CONFLICT);
+        }
     }
 
     /**
