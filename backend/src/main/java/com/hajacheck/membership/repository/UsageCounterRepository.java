@@ -2,6 +2,7 @@ package com.hajacheck.membership.repository;
 
 import com.hajacheck.membership.entity.UsageCounter;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -37,6 +38,9 @@ public interface UsageCounterRepository extends JpaRepository<UsageCounter, Long
 
     // 플랫폼 관리자 서비스 통계(#633) — 전 구독(개인+회사) 대상 기간별 사용량 합산 원천 데이터.
     List<UsageCounter> findByPeriodBetween(LocalDate from, LocalDate to);
+
+    // 플랫폼 관리자 플랜·쿼터 KPI(#1407) — 여러 회사(UserPlan) 의 당월 집계 행을 한 번에 조회한다.
+    List<UsageCounter> findByUserPlanIdInAndPeriod(Collection<Long> userPlanIds, LocalDate period);
 
     /**
      * 당월 집계 행이 없으면 만든다(있으면 아무것도 하지 않는다). 스냅샷 성격 카운터

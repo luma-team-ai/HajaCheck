@@ -21,7 +21,10 @@ export interface PlanQuotaUser {
   companyName: string | null;
   /** 소속 회사가 구독한 플랜 — 활성 구독이 없으면 null */
   plan: AdminUserPlan | null;
-  /** 이 사용자가 이번 달 분석한 이미지 장수 */
+  /**
+   * 소속 회사가 이번 달 분석한 이미지 장수 — 쿼터는 회사 단위로 풀링되어 같은 회사 소속 사용자는 전부
+   * 같은 값을 본다(사용자 개인별 소비량이 아니다, #1407 후속).
+   */
   quotaUsed: number;
   /** 소속 회사 플랜의 월 분석 한도(장). null = 무제한 */
   quotaLimit: number | null;
@@ -37,8 +40,17 @@ export interface PlanQuotaUser {
 export interface PlanQuotaStats {
   /** 전사 활성 사용자 수 (KPI 카드 1) */
   activeUsers: number;
-  /** 전사 평균 쿼터 사용률(%) — 사용량 합계/공용 한도 (KPI 카드 2) */
+  /**
+   * 전사 평균 쿼터 사용률(%) — 한도가 있는(무제한 아닌) 구독들의 회사별 사용률 평균 (KPI 카드 2).
+   * 무제한(ENTERPRISE 등) 플랜은 "사용량 ÷ 한도"가 정의되지 않아 이 평균에 포함되지 않는다
+   * (unlimitedPlanUsageTotal 참고, #1407).
+   */
   totalQuotaUsagePercent: number;
+  /**
+   * 무제한 플랜 구독들의 이번 달 사용량 합계(장) — totalQuotaUsagePercent 평균에서 제외되는 사용량이
+   * 화면에서 사라지지 않도록 KPI 카드 2에 보조 텍스트로 병기한다(#1407).
+   */
+  unlimitedPlanUsageTotal: number;
 }
 
 export interface PlanQuotaListParams {

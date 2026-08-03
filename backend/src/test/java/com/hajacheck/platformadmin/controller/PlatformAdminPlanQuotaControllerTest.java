@@ -15,12 +15,16 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
+import com.hajacheck.membership.entity.UsageCounter;
 import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -56,6 +60,8 @@ class PlatformAdminPlanQuotaControllerTest extends PostgresTestSupport {
     private PlanRepository planRepository;
     @Autowired
     private UserPlanRepository userPlanRepository;
+    @Autowired
+    private UsageCounterRepository usageCounterRepository;
 
     @Test
     void 목록조회_미인증_401() throws Exception {
@@ -211,6 +217,73 @@ class PlatformAdminPlanQuotaControllerTest extends PostgresTestSupport {
                         .with(authentication(authOf(platformAdmin))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.stats.activeUsers").value(2));
+    }
+
+    @Test
+    void 목록조회_stats의_평균쿼터사용률은_usage_counters기준으로계산된다() throws Exception {
+        // #1407 회귀 고정 — totalQuotaUsagePercent 가 media(검수자 배정 건수) 근사치 평균이 아니라
+        // usage_counters.analyzedImageCount(쿼터 차감의 진짜 원천) / plan.maxMonthlyAnalyses 기준이어야
+        // 한다. media 레코드를 전혀 만들지 않고도(과거 로직이면 0%) usage_counters 만으로 50%가 나와야
+        // 이 계약이 지켜진다.
+        seedPlans();
+        User platformAdmin = saveUser(Role.PLATFORM_ADMIN, null);
+        Company company = saveApprovedCompany();
+        UserPlan userPlan = userPlanRepository.save(UserPlan.forCompany(company.getId(), planId(PlanName.STANDARD)));
+        Integer standardQuotaLimit = planRepository.findByName(PlanName.STANDARD)
+                .orElseThrow().getMaxMonthlyAnalyses();
+        usageCounterRepository.save(UsageCounter.create(
+                userPlan.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1),
+                standardQuotaLimit / 2, 0, 0, 0, 0, 0));
+
+        mockMvc.perform(get("/api/platform-admin/plans-quota").param("size", "50")
+                        .with(authentication(authOf(platformAdmin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stats.totalQuotaUsagePercent").value(50));
+    }
+
+    @Test
+    void 목록조회_stats의_무제한플랜사용량은_평균에서제외되고_별도합계로내려온다() throws Exception {
+        // #1407 후속 — ENTERPRISE(max_monthly_analyses=null)는 "사용량 ÷ 한도"가 정의되지 않아
+        // totalQuotaUsagePercent 평균에는 항상 포함되지 않는다(무제한 회사 하나만 있으면 평균은 0%).
+        // 그 사용량이 화면에서 사라지지 않도록 unlimitedPlanUsageTotal 로 별도 합산해 내려줘야 한다.
+        seedPlans();
+        User platformAdmin = saveUser(Role.PLATFORM_ADMIN, null);
+        Company company = saveApprovedCompany();
+        UserPlan userPlan =
+                userPlanRepository.save(UserPlan.forCompany(company.getId(), planId(PlanName.ENTERPRISE)));
+        usageCounterRepository.save(UsageCounter.create(
+                userPlan.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1),
+                40, 0, 0, 0, 0, 0));
+
+        mockMvc.perform(get("/api/platform-admin/plans-quota").param("size", "50")
+                        .with(authentication(authOf(platformAdmin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.stats.totalQuotaUsagePercent").value(0))
+                .andExpect(jsonPath("$.data.stats.unlimitedPlanUsageTotal").value(40));
+    }
+
+    @Test
+    void 목록조회_무제한플랜행의_쿼터사용량은_usage_counters실사용량을그대로보여준다() throws Exception {
+        // #1407 후속 회귀 고정 — 예전엔 표의 quotaUsed 가 media(검수자 배정 건수) 개인별 근사치라, 실제
+        // 사용량이 있어도(회사 단위 usage_counters=40) 그 media 근사치가 0이면 화면엔 0으로 보였다.
+        // 이제는 회사(UserPlan) 단위 usage_counters 를 그대로 보여줘야 한다 — media 레코드가 전혀
+        // 없어도 40이 나와야 이 계약이 지켜진다.
+        seedPlans();
+        User platformAdmin = saveUser(Role.PLATFORM_ADMIN, null);
+        Company company = saveApprovedCompany();
+        UserPlan userPlan =
+                userPlanRepository.save(UserPlan.forCompany(company.getId(), planId(PlanName.ENTERPRISE)));
+        User member = saveUser(Role.USER, company.getId());
+        usageCounterRepository.save(UsageCounter.create(
+                userPlan.getId(), YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1),
+                40, 0, 0, 0, 0, 0));
+
+        mockMvc.perform(get("/api/platform-admin/plans-quota").param("size", "50")
+                        .with(authentication(authOf(platformAdmin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.content[1].email").value(member.getEmail()))
+                .andExpect(jsonPath("$.data.content[1].plan").value("ENTERPRISE"))
+                .andExpect(jsonPath("$.data.content[1].quotaUsed").value(40));
     }
 
     @Test
