@@ -294,6 +294,34 @@ public class InspectionService {
     }
 
     /**
+     * 점검 요약 진입("점검 요약" 버튼) 시점에 회차 검수를 확정한다(ANALYZED → REVIEWED) — 이전에는
+     * 이 전이가 보고서 최종 확정(ReportService.markInspectionReported)에만 묶여 있어, 보고서를
+     * 실제로 만들기 전까지는 회차가 계속 "진행 중"으로 잡혀 같은 시설물의 새 회차 생성이 매번
+     * 경고창에 걸렸다(#1291 상태 전이 테이블 주석에 이미 "전이 코드는 미구현" 상태로 예정돼 있던
+     * 자리). 검수 자체는 이미 끝났다는 사실(점검 요약 버튼이 활성화되는 조건과 동일)을 여기서
+     * 앞당겨 반영한다 — REPORTED로의 최종 전이는 그대로 보고서 확정 시점에 일어난다.
+     *
+     * <p>이미 REVIEWED/REPORTED면 멱등하게 아무것도 하지 않는다(페이지 재진입·중복 클릭 대비).
+     * ANALYZED가 아닌 그 이전 상태(분석 미완료)면 거부한다. 미확정(DETECTED) 하자가 남아있으면도
+     * 거부한다 — 프론트 버튼도 같은 조건으로 막지만 서버에서 독립적으로 재검증한다(입력 신뢰 금지).
+     */
+    @Transactional
+    public void confirmReview(Long requesterUserId, Long companyId, Long inspectionId) {
+        Inspection inspection = getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+        if (inspection.getStatus() == InspectionStatus.REVIEWED
+                || inspection.getStatus() == InspectionStatus.REPORTED) {
+            return;
+        }
+        if (inspection.getStatus() != InspectionStatus.ANALYZED) {
+            throw new BusinessException(ErrorCode.INSPECTION_REVIEW_NOT_READY);
+        }
+        if (defectRepository.existsByInspectionIdAndDeletedFalseAndStatus(inspectionId, DefectStatus.DETECTED)) {
+            throw new BusinessException(ErrorCode.INSPECTION_REVIEW_INCOMPLETE);
+        }
+        inspection.advanceTo(InspectionStatus.REVIEWED);
+    }
+
+    /**
      * ANALYZING 고착 회차를 리퍼가 시스템 배치로 복원한다(코드 리뷰 P2 10차) — @Scheduled 리퍼는
      * 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다(배치 전용, 외부 요청 경로 아님).
      * 여전히 ANALYZING일 때만 UPLOADING으로 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미

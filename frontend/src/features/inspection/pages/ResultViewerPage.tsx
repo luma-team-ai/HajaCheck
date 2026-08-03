@@ -461,9 +461,24 @@ export function ResultViewerPage() {
     }
   }, [data, currentDefects, selectedDefectId, isUpdating, refetch]);
 
-  const handleGenerateReport = useCallback(() => {
-    navigate(`/inspections/${inspectionId}/reports`);
-  }, [inspectionId, navigate]);
+  // "점검 요약" 클릭 시 회차 검수를 먼저 확정(ANALYZED→REVIEWED)한 뒤 이동한다 — 이전엔 이 전이가
+  // 최종 보고서 확정에만 묶여 있어, 검수는 끝났는데 보고서를 안(못) 만든 회차가 계속 "진행 중"으로
+  // 잡혀 같은 시설물의 새 회차 생성마다 중복 경고가 떴다. 서버가 멱등 처리하므로 재진입·중복
+  // 클릭은 안전하다.
+  const handleGenerateReport = useCallback(async () => {
+    if (isUpdating) return;
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.confirmReview(inspectionId);
+      navigate(`/inspections/${inspectionId}/reports`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '점검 요약으로 이동하지 못했습니다.';
+      setErrorMessage(msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [inspectionId, navigate, isUpdating]);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
@@ -498,11 +513,11 @@ export function ResultViewerPage() {
           type="button"
           variant="secondary"
           size="md"
-          onClick={handleGenerateReport}
-          disabled={data.reviewedCount !== data.totalCount}
+          onClick={() => void handleGenerateReport()}
+          disabled={data.reviewedCount !== data.totalCount || isUpdating}
           title={data.reviewedCount !== data.totalCount ? `${data.reviewedCount}/${data.totalCount} 하자 검수 확정 필요` : ''}
         >
-          점검 요약
+          {isUpdating ? '이동 중...' : '점검 요약'}
         </Button>
       </div>
 

@@ -69,4 +69,13 @@ public class InspectionController {
         return ResponseEntity.ok(ApiResponse.ok(
                 inspectionService.getInspection(loginUser.getUserId(), loginUser.getCompanyId(), id)));
     }
+
+    @Operation(summary = "점검 회차 검수 확정(ANALYZED → REVIEWED)",
+            description = "결과 뷰어 '점검 요약' 버튼 클릭 시 호출 — 이미 REVIEWED/REPORTED면 멱등하게 무시된다.")
+    @PostMapping("/{id}/confirm-review")
+    public ResponseEntity<ApiResponse<Void>> confirmReview(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        inspectionService.confirmReview(loginUser.getUserId(), loginUser.getCompanyId(), id);
+        return ResponseEntity.ok(ApiResponse.ok(null));
+    }
 }

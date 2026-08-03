@@ -170,4 +170,8 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     // 그 외(DETECTED/CONFIRMED/IN_PROGRESS)는 전부 미조치로 센다.
     long countByInspectionIdInAndDeletedFalseAndStatusNot(
             Collection<Long> inspectionIds, DefectStatus resolvedStatus);
+
+    // 점검 요약 검수 확정 가드(InspectionService.confirmReview) — 미확정(DETECTED) 하자가 하나라도
+    // 남아있으면 회차 검수 확정을 거부한다.
+    boolean existsByInspectionIdAndDeletedFalseAndStatus(Long inspectionId, DefectStatus status);
 }

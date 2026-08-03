@@ -352,6 +352,79 @@ class InspectionServiceTest {
         assertThat(result.getRoundNo()).isEqualTo(3);
     }
 
+    private Inspection analyzedInspection() {
+        Inspection inspection = Inspection.builder()
+                .facilityId(1L)
+                .status(InspectionStatus.ANALYZED)
+                .build();
+        setId(inspection, 10L);
+        return inspection;
+    }
+
+    @Test
+    void confirmReview_ANALYZED이고미확정하자없으면REVIEWED로전이한다() {
+        Inspection inspection = analyzedInspection();
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(defectRepository.existsByInspectionIdAndDeletedFalseAndStatus(10L, DefectStatus.DETECTED))
+                .thenReturn(false);
+
+        service.confirmReview(300L, 100L, 10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.REVIEWED);
+    }
+
+    @Test
+    void confirmReview_이미REVIEWED면멱등하게아무것도안한다() {
+        Inspection inspection = Inspection.builder().facilityId(1L).status(InspectionStatus.REVIEWED).build();
+        setId(inspection, 10L);
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+
+        service.confirmReview(300L, 100L, 10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.REVIEWED);
+        verify(defectRepository, never()).existsByInspectionIdAndDeletedFalseAndStatus(any(), any());
+    }
+
+    @Test
+    void confirmReview_이미REPORTED면멱등하게아무것도안한다() {
+        Inspection inspection = Inspection.builder().facilityId(1L).status(InspectionStatus.REPORTED).build();
+        setId(inspection, 10L);
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+
+        service.confirmReview(300L, 100L, 10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.REPORTED);
+    }
+
+    @Test
+    void confirmReview_ANALYZED이전상태면INSPECTION_REVIEW_NOT_READY() {
+        Inspection inspection = Inspection.builder().facilityId(1L).status(InspectionStatus.UPLOADING).build();
+        setId(inspection, 10L);
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+
+        assertThatThrownBy(() -> service.confirmReview(300L, 100L, 10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.INSPECTION_REVIEW_NOT_READY));
+    }
+
+    @Test
+    void confirmReview_미확정하자가남아있으면INSPECTION_REVIEW_INCOMPLETE() {
+        Inspection inspection = analyzedInspection();
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(defectRepository.existsByInspectionIdAndDeletedFalseAndStatus(10L, DefectStatus.DETECTED))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> service.confirmReview(300L, 100L, 10L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.INSPECTION_REVIEW_INCOMPLETE));
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.ANALYZED);
+    }
+
     @Test
     void list_owner스코프로위임_필터그대로전달_시설물명담당자명하자건수포함매핑() {
         Pageable pageable = PageRequest.of(0, 20);
