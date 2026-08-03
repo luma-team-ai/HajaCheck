@@ -938,10 +938,10 @@ describe('ReportGeneratePage', () => {
   it('진단 외관조사결과 기본사항 페이지네이션 컨트롤이 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
     const detailSection = screen.getByText('진단 외관조사결과 기본사항').closest('.rounded-lg') as HTMLElement | null;
     expect(detailSection).toBeTruthy();
+    expect(within(detailSection!).getByRole('button', { name: '이전 페이지' })).toBeTruthy();
+    expect(within(detailSection!).getByRole('button', { name: '다음 페이지' })).toBeTruthy();
     expect(within(detailSection!).getByText('1', { selector: 'span.font-bold' })).toBeTruthy();
     expect(within(detailSection!).getByText('/ 1', { selector: 'span.text-zinc-500' })).toBeTruthy();
   });

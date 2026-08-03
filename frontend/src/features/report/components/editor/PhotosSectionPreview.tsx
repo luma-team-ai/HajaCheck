@@ -45,7 +45,7 @@ export function PhotosSectionPreview({ photoGroups }: PhotosSectionPreviewProps)
                   imageClassName="w-full rounded-md"
                   fallback={<PhotoPlaceholder />}
                 />
-                {group.defects.length > 1 && (
+                {group.defects.length > 0 && (
                   <span className="text-[11px] text-text-muted">하자 {group.defects.length}건</span>
                 )}
               </div>
