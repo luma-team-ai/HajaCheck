@@ -1,6 +1,10 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
+import {
+  AI_ADDON_UNAVAILABLE_MESSAGE,
+  useAiAddonAvailability,
+} from '../../../shared/hooks/useAiAddonAvailability';
 import { useNlSearch } from '../hooks/useNlSearch';
 import type { InspectionListFilters } from '../types';
 import {
@@ -21,6 +25,10 @@ export function InspectionNlSearchBar({ onApply }: Props) {
   const [query, setQuery] = useState('');
   const lastSubmittedQuery = useRef('');
   const { search, data, error, isPending, reset } = useNlSearch();
+  const aiAddonAvailability = useAiAddonAvailability();
+  const isAiChecking = aiAddonAvailability === 'checking';
+  const isAiUnavailable = aiAddonAvailability === 'unavailable';
+  const isAiDisabled = isPending || isAiChecking || isAiUnavailable;
 
   function handleQueryChange(event: ChangeEvent<HTMLInputElement>) {
     setQuery(event.target.value);
@@ -46,7 +54,7 @@ export function InspectionNlSearchBar({ onApply }: Props) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = query.trim();
-    if (!trimmed || isPending) {
+    if (!trimmed || isAiDisabled) {
       return;
     }
     lastSubmittedQuery.current = trimmed;
@@ -54,7 +62,7 @@ export function InspectionNlSearchBar({ onApply }: Props) {
   }
 
   function handleRetry() {
-    if (lastSubmittedQuery.current && !isPending) {
+    if (lastSubmittedQuery.current && !isAiDisabled) {
       executeSearch(lastSubmittedQuery.current);
     }
   }
@@ -74,23 +82,29 @@ export function InspectionNlSearchBar({ onApply }: Props) {
           placeholder="자연어로 찾고 싶은 점검(하자 조건)을 입력해 주세요"
           value={query}
           onChange={handleQueryChange}
-          disabled={isPending}
+          disabled={isAiDisabled}
         />
         <button
           type="submit"
           className="defect-filter-bar__submit"
           aria-label="AI 검색 실행"
-          disabled={isPending || query.trim() === ''}
+          disabled={isAiDisabled || query.trim() === ''}
         >
           <span aria-hidden="true">➤</span>
         </button>
       </form>
 
+      {isAiChecking && (
+        <div className="defect-filter-bar__ai-message" role="status">
+          AI 검색 사용 가능 여부를 확인하고 있습니다.
+        </div>
+      )}
+
       {isPending && <AILoadingIndicator message="검색 조건을 분석하고 있습니다..." />}
 
-      {error?.code === 'AI_ADDON_REQUIRED' && (
+      {(isAiUnavailable || error?.code === 'AI_ADDON_REQUIRED') && (
         <div className="defect-filter-bar__ai-message defect-filter-bar__ai-message--error" role="alert">
-          AI 자연어 검색은 AI 부가 기능이 포함된 플랜에서만 사용할 수 있습니다.
+          {AI_ADDON_UNAVAILABLE_MESSAGE}
         </div>
       )}
 

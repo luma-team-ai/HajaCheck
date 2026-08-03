@@ -1,5 +1,9 @@
 import { useState, type ChangeEvent, type FormEvent } from "react";
 import { Button } from "../../../shared/components/Button";
+import {
+  AI_ADDON_UNAVAILABLE_MESSAGE,
+  useAiAddonAvailability,
+} from "../../../shared/hooks/useAiAddonAvailability";
 import { useNlSearch } from "../hooks/useNlSearch";
 import type { NlSearchFilters } from "../nlSearchTypes";
 import {
@@ -86,6 +90,10 @@ function describeTruncatedFilters(nlFilters: NlSearchFilters): string[] {
 export function DefectFilterBar({ filters, onChange }: Props) {
   const [query, setQuery] = useState("");
   const { search, data, error, isPending, reset } = useNlSearch();
+  const aiAddonAvailability = useAiAddonAvailability();
+  const isAiChecking = aiAddonAvailability === "checking";
+  const isAiUnavailable = aiAddonAvailability === "unavailable";
+  const isAiDisabled = isPending || isAiChecking || isAiUnavailable;
 
   function handleQueryChange(event: ChangeEvent<HTMLInputElement>) {
     setQuery(event.target.value);
@@ -94,7 +102,7 @@ export function DefectFilterBar({ filters, onChange }: Props) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = query.trim();
-    if (!trimmed || isPending) {
+    if (!trimmed || isAiDisabled) {
       return;
     }
     reset();
@@ -160,9 +168,11 @@ export function DefectFilterBar({ filters, onChange }: Props) {
     reset();
   }
 
-  const errorMessage = error
+  const errorMessage = isAiUnavailable
+    ? AI_ADDON_UNAVAILABLE_MESSAGE
+    : error
     ? error.code === "AI_ADDON_REQUIRED"
-      ? "AI 자연어 검색은 AI 부가 기능이 포함된 플랜에서만 사용할 수 있습니다."
+      ? AI_ADDON_UNAVAILABLE_MESSAGE
       : "AI 검색을 불러올 수 없습니다. 잠시 후 다시 시도해 주세요."
     : null;
 
@@ -181,17 +191,23 @@ export function DefectFilterBar({ filters, onChange }: Props) {
           placeholder="자연어로 찾고 싶은 하자를 입력해 주세요"
           value={query}
           onChange={handleQueryChange}
-          disabled={isPending}
+          disabled={isAiDisabled}
         />
         <button
           type="submit"
           className="defect-filter-bar__submit"
           aria-label="AI 검색 실행"
-          disabled={isPending || query.trim() === ""}
+          disabled={isAiDisabled || query.trim() === ""}
         >
           <span aria-hidden="true">➤</span>
         </button>
       </form>
+
+      {isAiChecking && (
+        <div className="defect-filter-bar__ai-message" role="status">
+          AI 검색 사용 가능 여부를 확인하고 있습니다.
+        </div>
+      )}
 
       {errorMessage && (
         <div className="defect-filter-bar__ai-message defect-filter-bar__ai-message--error" role="alert">

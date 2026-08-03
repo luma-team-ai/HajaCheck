@@ -7,6 +7,7 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { defectHandlers } from '../api/defectApi.handlers';
+import { planQueryKeys } from '../../../shared/api/planApi';
 import type { InspectionListFilters } from '../types';
 import { InspectionFilterBar } from './InspectionFilterBar';
 
@@ -23,10 +24,15 @@ function renderFilterBar(
   filters: InspectionListFilters,
   onChange = vi.fn(),
   onNlApplied = vi.fn(),
+  hasAiAddon = true,
 ) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  queryClient.setQueryData(planQueryKeys.current, { plan: { name: 'CURRENT' } });
+  queryClient.setQueryData(planQueryKeys.catalog, [
+    { name: 'CURRENT', hasAiAddon },
+  ]);
   render(
     <QueryClientProvider client={queryClient}>
       <InspectionFilterBar
@@ -147,6 +153,16 @@ describe('InspectionFilterBar — 하자조건 필터 칩', () => {
 });
 
 describe('InspectionFilterBar — 자연어(하자조건) 검색', () => {
+  it('현재 플랜의 실시간 정책이 AI 미지원이면 검색 입력과 실행을 비활성화한다', () => {
+    renderFilterBar({ page: 0, size: 20 }, vi.fn(), vi.fn(), false);
+
+    expect((screen.getByLabelText('AI 자연어 검색') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'AI 검색 실행' }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect(screen.getByText('AI 자연어 검색은 AI 부가 기능이 포함된 플랜에서만 사용할 수 있습니다.'))
+      .not.toBeNull();
+  });
+
   it('정상 질의는 인식된 하자조건 배열을 그대로 필터에 반영한다', async () => {
     const { onChange } = renderFilterBar({ page: 0, size: 20 });
 

@@ -18,7 +18,7 @@ function makeRevision(id: number, minute: number): DefectRevision {
     oldValue: 'CONFIRMED',
     newValue: 'IN_PROGRESS',
     reason: null,
-    createdAt: `2026-07-01T09:${String(minute).padStart(2, '0')}:00.000Z`,
+    createdAt: `2026-07-01T09:${String(minute).padStart(2, '0')}:00.000`,
   };
 }
 
@@ -101,6 +101,9 @@ describe('InspectionActivityPanel — 스크롤 목록', () => {
     expect(badge.className).toContain('text-orange-500');
     const time = badge.closest('li')?.querySelector('time');
     const defectCode = badge.closest('li')?.querySelector('.inspection-activity-panel__code');
+    expect(defectCode?.textContent).toBe('DEF-0003');
+    expect(time?.textContent).toBe('2026.07.01 09:09');
+    expect(time?.getAttribute('datetime')).toBe('2026-07-01T09:09:00.000');
     expect(time).not.toBeNull();
     expect(defectCode?.nextElementSibling).toBe(time);
     expect(time?.parentElement?.nextElementSibling).toBe(badge);

@@ -1,10 +1,10 @@
 import { http, HttpResponse } from 'msw';
-import type { ApiResponse } from '../../../shared/api/types';
-import type { PublicPlanCatalogResponse } from './publicPlanApi';
+import type { ApiResponse } from './types';
+import type { PlanCatalogResponse } from './planApi';
 
-export const publicPlanHandlers = [
+export const planCatalogHandlers = [
   http.get('/api/plans', () => {
-    const body: ApiResponse<PublicPlanCatalogResponse> = {
+    const body: ApiResponse<PlanCatalogResponse> = {
       success: true,
       data: {
         plans: [

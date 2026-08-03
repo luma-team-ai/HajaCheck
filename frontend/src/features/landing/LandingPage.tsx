@@ -5,7 +5,7 @@ import { useAuthStore } from '../auth/store/authStore';
 import { LandingFooter } from './components/LandingFooter';
 import { LandingHeader } from './components/LandingHeader';
 import { PARTNERS, PRICING_TIERS, formatPricingTiersFromApi } from './constants';
-import { publicPlanApi } from './api/publicPlanApi';
+import { planApi, planQueryKeys } from '../../shared/api/planApi';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
 import analysisViewerImage from '../../assets/brand/landing-screens/analysis-viewer.png';
 import inspectionCycleImage from '../../assets/brand/landing-screens/inspection-cycle.png';
@@ -33,8 +33,8 @@ export default function LandingPage() {
   }, [user, navigate]);
 
   const { data: planData, isError, refetch } = useQuery({
-    queryKey: ['publicPlans'],
-    queryFn: ({ signal }) => publicPlanApi.getPlans(signal).then((res) => res.data.plans),
+    queryKey: planQueryKeys.catalog,
+    queryFn: ({ signal }) => planApi.getPlans(signal).then((res) => res.data.plans),
     staleTime: 5 * 60 * 1000,
   });
 
