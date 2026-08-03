@@ -47,6 +47,7 @@ public class DefectService {
     private final AuthService authService;
     private final MediaRepository mediaRepository;
     private final UserRepository userRepository;
+    private final DefectInspectionWriteGuard defectInspectionWriteGuard;
 
     public PageResponse<DefectResponse> list(
             Long userId, Long companyId, DefectType type, DefectGrade grade,
@@ -80,6 +81,9 @@ public class DefectService {
         }
         Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        // PR머신 리뷰 4차 P1 — ANALYZING·FAILED 회차의 하자에 조치 결과를 등록하면, 재분석 워커의
+        // softDeleteAllForInspectionThenSave가 이 등록 내용을 통째로 지운다(DefectInspectionWriteGuard 참고).
+        defectInspectionWriteGuard.requireWritable(defect.getInspection().getStatus());
         authService.validateAssignableInspector(userId, request.actionAssigneeId());
         mediaRepository.findByIdAndInspectionId(request.actionMediaId(), defect.getInspectionId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
@@ -177,6 +181,9 @@ public class DefectService {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        // PR머신 리뷰 4차 P1 — ANALYZING·FAILED 회차의 하자 위치를 고치면, 재분석 워커의
+        // softDeleteAllForInspectionThenSave가 이 수정을 통째로 지운다(DefectInspectionWriteGuard 참고).
+        defectInspectionWriteGuard.requireWritable(defect.getInspection().getStatus());
         defect.updateLocation(location);
         return DefectResponse.from(defect);
     }
@@ -195,6 +202,10 @@ public class DefectService {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        // PR머신 리뷰 4차 P1 — ANALYZING·FAILED 회차의 하자에 회차 간 대응을 확정하면, 재분석 워커의
+        // softDeleteAllForInspectionThenSave가 이 확정을 통째로 지운다(DefectInspectionWriteGuard 참고).
+        // previousDefect 쪽은 참조만 하고 이 메서드가 쓰지 않으므로 그쪽 회차 상태는 검사하지 않는다.
+        defectInspectionWriteGuard.requireWritable(defect.getInspection().getStatus());
         Defect previousDefect = defectRepository.findByIdAndCompanyId(previousDefectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_PREVIOUS_DEFECT_INVALID));
 
@@ -229,6 +240,9 @@ public class DefectService {
         companyScopeGuard.requireEffectiveMembership(revisedByUserId, companyId);
         Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
+        // PR머신 리뷰 4차 P1 — ANALYZING·FAILED 회차의 하자 상태를 바꾸면, 재분석 워커의
+        // softDeleteAllForInspectionThenSave가 이 전이를 통째로 지운다(DefectInspectionWriteGuard 참고).
+        defectInspectionWriteGuard.requireWritable(defect.getInspection().getStatus());
         DefectStatus previousStatus = defect.getStatus();
         defect.changeStatus(status, reason);
         defectRevisionRepository.save(DefectRevision.record(

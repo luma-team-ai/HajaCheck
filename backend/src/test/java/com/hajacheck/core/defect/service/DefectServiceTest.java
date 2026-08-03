@@ -69,6 +69,8 @@ class DefectServiceTest {
     private MediaRepository mediaRepository;
     @Mock
     private UserRepository userRepository;
+    @Mock
+    private DefectInspectionWriteGuard defectInspectionWriteGuard;
 
     @InjectMocks
     private DefectService defectService;

@@ -733,7 +733,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void POST_FAILED회차면_409_DEFECT_CREATE_BLOCKED_ANALYSIS_FAILED() throws Exception {
+    void POST_FAILED회차면_409_DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED() throws Exception {
         // PR머신 리뷰 3차 P1 — FAILED 재분석의 원자적 선점은 "비삭제 하자 없음" 요건을 FAILED에 한해
         // 건너뛰는데, 그 전제("FAILED에 남은 하자는 전부 이번에 실패한 실행의 AI 결과뿐")가 성립하려면
         // FAILED에서 수동 하자 추가 자체를 막아야 한다. 안 막으면 사람이 FAILED 회차에 등록한 하자가
@@ -763,7 +763,7 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("DEFECT_CREATE_BLOCKED_ANALYSIS_FAILED"));
+                .andExpect(jsonPath("$.error.code").value("DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED"));
     }
 
     @Test
@@ -878,6 +878,41 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
         Map<String, Object> defectRow = defectRowOf(defect.getId());
         assertThat(defectRow.get("is_deleted")).isEqualTo(true);
         assertThat(defectRow.get("grade")).hasToString("B");  // 삭제는 등급을 건드리지 않는다
+    }
+
+    @Test
+    void PATCH_FAILED회차하자면_409_DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED() throws Exception {
+        // PR머신 리뷰 4차 P1 — FAILED 재분석 바이패스의 전제("FAILED에 남은 하자는 전부 이번에 실패한
+        // 실행이 만든 AI 결과뿐")를 지키려면 createManualDefect(POST)뿐 아니라 reviewDefect(PATCH,
+        // 등급 조정·오탐 삭제·오탐 복구)도 막아야 한다. 안 막으면 사람이 FAILED 회차 하자를 큐레이션한
+        // 뒤 재분석했을 때 워커의 softDeleteAllForInspectionThenSave가 그 큐레이션을 무보상으로 지운다.
+        Company company = saveCompany("회사29");
+        User owner = saveUser("owner29@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector29@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = inspectionRepository.save(Inspection.builder()
+                .facilityId(facility.getId())
+                .createdBy(owner.getId())
+                .assignedInspectorId(inspector.getId())
+                .roundNo(1)
+                .inspectionDate(java.time.LocalDate.now())
+                .status(InspectionStatus.FAILED)
+                .build());
+        Defect defect = saveDefect(inspection, DefectGrade.C, DefectStatus.DETECTED);
+
+        DefectRevisionRequest request = DefectRevisionRequest.builder()
+                .grade(DefectGrade.A)
+                .reason("등급 상향 시도")
+                .build();
+
+        mockMvc.perform(patch("/api/defects/{id}", defect.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED"));
     }
 
     @Test

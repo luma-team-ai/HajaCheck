@@ -12,8 +12,8 @@ import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectRevision;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.DefectRevisionRepository;
+import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.entity.Inspection;
-import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
@@ -37,6 +37,7 @@ public class DefectRevisionService {
     private final DefectRepository defectRepository;
     private final DefectRevisionRepository defectRevisionRepository;
     private final InspectionService inspectionService;
+    private final DefectInspectionWriteGuard defectInspectionWriteGuard;
     private final CompanyScopeGuard companyScopeGuard;
     private final MediaRepository mediaRepository;
     private final UserRepository userRepository;
@@ -132,25 +133,10 @@ public class DefectRevisionService {
         // 소유권 검증
         Inspection inspection = inspectionService.getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
 
-        // 코드 리뷰 P1(머신 검수 2차) — ANALYZING 중 수동 하자가 끼면, 워커가 첫 탐지 성공 시 호출하는
-        // softDeleteAllForInspectionThenSave(DefectWriter)가 방금 추가된 이 하자까지 통째로 비삭제
-        // 대상에 포함시켜 지운다. InspectionAnalysisService.hasExistingDefects 사전 체크·원자적 UPDATE의
-        // NOT EXISTS는 분석 "시작 시점"만 지키므로, 시작 이후(ANALYZING 동안) 끼어드는 이 경로는 그
-        // 자체로 막아야 한다.
-        if (inspection.getStatus() == InspectionStatus.ANALYZING) {
-            throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
-        }
-        // PR머신 리뷰 3차 P1 — FAILED도 같은 이유로 막는다. FAILED 재분석의 원자적 선점(
-        // InspectionRepository#startAnalyzingIfNotRunning)은 "비삭제 하자 없음" 요건을 FAILED에 한해
-        // 건너뛰는데, 그 전제가 "FAILED에 남은 하자는 전부 이번에 실패한 실행이 만든 AI 결과뿐"이다.
-        // 이 가드가 없으면 그 전제가 거짓이 될 수 있다 — 점검자가 FAILED 회차를 보고 누락 하자를
-        // 수동 등록한 뒤 재분석을 돌리면, 워커의 softDeleteAllForInspectionThenSave(비삭제 하자 전체
-        // 대상)가 그 사람 하자까지 무보상으로 지운다. fail-closed 가드(InspectionAnalysisService
-        // #hasExistingDefects)가 원래 막으려던 바로 그 유실이 FAILED 바이패스로 다시 열리는 것을
-        // 여기서 원천 차단한다.
-        if (inspection.getStatus() == InspectionStatus.FAILED) {
-            throw new BusinessException(ErrorCode.DEFECT_CREATE_BLOCKED_ANALYSIS_FAILED);
-        }
+        // 코드 리뷰 P1(머신 검수 2차, 3차/4차에서 FAILED 확장 후 공통 헬퍼로 승격) — ANALYZING·FAILED
+        // 중 수동 하자가 끼면, 워커가 첫 탐지 성공 시 호출하는 softDeleteAllForInspectionThenSave가
+        // 방금 추가된 이 하자까지 통째로 비삭제 대상에 포함시켜 지운다(DefectInspectionWriteGuard 참고).
+        defectInspectionWriteGuard.requireWritable(inspection.getStatus());
 
         // bbox 검증: 4개 모두 지정되거나 모두 미지정
         boolean hasBboxX = request.getBboxX() != null;
@@ -200,7 +186,9 @@ public class DefectRevisionService {
      * @param defectId        하자 id
      * @param request         요청 (grade 또는 isDeleted 정확히 하나 + reason)
      * @return 검수 반영된 하자
-     * @throws BusinessException 하자 미존재/타인 소유 (404), 입력 오류 (400), RESOLVED 상태 (409)
+     * @throws BusinessException 하자 미존재/타인 소유 (404), 입력 오류 (400), RESOLVED 상태 (409),
+     *                           분석 진행 중(ANALYZING)·분석 실패(FAILED) — 재분석 시 하자가 삭제될
+     *                           수 있음 (409, PR머신 리뷰 4차 P1)
      */
     @Transactional
     public DefectDetailItem reviewDefect(
@@ -212,7 +200,12 @@ public class DefectRevisionService {
 
         // 소유권 검증 — 점검 회차를 통해 확인, 미존재/타인 소유면 404 DEFECT_NOT_FOUND로 통일
         try {
-            inspectionService.getInspection(revisedByUserId, companyId, defect.getInspectionId());
+            // PR머신 리뷰 4차 P1 — 등급 조정·오탐 삭제·오탐 복구 전부 여기 하나로 막는다. ANALYZING
+            // 중이면 워커의 softDeleteAllForInspectionThenSave가, FAILED 재분석이면 그 원자적 선점의
+            // "비삭제 하자 없음" bypass 이후 같은 워커 경로가 이 변경을 통째로 지운다(DefectInspectionWriteGuard 참고).
+            InspectionResponse inspection =
+                    inspectionService.getInspection(revisedByUserId, companyId, defect.getInspectionId());
+            defectInspectionWriteGuard.requireWritable(inspection.status());
         } catch (BusinessException e) {
             if (e.getErrorCode() == ErrorCode.INSPECTION_NOT_FOUND || e.getErrorCode() == ErrorCode.FACILITY_NOT_FOUND) {
                 throw new BusinessException(ErrorCode.DEFECT_NOT_FOUND);

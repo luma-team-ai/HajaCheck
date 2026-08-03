@@ -133,6 +133,18 @@ class DefectControllerTest extends PostgresTestSupport {
                 .build());
     }
 
+    // PR머신 리뷰 4차 P1 — FAILED 회차의 하자 쓰기 가드(DefectInspectionWriteGuard) 테스트용.
+    private Inspection saveFailedInspection(Long facilityId, Long ownerId) {
+        return inspectionRepository.save(Inspection.builder()
+                .facilityId(facilityId)
+                .createdBy(ownerId)
+                .assignedInspectorId(ownerId)
+                .roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 7, 1))
+                .status(InspectionStatus.FAILED)
+                .build());
+    }
+
     private Defect saveDefect(Long inspectionId, DefectGrade grade, DefectStatus status) {
         Defect saved = defectRepository.save(Defect.builder()
                 .inspectionId(inspectionId)
@@ -310,6 +322,24 @@ class DefectControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("CONFIRMED"));
+    }
+
+    @Test
+    void 하자상태전이_FAILED회차면_409_DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED() throws Exception {
+        // PR머신 리뷰 4차 P1 — FAILED 재분석 바이패스의 전제(FAILED에 남은 하자는 전부 이번에 실패한
+        // 실행의 AI 결과뿐)를 지키려면 상태전이도 막아야 한다. 안 막으면 재분석 워커의 전체 소프트삭제가
+        // 이 상태전이를 무보상으로 지운다(DefectInspectionWriteGuard 참고).
+        User owner = saveOwner("owner30@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveFailedInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("status", "CONFIRMED"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED"));
     }
 
     @Test
@@ -517,6 +547,22 @@ class DefectControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void 하자위치편집_FAILED회차면_409_DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED() throws Exception {
+        // PR머신 리뷰 4차 P1 — 위 상태전이 테스트와 동일한 이유(DefectInspectionWriteGuard 참고).
+        User owner = saveOwner("owner31@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveFailedInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/location", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("location", "외벽 동측 12층 부근"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED"));
+    }
+
+    @Test
     void 하자위치편집_빈문자열은null로정규화() throws Exception {
         User owner = saveOwner("owner20@haja.com");
         Facility facility = saveFacility(owner.getId());
@@ -662,6 +708,25 @@ class DefectControllerTest extends PostgresTestSupport {
                 .andExpect(status().isUnauthorized());
     }
 
+    @Test
+    void 이전회차하자확정_현재하자회차가FAILED면_409_DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED() throws Exception {
+        // PR머신 리뷰 4차 P1 — 확정 대상(current)의 소속 회차가 FAILED면 막는다. previousDefect 쪽은
+        // 참조만 되고 이 요청으로 바뀌지 않으므로 그 회차 상태는 무관하다(DefectInspectionWriteGuard 참고).
+        User owner = saveOwner("owner32@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection round1 = saveInspection(facility.getId(), owner.getId(), 1);
+        Inspection failedRound2 = saveFailedInspection(facility.getId(), owner.getId());
+        Defect previous = saveDefect(round1.getId(), DefectGrade.C, DefectStatus.DETECTED);
+        Defect current = saveDefect(failedRound2.getId(), DefectGrade.C, DefectStatus.DETECTED);
+
+        mockMvc.perform(patch("/api/defects/{id}/previous-defect", current.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("previousDefectId", previous.getId()))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED"));
+    }
+
     // ── #1128: 조치 등록 폼 targetStatus(진행상태 select) ──
 
     @Test
@@ -684,6 +749,28 @@ class DefectControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.status").value("IN_PROGRESS"));
+    }
+
+    @Test
+    void 조치등록_FAILED회차면_409_DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED() throws Exception {
+        // PR머신 리뷰 4차 P1 — 조치 결과 등록도 같은 이유로 막는다(DefectInspectionWriteGuard 참고).
+        User owner = saveOwner("owner33@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveFailedInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.CONFIRMED);
+        Media media = saveMedia(inspection.getId());
+
+        mockMvc.perform(patch("/api/defects/{id}/action", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "actionMediaId", media.getId(),
+                                "actionContent", "조치 착수 — 균열 부위 실측 완료",
+                                "actionDate", "2026-07-28",
+                                "actionAssigneeId", owner.getId(),
+                                "targetStatus", "IN_PROGRESS"))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED"));
     }
 
     @Test

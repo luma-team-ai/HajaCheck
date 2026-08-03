@@ -314,12 +314,15 @@ public enum ErrorCode {
     // 결정). 재분석은 소프트삭제로 기존(사람이 검수한) 하자를 지우므로, 최종 상태 회차에서 허용하면
     // 무보상 데이터 유실 표면이 된다.
     ANALYSIS_NOT_ALLOWED(HttpStatus.CONFLICT, "검수 완료 또는 보고서화된 회차는 재분석할 수 없습니다."),
-    // PR머신 리뷰 3차 P1 — FAILED 회차의 재분석 원자적 선점은 "비삭제 하자 없음" 요건을 건너뛰는데,
+    // PR머신 리뷰 3차/4차 P1 — FAILED 회차의 재분석 원자적 선점은 "비삭제 하자 없음" 요건을 건너뛰는데,
     // 이 예외의 전제(FAILED에 남은 하자는 전부 이번 실패한 실행이 만든 AI 결과뿐)가 성립하려면 FAILED
-    // 상태에서 수동 하자 추가 자체를 막아야 한다. 안 막으면 사람이 FAILED 회차에 등록한 하자가 재분석
-    // 워커의 softDeleteAllForInspectionThenSave(비삭제 하자 전체 대상)에 휩쓸려 무보상 유실된다.
-    DEFECT_CREATE_BLOCKED_ANALYSIS_FAILED(HttpStatus.CONFLICT,
-            "분석 실패(FAILED) 회차는 재분석 시 하자가 삭제될 수 있어 하자를 직접 추가할 수 없습니다. 재분석을 먼저 진행해 주세요."),
+    // 상태에서 하자를 만들거나 손대는 모든 쓰기(생성·검수·조치등록·위치수정·회차대응확정·상태전이)를
+    // 막아야 한다. 안 막으면 사람이 FAILED 회차에 등록·수정한 하자가 재분석 워커의
+    // softDeleteAllForInspectionThenSave(비삭제 하자 전체 대상)에 휩쓸려 무보상 유실된다
+    // (DefectInspectionWriteGuard 참고 — 원래 이름은 CREATE 전용이었으나 4차 리뷰에서 나머지 쓰기
+    // 경로에도 재사용하며 이름을 일반화했다).
+    DEFECT_WRITE_BLOCKED_ANALYSIS_FAILED(HttpStatus.CONFLICT,
+            "분석 실패(FAILED) 회차는 재분석 시 하자가 삭제될 수 있어 하자를 추가하거나 수정할 수 없습니다. 재분석을 먼저 진행해 주세요."),
 
     // AI 서버(FastAPI) 인증 프록시(#228) — 연결/타임아웃/응답형식 3종
     AI_SERVER_UNREACHABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 서버에 연결할 수 없습니다."),
