@@ -8,6 +8,7 @@ import type { InspectionStatus } from '../types';
 const STATUS_BADGE_CLASS: Record<InspectionStatus, string> = {
   분석중: DASHBOARD_COLOR_CLASS.statusBadgeBlue,
   검수대기: DASHBOARD_COLOR_CLASS.statusBadgeOrange,
+  분석실패: DASHBOARD_COLOR_CLASS.statusBadgeRed,
   검수확정: DASHBOARD_COLOR_CLASS.statusBadgeOrange,
   완료: DASHBOARD_COLOR_CLASS.statusBadgeGreen,
 };

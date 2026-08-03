@@ -43,6 +43,8 @@ export const DASHBOARD_COLOR_CLASS = {
   statusBadgeBlue: 'bg-[#e6ecff] text-[#3452e0]',
   statusBadgeOrange: 'bg-[#fdf0d5] text-[#b5670a]',
   statusBadgeGreen: 'bg-[#e3f5e6] text-[#16a34a]',
+  /** 분석 실패(FAILED) 배지 — dangerText(#dc2626)와 동일 팔레트 */
+  statusBadgeRed: 'bg-[#fee2e2] text-[#dc2626]',
   /** 등급 미분류 배지 배경 — BE PendingPriorityResponse.grade가 null일 때(HAJA-17 dev-03-01 DTO 정합) */
   gradeUnknownBg: 'bg-[#9ca3af]',
   /** 최근 점검 테이블 행 hover — 시안 rose #F8F2FA (선택 안 된 행에만, zebra even:bg 위에 얹힘) */

@@ -77,6 +77,7 @@ public class DashboardService {
     private static final Map<String, Set<InspectionStatus>> RECENT_STATUS_LABEL_GROUPS = Map.of(
             "분석중", EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING),
             "검수대기", EnumSet.of(InspectionStatus.ANALYZED),
+            "분석실패", EnumSet.of(InspectionStatus.FAILED),
             "검수확정", EnumSet.of(InspectionStatus.REVIEWED),
             "완료", EnumSet.of(InspectionStatus.REPORTED));
 

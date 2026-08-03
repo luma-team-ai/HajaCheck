@@ -218,6 +218,21 @@ describe('RecentInspectionsTable', () => {
     expect(screen.getByText('최근 점검 목록을 불러오지 못했습니다.')).toBeTruthy();
   });
 
+  it('분석실패(FAILED) 상태도 색상 있는 배지로 렌더링된다', () => {
+    // PR머신 리뷰 P2 — statusBadge.ts의 STATUS_BADGE_CLASS는 Record<InspectionStatus, string>이라
+    // '분석실패'를 안 채우면 컴파일이 막힌다. 여기서는 실제로 빈 클래스(무스타일 배지)가 아니라
+    // red 계열 클래스가 붙는지까지 렌더링으로 고정한다(AdminAnalysisJobsPage.test.tsx의 '실패' 필터
+    // 테스트와 대칭).
+    const FAILED_SAMPLE: RecentInspectionItem[] = [
+      { id: 4, facilityName: 'D동', inspectedAt: '2026-07-04', inspector: '박민수', defectCount: 0, status: '분석실패' },
+    ];
+    mockData(FAILED_SAMPLE);
+    renderTable();
+
+    const badge = screen.getByText('분석실패');
+    expect(badge.className).toContain(DASHBOARD_COLOR_CLASS.statusBadgeRed);
+  });
+
   it('"전체보기" 클릭 시 최근 점검 전체보기 화면으로 이동한다', async () => {
     mockData(SAMPLE);
     renderTable();

@@ -19,8 +19,12 @@ describe('getInspectionStatusClass', () => {
     expect(getInspectionStatusClass('완료')).toBe('bg-[#e3f5e6] text-[#16a34a]');
   });
 
+  it('분석실패는 red 계열 클래스를 반환한다', () => {
+    expect(getInspectionStatusClass('분석실패')).toBe('bg-[#fee2e2] text-[#dc2626]');
+  });
+
   it('모든 InspectionStatus 값에 대해 매핑이 존재한다', () => {
-    const statuses: InspectionStatus[] = ['분석중', '검수대기', '검수확정', '완료'];
+    const statuses: InspectionStatus[] = ['분석중', '검수대기', '분석실패', '검수확정', '완료'];
     statuses.forEach((status) => {
       expect(getInspectionStatusClass(status)).toBeTruthy();
     });

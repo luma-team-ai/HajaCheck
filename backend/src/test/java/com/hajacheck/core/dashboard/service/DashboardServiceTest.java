@@ -458,6 +458,33 @@ class DashboardServiceTest {
     }
 
     @Test
+    void searchRecentInspections_상태라벨_분석실패는FAILED상태집합으로변환() {
+        // PR머신 리뷰 P2 — RECENT_STATUS_LABEL_GROUPS는 RecentInspectionResponse.statusLabel()
+        // (정방향: raw→한글)과 대칭이어야 한다는 주석이 코드에 명시돼 있다. 정방향에 FAILED→"분석실패"가
+        // 추가됐으니 역방향에도 "분석실패"→{FAILED}가 있어야 하고, 없으면 이 라벨로 필터하는 어떤
+        // 클라이언트든 resolveStatusLabel에서 INVALID_INPUT(400)을 받는다.
+        Inspection insp = inspection(501L, FACILITY_ID, 99L, LocalDate.of(2026, 7, 1), InspectionStatus.FAILED);
+        Page<Inspection> page = new PageImpl<>(List.of(insp), PageRequest.of(0, 10), 1);
+        when(inspectionRepository.findRecentInspectionsPage(
+                eq(OWNER_ID), isNull(), isNull(),
+                eq(EnumSet.of(InspectionStatus.FAILED)),
+                isNull(), eq(List.of()), eq(PageRequest.of(0, 10))))
+                .thenReturn(page);
+        when(defectRepository.countGroupByInspectionId(List.of(501L))).thenReturn(List.of());
+        when(facilityRepository.findAllById(List.of(FACILITY_ID)))
+                .thenReturn(List.of(facility(FACILITY_ID, OWNER_ID, "테스트빌딩")));
+        User creator = User.createCompanyOwner("inspector@haja.com", "김검사", "$2a$10$testtesttesttesttesttes");
+        setId(creator, "id", 99L);
+        when(userRepository.findAllById(List.of(99L))).thenReturn(List.of(creator));
+
+        PageResponse<RecentInspectionResponse> result = dashboardService.searchRecentInspections(
+                USER_ID, OWNER_ID, null, null, "분석실패", null, PageRequest.of(0, 10));
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.content().get(0).status()).isEqualTo("분석실패");
+    }
+
+    @Test
     void searchRecentInspections_알수없는상태라벨_INVALID_INPUT예외() {
         assertThatThrownBy(() -> dashboardService.searchRecentInspections(
                 USER_ID, OWNER_ID, null, null, "존재하지않는상태", null, PageRequest.of(0, 10)))
