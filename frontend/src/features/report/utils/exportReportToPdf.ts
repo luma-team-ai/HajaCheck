@@ -40,7 +40,10 @@ const PAGE_WIDTH = 210;
 const PAGE_HEIGHT = 297;
 const MARGIN_X = 23;
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN_X * 2;
-/** 소절(`가.`, `나.`) 아래 딸린 표는 원본에서 본문보다 약 3.5mm 들여쓴다. */
+/**
+ * 소절 제목(`가.`, `나.`)만 본문보다 약 3.5mm 들여쓴다. 표는 들여쓰지 않는다 — 원본은 절·소절을
+ * 가리지 않고 모든 표가 같은 본문 폭(좌우 여백 23mm)을 쓰고, 제목만 살짝 안으로 들어간다.
+ */
 const SUB_TABLE_INDENT = 3.5;
 const BOTTOM_LIMIT = PAGE_HEIGHT - MARGIN_X;
 /** 부위별 사진 표에서 사진 1장이 차지하는 셀 높이(원본 실측 96mm). */
@@ -61,6 +64,15 @@ const FONT_SIZE = {
 const BLACK: [number, number, number] = [0, 0, 0];
 /** 표 헤더·라벨 배경. 원본 계측 0.8 → 204. */
 const HEAD_FILL: [number, number, number] = [204, 204, 204];
+/**
+ * 회색이 들어가는 자리(표 헤더 행·표 위 구분 행·좌측 라벨 열)는 전부 이 한 벌을 쓴다 —
+ * 절마다 다른 회색·정렬이 섞이면 같은 문서에서 톤이 달라 보인다(원본은 #CCCCCC·Bold·중앙 하나뿐).
+ */
+const GRAY_HEADER_STYLES = {
+  fillColor: HEAD_FILL,
+  fontStyle: "bold" as const,
+  halign: "center" as const,
+};
 // 하자 박스 색(#1333) — 흑백 괘선뿐인 관공서 서식에서 사진 위 마킹만 눈에 띄어야 하므로
 // 화면 오버레이(--color-selection, 마젠타 #d946ef)와 같은 색을 쓴다.
 const BOX_COLOR: [number, number, number] = [217, 70, 239];
@@ -375,32 +387,17 @@ export async function exportReportToPdf(
     },
     headStyles: {
       font: FONT_NAME,
-      fontStyle: "bold" as const,
-      fillColor: HEAD_FILL,
+      ...GRAY_HEADER_STYLES,
       textColor: BLACK,
-      halign: "center" as const,
       lineWidth: LINE_INNER,
     },
   };
 
-  /** 회색 배경 + Bold 중앙정렬 라벨열 스타일(원본의 좌측 구분열). */
+  /** 좌측 라벨 열 — 회색 관용구는 헤더 행과 동일하게 쓴다. */
   const labelColumn = (cellWidth: number) => ({
     cellWidth,
-    fontStyle: "bold" as const,
-    fillColor: HEAD_FILL,
-    halign: "center" as const,
+    ...GRAY_HEADER_STYLES,
   });
-
-  /** 소절 표는 본문보다 들여쓰고 그만큼 폭을 줄인다. */
-  const subTable = {
-    margin: {
-      left: MARGIN_X + SUB_TABLE_INDENT,
-      right: MARGIN_X,
-      top: MARGIN_X,
-      bottom: MARGIN_X,
-    },
-    tableWidth: CONTENT_WIDTH - SUB_TABLE_INDENT,
-  };
 
   const lastTableY = () =>
     (doc as typeof doc & { lastAutoTable: { finalY: number } }).lastAutoTable
@@ -451,7 +448,6 @@ export async function exportReportToPdf(
     // 라벨 텍스트에 넣은 공백은 원본이 글자수를 맞추는 방식이라 그대로 따른다.
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [
         ["시 설 물 명", facilityName, "점검 회차", inspectionLabel],
@@ -473,7 +469,6 @@ export async function exportReportToPdf(
     y = subsectionTitle("나. 점검 개요", lastTableY() + 6);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [
         ["점검 목적", content.overview.purpose || "-"],
@@ -525,7 +520,6 @@ export async function exportReportToPdf(
     // 최악 등급을 뽑아 같은 자리에 채운다(새 데이터 요구 없음).
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [
         [
@@ -533,13 +527,12 @@ export async function exportReportToPdf(
           `상태평가 결과 : ${worstGrade(content.summary.count_by_grade)}`,
         ],
       ],
-      bodyStyles: { fillColor: HEAD_FILL, fontStyle: "bold", halign: "center" },
+      bodyStyles: GRAY_HEADER_STYLES,
       columnStyles: { 0: { cellWidth: 96 }, 1: { cellWidth: "auto" } },
     });
 
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: lastTableY(),
       head: [
         [
@@ -581,11 +574,11 @@ export async function exportReportToPdf(
     startY: number,
     nested = false,
   ): number => {
+    // 보수ㆍ보강(안) 표는 소절 제목을 따로 달지 않는다 — 블록 제목이 이미 `보수ㆍ보강(안)`이라
+    // 소절까지 같은 이름을 붙이면 같은 문구가 연달아 두 번 나온다.
     let y = blockTitle(label, startY, nested);
-    y = subsectionTitle(`${childMarker(nested, 0)} 보수ㆍ보강(안)`, y);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       head: [
         ["연번", "대상 부위", "보수ㆍ보강(안)", "조치\n우선순위", "적용 근거"],
@@ -610,12 +603,11 @@ export async function exportReportToPdf(
     });
 
     y = subsectionTitle(
-      `${childMarker(nested, 1)} 지속 관찰 부위`,
+      `${childMarker(nested, 0)} 지속 관찰 부위`,
       ensureSpace(lastTableY() + 6, 30),
     );
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [
         [
@@ -696,7 +688,6 @@ export async function exportReportToPdf(
     const y = sectionTitle(label, startY);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       head: [["구  분", "성  명", "자격 및 주요경력", "과업 참여기간"]],
       body:
@@ -730,7 +721,6 @@ export async function exportReportToPdf(
     const y = blockTitle(label, startY, nested);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
       body: [[data.body?.trim() || "입력된 내용이 없습니다."]],
       bodyStyles: { minCellHeight: 24, valign: "top", halign: "left" },

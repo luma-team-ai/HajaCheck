@@ -201,8 +201,11 @@ describe("exportReportToPdf", () => {
     expect(renderedText).toContain("나. 보수ㆍ보강(안)");
     expect(renderedText).not.toContain("3. 진단 외관조사결과 기본사항");
     // 소절로 내려간 블록의 자체 소절은 한 단계 더 내려간다(가./나. → 1)/2)).
-    expect(renderedText).toContain("1) 보수ㆍ보강(안)");
-    expect(renderedText).toContain("2) 지속 관찰 부위");
+    expect(renderedText).toContain("1) 지속 관찰 부위");
+    // 블록 제목과 같은 이름의 소절 제목을 또 달지 않는다(`보수ㆍ보강(안)` 중복 표기 방지).
+    expect(renderedText.filter((text) => text.includes("보수ㆍ보강(안)"))).toEqual(
+      ["나. 보수ㆍ보강(안)"],
+    );
     // 지원되지 않는 서명·참여자 필드는 만들지 않는다(수동 섹션을 추가하지 않은 기본 상태).
     expect(renderedText).not.toContain("제  출  문");
     expect(renderedText).not.toContain("작성자");
