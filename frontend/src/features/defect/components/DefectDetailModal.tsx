@@ -198,7 +198,7 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
                       {activeTabLogs.length > 1 && (
                         <select
                           className="defect-detail-modal__photo-log-select"
-                          aria-label="등록일 선택"
+                          aria-label="회차 선택"
                           value={activeTabLog?.id ?? ''}
                           onChange={(event) => {
                             const logId = Number(event.target.value);
@@ -209,9 +209,13 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
                             }
                           }}
                         >
-                          {activeTabLogs.map((log) => (
+                          {/* activeTabLogs는 백엔드가 createdAt 내림차순(최신 먼저)으로 내려주므로,
+                              등록 순서상 가장 오래된 항목이 1회차가 되도록 인덱스를 뒤집는다. 같은 날
+                              여러 건 등록 시 actionDate만으로는 옵션 라벨이 동일해 구분이 안 되던
+                              문제(#1417)를 회차 번호로 해소 — 날짜는 참고용으로 함께 표시. */}
+                          {activeTabLogs.map((log, index) => (
                             <option key={log.id} value={log.id}>
-                              {log.actionDate}
+                              {activeTabLogs.length - index}회차 · {log.actionDate}
                             </option>
                           ))}
                         </select>

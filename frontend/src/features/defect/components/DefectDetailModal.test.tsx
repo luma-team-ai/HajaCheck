@@ -114,7 +114,7 @@ describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#119
     expect(beforeTab.getAttribute('aria-selected')).toBe('true');
     expect(inProgressTab.getAttribute('aria-selected')).toBe('false');
     expect(screen.queryByRole('tab', { name: '조치 완료 사진' })).toBeNull();
-    expect(screen.queryByLabelText('등록일 선택')).toBeNull();
+    expect(screen.queryByLabelText('회차 선택')).toBeNull();
 
     // 기본 탭에서는 원본 이미지(mockDefects id=1의 imageUrl)가 노출된다.
     const image = screen.getByRole('img', { name: '철근 노출 촬영 이미지' }) as HTMLImageElement;
@@ -161,8 +161,11 @@ describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#119
     await screen.findByText('철근 노출');
     fireEvent.click(await screen.findByRole('tab', { name: '조치 사진' }));
 
-    const select = (await screen.findByLabelText('등록일 선택')) as HTMLSelectElement;
-    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['2026-07-22', '2026-07-20']);
+    const select = (await screen.findByLabelText('회차 선택')) as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+      '2회차 · 2026-07-22',
+      '1회차 · 2026-07-20',
+    ]);
     expect(select.value).toBe('2');
 
     let image = screen.getByRole('img', { name: '철근 노출 촬영 이미지' }) as HTMLImageElement;

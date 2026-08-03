@@ -559,10 +559,12 @@
   gap: 22px;
 }
 
-/* --- 이미지(4:3) + 지표 카드 좌우 배치(#1417) ---
-   .defect-image-stage/.defect-metrics는 DefectDetailPage.css에 정의된 공용 클래스라(하자 상세
-   드릴다운 FacilityDefectDetailPage.css 계열과 공유 가능성 있음), 여기서는 base 규칙을 건드리지
-   않고 .defect-detail-modal 스코프 셀렉터로만 오버라이드한다. */
+/* --- 이미지(3:4) + 지표 카드 좌우 배치(#1417) ---
+   하자 사진(균열 등)은 대부분 세로로 긴 형태라 4:3(가로)으로 고정하면 레터박스 여백이 크게
+   남는다(실사용 확인 — 균열 사진이 박스 폭의 60%+를 빈 여백으로 남김). 3:4(세로)로 바꿔 실제
+   사진 내용이 프레임을 꽉 채우도록 한다. .defect-image-stage/.defect-metrics는 DefectDetailPage.css에
+   정의된 공용 클래스라(하자 상세 드릴다운 FacilityDefectDetailPage.css 계열과 공유 가능성 있음),
+   여기서는 base 규칙을 건드리지 않고 .defect-detail-modal 스코프 셀렉터로만 오버라이드한다. */
 
 .defect-detail-modal__media-row {
   display: flex;
@@ -573,16 +575,16 @@
 
 .defect-detail-modal__image-col {
   display: flex;
-  flex: 1 1 420px;
+  flex: 1 1 300px;
   flex-direction: column;
   gap: 12px;
-  min-width: 260px;
-  max-width: 520px;
+  min-width: 240px;
+  max-width: 360px;
 }
 
 .defect-detail-modal__image-col .defect-image-stage {
   height: auto;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 3 / 4;
 }
 
 .defect-detail-modal .defect-metrics {
@@ -591,6 +593,14 @@
   flex-direction: column;
   gap: 10px;
   min-width: 160px;
+}
+
+/* pill(border-radius:999px)은 작은 컨트롤용 — 큰 지표 카드에 pill을 쓰면 늘어진 알약처럼
+   보인다(impeccable craft-floor: "Card radii stay at 12–16px; pills are for small controls").
+   공용 .defect-metric-card 정의(999px)를 모달 안에서만 카드 라운드로 오버라이드. */
+.defect-detail-modal .defect-metric-card {
+  border-radius: 14px;
+  min-height: 76px;
 }
 
 /* --- 조치 결과 등록 폼 --- */
