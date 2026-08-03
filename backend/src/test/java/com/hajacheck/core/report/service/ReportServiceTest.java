@@ -11,6 +11,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
@@ -47,6 +48,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -709,11 +711,29 @@ class ReportServiceTest {
         Report v1 = Report.draft(1L, 1, "{}", 100L);
         Report v2 = Report.draft(1L, 2, "{}", 100L);
         when(reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(1L)).thenReturn(List.of(v2, v1));
+        User author = User.builder().name("김기준").build();
+        ReflectionTestUtils.setField(author, "id", 100L);
+        when(userRepository.findAllById(List.of(100L))).thenReturn(List.of(author));
 
         List<ReportSummaryResponse> result = reportService.listReports(1L, 200L, 100L);
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).version()).isEqualTo(2);
+        // 작성자 조회가 배선돼 있어야 프론트가 "알 수 없음"으로 폴백하지 않는다.
+        assertThat(result.get(0).createdByName()).isEqualTo("김기준");
+        assertThat(result.get(1).createdByName()).isEqualTo("김기준");
+    }
+
+    @Test
+    void listReports_작성자를찾을수없으면createdByName이null이다() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        Report v1 = Report.draft(1L, 1, "{}", 999L);
+        when(reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(1L)).thenReturn(List.of(v1));
+        when(userRepository.findAllById(List.of(999L))).thenReturn(List.of());
+
+        List<ReportSummaryResponse> result = reportService.listReports(1L, 200L, 100L);
+
+        assertThat(result.get(0).createdByName()).isNull();
     }
 
     @Test
