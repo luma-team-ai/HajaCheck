@@ -336,8 +336,6 @@ def _yolo_type_detections(defect_type: str, image: "Image.Image") -> list[Detect
     return detections
 
 
-
-
 def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
     """세 모델(CRACK/SPALLING/REBAR_EXPOSURE)을 각각 호출해 결과를 합친다.
 
