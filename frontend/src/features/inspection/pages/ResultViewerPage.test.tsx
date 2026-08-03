@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
@@ -225,6 +225,9 @@ afterEach(() => {
   server.resetHandlers();
   // vitest globals 미설정 환경이라 RTL 자동 cleanup이 안 걸림 — 명시 호출 필요
   cleanup();
+  // 드래그 방향 회귀 테스트가 getBoundingClientRect를 스텁하는데(vi.spyOn), 복원 안 하면
+  // 그 뒤 테스트들도 계속 고정 500x500 사각형을 받는다.
+  vi.restoreAllMocks();
 });
 afterAll(() => server.close());
 
@@ -836,6 +839,71 @@ describe('ResultViewerPage (통합 테스트)', () => {
       expect(postCalled).toBe(true);
       expect(screen.queryByText('누락된 하자 추가')).toBeNull();
     });
+  });
+
+  // PR머신 리뷰 P2 — "오른쪽에서 왼쪽으로 끄는 드래그에서 시작점을 잃는" 버그 픽스(고정
+  // drawStartRef + window 레벨 mousemove/mouseup)의 회귀 테스트. jsdom은 실제 레이아웃을 안 해
+  // getBoundingClientRect가 기본 all-zero라 좌표 계산이 0으로 나뉘므로, 이 테스트에서만 고정
+  // 사각형(500x500)으로 스텁한다(DefectImageViewer.test.tsx와 동일 패턴).
+  it('그리기 모드에서 오른쪽→왼쪽으로 드래그해도 시작점 기준으로 박스가 올바르게 계산된다', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 500,
+      height: 500,
+      top: 0,
+      right: 500,
+      bottom: 500,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    let capturedBody: DefectCreateRequest | undefined;
+    server.use(
+      http.post('/api/inspections/:id/defects', async ({ request }) => {
+        capturedBody = (await request.json()) as DefectCreateRequest;
+        const newDefect: DefectDetailItem = {
+          id: 999,
+          inspectionId: 1,
+          type: capturedBody.type,
+          grade: capturedBody.grade,
+          confidence: 1.0,
+          status: 'DETECTED',
+          isReviewed: false,
+          bboxX: capturedBody.bboxX ?? null,
+          bboxY: capturedBody.bboxY ?? null,
+          bboxW: capturedBody.bboxW ?? null,
+          bboxH: capturedBody.bboxH ?? null,
+          createdAt: new Date().toISOString(),
+        };
+        return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('이미지 위에 드래그해서 하자 위치를 표시하세요.');
+    const canvas = screen.getByAltText('점검 이미지').parentElement as HTMLElement;
+
+    // 오른쪽(x=400, 80%)에서 시작해 왼쪽(x=100, 20%)으로 끈다 — 시작점(0.8)이 고정 ref로
+    // 유지돼야 최종 박스 x가 min(0.8, 0.2)=0.2, width가 abs(0.2-0.8)=0.6이 된다.
+    fireEvent.mouseDown(canvas, { clientX: 400, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 250, clientY: 150 });
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 200 });
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 200 });
+
+    await screen.findByText('누락된 하자 추가');
+    const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
+    fireEvent.change(selects[0], { target: { value: 'CRACK' } });
+    fireEvent.change(selects[1], { target: { value: 'A' } });
+    fireEvent.click(screen.getAllByRole('button', { name: '저장' }).pop()!);
+
+    await waitFor(() => expect(capturedBody).not.toBeUndefined());
+    expect(capturedBody?.bboxX).toBeCloseTo(0.2);
+    expect(capturedBody?.bboxW).toBeCloseTo(0.6);
   });
 
   it('모달에서 취소하면 API 호출 없이 모달이 닫힌다 (#622)', async () => {

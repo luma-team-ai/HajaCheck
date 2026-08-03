@@ -15,7 +15,17 @@ import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import { mediaApi } from '../api/mediaApi';
 import type { Media } from '../types';
 import { todayDateString } from '../utils/validateInspectionCreateForm';
+import { saveDraftMediaFiles } from '../utils/inspectionCreateDraftFiles';
 import { InspectionCreatePage } from './InspectionCreatePage';
+
+// jsdom엔 기본적으로 indexedDB가 없어(fake-indexeddb 전역 폴리필 미설정) 실제 구현을 그대로 쓰면
+// openDb()가 조용히 실패해(자체 try/catch로 삼킴) 호출 여부를 관찰할 수 없다. PR머신 리뷰 P2 —
+// 언마운트 flush 회귀 테스트를 위해 이 모듈만 스파이 가능한 목으로 교체한다.
+vi.mock('../utils/inspectionCreateDraftFiles', () => ({
+  saveDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+  loadDraftMediaFiles: vi.fn().mockResolvedValue([]),
+  clearDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+}));
 
 const server = setupServer(...inspectionHandlers);
 
@@ -439,5 +449,35 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     await screen.findByText('작성을 취소하시겠습니까? (입력 내용 임시저장됨)');
     fireEvent.click(screen.getByRole('button', { name: '나가기' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
+  });
+
+  // PR머신 리뷰 P2 — 임시저장 디바운스(400ms) 대기 중 언마운트되면 최신 mediaFiles를 즉시
+  // flush해야 한다(안 그러면 파일 추가 직후 사이드바 이탈 시 그 변경이 조용히 유실된다).
+  // selectFiles 직후 곧바로 unmount하면 실제 경과 시간이 400ms에 한참 못 미쳐 자연스럽게
+  // "디바운스 타이머 발화 전 언마운트" 상황이 재현된다 — 가짜 타이머는 findByText 등 RTL의
+  // 내부 폴링(waitFor)과 충돌해 오히려 불필요한 복잡도를 더한다.
+  it('파일 추가 직후(디바운스 대기 중) 언마운트되면 최신 mediaFiles를 즉시 flush한다', async () => {
+    vi.mocked(saveDraftMediaFiles).mockClear();
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const router = createMemoryRouter(
+      [{ path: '/inspections/create', element: <InspectionCreatePage /> }],
+      { initialEntries: ['/inspections/create'] },
+    );
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await fillRequiredFields();
+    const file = new File(['a'], 'a.jpg', { type: 'image/jpeg' });
+    selectFiles([file]);
+
+    unmount();
+
+    expect(saveDraftMediaFiles).toHaveBeenCalledWith([file]);
   });
 });
