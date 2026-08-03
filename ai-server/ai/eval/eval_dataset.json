@@ -1,0 +1,22 @@
+[
+  {"query": "시설물 안전점검은 얼마나 자주 실시해야 하나요?", "relevant_chunk_ids": ["1_2", "1_3"]},
+  {"query": "정밀안전진단은 몇 년 주기로 실시하나요?", "relevant_chunk_ids": ["1_5"]},
+  {"query": "관리주체의 안전점검 의무는 무엇인가요?", "relevant_chunk_ids": ["1_2"]},
+  {"query": "제12조에서 정한 안전등급 기준은?", "relevant_chunk_ids": ["2_11"]},
+  {"query": "제1종 시설물의 정의는 무엇인가요?", "relevant_chunk_ids": ["2_0"]},
+  {"query": "안전점검 결과 D등급 판정 시 조치사항은?", "relevant_chunk_ids": ["2_14", "2_15"]},
+  {"query": "균열 하자의 보수 공법 기준이 명시된 조문은?", "relevant_chunk_ids": ["3_7"]},
+  {"query": "누수 하자 발생 시 관리주체가 취해야 할 절차는?", "relevant_chunk_ids": ["3_9"]},
+  {"query": "긴급안전점검은 어떤 경우에 실시하나요?", "relevant_chunk_ids": ["1_8"]},
+  {"query": "안전점검 결과의 보고 대상 기관은 어디인가요?", "relevant_chunk_ids": ["1_10"]},
+  {"query": "시설물 안전관리 특별법의 목적 조항은?", "relevant_chunk_ids": ["1_0"]},
+  {"query": "정기안전점검과 정밀안전점검의 차이는?", "relevant_chunk_ids": ["1_4", "1_5"]},
+  {"query": "제2종 시설물에 해당하는 예시는?", "relevant_chunk_ids": ["2_1"]},
+  {"query": "안전진단전문기관의 등록 요건은?", "relevant_chunk_ids": ["4_2"]},
+  {"query": "시설물 유지관리계획 수립 의무자는 누구인가요?", "relevant_chunk_ids": ["1_6"]},
+  {"query": "안전점검 비용 부담 주체는 누구인가요?", "relevant_chunk_ids": ["1_12"]},
+  {"query": "부실점검이 적발되었을 때 벌칙 규정은?", "relevant_chunk_ids": ["5_3"]},
+  {"query": "구조안전성 평가 절차는 어떻게 진행되나요?", "relevant_chunk_ids": ["3_4"]},
+  {"query": "노후 시설물의 정밀안전진단 특례는?", "relevant_chunk_ids": ["2_18"]},
+  {"query": "시설물 등급 판정 결과에 대한 이의신청 절차는?", "relevant_chunk_ids": ["2_20"]}
+]
