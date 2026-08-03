@@ -1,4 +1,4 @@
-"""rag_chat 체인/엔드포인트 검증 (실제 Chroma/HF/Redis 호출 없이 get_vectorstore·get_llm·
+"""rag_chat 체인/엔드포인트 검증 (실제 Chroma/HF/Redis 호출 없이 hybrid_search·get_llm·
 get_redis_client만 모킹). test_defect_explain.py 패턴을 따른다.
 
 - _render_locator: article/clause/page 유무별 렌더링 규칙(설계 rag_chroma_schema.md §7)
@@ -15,6 +15,7 @@ from langchain_core.documents import Document
 
 from ai.chains.rag_chat_chain import (
     RAG_CHAT_CACHE_PREFIX,
+    RAG_CHAT_TOP_K,
     _build_sources,
     _cache_key,
     _render_locator,
@@ -78,9 +79,9 @@ def test_build_sources_maps_metadata_deterministically():
 
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
-@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_endpoint_success_sources_ignore_llm_output(
-    mock_get_vectorstore, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client
 ):
     """LLM mock이 sources와 무관한 answer만 주더라도, 응답 sources는 검색 metadata에서만
     구성됨을 구조적으로 검증한다(_RagChatAnswer에 sources 필드 자체가 없음)."""
@@ -88,11 +89,9 @@ def test_rag_chat_endpoint_success_sources_ignore_llm_output(
     mock_redis.get.return_value = None
     mock_get_redis_client.return_value = mock_redis
 
-    mock_vectorstore = MagicMock()
-    mock_vectorstore.similarity_search.return_value = [
+    mock_hybrid_search.return_value = [
         _doc(doc_id="42", chunk_index=3, article="제12조")
     ]
-    mock_get_vectorstore.return_value = mock_vectorstore
 
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
@@ -117,22 +116,20 @@ def test_rag_chat_endpoint_success_sources_ignore_llm_output(
             "chunk_ref": "42_3",
         }
     ]
-    mock_vectorstore.similarity_search.assert_called_once_with("균열 보수 기준은?", k=4)
+    mock_hybrid_search.assert_called_once_with("균열 보수 기준은?", k=RAG_CHAT_TOP_K)
 
 
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
-@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_endpoint_no_result_returns_rag_no_result_and_skips_cache_write(
-    mock_get_vectorstore, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client
 ):
     mock_redis = MagicMock()
     mock_redis.get.return_value = None
     mock_get_redis_client.return_value = mock_redis
 
-    mock_vectorstore = MagicMock()
-    mock_vectorstore.similarity_search.return_value = []
-    mock_get_vectorstore.return_value = mock_vectorstore
+    mock_hybrid_search.return_value = []
 
     res = client.post("/ai/rag-chat", json={"question": "존재하지 않는 질의"})
 
@@ -146,9 +143,9 @@ def test_rag_chat_endpoint_no_result_returns_rag_no_result_and_skips_cache_write
 
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
-@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_endpoint_ungrounded_answer_returns_rag_no_result_without_sources(
-    mock_get_vectorstore, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client
 ):
     """검색은 top-k(관련성 무관)를 반환했지만 LLM이 grounded=false로 판정한 경우 —
     무관한 발췌를 sources로 붙이지 않고 RAG_NO_RESULT로 응답, 캐시도 저장하지 않는다.
@@ -157,11 +154,9 @@ def test_rag_chat_endpoint_ungrounded_answer_returns_rag_no_result_without_sourc
     mock_redis.get.return_value = None
     mock_get_redis_client.return_value = mock_redis
 
-    mock_vectorstore = MagicMock()
-    mock_vectorstore.similarity_search.return_value = [
+    mock_hybrid_search.return_value = [
         _doc(doc_id="42", chunk_index=3, article="제59조")
     ]
-    mock_get_vectorstore.return_value = mock_vectorstore
 
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
@@ -180,9 +175,9 @@ def test_rag_chat_endpoint_ungrounded_answer_returns_rag_no_result_without_sourc
 
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
-@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_cache_hit_skips_vectorstore_and_llm(
-    mock_get_vectorstore, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client
 ):
     question = "균열 보수 기준은?"
     cached_payload = {
@@ -209,15 +204,15 @@ def test_rag_chat_cache_hit_skips_vectorstore_and_llm(
     assert body["success"] is True
     assert body["data"] == cached_payload
     mock_redis.get.assert_called_once_with(_cache_key(question))
-    mock_get_vectorstore.assert_not_called()
+    mock_hybrid_search.assert_not_called()
     mock_get_llm.assert_not_called()
 
 
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
-@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_success_writes_cache_with_expected_key_ttl_and_payload(
-    mock_get_vectorstore, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client
 ):
     question = "균열 보수 기준은?"
 
@@ -225,11 +220,9 @@ def test_rag_chat_success_writes_cache_with_expected_key_ttl_and_payload(
     mock_redis.get.return_value = None
     mock_get_redis_client.return_value = mock_redis
 
-    mock_vectorstore = MagicMock()
-    mock_vectorstore.similarity_search.return_value = [
+    mock_hybrid_search.return_value = [
         _doc(doc_id="42", chunk_index=3, article="제12조")
     ]
-    mock_get_vectorstore.return_value = mock_vectorstore
 
     mock_llm = MagicMock()
     mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(

@@ -21,10 +21,11 @@ from typing import Literal, Optional, TypedDict
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
+from ai.core.hybrid_search import hybrid_search
 from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
 from ai.core.prompt_safety import wrap_untrusted
 from ai.core.schemas import AIErrorCode, AIResponse, RagAnswerData, SourceCitation
-from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
+from ai.core.vectorstore import COLLECTION_REGULATIONS
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -159,11 +160,11 @@ def _route_after_cache(state: RagChatState) -> Literal["end", "retrieve"]:
 def _node_retrieve(state: RagChatState) -> RagChatState:
     """검색 노드.
 
-    벡터스토어에서 similarity_search를 수행. 노드 함수 내에서 get_vectorstore()를 런타임 호출.
+    벡터검색 + BM25검색을 RRF로 결합한 하이브리드 검색(#1410)을 수행. 노드 함수 내에서
+    hybrid_search()를 런타임 호출(내부에서 get_vectorstore()/bm25_index를 런타임 호출하므로
+    @patch 호환성 유지).
     """
-    docs = get_vectorstore(COLLECTION_REGULATIONS).similarity_search(
-        state["question"], k=RAG_CHAT_TOP_K
-    )
+    docs = hybrid_search(state["question"], k=RAG_CHAT_TOP_K)
     return {**state, "docs": docs}
 
 

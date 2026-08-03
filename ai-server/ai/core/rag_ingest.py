@@ -15,6 +15,7 @@ import threading
 from collections import defaultdict
 from datetime import datetime, timezone
 
+from ai.core import bm25_index
 from ai.core.chunking import extract_article_metadata, split_general_text, split_regulation_text
 from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS, get_vectorstore
 
@@ -113,6 +114,9 @@ def ingest_document(
 
     vectorstore = get_vectorstore(target_collection)
     vectorstore.add_texts(texts=chunks, metadatas=metadatas, ids=ids)
+    # #1410 하이브리드 검색용 BM25 캐시 무효화 — invalidate() 자체가 regulations 외 컬렉션에는
+    # no-op이라 target_collection을 여기서 다시 분기하지 않고 항상 호출한다(더 단순한 쪽).
+    bm25_index.invalidate(target_collection)
     return len(chunks)
 
 
@@ -128,6 +132,7 @@ def delete_document(doc_id: str, collection: str) -> None:
     # 던져 모든 (재)임베딩이 실패한다(code-review P1). 래퍼를 우회해 내부 chromadb 컬렉션을 직접
     # 호출한다.
     vectorstore._collection.delete(where={"doc_id": doc_id})
+    bm25_index.invalidate(collection)  # #1410 — regulations 외에는 no-op
 
 
 def delete_stale_chunks(doc_id: str, collection: str, keep_chunk_count: int) -> None:
@@ -141,3 +146,4 @@ def delete_stale_chunks(doc_id: str, collection: str, keep_chunk_count: int) -> 
     vectorstore._collection.delete(
         where={"$and": [{"doc_id": doc_id}, {"chunk_index": {"$gte": keep_chunk_count}}]}
     )
+    bm25_index.invalidate(collection)  # #1410 — regulations 외에는 no-op
