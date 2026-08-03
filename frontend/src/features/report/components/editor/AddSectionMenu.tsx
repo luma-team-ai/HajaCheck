@@ -10,12 +10,15 @@ interface AddSectionMenuProps {
   onAdd: (type: ManualSectionType, title?: string) => void;
 }
 
+// 'overview-form'ㆍ'inspection-result-repair'ㆍ'member-condition-repair'는 여기서 뺀다(#1409) —
+// 각각 고정 섹션과 제목이 완전히 같거나('overview-form' = "기본현황" = 고정 overview 라벨),
+// 고정 섹션이 이미 표로 렌더링하는 문구와 그대로 겹친다('inspection-result-repair' =
+// "상태평가 결과 및 보수ㆍ보강" = detail 표의 회색 헤더 행, exportReportToPdf.ts 참고).
+// 새로 추가하면 PDF에 같은 제목/문구가 두 번 나온다. 타입ㆍ렌더 로직ㆍ데이터는 그대로 둔다 —
+// 이미 이 타입으로 저장된 기존 보고서는 편집기ㆍPDF 양쪽에서 계속 정상 렌더링된다(데이터 유실 없음).
 const OPTIONS: ManualSectionType[] = [
   'submission',
-  'overview-form',
-  'inspection-result-repair',
   'participants',
-  'member-condition-repair',
   'safety-assessment',
   'field-test',
   'facility-status',

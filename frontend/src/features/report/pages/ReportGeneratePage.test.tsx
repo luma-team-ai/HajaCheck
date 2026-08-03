@@ -820,22 +820,26 @@ describe('ReportGeneratePage', () => {
     expect(updateReportCallCount).toBe(0);
   });
 
-  it('서식 섹션 추가 메뉴에는 결과 요약 하위인 종합의견을 별도 항목으로 노출하지 않는다', async () => {
+  it('서식 섹션 추가 메뉴에는 결과 요약 하위인 종합의견 및 고정 섹션과 중복되는 항목을 노출하지 않는다', async () => {
     renderPage();
 
     await screen.findByText('보고서 생성 결과');
     fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
 
     expect(screen.getByRole('button', { name: '제출문' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '기본현황' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '참여 기술진 명단' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: '책임기술자 종합의견' })).toBeNull();
-    expect(screen.getByRole('button', { name: '부위별 상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '안전성평가 결과' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '현장시험(비파괴 및 추가시험)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '시설물 현황' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도' })).toBeTruthy();
+    // 결과 요약 하위 개념(종합의견)은 별도 항목으로 노출하지 않는다.
+    expect(screen.queryByRole('button', { name: '책임기술자 종합의견' })).toBeNull();
+    // 고정 섹션과 제목/문구가 그대로 겹치는 수동 섹션 스캐폴딩은 메뉴에서 뺀다(#1409) —
+    // 'overview-form'="기본현황"(고정 overview 라벨과 동일), 'inspection-result-repair'/
+    // 'member-condition-repair'는 고정 detail 섹션이 이미 표로 렌더링하는 문구와 중복.
+    expect(screen.queryByRole('button', { name: '기본현황' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '상태평가 결과 및 보수ㆍ보강' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '부위별 상태평가 결과 및 보수ㆍ보강' })).toBeNull();
   });
 
   it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {
