@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import '../pages/DefectDetailPage.css';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { useDefect } from '../hooks/useDefect';
@@ -202,26 +202,33 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
               </div>
 
               <div className="defect-metrics">
-                <article className="defect-metric-card">
-                  <span>AI 신뢰도</span>
-                  <strong>{Math.round(selectedDefect.confidence * 100)} <small>%</small></strong>
+                <article className="defect-metric-card defect-metric-card--hero">
+                  <span
+                    className="defect-metric-ring"
+                    style={{ '--pct': Math.round(selectedDefect.confidence * 100) } as CSSProperties}
+                  >
+                    <strong>{Math.round(selectedDefect.confidence * 100)}%</strong>
+                  </span>
+                  <span className="defect-metric-hero-label">AI 신뢰도</span>
                 </article>
-                <article className="defect-metric-card">
-                  <span>균열 폭(최대)</span>
-                  <strong>
-                    {selectedDefect.crackWidthMm != null
-                      ? `${selectedDefect.crackWidthMm}mm`
-                      : <span className="defect-metric-empty">정보 없음</span>}
-                  </strong>
-                </article>
-                <article className="defect-metric-card">
-                  <span>균열 길이(추정)</span>
-                  <strong>
-                    {selectedDefect.crackLengthMm != null
-                      ? `${selectedDefect.crackLengthMm}mm`
-                      : <span className="defect-metric-empty">정보 없음</span>}
-                  </strong>
-                </article>
+                <div className="defect-metric-row">
+                  <article className="defect-metric-card">
+                    <span>균열 폭(최대)</span>
+                    <strong>
+                      {selectedDefect.crackWidthMm != null
+                        ? `${selectedDefect.crackWidthMm}mm`
+                        : <span className="defect-metric-empty">측정 예정</span>}
+                    </strong>
+                  </article>
+                  <article className="defect-metric-card">
+                    <span>균열 길이(추정)</span>
+                    <strong>
+                      {selectedDefect.crackLengthMm != null
+                        ? `${selectedDefect.crackLengthMm}mm`
+                        : <span className="defect-metric-empty">측정 예정</span>}
+                    </strong>
+                  </article>
+                </div>
               </div>
             </div>
 
