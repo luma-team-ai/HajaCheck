@@ -97,27 +97,49 @@
   font-size: 14px;
 }
 
+/* #1436: 기존엔 미선택 박스도 진한 마젠타 2px+투명도 12%라 사진 여러 개가 겹치면 실측 사진이
+   라벨링 툴 화면처럼 보였다. 미선택은 얇고 옅게 낮춰 "여기 하자가 있다" 정도만 알리고, 선택된
+   하자만 뚜렷하게(포인트 컬러 링 + 코드 라벨) 강조해 실제로 보고 있는 대상이 뭔지 명확히 한다. */
 .defect-detection-box {
   position: absolute;
   margin: 0;
   border-radius: 10px;
-  border: 2px solid #f000e8;
-  background: rgba(240, 0, 232, 0.12);
+  border: 1.5px solid rgba(240, 0, 232, 0.55);
+  background: rgba(240, 0, 232, 0.08);
   padding: 0;
   cursor: pointer;
-  transition: border-width 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+  transition: border-width 120ms ease, border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 
-.defect-detection-box:hover,
+.defect-detection-box:hover {
+  border-color: #f000e8;
+  background: rgba(240, 0, 232, 0.16);
+}
+
 .defect-detection-box.is-selected {
-  border-width: 3px;
-  background: rgba(240, 0, 232, 0.22);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+  border-width: 2px;
+  border-color: var(--color-point);
+  background: rgba(79, 70, 229, 0.1);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 0 0 4px rgba(79, 70, 229, 0.28);
 }
 
 .defect-detection-box:focus-visible {
   outline: 3px solid var(--color-point);
   outline-offset: 2px;
+}
+
+.defect-detection-box__tag {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  border-radius: 999px;
+  background: var(--color-point);
+  padding: 2px 8px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .defect-image-selector {
@@ -268,7 +290,7 @@
 .defect-metric-card strong { color: var(--color-heading); font-size: 18px; line-height: 1.2; }
 .defect-metric-card small { font-size: 12px; font-weight: 500; }
 .defect-metric-card em { margin-top: 0; color: var(--color-text-muted); font-size: 12px; font-style: normal; text-align: center; }
-.defect-metric-card .defect-metric-empty { color: var(--color-text-muted); font-size: 13px; font-weight: 600; }
+.defect-metric-card .defect-metric-empty { color: var(--color-text-muted); font-size: 13px; font-weight: 500; font-style: italic; }
 
 .defect-explain-panel {
   padding: 26px;
