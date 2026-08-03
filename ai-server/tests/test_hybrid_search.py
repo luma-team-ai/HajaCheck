@@ -147,4 +147,7 @@ def test_defaults_존재():
     assert DEFAULT_TOP_K == 4
     assert DEFAULT_VECTOR_TOP_K == 10
     assert DEFAULT_BM25_TOP_K == 10
-    assert DEFAULT_RRF_K == 60
+    # 60(RRF 관용값)이 아니라 1 — #1410 실측(law.go.kr 공식 법규 PDF 7건, 질의 27개)에서
+    # rrf_k=60은 순위 차이가 거의 반영되지 않아 vector-only보다 성능이 낮았고, rrf_k=1로
+    # 낮추자 recall@10/MRR/nDCG가 전부 개선됨을 확인했다(hybrid_search.py 모듈 상수 주석 참고).
+    assert DEFAULT_RRF_K == 1

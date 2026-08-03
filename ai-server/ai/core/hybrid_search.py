@@ -20,7 +20,12 @@ from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
 DEFAULT_TOP_K = 4
 DEFAULT_VECTOR_TOP_K = 10
 DEFAULT_BM25_TOP_K = 10
-DEFAULT_RRF_K = 60
+# RRF 관용값(60)이 아니라 1로 튜닝 — #1410 실측(law.go.kr 공식 법규 PDF 7건, 질의 27개)에서
+# rrf_k=60은 1/(60+rank) 항의 차이가 너무 작아 순위 정보가 거의 반영되지 않았고(각 리스트에서
+# 1개만 히트해도 두 리스트 모두 히트한 오답과 점수 차가 안 남), rrf_k=1로 낮추자 vector-only
+# 대비 recall@10/MRR/nDCG가 전부 개선됐다(recall@4만 근소하게 하락 — 벡터 top-4 놓친 질의를
+# BM25가 top-10 안으로 복구시키며 다른 정답이 4위 밖으로 밀리는 트레이드오프).
+DEFAULT_RRF_K = 1
 
 
 def _chunk_ref(metadata: dict) -> str:

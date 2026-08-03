@@ -25,12 +25,18 @@ def _mock_vectorstore(documents, metadatas, ids=None):
     return mock_vs
 
 
-def test_tokenize_한글과영숫자토큰을포함():
+def test_tokenize_형태소분석으로체언용언만추출():
+    # kiwipiepy는 조사·어미를 떼고 체언(N*)·용언(V*)·외국어(SL)·숫자(SN)만 남긴다 — #1410 실측
+    # 결과 정규식 토큰화 대비 recall이 좋아진 근거(bm25_index.py 모듈 docstring 참고).
+    # "안전점검"→"안전"+"점검"(NNG 2개), "abc123"→"abc"(SL)+"123"(SN), "실시하여야"→"실시"(NNG),
+    # "한다"→"하"(VX, 조사·어미 "ᆫ다"는 EF라 제외)로 분해된다.
     tokens = bm25_index._tokenize("안전점검 abc123 실시하여야 한다")
-    assert "안전점검" in tokens
-    assert "abc123" in tokens
-    assert "실시하여야" in tokens
-    assert "한다" in tokens
+    assert "안전" in tokens
+    assert "점검" in tokens
+    assert "abc" in tokens
+    assert "123" in tokens
+    assert "실시" in tokens
+    assert "하" in tokens
 
 
 def test_tokenize_빈문자열은빈리스트():

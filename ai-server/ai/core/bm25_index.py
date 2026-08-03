@@ -8,21 +8,29 @@ invalidate()를 호출해 다음 조회 시 재구축되도록 하는 것만으�
 """
 from __future__ import annotations
 
-import re
 import threading
 from dataclasses import dataclass, field
 
+from kiwipiepy import Kiwi
 from rank_bm25 import BM25Okapi
 
 from ai.core.vectorstore import COLLECTION_REGULATIONS, get_vectorstore
 
-_TOKEN_PATTERN = re.compile(r"[가-힣]+|\w+")
+# 정규식(공백/음절 단위) 토큰화는 한국어 조사·어미가 붙은 채로 토큰이 갈려("안전점검을" ≠ "안전점검")
+# BM25 recall이 크게 떨어짐을 #1410 실측(law.go.kr 공식 법규 PDF 7건 적재 후 22~27개 질의 비교)으로
+# 확인했다 — 정규식 토큰화 하이브리드는 vector-only보다 MRR/nDCG가 낮았고, kiwipiepy 형태소
+# 분석기로 교체하니 vector-only가 top-10에서 완전히 놓치는 질의(예: "별표 N" 참조형 질의)까지
+# BM25가 복구해 recall@10/MRR/nDCG가 전부 개선됐다. Kiwi 인스턴스는 프로세스 전역 재사용(생성
+# 비용이 크므로 매 호출 생성 금지).
+_kiwi = Kiwi()
+_CONTENT_TAGS = ("N", "V", "SL", "SN")  # 체언(N*)·용언(V*)·외국어·숫자만 — 조사/어미/구두점 제외
 
 
 def _tokenize(text: str) -> list[str]:
-    """한국어 대응 경량 토큰화. 형태소 분석기 등 무거운 의존성을 추가하지 않고,
-    한글 음절 연속 구간과 그 외 단어문자(숫자·영문) 연속 구간을 각각 토큰으로 뽑는다."""
-    return _TOKEN_PATTERN.findall(text or "")
+    """kiwipiepy 형태소 분석으로 체언·용언·외국어·숫자 토큰만 추출한다(조사·어미·구두점 제외)."""
+    if not text:
+        return []
+    return [t.form for t in _kiwi.tokenize(text) if t.tag.startswith(_CONTENT_TAGS)]
 
 
 @dataclass

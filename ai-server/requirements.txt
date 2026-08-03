@@ -15,6 +15,9 @@ langgraph==0.6.11  # StateGraph 기반 체인 구현용 (WS1: report_chain, WS3:
 chromadb==0.5.23
 rank_bm25==0.2.2  # regulations 컬렉션 하이브리드 검색(벡터+BM25 RRF, #1410). 순수 파이썬 소구현
                   # BM25Okapi 하나만 제공하는 경량 라이브러리 — 마지막 릴리스(2.2)로 고정.
+kiwipiepy==0.23.2  # ai/core/bm25_index.py 한국어 형태소 분석 토큰화(#1410). 정규식 토큰화는
+                   # 조사·어미가 붙어 BM25 recall이 낮음을 law.go.kr 공식 법규 PDF 7건 실측(질의
+                   # 27개)으로 확인 — kiwipiepy 교체로 vector-only 대비 recall@10/MRR/nDCG 개선.
 matplotlib==3.10.0  # ai/eval/run_eval.py 벡터-only vs 하이브리드 지표 비교 막대그래프 저장용(#1410).
                     # 평가 하네스 전용(로컬/수동 실행), pytest 대상 아님.
 sentence-transformers==3.3.1

@@ -4,10 +4,11 @@
 전용 — 실제 HuggingFace 임베딩 모델 로드와 Chroma 조회를 수행하므로 느리고, 프로젝트 CHROMA_PERSIST_DIR
 설정에 실제로 적재된 regulations 데이터가 있어야 의미 있는 결과가 나온다).
 
-⚠️ ai/eval/eval_dataset.json은 이 레포 실행 환경에 별도 Chroma 데이터 볼륨(chroma_data/)이 없어
-합성(synthetic) 소규모 데이터셋이다 — 실제 regulations 컬렉션에 해당 chunk id들이 존재하지 않으면
-Recall/MRR/nDCG가 전부 0에 가깝게 나오는 것이 정상이다(스크립트 자체가 에러 없이 끝까지 도는지가
-1차 목표). 실 데이터가 적재된 환경에서는 eval_dataset.json을 그 데이터 기준으로 다시 작성해야 한다.
+ai/eval/eval_dataset.json은 시설물안전법/건축물관리법/건축법 등 실제 law.go.kr 공식 원문 PDF 7건을
+`pdftotext -layout`으로 추출→`split_regulation_text`로 청킹→`ingest_document`로 regulations 컬렉션에
+적재한 뒤, 실제 청크 내용을 확인해 작성한 질문-정답(chunk id) 22쌍이다(#1410). 각 조문마다 정확한
+용어/조번호를 그대로 쓴 키워드형 질문과, 같은 내용을 우회 표현으로 묻는 의미형 질문을 짝으로 구성해
+벡터검색과 BM25 키워드검색이 각각 유리한 케이스가 섞이도록 했다.
 """
 from __future__ import annotations
 
