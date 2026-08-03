@@ -4,9 +4,9 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
-import { mockDefects } from '../mocks/defect.mock';
+import { mockDefects, mockInspectionDefectResponses } from '../mocks/defect.mock';
 import { mockInspections } from '../mocks/inspection.mock';
-import type { Defect, InspectionListItem } from '../types';
+import type { InspectionDefect, InspectionDefectResponse, InspectionListItem } from '../types';
 import {
   defectApi,
   fetchAllFilteredInspections,
@@ -188,9 +188,9 @@ describe('defectApi.getInspections', () => {
     const res = await defectApi.getInspections();
     const inspection101 = res.data.content.find((item) => item.id === 101);
 
-    // mockDefects: inspectionId=101 → id 1(grade D), id 2(grade C) 2건.
-    expect(inspection101?.defectCount).toBe(2);
-    expect(inspection101?.gradeDistribution).toMatchObject({ C: 1, D: 1 });
+    // 점검별 raw fixture: inspectionId=101 → id 1(D), id 2(C), id 4(B) 3건.
+    expect(inspection101?.defectCount).toBe(3);
+    expect(inspection101?.gradeDistribution).toMatchObject({ B: 1, C: 1, D: 1 });
   });
 
   it('inspectionStatus 필터를 적용하면 해당 상태의 점검만 반환한다', async () => {
@@ -321,8 +321,13 @@ describe('defectApi.getInspections', () => {
 describe('defectApi.getByInspection', () => {
   it('점검에 속한 하자 목록을 반환한다', async () => {
     const res = await defectApi.getByInspection(101);
+    const defects: InspectionDefect[] = res.data;
 
-    expect(res.data.map((defect) => defect.id).sort()).toEqual([1, 2]);
+    expect(defects.map((defect) => defect.id).sort()).toEqual([1, 2, 4]);
+    expect(defects[0].reviewed).toBe(true);
+    expect('isReviewed' in defects[0]).toBe(false);
+    expect('facilityName' in defects[0]).toBe(false);
+    expect(defects[0].detailUrl).toBe('/api/media/901/detail');
   });
 
   it('존재하지 않는 점검 id는 INSPECTION_NOT_FOUND 에러로 reject된다', async () => {
@@ -446,18 +451,20 @@ describe('fetchFilteredDefectsForExport', () => {
       }),
       http.get('/api/inspections/:id/defects', async ({ params }) => {
         const inspectionId = Number(params.id);
-        const source = mockDefects[(inspectionId - 1_000) % mockDefects.length];
+        const source = mockInspectionDefectResponses[
+          (inspectionId - 1_000) % mockInspectionDefectResponses.length
+        ];
         inFlight += 1;
         peakInFlight = Math.max(peakInFlight, inFlight);
         await new Promise((resolve) => setTimeout(resolve, 5));
         inFlight -= 1;
 
-        const defect: Defect = {
+        const defect: InspectionDefectResponse = {
           ...source,
           id: inspectionId,
           inspectionId,
         };
-        const body: ApiResponse<Defect[]> = {
+        const body: ApiResponse<InspectionDefectResponse[]> = {
           success: true,
           data: [defect],
         };
@@ -473,7 +480,7 @@ describe('fetchFilteredDefectsForExport', () => {
 
     expect(peakInFlight).toBeGreaterThan(1);
     expect(peakInFlight).toBeLessThanOrEqual(5);
-    expect(result).toHaveLength(4);
+    expect(result).toHaveLength(3);
     expect(
       result.every(
         (defect) =>
@@ -482,6 +489,8 @@ describe('fetchFilteredDefectsForExport', () => {
           defect.status === 'DETECTED',
       ),
     ).toBe(true);
+    expect(result.every((defect) => defect.facilityName === '강남 오피스타워 A동')).toBe(true);
+    expect(result.some((defect) => 'facilityId' in defect || 'facilityType' in defect)).toBe(false);
   });
 });
 

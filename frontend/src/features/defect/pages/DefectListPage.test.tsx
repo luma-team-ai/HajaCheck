@@ -81,8 +81,8 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
     renderPage();
     const table = await screen.findByRole("table");
 
-    // mockInspections id=101: mockDefects의 inspectionId=101(id 1,2) → 2건, 등급 D/C 각 1건.
-    expect(within(table).getByText("2건")).not.toBeNull();
+    // mockInspections id=101: id 1,2,4 → 3건, 등급 B/C/D 각 1건.
+    expect(within(table).getByText("3건")).not.toBeNull();
     // id=202: inspectionId=202(id 3) → 1건, grade=null이라 등급분포는 '-'.
     expect(within(table).getByText("1건")).not.toBeNull();
     // id=301: 하자 없음(빈 상태) → 0건.
@@ -145,9 +145,9 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
 
     await waitFor(() => expect(mockExportDefectsToPdf).toHaveBeenCalledTimes(1));
     const [calledDefects] = mockExportDefectsToPdf.mock.calls[0];
-    // mockInspections 전체(101/202/301) 중 301은 하자 0건 → mockDefects id 1, 2, 3 전체가 모인다.
-    expect(calledDefects).toHaveLength(3);
-    expect(calledDefects.map((defect: { id: number }) => defect.id).sort()).toEqual([1, 2, 3]);
+    // mockInspections 전체(101/202/301) 중 301은 하자 0건 → id 1, 2, 3, 4가 모인다.
+    expect(calledDefects).toHaveLength(4);
+    expect(calledDefects.map((defect: { id: number }) => defect.id).sort()).toEqual([1, 2, 3, 4]);
   });
 
   it("PDF 내보내기가 실패해도 버튼이 다시 클릭 가능한 상태로 복원된다", async () => {

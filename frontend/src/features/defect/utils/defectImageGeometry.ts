@@ -58,6 +58,7 @@ export function getBboxStyle(
   const top = clamp(bboxY, 0, 1);
   const width = clamp(bboxW, 0, 1 - left);
   const height = clamp(bboxH, 0, 1 - top);
+  if (width <= 0 || height <= 0) return null;
 
   return {
     top: toPercent(top),
@@ -65,4 +66,17 @@ export function getBboxStyle(
     width: toPercent(width),
     height: toPercent(height),
   };
+}
+
+export function getBboxArea(
+  bboxX: number | null,
+  bboxY: number | null,
+  bboxW: number | null,
+  bboxH: number | null,
+): number | null {
+  const style = getBboxStyle(bboxX, bboxY, bboxW, bboxH);
+  if (!style || bboxX == null || bboxY == null || bboxW == null || bboxH == null) return null;
+  const left = clamp(bboxX, 0, 1);
+  const top = clamp(bboxY, 0, 1);
+  return clamp(bboxW, 0, 1 - left) * clamp(bboxH, 0, 1 - top);
 }

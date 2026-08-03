@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
-import type { Defect, DefectStatus } from '../types';
+import type { DefectStatus } from '../types';
 import { STATUS_PRESENTATION } from '../constants/defectPresentation';
 
 type Props = {
-  defects: Defect[];
+  defects: Array<{ status: DefectStatus }>;
 };
 
 // DefectCard.tsx와 동일 패턴(신규 색상 상수 추가 금지 컨벤션) — STATUS_PRESENTATION의

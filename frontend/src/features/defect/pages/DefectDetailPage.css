@@ -99,8 +99,70 @@
 
 .defect-detection-box {
   position: absolute;
+  margin: 0;
+  border-radius: 10px;
   border: 2px solid #f000e8;
   background: rgba(240, 0, 232, 0.12);
+  padding: 0;
+  cursor: pointer;
+  transition: border-width 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.defect-detection-box:hover,
+.defect-detection-box.is-selected {
+  border-width: 3px;
+  background: rgba(240, 0, 232, 0.22);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+}
+
+.defect-detection-box:focus-visible {
+  outline: 3px solid var(--color-point);
+  outline-offset: 2px;
+}
+
+.defect-image-selector {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.defect-image-selector > span {
+  flex: 0 0 auto;
+  padding-top: 5px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.defect-image-selector > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.defect-image-selector button {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  padding: 5px 9px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.defect-image-selector button:hover,
+.defect-image-selector button.is-selected {
+  border-color: var(--color-selection);
+  color: var(--color-selection);
+  background: var(--color-selection-soft-bg);
+}
+
+.defect-image-selector button:focus-visible {
+  outline: 2px solid var(--color-point);
+  outline-offset: 2px;
 }
 
 .defect-status-panel { padding: 26px; }

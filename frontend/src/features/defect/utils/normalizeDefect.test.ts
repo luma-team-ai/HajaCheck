@@ -79,4 +79,5 @@ describe('normalizeDefect', () => {
 
     expect(normalizeDefect(raw).status).toBe('CONFIRMED');
   });
+
 });

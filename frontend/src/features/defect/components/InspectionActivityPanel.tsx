@@ -4,10 +4,9 @@ import {
   getDefectRevisionStatusPresentation,
 } from '../utils/describeDefectChange';
 import { formatDefectActivityDateTime } from '../utils/defectFormat';
-import type { Defect } from '../types';
 
 type Props = {
-  defects: Defect[];
+  defects: Array<{ id: number }>;
 };
 
 // 점검 상세(카드형) 우측 "활동 기록" 사이드바 — contract.md §화면 구조 ②. ActivityHistoryPanel(하자

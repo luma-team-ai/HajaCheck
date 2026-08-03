@@ -294,11 +294,24 @@
 }
 
 .defect-card-grid__thumb {
+  position: relative;
   display: flex;
   height: 160px;
   align-items: center;
   justify-content: center;
   background: var(--color-surface-sunken);
+}
+
+.defect-card-grid__count {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  border-radius: 9999px;
+  background: rgba(24, 24, 27, 0.72);
+  padding: 4px 9px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .defect-card-grid__thumb img {
@@ -367,6 +380,27 @@
   gap: 10px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.defect-card-grid__status-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.defect-card-grid__status-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.defect-card-grid__status-summary i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .defect-card-grid__stats-divider {
@@ -585,6 +619,20 @@
 .defect-detail-modal__image-col .defect-image-stage {
   height: auto;
   aspect-ratio: 3 / 4;
+}
+
+.defect-detail-modal__detail-state {
+  display: flex;
+  min-height: 96px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  padding: 18px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  text-align: center;
 }
 
 .defect-detail-modal .defect-metrics {
