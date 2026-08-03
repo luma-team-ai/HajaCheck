@@ -45,7 +45,8 @@ if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(torch 로�
     from PIL import Image
     from segmentation_models_pytorch import Unet
 
-CRACK_CHECKPOINT_FILENAME = "crack_unet_resnet34.pt"
+# #998, 2026-08-03 파인튜닝 모델로 교체, v1은 롤백용으로 HF 저장소에 유지.
+CRACK_CHECKPOINT_FILENAME = "crack_unet_resnet34_v2.pt"
 
 # 저장소 README 학습 설정 그대로(imgsz 640) — 모델이 검증받은 입력 해상도.
 CRACK_INPUT_SIZE = 640
