@@ -49,7 +49,8 @@ def _blank_crack_canvas() -> np.ndarray:
     return np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=bool)
 
 
-# dark 최상위 밴드(≥0.002755) — v3 min 합의에서 등급이 area 축으로만 결정되게 고정하는 값.
+# dark 최상위 밴드(≥0.00194422, v4 재교정값 — #1447 P3) — v3 min 합의에서 등급이 area 축으로만
+# 결정되게 고정하는 값.
 # 어두움 축 자체를 검증하는 테스트가 아니면 이 값을 넘겨 기존 area 기반 기대치를 유지한다.
 SEVERE_DARK_RATIO = 0.003
 
@@ -323,6 +324,39 @@ def test_crack_mask_to_detections_grade_is_invariant_to_fragmentation():
     assert len(fragmented_detections) == 4
     single_grade = single_detections[0].grade
     assert all(d.grade == single_grade for d in fragmented_detections)
+
+
+def test_crack_mask_to_detections_width_is_stable_for_close_merged_fragments():
+    """#1447 P2 — 같은 label로 병합되지만(MORPH_CLOSE) 원래 마스크상 끊긴 두 조각의 width_px가
+    연속된 단일 블록 대비 부당하게 작아지면 안 된다.
+
+    close 커널(3×3 ellipse)이 메울 수 있는 1px 간극으로 직선을 2조각으로 끊으면 하나의 label로
+    재병합되지만(단일 탐지), 둘레 계산에 원래(파편화된) 마스크를 쓰면 조각마다 별도 외곽선이
+    잡혀 둘레가 부풀고 width_px가 실제보다 작게 나온다(수정 전 재현: width -1.0%, 재현 조각
+    수가 늘수록 왜곡도 커짐). 수정 후에는 닫힌 연결영역 기준으로 둘레를 구해 훨씬 근접해야 한다.
+
+    ⚠️ close 자체가 다리를 놓는 자리마다 경계에 미세한 요철을 남기므로(둥근 커널의 부작용),
+    간극 개수가 많아질수록 이 수정으로도 완전히 없앨 수 없는 잔여 오차가 남는다(8조각·1px
+    간극 인위적 구성 실측: 수정 전 -6.8% → 수정 후 -6.2%, 절반도 못 줄임). 이 테스트는 실제
+    임계값 잡음이 보통 만드는 수준(간극 1곳)으로 한정한다 — 완전 해결이 아니라 "가장 흔한
+    파편화 패턴에서 유의미하게 개선"이 이 수정의 범위다.
+    """
+    single = _blank_crack_canvas()
+    single[100:104, 100:300] = True  # 200x4=800px 연속 직선
+
+    fragmented = single.copy()
+    fragmented[100:104, 199] = False  # 1px 간극 — close(3x3)로 재병합되는 최소 재현 케이스
+
+    probability_single = np.where(single, 0.9, 0.0).astype(np.float32)
+    probability_fragmented = np.where(fragmented, 0.9, 0.0).astype(np.float32)
+
+    single_detections = chain._crack_mask_to_detections(single, probability_single, 0.0)
+    fragmented_detections = chain._crack_mask_to_detections(fragmented, probability_fragmented, 0.0)
+
+    assert len(fragmented_detections) == 1  # close로 하나의 label에 재병합됐는지 전제 확인
+    single_width = single_detections[0].width_px
+    fragmented_width = fragmented_detections[0].width_px
+    assert fragmented_width == pytest.approx(single_width, rel=0.03)  # 수정 전 이 케이스: -1.0%
 
 
 def test_crack_mask_to_detections_caps_grade_for_bright_hairline_crack():
