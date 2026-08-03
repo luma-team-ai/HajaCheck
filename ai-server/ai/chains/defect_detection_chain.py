@@ -336,33 +336,6 @@ def _yolo_type_detections(defect_type: str, image: "Image.Image") -> list[Detect
     return detections
 
 
-# 균열 bbox가 박리박락 bbox에 이 비율 이상 포함되면 균열 쪽을 오탐으로 보고 제거한다(2026-07-28
-# 실사진 10장 검증: 박리 안 페인트 까진 경계선을 균열로 오탐한 4건 제거, 진짜 균열 7건 전부 유지).
-# 박리 내부의 명암 경계는 U-Net에 선형 구조로 보여 균열로 잡히지만, 그 영역의 하자는 이미
-# SPALLING 탐지가 대표한다. 박리가 작게(점으로만) 잡히는 사진엔 포함 조건이 성립하지 않아 무효 —
-# 의도된 보수적 한정이다.
-CRACK_IN_SPALLING_CONTAINMENT_THRESHOLD = 0.8
-
-
-def _suppress_cracks_inside_spalling(detections: list[DetectedDefect]) -> list[DetectedDefect]:
-    """SPALLING bbox에 80% 이상 포함된 CRACK 탐지를 제거한다. bbox는 모두 원본 이미지 기준
-    0~1 정규화 좌표라(균열=콘텐츠 영역, YOLO=원본 — 동일 프레임) 그대로 비교 가능하다."""
-    spallings = [d for d in detections if d.type == "SPALLING"]
-    if not spallings:
-        return detections
-
-    def contained(crack: DetectedDefect) -> bool:
-        crack_area = crack.bbox_w * crack.bbox_h
-        if crack_area <= 0:
-            return False
-        for s in spallings:
-            ix = max(0.0, min(crack.bbox_x + crack.bbox_w, s.bbox_x + s.bbox_w) - max(crack.bbox_x, s.bbox_x))
-            iy = max(0.0, min(crack.bbox_y + crack.bbox_h, s.bbox_y + s.bbox_h) - max(crack.bbox_y, s.bbox_y))
-            if ix * iy / crack_area >= CRACK_IN_SPALLING_CONTAINMENT_THRESHOLD:
-                return True
-        return False
-
-    return [d for d in detections if d.type != "CRACK" or not contained(d)]
 
 
 def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
@@ -399,4 +372,4 @@ def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
     if len(failed_types) == len(detectors):
         raise DefectDetectionError("모든 하자 유형 탐지에 실패했습니다")
 
-    return _suppress_cracks_inside_spalling(detections)
+    return detections

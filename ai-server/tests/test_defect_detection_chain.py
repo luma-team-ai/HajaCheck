@@ -326,20 +326,20 @@ def test_crack_mask_to_detections_grade_is_invariant_to_fragmentation():
 
 
 def test_crack_mask_to_detections_caps_grade_for_bright_hairline_crack():
-    """v3 min 합의 — 면적(길이)만 크고 어두움이 낮은 실금은 D·E로 못 간다(2026-07-28 재보정).
+    """v4 min 합의 — 면적(길이)만 크고 어두움이 낮은 실금은 D·E로 못 간다(2026-08-03 재보정).
 
-    실사용 근접촬영 실금 사진에서 area_ratio 0.7~0.9%(D 밴드)가 나오던 케이스: 같은 마스크라도
+    실사용 근접촬영 실금 사진에서 area_ratio가 높게 나오는 케이스: 같은 마스크라도
     dark_ratio가 낮으면(실금) 등급이 어두움 축으로 캡되어야 한다.
     """
     mask = _blank_crack_canvas()
-    mask[100:200, 100:200] = True  # area 2.4% → area 축 단독으론 E
+    mask[100:200, 100:200] = True  # area 2.4% → area_s=0.9
     probability = np.where(mask, 0.9, 0.0).astype(np.float32)
 
     severe = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO)
-    hairline = chain._crack_mask_to_detections(mask, probability, 0.0002)  # dark 두 번째 밴드=B
+    hairline = chain._crack_mask_to_detections(mask, probability, 0.0005)  # dark_s=0.5 (0.00010537 < 0.0005 < 0.00151626)
 
-    assert severe[0].grade == "E"
-    assert hairline[0].grade == "B"
+    assert severe[0].grade == "D"  # min(0.9, 0.7)=0.7
+    assert hairline[0].grade == "C"  # min(0.9, 0.5)=0.5
 
 
 def test_crack_dark_ratio_separates_dark_line_from_faint_line():
@@ -443,24 +443,6 @@ def _detection(defect_type: str, x: float, y: float, w: float, h: float) -> Dete
         confidence=0.9, grade="C", area_ratio=w * h,
     )
 
-
-def test_suppress_cracks_inside_spalling_removes_contained_crack_only():
-    """박리 bbox에 80% 이상 포함된 균열 탐지만 제거 — 박리 안 페인트 경계선 오탐(2026-07-28
-    실사진 검증: 오탐 4건 제거·진짜 균열 7건 유지)."""
-    spalling = _detection("SPALLING", 0.2, 0.2, 0.4, 0.4)
-    inside = _detection("CRACK", 0.3, 0.3, 0.1, 0.1)  # 완전 포함 → 제거
-    outside = _detection("CRACK", 0.7, 0.7, 0.2, 0.2)  # 무교차 → 유지
-    partial = _detection("CRACK", 0.5, 0.3, 0.2, 0.1)  # 교차 50% → 유지
-
-    kept = chain._suppress_cracks_inside_spalling([spalling, inside, outside, partial])
-
-    assert spalling in kept and outside in kept and partial in kept
-    assert inside not in kept
-
-
-def test_suppress_cracks_inside_spalling_noop_without_spalling():
-    cracks = [_detection("CRACK", 0.1, 0.1, 0.2, 0.2)]
-    assert chain._suppress_cracks_inside_spalling(cracks) == cracks
 
 
 def test_run_defect_detection_chain_aggregates_crack_spalling_rebar_exposure(monkeypatch):
