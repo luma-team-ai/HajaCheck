@@ -635,12 +635,27 @@
   text-align: center;
 }
 
+/* #1436: 예전엔 flex-grow:1이라 사진(360px 상한)을 뺀 나머지 가로공간을 지표 카드가 전부
+   먹었다 — 좁은 카드 안 텍스트만 남기고 옆은 텅 빈 백색. flex-grow를 꺼서 지표는 자기 콘텐츠
+   만큼만 차지하게 하고, 진짜로 남는 공간은 옆의 AI 분석 설명 컬럼(explain-col)이 가져가게 한다. */
 .defect-detail-modal .defect-metrics {
   display: flex;
-  flex: 1 1 220px;
+  flex: 0 1 260px;
   flex-direction: column;
   gap: 10px;
-  min-width: 160px;
+  min-width: 220px;
+  max-width: 280px;
+}
+
+.defect-detail-modal__explain-col {
+  display: flex;
+  flex: 1 1 300px;
+  flex-direction: column;
+  min-width: 260px;
+}
+
+.defect-detail-modal__explain-col .defect-explain-panel {
+  height: 100%;
 }
 
 /* pill(border-radius:999px)은 작은 컨트롤용 — 큰 지표 카드에 pill을 쓰면 늘어진 알약처럼
@@ -979,6 +994,11 @@
   }
 
   .defect-detail-modal__image-col {
+    max-width: none;
+  }
+
+  .defect-detail-modal .defect-metrics,
+  .defect-detail-modal__explain-col {
     max-width: none;
   }
 }

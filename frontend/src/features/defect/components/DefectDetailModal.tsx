@@ -230,26 +230,32 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
                   </article>
                 </div>
               </div>
-            </div>
 
-            {isLoading && (
-              <div className="defect-detail-modal__detail-state" role="status" aria-live="polite">
-                상세 정보를 불러오는 중...
+              {/* #1436: AI 분석 설명을 미디어 행 안으로 옮겨왔다 — 예전엔 이 자리가 사진(고정폭)보다
+                  훨씬 넓은 남은 가로공간을 그냥 빈 채로 뒀고(1fr 컬럼에 사진만 있으니 우측이 통째로
+                  공백), 설명 패널을 그 아래 전체폭으로 따로 깔았다. 지금은 이 유휴 공간을 채우는
+                  세 번째 컬럼으로 붙여서 사진-지표-설명이 한 눈에 들어오게 한다. */}
+              <div className="defect-detail-modal__explain-col">
+                {isLoading && (
+                  <div className="defect-detail-modal__detail-state" role="status" aria-live="polite">
+                    상세 정보를 불러오는 중...
+                  </div>
+                )}
+                {isError && (
+                  <div className="defect-detail-modal__detail-state" aria-label="선택 하자 상세 오류">
+                    <ErrorFallback message="하자 상세 정보를 불러오지 못했습니다." onRetry={refetch} />
+                  </div>
+                )}
+                {!isLoading && !isError && detailDefect && (
+                  <DefectExplainPanel
+                    defect_type={detailDefect.typeLabel}
+                    severity_grade={detailDefect.grade ?? '미분류'}
+                    location={detailDefect.facilityName}
+                    facility_type={detailDefect.facilityType}
+                  />
+                )}
               </div>
-            )}
-            {isError && (
-              <div className="defect-detail-modal__detail-state" aria-label="선택 하자 상세 오류">
-                <ErrorFallback message="하자 상세 정보를 불러오지 못했습니다." onRetry={refetch} />
-              </div>
-            )}
-            {!isLoading && !isError && detailDefect && (
-              <DefectExplainPanel
-                defect_type={detailDefect.typeLabel}
-                severity_grade={detailDefect.grade ?? '미분류'}
-                location={detailDefect.facilityName}
-                facility_type={detailDefect.facilityType}
-              />
-            )}
+            </div>
           </div>
 
           <div className="defect-detail-modal__secondary" aria-busy={isLoading}>

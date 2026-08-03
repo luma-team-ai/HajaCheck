@@ -315,13 +315,20 @@
 .defect-activity-panel { padding: 26px; }
 .defect-activity-panel h2 { margin: 0 0 20px; color: var(--color-heading); font-size: 21px; font-weight: 800; }
 
+/* #1436: 활동 기록이 길어지면 모달 전체가 한없이 늘어나(사이드 패널만 스크롤 불가) 조치 폼이
+   화면 밖으로 밀려났다. 검수 화면의 .inspection-activity-panel__list와 동일하게 리스트 자체에
+   내부 스크롤을 둬 옆 패널 높이를 안정시킨다. */
 .defect-activity-list {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  max-height: min(420px, calc(100vh - 420px));
   margin: 0;
   padding: 0;
+  padding-right: 6px;
+  overflow-y: auto;
   list-style: none;
+  scrollbar-gutter: stable;
 }
 
 .defect-activity-list li {
