@@ -3,6 +3,7 @@ import {
   describeDefectChange,
   getDefectRevisionStatusPresentation,
 } from '../utils/describeDefectChange';
+import { formatDefectActivityDateTime } from '../utils/defectFormat';
 import type { Defect } from '../types';
 
 type Props = {
@@ -48,7 +49,7 @@ export function InspectionActivityPanel({ defects }: Props) {
                   <div className="defect-activity-meta">
                     <span className="inspection-activity-panel__code">{item.defectCode}</span>
                     <time dateTime={item.createdAt}>
-                      {new Date(item.createdAt).toLocaleString('ko-KR')}
+                      {formatDefectActivityDateTime(item.createdAt)}
                     </time>
                   </div>
                   {presentation && (
