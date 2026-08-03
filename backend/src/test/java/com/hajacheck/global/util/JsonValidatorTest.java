@@ -107,4 +107,38 @@ class JsonValidatorTest {
 
         assertThat(JsonValidator.readTextField(sensitiveInput, "businessNumber")).isEmpty();
     }
+
+    @Test
+    void isEmptyJson_null이거나_공백이면_true다() {
+        assertThat(JsonValidator.isEmptyJson(null)).isTrue();
+        assertThat(JsonValidator.isEmptyJson("")).isTrue();
+        assertThat(JsonValidator.isEmptyJson("   ")).isTrue();
+    }
+
+    @Test
+    void isEmptyJson_빈배열_빈객체_JSON_null은_모두_true다() {
+        assertThat(JsonValidator.isEmptyJson("[]")).isTrue();
+        assertThat(JsonValidator.isEmptyJson("{}")).isTrue();
+        assertThat(JsonValidator.isEmptyJson("null")).isTrue();
+    }
+
+    @Test
+    void isEmptyJson_값이있는_배열이나_객체는_false다() {
+        assertThat(JsonValidator.isEmptyJson("[\"VERIFIED\"]")).isFalse();
+        assertThat(JsonValidator.isEmptyJson("{\"source\":\"MANUAL_INPUT\"}")).isFalse();
+    }
+
+    @Test
+    void isEmptyJson_문법이_깨졌으면_내용없음으로_단정하지않고_false다() {
+        // "빈 값"과 "파손"은 다른 상태다 — 깨진 입력을 빈 값으로 오분류하면 실제로 있는 내용을
+        // 조용히 무시하게 된다. isEmptyJson은 실제로 비어있음이 확인된 경우에만 true를 반환한다.
+        assertThat(JsonValidator.isEmptyJson("{not-json")).isFalse();
+    }
+
+    @Test
+    void isEmptyJson_스칼라값은_false다() {
+        assertThat(JsonValidator.isEmptyJson("\"VERIFIED\"")).isFalse();
+        assertThat(JsonValidator.isEmptyJson("1")).isFalse();
+        assertThat(JsonValidator.isEmptyJson("true")).isFalse();
+    }
 }
