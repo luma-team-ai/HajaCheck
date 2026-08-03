@@ -50,6 +50,12 @@ const SUB_TABLE_INDENT = 3.5;
 const BOTTOM_LIMIT = PAGE_HEIGHT - MARGIN_X;
 /** 부위별 사진 표에서 사진 1장이 차지하는 셀 높이(원본 실측 96mm). */
 const PHOTO_ROW_HEIGHT = 96;
+/** 절 제목 한 줄이 차지하는 높이(sectionTitle이 커서를 밀어내는 양). */
+const SECTION_TITLE_HEIGHT = 6;
+/** 사진 아래 캡션 행 높이. */
+const PHOTO_CAPTION_HEIGHT = 9;
+/** 사진 1장 표(이미지 행 + 캡션 행)가 통째로 들어가야 하는 높이 — 이만큼 없으면 페이지를 넘긴다. */
+const PHOTO_BLOCK_HEIGHT = PHOTO_ROW_HEIGHT + 4 + PHOTO_CAPTION_HEIGHT;
 
 const FONT_SIZE = {
   documentTitle: 25,
@@ -832,30 +838,49 @@ export async function exportReportToPdf(
   // 이후의 실제 위치이기 때문이다.
   const renderPhotosBlock = (label: string, startY: number): number => {
     if (photoEntries.length === 0) return startY;
-    const y = sectionTitle(label, startY);
+    // 절 제목만 페이지 끝에 남고 사진이 다음 장으로 넘어가지 않도록, 제목 높이까지 합쳐 자리를 본다.
+    let y = sectionTitle(
+      label,
+      ensureSpace(startY, SECTION_TITLE_HEIGHT + PHOTO_BLOCK_HEIGHT),
+    );
+    // 사진 1장 = 표 1개(이미지 행 + 캡션 행). 한 표에 전부 몰아넣으면 이미지 행이 다음 페이지로
+    // 밀릴 때 표 윗선·캡션만 현재 페이지에 남아 "선 하나만 걸친" 페이지가 생긴다. 장마다 표를
+    // 끊고 들어갈 자리(PHOTO_BLOCK_HEIGHT)가 없으면 먼저 페이지를 넘겨 그 상황 자체를 없앤다.
+    photoEntries.forEach((entry) => {
+      y = ensureSpace(y, PHOTO_BLOCK_HEIGHT);
+      renderPhotoTable(entry, y);
+      y = lastTableY();
+    });
+    return y;
+  };
+
+  const renderPhotoTable = (
+    entry: (typeof photoEntries)[number],
+    startY: number,
+  ): void => {
     autoTable(doc, {
       ...tableDefaults,
-      startY: y,
+      startY,
       tableWidth: CONTENT_WIDTH,
-      body: photoEntries.flatMap((image) => [
+      body: [
         [{ content: "", styles: { minCellHeight: PHOTO_ROW_HEIGHT + 4 } }],
         [
           {
-            content: `< ${formatPhotoCaption(image)} >`,
+            content: `< ${formatPhotoCaption(entry)} >`,
             styles: {
               halign: "center" as const,
               fontStyle: "bold" as const,
               fontSize: FONT_SIZE.caption,
-              minCellHeight: 9,
+              minCellHeight: PHOTO_CAPTION_HEIGHT,
             },
           },
         ],
-      ]),
+      ],
       columnStyles: { 0: { cellWidth: CONTENT_WIDTH } },
       didDrawCell: (data: AutoTableCellHookData) => {
-        // 이미지 행(짝수 인덱스)에만 그린다 — 캡션 행은 autoTable이 text로 알아서 그린다.
-        if (data.section !== "body" || data.row.index % 2 !== 0) return;
-        const image = photoEntries[data.row.index / 2];
+        // 이미지 행(0번)에만 그린다 — 캡션 행은 autoTable이 text로 알아서 그린다.
+        if (data.section !== "body" || data.row.index !== 0) return;
+        const image = entry;
         if (!image) return;
         const padding = 2;
         const imageX = data.cell.x + padding;
@@ -890,7 +915,6 @@ export async function exportReportToPdf(
         doc.setLineWidth(LINE_INNER);
       },
     });
-    return lastTableY();
   };
 
   // ── 편집기 순서(sectionOrder)대로 렌더링 ────────────────────────────────

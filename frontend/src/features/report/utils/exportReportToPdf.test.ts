@@ -602,6 +602,44 @@ describe("exportReportToPdf", () => {
     expect(mockAddImage).not.toHaveBeenCalled();
   });
 
+  it("사진이 남은 지면에 통째로 못 들어가면 표 윗선만 걸치지 않고 새 페이지에서 시작한다", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      if (String(input) === "/api/media/1/thumbnail") {
+        return Promise.resolve({
+          ok: true,
+          blob: () =>
+            Promise.resolve(new Blob(["jpeg-bytes"], { type: "image/jpeg" })),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+        blob: () => Promise.resolve(new Blob(["font-bytes"])),
+      } as Response);
+    });
+    // 앞 섹션들이 페이지 하단(220mm)까지 차 있는 상황 — 사진 1장(109mm)이 들어갈 자리가 없다.
+    mockAutoTable.mockImplementation((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 220 };
+    });
+
+    await exportReportToPdf(makeContent(), {
+      defectImages: [
+        { defectType: "균열", imageUrl: "/api/media/1/thumbnail" },
+        { defectType: "박리", imageUrl: "/api/media/1/thumbnail" },
+      ],
+    });
+
+    // 사진마다 표를 끊고(장수만큼 표 호출), 자리가 없으면 페이지를 넘긴 뒤 그린다.
+    const photoTables = mockAutoTable.mock.calls.filter(([, options]) =>
+      JSON.stringify((options as Record<string, unknown>).body).includes("< "),
+    );
+    expect(photoTables).toHaveLength(2);
+    expect(mockAddPage).toHaveBeenCalled();
+
+    mockAutoTable.mockImplementation((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 120 };
+    });
+  });
+
   it("사진 캡션은 하자 유형명 단독 표기가 아니라 등급·분석요약을 함께 붙인다", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === "/api/media/1/thumbnail") {
