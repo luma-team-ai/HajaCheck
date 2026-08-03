@@ -528,29 +528,6 @@
   font-weight: 800;
 }
 
-/* #1436 디자인 리뷰 P0 — 좁은 화면에서 진단(사진·지표·AI 설명)을 다 지나야 조치 폼에 닿을 수
-   있던 문제를 완화. 스크롤 없이 항상 보이는 헤더에 둬 화면 폭과 무관하게 바로 접근 가능하다. */
-.defect-detail-modal__jump-to-action {
-  margin-left: auto;
-  border: 1px solid var(--color-point);
-  border-radius: 9999px;
-  background: var(--color-surface);
-  padding: 7px 16px;
-  color: var(--color-point);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.defect-detail-modal__jump-to-action:hover {
-  background: color-mix(in srgb, var(--color-point) 8%, var(--color-surface));
-}
-
-.defect-detail-modal__jump-to-action:focus-visible {
-  outline: 3px solid var(--color-point);
-  outline-offset: 2px;
-}
-
 .defect-image-viewer-label {
   margin: 0;
   color: var(--color-text-muted);

@@ -50,20 +50,9 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
         ? selectedResolvedLog
         : null;
   const panelRef = useRef<HTMLDivElement>(null);
-  const actionSectionRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
-
-  // 좁은 화면(<980px)에서는 primary(사진·지표·AI 설명)와 secondary(조치 등록)가 위아래로
-  // 쌓이는데, 진단 내용을 다 지나야 조치 폼에 닿을 수 있었다(#1436 디자인 리뷰 P0). 넓은
-  // 화면에서는 이미 같은 줄에 나란히 있어 사실상 no-op이고, 좁은 화면에서만 실제로 점프한다.
-  function handleJumpToAction() {
-    const section = actionSectionRef.current;
-    if (!section) return;
-    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    getFocusableElements(section)[0]?.focus();
-  }
 
   const handleSelectDefect = (defectId: number) => {
     if (defectId === selectedDefect.id) return;
@@ -132,13 +121,6 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
             <i aria-hidden="true" />
             {DEFECT_STATUS_LABEL[selectedDefect.status]}
           </span>
-          <button
-            type="button"
-            className="defect-detail-modal__jump-to-action"
-            onClick={handleJumpToAction}
-          >
-            조치 등록하기 ↓
-          </button>
         </header>
 
         <div className="defect-detail-modal__body">
@@ -283,7 +265,7 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
             </div>
           </div>
 
-          <div className="defect-detail-modal__secondary" aria-busy={isLoading} ref={actionSectionRef}>
+          <div className="defect-detail-modal__secondary" aria-busy={isLoading}>
             {isLoading && <div className="defect-detail-modal__detail-state">조치·활동 정보를 준비하는 중...</div>}
             {isError && <div className="defect-detail-modal__detail-state">다른 하자를 선택하거나 다시 시도해 주세요.</div>}
             {!isLoading && !isError && detailDefect && (
