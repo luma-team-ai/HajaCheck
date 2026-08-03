@@ -5,6 +5,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
@@ -142,6 +144,23 @@ class PlatformAdminMonitoringServiceTest {
         SystemMonitoringResponse response = service().getMonitoring();
 
         assertThat(response.jobQueue().jobs().get(0).durationLabel()).isNull();
+    }
+
+    @Test
+    void 완료_회차가_TTL_6시간을_지났으면_진행률_캐시를_조회조차_하지_않는다() {
+        when(healthEndpoint.health()).thenReturn(Health.up().build());
+        when(metricsEndpoint.metric(any(), any())).thenReturn(null);
+        when(errorLogStore.recent(anyInt())).thenReturn(List.of());
+
+        LocalDateTime staleCreatedAt = LocalDateTime.now().minusHours(7);
+        Inspection analyzed = inspectionOf(1L, InspectionStatus.ANALYZED, "힐스테이트 광교 102동", staleCreatedAt);
+        when(inspectionRepository.findRecentOrderByCreatedAtDesc(any())).thenReturn(List.of(analyzed));
+        when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
+
+        SystemMonitoringResponse response = service().getMonitoring();
+
+        assertThat(response.jobQueue().jobs().get(0).durationLabel()).isNull();
+        verify(analysisProgressStore, never()).find(anyLong());
     }
 
     @Test
