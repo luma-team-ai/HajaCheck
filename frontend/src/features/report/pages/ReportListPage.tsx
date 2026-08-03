@@ -17,6 +17,7 @@ import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReport
 import { getMissingFinalReportRequiredLabels } from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { formatReportListTitle } from '../utils/reportListFormat';
+import { getApiErrorMessage } from '../../../shared/api/types';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -150,8 +151,16 @@ export function ReportListPage() {
       const uploadResponse = await reportApi.uploadPdf(row.id, pdfBlob, fileName);
       await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);
       await refreshReportQueries(report.inspectionId);
-    } catch {
-      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('submit') }));
+    } catch (error) {
+      // 위에서 던지는 Error(예: 필수 항목 누락 목록)와 reportApi 호출이 던지는 ApiError를
+      // 구분 없이 항상 일반 문구로 덮어쓰면, ReportGeneratePage의 AlertModal과 달리 이 화면은
+      // 구체적으로 뭐가 빠졌는지 사용자가 알 수 없다(PR머신 리뷰 P3, #1418). getApiErrorMessage는
+      // 두 형태(ApiError·plain Error) 모두 message를 뽑아주므로 있으면 그대로 보여주고, 없을
+      // 때만 일반 문구로 폴백한다.
+      setActionErrors((prev) => ({
+        ...prev,
+        [row.id]: getApiErrorMessage(error, actionErrorMessage('submit')),
+      }));
     } finally {
       setPendingAction(null);
     }

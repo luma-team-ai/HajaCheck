@@ -624,23 +624,23 @@ export async function exportReportToPdf(
     const y = blockTitle(label, startY, nested);
     // 원본은 표 위에 "상태평가 결과 : b" 를 회색 배경 한 행으로 얹는다. 등급별 건수에서
     // 최악 등급을 뽑아 같은 자리에 채운다(새 데이터 요구 없음).
+    //
+    // 이 바를 별도 autoTable로 분리하면 jsPDF-autotable이 페이지 넘김 시 자동 반복시키는
+    // `head`에 포함되지 않아, 표가 여러 페이지에 걸칠 때 첫 페이지에만 나오고 사라진다(한글
+    // "표 제목 줄 자동 반복" 관용구와 어긋남). 아래 컬럼 헤더 행과 같은 표의 `head` 첫 행으로
+    // 합쳐서 페이지마다 함께 반복되게 한다 — colSpan은 6개 컬럼을 3:3으로 나눠 원본의
+    // "라벨:값" 2분할을 근사한다(정확한 폭 비율은 원본과 다를 수 있으나 순수 장식용 바라 무관).
     autoTable(doc, {
       ...tableDefaults,
       startY: y,
-      body: [
-        [
-          "상태평가 결과 및 보수ㆍ보강",
-          `상태평가 결과 : ${worstGrade(content.summary.count_by_grade)}`,
-        ],
-      ],
-      bodyStyles: GRAY_HEADER_STYLES,
-      columnStyles: { 0: { cellWidth: 96 }, 1: { cellWidth: "auto" } },
-    });
-
-    autoTable(doc, {
-      ...tableDefaults,
-      startY: lastTableY(),
       head: [
+        [
+          { content: "상태평가 결과 및 보수ㆍ보강", colSpan: 3 },
+          {
+            content: `상태평가 결과 : ${worstGrade(content.summary.count_by_grade)}`,
+            colSpan: 3,
+          },
+        ],
         [
           "연번",
           "결함발생 부재",

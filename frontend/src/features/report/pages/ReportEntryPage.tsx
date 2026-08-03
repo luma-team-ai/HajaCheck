@@ -56,6 +56,14 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+// PR머신 리뷰 P3(#1437)는 문자열 완전일치 대신 error.code로 분기하라고 제안했으나, 실측 결과
+// 백엔드는 같은 code=REPORT_GENERATION_FAILED를 "일반 실패"(502, 보고서 생성에 실패했습니다.)
+// 와 "구체 사유가 있는 실패"(503, 예: AI 서버 응답이 없습니다.) 양쪽 다에 재사용한다
+// (ReportEntryPage.test.tsx의 두 테스트가 이 계약을 고정한다 — 같은 code에서 한쪽은 특정 문구
+// 노출을 요구하고 다른 쪽은 안내문 대체를 요구함). 즉 code만으로는 이 두 케이스를 구분할 수
+// 없어 code 기반 분기로 바꾸면 "AI 서버 응답이 없습니다." 같은 구체 사유가 안내문에 가려진다.
+// 백엔드가 두 케이스에 서로 다른 code를 발급하도록 계약을 바꾸기 전까지는 메시지 비교가
+// 유일한 신호라 원래 방식(정확히 일치하는 두 문자열만 안내문으로 대체)을 유지한다.
 function buildReportGenerationFailureMessage(error: unknown): string {
   const message = extractErrorMessage(error, '');
   if (message && !['보고서 생성에 실패했습니다.', '네트워크 오류가 발생했습니다.'].includes(message)) {
