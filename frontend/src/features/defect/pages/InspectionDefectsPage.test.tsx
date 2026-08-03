@@ -94,7 +94,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     // 채워지므로 findBy로 로딩 완료를 기다린다.
     expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
     expect(within(modal).getByRole('heading', { name: '조치 결과 등록' })).not.toBeNull();
-    expect(within(modal).getByLabelText('조치 내용 *')).not.toBeNull();
+    expect(within(modal).getByLabelText('조치 내용')).not.toBeNull();
   });
 
   // 대시보드 "검수하기" → defectId 쿼리파라미터 딥링크(#1117 회귀 수정) — 카드를 클릭하지 않아도
@@ -222,15 +222,15 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     const modal = await screen.findByRole('dialog', { name: '하자 상세' });
     await within(modal).findByText('DEF-0001');
 
-    const photoInput = within(modal).getByLabelText('조치 후 사진 업로드 *') as HTMLInputElement;
+    const photoInput = within(modal).getByLabelText('조치 후 사진 업로드') as HTMLInputElement;
     const file = new File(['dummy'], 'after.png', { type: 'image/png' });
     fireEvent.change(photoInput, { target: { files: [file] } });
 
-    fireEvent.change(within(modal).getByLabelText('조치 내용 *'), {
+    fireEvent.change(within(modal).getByLabelText('조치 내용'), {
       target: { value: '균열 부위 에폭시 주입 및 표면 도포 완료' },
     });
-    fireEvent.change(within(modal).getByLabelText('조치일 *'), { target: { value: '2026-07-20' } });
-    fireEvent.change(within(modal).getByLabelText('담당자 *'), {
+    fireEvent.change(within(modal).getByLabelText('조치일'), { target: { value: '2026-07-20' } });
+    fireEvent.change(within(modal).getByLabelText('담당자'), {
       target: { value: (await within(modal).findByRole('option', { name: '김도현 검사자' })).getAttribute('value') },
     });
 
@@ -246,7 +246,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
       expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).disabled).toBe(false),
     );
     expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('IN_PROGRESS');
-    expect(within(modal).getByLabelText('조치 후 사진 업로드 *')).not.toBeNull();
+    expect(within(modal).getByLabelText('조치 후 사진 업로드')).not.toBeNull();
     expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치중');
     // #1128 코드리뷰 P2-2 — 성공 후 폼 필드가 초기화되고 성공 알림이 뜬다(중복 업로드/의도치 않은
     // 완결 방지). 초기화된 상태라 재제출은 필드를 다시 채워야만 가능하다.
@@ -257,18 +257,18 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     // 조치완료(RESOLVED)로 전이하려면 이번엔 사용자가 명시적으로 "조치완료"를 선택해야 한다
     // (#1193/HAJA-569 — 자동 다음 단계 강제 제거). 초기화된 필드를 다시 채운 뒤 제출한다.
     const secondFile = new File(['dummy2'], 'after2.png', { type: 'image/png' });
-    fireEvent.change(within(modal).getByLabelText('조치 후 사진 업로드 *'), { target: { files: [secondFile] } });
-    fireEvent.change(within(modal).getByLabelText('조치 내용 *'), {
+    fireEvent.change(within(modal).getByLabelText('조치 후 사진 업로드'), { target: { files: [secondFile] } });
+    fireEvent.change(within(modal).getByLabelText('조치 내용'), {
       target: { value: '보수 완료 확인 — 재발 없음' },
     });
-    fireEvent.change(within(modal).getByLabelText('조치일 *'), { target: { value: '2026-07-21' } });
-    fireEvent.change(within(modal).getByLabelText('담당자 *'), {
+    fireEvent.change(within(modal).getByLabelText('조치일'), { target: { value: '2026-07-21' } });
+    fireEvent.change(within(modal).getByLabelText('담당자'), {
       target: { value: (await within(modal).findByRole('option', { name: '김도현 검사자' })).getAttribute('value') },
     });
     fireEvent.change(within(modal).getByLabelText('진행상태 *'), { target: { value: 'RESOLVED' } });
     fireEvent.click(within(modal).getByRole('button', { name: '상태 저장' }));
 
-    await waitFor(() => expect(within(modal).queryByLabelText('조치 후 사진 업로드 *')).toBeNull());
+    await waitFor(() => expect(within(modal).queryByLabelText('조치 후 사진 업로드')).toBeNull());
     // 조치 필드는 1세트뿐이라 2차 등록 내용이 최종 요약에 남는다(1차 내용은 감사기록으로만 보존,
     // #1128 코드리뷰 P2-1).
     expect(within(modal).getByText('보수 완료 확인 — 재발 없음')).not.toBeNull();
