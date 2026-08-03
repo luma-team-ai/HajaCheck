@@ -12,6 +12,7 @@
 - 프롬프트에 고객사 정보(시설명·위치·하자내용)가 들어가지만, LangSmith 전송은 전역 입출력
   마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)으로 차단한다 — #1240
 """
+import concurrent.futures
 import logging
 from pathlib import Path
 from typing import Any, TypedDict
@@ -251,7 +252,8 @@ def _run_summary_chain(confirmed_defects: list[dict]) -> ReportSummary:
     return get_llm().with_structured_output(ReportSummary, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
 
 
-# ── detail ──
+DETAIL_CHUNK_SIZE = 15
+
 
 def _build_prompt_detail(confirmed_defects: list[dict]) -> str:
     system = (PROMPTS_DIR / "_system_base.md").read_text(encoding="utf-8")
@@ -263,10 +265,91 @@ def _build_prompt_detail(confirmed_defects: list[dict]) -> str:
     return f"{system}\n\n{filled}"
 
 
-def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
-    prompt = _build_prompt_detail(confirmed_defects)
-    # confirmed_defects(하자내용 등 회사정보)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
+def _run_detail_chain_chunk(chunk: list[dict]) -> ReportDetail:
+    prompt = _build_prompt_detail(chunk)
     return get_llm().with_structured_output(ReportDetail, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
+
+
+def _fallback_detail_item(defect: dict) -> DefectDetailItem:
+    defect_type = str(defect.get("defect_type", "") or "-").strip()
+    location = str(defect.get("location", "") or "-").strip()
+    severity_grade = str(defect.get("severity_grade", "") or "-").strip()
+    description = str(defect.get("description", "") or "-").strip()
+    return DefectDetailItem(
+        defect_id=int(defect.get("id")),
+        defect_type=defect_type,
+        location=location,
+        severity_grade=severity_grade,
+        description=description,
+        cause=(
+            "입력된 하자 유형·위치·등급 정보를 기준으로 한 보수적 원인 추정입니다. "
+            "현장 사진과 점검 기록을 함께 검토해 원인을 확정해야 합니다."
+        ),
+    )
+
+
+def _repair_detail_items(items: list[DefectDetailItem], confirmed_defects: list[dict]) -> ReportDetail:
+    confirmed_by_id = {d.get("id"): d for d in confirmed_defects}
+    valid_by_id: dict[Any, DefectDetailItem] = {}
+    dropped_count = 0
+
+    for item in items:
+        confirmed = confirmed_by_id.get(item.defect_id)
+        if confirmed is None or item.defect_id in valid_by_id:
+            dropped_count += 1
+            continue
+        if _detail_content_key(item.defect_type, item.severity_grade) != _detail_content_key(
+            confirmed.get("defect_type", ""), confirmed.get("severity_grade", "")
+        ):
+            dropped_count += 1
+            continue
+        valid_by_id[item.defect_id] = item
+
+    repaired_items: list[DefectDetailItem] = []
+    fallback_count = 0
+    for defect in confirmed_defects:
+        item = valid_by_id.get(defect.get("id"))
+        if item is None:
+            fallback_count += 1
+            item = _fallback_detail_item(defect)
+        repaired_items.append(item)
+
+    if fallback_count or dropped_count:
+        logger.warning(
+            "detail 섹션 LLM 출력 보정 — fallback=%d, dropped=%d, llm_items=%d, confirmed=%d",
+            fallback_count,
+            dropped_count,
+            len(items),
+            len(confirmed_defects),
+        )
+    return ReportDetail(items=repaired_items)
+
+
+def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
+    if not confirmed_defects:
+        return ReportDetail(items=[])
+
+    if len(confirmed_defects) <= DETAIL_CHUNK_SIZE:
+        return _repair_detail_items(_run_detail_chain_chunk(confirmed_defects).items, confirmed_defects)
+
+    # 대용량 하자(예: 70건)는 단일 LLM 출력 토큰 한도로 인해 cut-off(예: 21건만 출력)되는 문제를 방지하기 위해
+    # 15건 단위 청크로 분할 후 병렬로 호출해 결합한다.
+    chunks = [
+        confirmed_defects[i : i + DETAIL_CHUNK_SIZE]
+        for i in range(0, len(confirmed_defects), DETAIL_CHUNK_SIZE)
+    ]
+
+    all_items: list[DefectDetailItem] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunks), 5)) as executor:
+        futures = [executor.submit(_run_detail_chain_chunk, chunk) for chunk in chunks]
+        for future in concurrent.futures.as_completed(futures):
+            res = future.result()
+            all_items.extend(res.items)
+
+    # confirmed_defects 순서에 맞게 id 기준 정렬
+    id_order = {d.get("id"): idx for idx, d in enumerate(confirmed_defects)}
+    all_items.sort(key=lambda item: id_order.get(item.defect_id, 999999))
+    return _repair_detail_items(all_items, confirmed_defects)
 
 
 # ── recommendation (+ RAG, vectorstore 미구현 시 "관련 근거 없음" 폴백) ──

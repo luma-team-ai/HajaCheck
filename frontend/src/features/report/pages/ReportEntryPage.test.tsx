@@ -464,6 +464,35 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(posted).toBe(false);
   });
 
+  it('확정 하자가 100건을 초과하면 생성 요청 전에 점검자용 안내를 표시한다', async () => {
+    let posted = false;
+    server.use(
+      http.get('/api/inspections/:id/defects', () =>
+        HttpResponse.json({
+          success: true,
+          data: Array.from({ length: 101 }, (_, index) => defect(index + 1, 'CRACK', 'C', true)),
+        }),
+      ),
+      http.post('/api/inspections/:id/reports', () => {
+        posted = true;
+        return HttpResponse.json({
+          success: true,
+          data: { id: 77, inspectionId: 1, version: 1, content: {}, status: 'DRAFT', createdBy: 1, createdAt: '2026-07-22T10:00:00Z' },
+        });
+      }),
+    );
+    renderPage();
+    await screen.findByText(/점검 회차 요약/);
+
+    fireEvent.click(screen.getByRole('button', { name: '보고서 생성 시작' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('보고서 생성 범위를 줄여 주세요')).toBeTruthy();
+    expect(within(dialog).getByText(/확정 하자 100건까지/)).toBeTruthy();
+    expect(within(dialog).getByText(/현재 확정 하자는 101건/)).toBeTruthy();
+    expect(posted).toBe(false);
+  });
+
   it('생성에 성공하면 백엔드가 반환한 실제 reportId 쿼리로 이동한다', async () => {
     let posted = false;
     server.use(
@@ -507,6 +536,28 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.getByText('AI 서버 응답이 없습니다.')).toBeTruthy();
     expect(screen.getByTestId('location').textContent).toBe('/inspections/1/reports');
     expect(screen.queryByText('편집화면')).toBeNull();
+  });
+
+  it('생성 실패 사유가 일반 오류이면 점검자가 다음 행동을 알 수 있는 안내를 표시한다', async () => {
+    server.use(
+      http.post('/api/inspections/:id/reports', () =>
+        HttpResponse.json(
+          { success: false, error: { code: 'REPORT_GENERATION_FAILED', message: '보고서 생성에 실패했습니다.' } },
+          { status: 502 },
+        ),
+      ),
+    );
+    renderPageWithLocationProbe();
+    await screen.findByText(/점검 회차 요약/);
+
+    fireEvent.click(screen.getByRole('button', { name: '보고서 생성 시작' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('보고서 생성 실패')).toBeTruthy();
+    expect(within(dialog).getByText(/보고서 초안을 만들지 못했습니다/)).toBeTruthy();
+    expect(within(dialog).getByText(/확정 하자나 사진이 많은 점검/)).toBeTruthy();
+    expect(within(dialog).getByText(/점검 회차와 실패 시간/)).toBeTruthy();
+    expect(screen.getByTestId('location').textContent).toBe('/inspections/1/reports');
   });
 
   it('최근 작업 내역이 있으면 목록과 "이어서 편집" 버튼을 노출한다', async () => {

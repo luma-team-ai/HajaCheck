@@ -31,10 +31,12 @@ interface DefectPhotoProps {
  */
 export function DefectPhoto({ group, imageClassName = '', alt, fallback }: DefectPhotoProps) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  // 그룹이 바뀌면(페이지 이동·필터 변경) 이전 실패 상태를 물고 있지 않도록 재동기화한다.
+  // 그룹이 바뀌면(페이지 이동·필터 변경) 이전 로드/실패 상태를 물고 있지 않도록 재동기화한다.
   useEffect(() => {
     setFailed(false);
+    setLoaded(false);
   }, [group.imageUrl]);
 
   if (!group.imageUrl || failed) {
@@ -44,14 +46,25 @@ export function DefectPhoto({ group, imageClassName = '', alt, fallback }: Defec
   const drawable = group.defects.filter(isDrawableBbox);
 
   return (
-    <div className="relative w-fit max-w-full">
+    <div className="relative max-w-full">
+      {!loaded && (
+        <div
+          role="status"
+          aria-label={`${alt} 로딩 중`}
+          className="flex aspect-video w-full items-center justify-center rounded-md bg-surface-sunken text-xs text-text-muted"
+        >
+          이미지 로딩 중
+        </div>
+      )}
+      <div className={loaded ? 'relative w-fit max-w-full' : 'pointer-events-none absolute inset-0 h-0 w-0 overflow-hidden opacity-0'}>
       <img
         src={group.imageUrl}
         alt={alt}
+        onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
         className={`block ${imageClassName}`}
       />
-      {drawable.map((defect) => {
+      {loaded && drawable.map((defect) => {
         // highlight가 지정된 경우에만 주/조연을 나눈다 — 지정이 없으면 전부 동일 강조.
         const isMuted =
           group.highlightDefectId !== undefined && group.highlightDefectId !== defect.id;
@@ -72,6 +85,7 @@ export function DefectPhoto({ group, imageClassName = '', alt, fallback }: Defec
           />
         );
       })}
+      </div>
     </div>
   );
 }
