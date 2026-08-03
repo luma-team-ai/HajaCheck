@@ -13,6 +13,10 @@ langchain-huggingface==0.1.2
 langsmith==0.10.10  # langchain-core>=0.3.26 요구에 따라 upgraded (WS1 PR #703과 동일 조합)
 langgraph==0.6.11  # StateGraph 기반 체인 구현용 (WS1: report_chain, WS3: rag_chat_chain 공용)
 chromadb==0.5.23
+rank_bm25==0.2.2  # regulations 컬렉션 하이브리드 검색(벡터+BM25 RRF, #1410). 순수 파이썬 소구현
+                  # BM25Okapi 하나만 제공하는 경량 라이브러리 — 마지막 릴리스(2.2)로 고정.
+matplotlib==3.10.0  # ai/eval/run_eval.py 벡터-only vs 하이브리드 지표 비교 막대그래프 저장용(#1410).
+                    # 평가 하네스 전용(로컬/수동 실행), pytest 대상 아님.
 sentence-transformers==3.3.1
 rapidocr==3.9.2  # 사업자등록증 OCR(HAJA-169/#552, EasyOCR→RapidOCR PP-OCRv5 한국어 교체 #722)
                  # — 실측 완전일치 3/20(EasyOCR)→18/20, 추론 4장 5.8s→1.0s, 모델 ~95MB→13MB
