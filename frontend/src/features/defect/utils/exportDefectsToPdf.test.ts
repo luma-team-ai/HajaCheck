@@ -40,9 +40,7 @@ function makeDefect(overrides: Partial<DefectExportItem> = {}): DefectExportItem
   return {
     id: 1,
     inspectionId: 101,
-    facilityId: 1,
     facilityName: '강남 오피스타워 A동',
-    facilityType: '건물',
     type: 'REBAR_EXPOSURE',
     typeLabel: '철근 노출',
     grade: 'D',

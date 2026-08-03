@@ -80,11 +80,9 @@ export interface InspectionDefect {
   createdAt: string;
 }
 
-// 점검별 하자 응답에 없는 시설 정보를 상위 InspectionListItem에서 병합한 PDF 전용 모델.
+// 점검별 하자 응답에 없는 시설물명을 상위 InspectionListItem에서 병합한 PDF 전용 모델.
 export interface DefectExportItem extends InspectionDefect {
-  facilityId: number;
   facilityName: string;
-  facilityType: string;
 }
 
 // GET /api/defects/{id}/revisions 응답 항목 — backend DefectRevisionResponse와 1:1(HAJA-314)
@@ -179,7 +177,6 @@ export interface InspectionListItem {
   id: number;
   facilityId: number;
   facilityName: string;
-  facilityType: string;
   roundNo: number;
   inspectionDate: string; // YYYY-MM-DD
   type: InspectionType;

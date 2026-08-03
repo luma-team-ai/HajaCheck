@@ -2,6 +2,7 @@ import type {
   Defect,
   DefectActionLogEntry,
   DefectRevision,
+  InspectionDefect,
   InspectionDefectResponse,
 } from '../types';
 import { mapInspectionDefect } from '../utils/inspectionDefectMapper';
@@ -95,16 +96,32 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
   },
 ];
 
-export const mockInspectionDefects = mockInspectionDefectResponses.map(mapInspectionDefect);
+export const mockInspectionDefects: InspectionDefect[] =
+  mockInspectionDefectResponses.map(mapInspectionDefect);
 
-export const mockDefects: Defect[] = mockInspectionDefects.map((defect) => {
-  const fields = Object.fromEntries(
-    Object.entries(defect).filter(([key]) => !['areaRatio', 'detailUrl', 'mediaId'].includes(key)),
-  ) as Omit<InspectionDefect, 'areaRatio' | 'detailUrl' | 'mediaId'>;
+export const mockDefects: Defect[] = mockInspectionDefects.map((defect): Defect => {
   const facility = defect.inspectionId === 101
     ? { facilityId: 1, facilityName: '강남 오피스타워 A동', facilityType: '건물' }
     : { facilityId: 3, facilityName: '한강대교 북단', facilityType: '교량' };
-  return { ...fields, ...facility };
+  return {
+    id: defect.id,
+    inspectionId: defect.inspectionId,
+    ...facility,
+    type: defect.type,
+    typeLabel: defect.typeLabel,
+    grade: defect.grade,
+    status: defect.status,
+    confidence: defect.confidence,
+    reviewed: defect.reviewed,
+    bboxX: defect.bboxX,
+    bboxY: defect.bboxY,
+    bboxW: defect.bboxW,
+    bboxH: defect.bboxH,
+    crackWidthMm: defect.crackWidthMm,
+    crackLengthMm: defect.crackLengthMm,
+    imageUrl: defect.imageUrl,
+    createdAt: defect.createdAt,
+  };
 });
 
 // GET /api/defects/{id}/revisions 통합 테스트용 목 데이터 — id=1 하자의 상태 전이 이력(HAJA-314)

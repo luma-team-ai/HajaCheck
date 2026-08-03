@@ -226,9 +226,7 @@ export async function fetchFilteredDefectsForExport(
       defectApi.getByInspection(inspection.id).then((response) =>
         response.data.map((defect) => ({
           ...defect,
-          facilityId: inspection.facilityId,
           facilityName: inspection.facilityName,
-          facilityType: inspection.facilityType,
         })),
       ),
   );

@@ -490,7 +490,7 @@ describe('fetchFilteredDefectsForExport', () => {
       ),
     ).toBe(true);
     expect(result.every((defect) => defect.facilityName === '강남 오피스타워 A동')).toBe(true);
-    expect(result.every((defect) => defect.facilityType === '건물')).toBe(true);
+    expect(result.some((defect) => 'facilityId' in defect || 'facilityType' in defect)).toBe(false);
   });
 });
 
