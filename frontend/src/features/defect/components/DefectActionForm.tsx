@@ -300,6 +300,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
             accept="image/jpeg,image/png"
             onChange={handleFileInputChange}
             className="sr-only"
+            tabIndex={-1}
           />
         </div>
         {fileError && (

@@ -152,113 +152,120 @@ export function DefectDetailModal({ defectId, onClose }: Props) {
 
             <div className="defect-detail-modal__body">
               <div className="defect-detail-modal__primary">
-                <div className="defect-detail-modal__photo-tab-row">
-                  <div
-                    className="defect-detail-modal__photo-tabs"
-                    role="tablist"
-                    aria-label="조치 전/조치/조치 완료 사진"
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={activePhotoTab === 'before'}
-                      className={`defect-detail-modal__photo-tab${activePhotoTab === 'before' ? ' is-active' : ''}`}
-                      onClick={() => setActivePhotoTab('before')}
-                    >
-                      조치 전 사진
-                    </button>
-                    {inProgressLogs.length > 0 && (
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={activePhotoTab === 'inProgress'}
-                        className={`defect-detail-modal__photo-tab${activePhotoTab === 'inProgress' ? ' is-active' : ''}`}
-                        onClick={() => setActivePhotoTab('inProgress')}
+                {/* 이미지(4:3 고정) + 지표 카드를 좌우로 배치(#1417) — 넓은 화면에서 이미지 높이가
+                    과도하게 커지는 걸 막고, 지표 카드가 이미지 옆 여백을 채우도록 한다. 640px 이하에서는
+                    세로로 쌓인다(아래 media-row 미디어쿼리). */}
+                <div className="defect-detail-modal__media-row">
+                  <div className="defect-detail-modal__image-col">
+                    <div className="defect-detail-modal__photo-tab-row">
+                      <div
+                        className="defect-detail-modal__photo-tabs"
+                        role="tablist"
+                        aria-label="조치 전/조치/조치 완료 사진"
                       >
-                        조치 사진
-                      </button>
-                    )}
-                    {resolvedLogs.length > 0 && (
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={activePhotoTab === 'resolved'}
-                        className={`defect-detail-modal__photo-tab${activePhotoTab === 'resolved' ? ' is-active' : ''}`}
-                        onClick={() => setActivePhotoTab('resolved')}
-                      >
-                        조치 완료 사진
-                      </button>
+                        <button
+                          type="button"
+                          role="tab"
+                          aria-selected={activePhotoTab === 'before'}
+                          className={`defect-detail-modal__photo-tab${activePhotoTab === 'before' ? ' is-active' : ''}`}
+                          onClick={() => setActivePhotoTab('before')}
+                        >
+                          조치 전 사진
+                        </button>
+                        {inProgressLogs.length > 0 && (
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={activePhotoTab === 'inProgress'}
+                            className={`defect-detail-modal__photo-tab${activePhotoTab === 'inProgress' ? ' is-active' : ''}`}
+                            onClick={() => setActivePhotoTab('inProgress')}
+                          >
+                            조치 사진
+                          </button>
+                        )}
+                        {resolvedLogs.length > 0 && (
+                          <button
+                            type="button"
+                            role="tab"
+                            aria-selected={activePhotoTab === 'resolved'}
+                            className={`defect-detail-modal__photo-tab${activePhotoTab === 'resolved' ? ' is-active' : ''}`}
+                            onClick={() => setActivePhotoTab('resolved')}
+                          >
+                            조치 완료 사진
+                          </button>
+                        )}
+                      </div>
+                      {activeTabLogs.length > 1 && (
+                        <select
+                          className="defect-detail-modal__photo-log-select"
+                          aria-label="등록일 선택"
+                          value={activeTabLog?.id ?? ''}
+                          onChange={(event) => {
+                            const logId = Number(event.target.value);
+                            if (activePhotoTab === 'inProgress') {
+                              setSelectedInProgressLogId(logId);
+                            } else if (activePhotoTab === 'resolved') {
+                              setSelectedResolvedLogId(logId);
+                            }
+                          }}
+                        >
+                          {activeTabLogs.map((log) => (
+                            <option key={log.id} value={log.id}>
+                              {log.actionDate}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                    {activePhotoTab !== 'before' && activeTabLog ? (
+                      <DefectImageViewer
+                        imageUrl={activeTabLog.photoUrl}
+                        typeLabel={defect.typeLabel}
+                        bboxX={null}
+                        bboxY={null}
+                        bboxW={null}
+                        bboxH={null}
+                      />
+                    ) : (
+                      <DefectImageViewer
+                        imageUrl={defect.imageUrl}
+                        typeLabel={defect.typeLabel}
+                        bboxX={defect.bboxX}
+                        bboxY={defect.bboxY}
+                        bboxW={defect.bboxW}
+                        bboxH={defect.bboxH}
+                      />
                     )}
                   </div>
-                  {activeTabLogs.length > 1 && (
-                    <select
-                      className="defect-detail-modal__photo-log-select"
-                      aria-label="등록일 선택"
-                      value={activeTabLog?.id ?? ''}
-                      onChange={(event) => {
-                        const logId = Number(event.target.value);
-                        if (activePhotoTab === 'inProgress') {
-                          setSelectedInProgressLogId(logId);
-                        } else if (activePhotoTab === 'resolved') {
-                          setSelectedResolvedLogId(logId);
-                        }
-                      }}
-                    >
-                      {activeTabLogs.map((log) => (
-                        <option key={log.id} value={log.id}>
-                          {log.actionDate}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-                {activePhotoTab !== 'before' && activeTabLog ? (
-                  <DefectImageViewer
-                    imageUrl={activeTabLog.photoUrl}
-                    typeLabel={defect.typeLabel}
-                    bboxX={null}
-                    bboxY={null}
-                    bboxW={null}
-                    bboxH={null}
-                  />
-                ) : (
-                  <DefectImageViewer
-                    imageUrl={defect.imageUrl}
-                    typeLabel={defect.typeLabel}
-                    bboxX={defect.bboxX}
-                    bboxY={defect.bboxY}
-                    bboxW={defect.bboxW}
-                    bboxH={defect.bboxH}
-                  />
-                )}
 
-                <div className="defect-metrics">
-                  <article className="defect-metric-card">
-                    <span>AI 신뢰도</span>
-                    <strong>
-                      {Math.round(defect.confidence * 100)} <small>%</small>
-                    </strong>
-                  </article>
-                  <article className="defect-metric-card">
-                    <span>균열 폭(최대)</span>
-                    <strong>
-                      {defect.crackWidthMm != null ? (
-                        `${defect.crackWidthMm}mm`
-                      ) : (
-                        <span className="defect-metric-empty">정보 없음</span>
-                      )}
-                    </strong>
-                  </article>
-                  <article className="defect-metric-card">
-                    <span>균열 길이(추정)</span>
-                    <strong>
-                      {defect.crackLengthMm != null ? (
-                        `${defect.crackLengthMm}mm`
-                      ) : (
-                        <span className="defect-metric-empty">정보 없음</span>
-                      )}
-                    </strong>
-                  </article>
+                  <div className="defect-metrics">
+                    <article className="defect-metric-card">
+                      <span>AI 신뢰도</span>
+                      <strong>
+                        {Math.round(defect.confidence * 100)} <small>%</small>
+                      </strong>
+                    </article>
+                    <article className="defect-metric-card">
+                      <span>균열 폭(최대)</span>
+                      <strong>
+                        {defect.crackWidthMm != null ? (
+                          `${defect.crackWidthMm}mm`
+                        ) : (
+                          <span className="defect-metric-empty">정보 없음</span>
+                        )}
+                      </strong>
+                    </article>
+                    <article className="defect-metric-card">
+                      <span>균열 길이(추정)</span>
+                      <strong>
+                        {defect.crackLengthMm != null ? (
+                          `${defect.crackLengthMm}mm`
+                        ) : (
+                          <span className="defect-metric-empty">정보 없음</span>
+                        )}
+                      </strong>
+                    </article>
+                  </div>
                 </div>
 
                 <DefectExplainPanel

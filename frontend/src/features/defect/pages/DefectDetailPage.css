@@ -31,10 +31,10 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #ff4949;
+  background: var(--color-danger-dot);
 }
 
-.defect-chip--warning i { background: #ff7a1a; }
+.defect-chip--warning i { background: var(--color-warning-dot); }
 
 .defect-detail-layout {
   display: grid;

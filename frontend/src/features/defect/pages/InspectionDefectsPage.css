@@ -459,8 +459,8 @@
   left: 100%;
   z-index: 1;
   display: inline-flex;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--color-border);
@@ -524,6 +524,9 @@
 }
 
 .defect-detail-modal__photo-tab {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
   border: 1px solid var(--color-border);
   border-radius: 9999px;
   background: var(--color-surface);
@@ -554,6 +557,40 @@
   min-width: 0;
   flex-direction: column;
   gap: 22px;
+}
+
+/* --- 이미지(4:3) + 지표 카드 좌우 배치(#1417) ---
+   .defect-image-stage/.defect-metrics는 DefectDetailPage.css에 정의된 공용 클래스라(하자 상세
+   드릴다운 FacilityDefectDetailPage.css 계열과 공유 가능성 있음), 여기서는 base 규칙을 건드리지
+   않고 .defect-detail-modal 스코프 셀렉터로만 오버라이드한다. */
+
+.defect-detail-modal__media-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.defect-detail-modal__image-col {
+  display: flex;
+  flex: 1 1 420px;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 260px;
+  max-width: 520px;
+}
+
+.defect-detail-modal__image-col .defect-image-stage {
+  height: auto;
+  aspect-ratio: 4 / 3;
+}
+
+.defect-detail-modal .defect-metrics {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 160px;
 }
 
 /* --- 조치 결과 등록 폼 --- */
@@ -776,5 +813,17 @@
 
   .defect-action-form__row {
     grid-template-columns: 1fr;
+  }
+
+  .defect-detail-modal__panel {
+    padding: 20px 16px 32px;
+  }
+
+  .defect-detail-modal__media-row {
+    flex-direction: column;
+  }
+
+  .defect-detail-modal__image-col {
+    max-width: none;
   }
 }
