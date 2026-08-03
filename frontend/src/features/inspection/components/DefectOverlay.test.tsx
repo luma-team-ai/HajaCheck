@@ -42,6 +42,9 @@ describe('DefectOverlay', () => {
   it('박스 클릭 시 onSelect(id)가 호출된다', () => {
     const onSelect = vi.fn();
     render(<DefectOverlay media={media} defects={defects} onSelect={onSelect} />);
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5) — jsdom은 실제 이미지 로딩을 하지 않아
+    // load 이벤트를 직접 쏴줘야 한다.
+    fireEvent.load(screen.getByAltText('점검 이미지'));
 
     fireEvent.click(screen.getByTitle(/박리박락/));
 
@@ -50,6 +53,7 @@ describe('DefectOverlay', () => {
 
   it('selectedId와 일치하는 박스에만 라벨이 노출된다', () => {
     render(<DefectOverlay media={media} defects={defects} selectedId={2} onSelect={vi.fn()} />);
+    fireEvent.load(screen.getByAltText('점검 이미지'));
 
     expect(screen.getByText('박리박락 B등급')).not.toBeNull();
     expect(screen.queryByText('균열 C등급')).toBeNull();
@@ -93,6 +97,7 @@ describe('DefectOverlay', () => {
         onSelect={onSelect}
       />,
     );
+    fireEvent.load(screen.getByAltText('점검 이미지'));
 
     // DOM 순서 확인: 면적 내림차순이므로 큰 박스가 먼저, 작은 박스가 나중에 와야 함
     const buttons = container.querySelectorAll('button');
@@ -160,6 +165,7 @@ describe('DefectOverlay', () => {
   it('등급 미판정 하자는 라벨·title에 "등급 미판정"으로 표기된다', () => {
     const ungraded: Defect = { ...defects[0], id: 5, grade: null };
     render(<DefectOverlay media={media} defects={[ungraded]} selectedId={5} onSelect={vi.fn()} />);
+    fireEvent.load(screen.getByAltText('점검 이미지'));
 
     expect(screen.getByText('균열 등급 미판정')).not.toBeNull();
     expect(screen.queryByText(/null등급/)).toBeNull();
