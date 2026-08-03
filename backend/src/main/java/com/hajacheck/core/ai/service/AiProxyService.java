@@ -17,6 +17,7 @@ import com.hajacheck.core.ai.dto.RagChatAiEnvelope;
 import com.hajacheck.core.ai.dto.RagChatAiRequest;
 import com.hajacheck.core.ai.dto.RagChatRequest;
 import com.hajacheck.core.ai.dto.RagChatResponse;
+import com.hajacheck.core.ai.dto.RagDeleteAiEnvelope;
 import com.hajacheck.core.ai.dto.RagEmbedAiEnvelope;
 import com.hajacheck.core.ai.dto.RagEmbedRequest;
 import com.hajacheck.core.ai.dto.RagEmbedResponse;
@@ -60,6 +61,7 @@ public class AiProxyService {
     private static final String RAG_CHAT_PATH = "/ai/rag-chat";
     private static final String RAG_EMBED_PATH = "/ai/rag-documents/embed";
     private static final String RAG_EMBEDDING_STATUS_PATH = "/ai/rag-documents/{docId}/embedding-status";
+    private static final String RAG_DELETE_PATH = "/ai/rag-documents/{docId}";
     private static final String DETECT_DEFECTS_PATH = "/ai/detect-defects";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
@@ -378,6 +380,45 @@ public class AiProxyService {
                     .headers(this::attachInternalKeyIfPresent)
                     .retrieve()
                     .body(RagEmbeddingStatusAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * RAG 문서 Chroma 청크 삭제 프록시(#1394) — RagDocumentService가 DB 로우·파일을 지우기 전에 먼저
+     * 호출한다. FastAPI {@code delete_document()}는 chromadb {@code where} 삭제라 매치 0건이어도
+     * 에러 없이 성공하므로(idempotent), 이 호출이 실패해도 DB/파일은 아직 건드리지 않은 상태이고
+     * 재시도하면 그대로 수렴한다(RagDocumentService.delete() javadoc 참고).
+     */
+    public void deleteRagDocumentChunks(String docId, String targetCollection) {
+        RagDeleteAiEnvelope envelope = callDeleteAiServer(docId, targetCollection);
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        if (!envelope.success()) {
+            RagDeleteAiEnvelope.ErrorBody error = envelope.error();
+            String code = error != null ? error.code() : "UNKNOWN";
+            String message = error != null ? error.message() : null;
+            log.warn("AI 서버 RAG 문서 삭제 실패 code={} message={}", code, message);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    private RagDeleteAiEnvelope callDeleteAiServer(String docId, String targetCollection) {
+        try {
+            return aiServerRestClient.delete()
+                    .uri(uriBuilder -> uriBuilder.path(RAG_DELETE_PATH)
+                            .queryParam("target_collection", targetCollection)
+                            .build(docId))
+                    .headers(this::attachInternalKeyIfPresent)
+                    .retrieve()
+                    .body(RagDeleteAiEnvelope.class);
         } catch (ResourceAccessException e) {
             throw mapConnectionFailure(e);
         } catch (RestClientResponseException e) {

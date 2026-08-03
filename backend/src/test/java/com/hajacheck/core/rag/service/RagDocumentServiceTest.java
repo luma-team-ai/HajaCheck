@@ -221,4 +221,40 @@ class RagDocumentServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.RAG_DOCUMENT_NOT_FOUND));
     }
+
+    @Test
+    void delete_AI서버삭제성공_DB로우와파일을삭제한다() {
+        when(ragDocumentWriter.delete(document.getId())).thenReturn("rag-documents/stub.pdf");
+
+        ragDocumentService.delete(document.getId());
+
+        verify(aiProxyService).deleteRagDocumentChunks(String.valueOf(document.getId()), "regulations");
+        verify(ragDocumentWriter).delete(document.getId());
+        verify(fileStorage).delete("rag-documents/stub.pdf");
+    }
+
+    @Test
+    void delete_AI서버삭제실패_DB나파일을건드리지않고예외전파() {
+        doThrow(new BusinessException(ErrorCode.AI_SERVER_UNREACHABLE))
+                .when(aiProxyService).deleteRagDocumentChunks(any(), any());
+
+        assertThatThrownBy(() -> ragDocumentService.delete(document.getId()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AI_SERVER_UNREACHABLE));
+        verify(ragDocumentWriter, never()).delete(any());
+        verify(fileStorage, never()).delete(any());
+    }
+
+    @Test
+    void delete_문서없음_RAG_DOCUMENT_NOT_FOUND예외() {
+        when(ragDocumentRepository.findByIdOrThrow(any()))
+                .thenThrow(new BusinessException(ErrorCode.RAG_DOCUMENT_NOT_FOUND));
+
+        assertThatThrownBy(() -> ragDocumentService.delete(999L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.RAG_DOCUMENT_NOT_FOUND));
+        verify(aiProxyService, never()).deleteRagDocumentChunks(any(), any());
+    }
 }

@@ -177,6 +177,28 @@ public class RagDocumentService {
         }
     }
 
+    /**
+     * RAG 문서 삭제(#1394) — ① FastAPI에 Chroma 청크 삭제를 먼저 요청하고, 성공한 뒤에만 ② DB 로우와
+     * 원본 파일을 지운다. 순서를 반대로 하면(DB부터 삭제) FastAPI 호출이 실패했을 때 DB에는 없는데
+     * Chroma에는 청크가 남아 챗봇이 존재하지 않는 문서를 근거로 계속 답변하는 상태가 된다 — 이
+     * 순서라면 ①이 실패해도 DB/파일은 아직 그대로라 관리자가 그냥 다시 삭제를 누르면 된다
+     * (delete_document()가 chromadb where 삭제라 매치 0건이어도 에러 없이 성공하는 idempotent 설계,
+     * ai-server rag_ingest.py delete_document() 참고 — 여러 번 재시도해도 결과가 수렴한다).
+     *
+     * <p>②는 RagDocumentWriter.delete()가 DB 로우 삭제를 원자 트랜잭션으로 커밋한 뒤, 그 트랜잭션이
+     * 성공했을 때만 파일을 지운다(파일 삭제 자체는 FileStorageService 계약대로 best-effort).
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void delete(Long id) {
+        RagDocument document = ragDocumentRepository.findByIdOrThrow(id);
+        String targetCollection = document.getTargetCollection().name().toLowerCase(java.util.Locale.ROOT);
+
+        aiProxyService.deleteRagDocumentChunks(String.valueOf(id), targetCollection);
+
+        String storageKey = ragDocumentWriter.delete(id);
+        fileStorage.delete(storageKey);
+    }
+
     private String extractText(MultipartFile file) {
         try {
             return pdfTextExtractor.extractText(file.getBytes());

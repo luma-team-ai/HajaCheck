@@ -1,12 +1,16 @@
 import { useState } from 'react';
 import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
+import { Modal } from '../../../shared/components/Modal';
+import { getApiErrorMessage } from '../../../shared/api/types';
 import { RagDocumentStatsCard } from '../components/RagDocumentStatsCard';
 import { RagDocumentTable } from '../components/RagDocumentTable';
 import { RagDocumentUploadForm } from '../components/RagDocumentUploadForm';
+import { useDeleteRagDocument } from '../hooks/useDeleteRagDocument';
 import { useReEmbedRagDocument } from '../hooks/useReEmbedRagDocument';
 import { useRagDocuments } from '../hooks/useRagDocuments';
 import { useUploadRagDocument } from '../hooks/useUploadRagDocument';
 import { TARGET_COLLECTION_LABEL, TARGET_COLLECTION_OPTIONS } from '../ragDocument.constants';
+import type { RagDocument } from '../ragDocument.types';
 import { RefreshIcon } from '../components/icons/RefreshIcon';
 import { Button } from '../../../shared/components/Button';
 
@@ -25,9 +29,28 @@ export function RagDocumentsPage() {
   const { uploadDocument, isPending: isUploading, error: uploadError, resetError } =
     useUploadRagDocument();
   const { reEmbed, pendingId: reEmbedPendingId, error: reEmbedError } = useReEmbedRagDocument();
+  const {
+    deleteDocument,
+    pendingId: deletePendingId,
+    error: deleteError,
+  } = useDeleteRagDocument();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [showBatchNotice, setShowBatchNotice] = useState(false);
+  // 삭제 확인 대상 — null이면 확인 모달 닫힘(파괴적 액션이라 클릭 즉시 삭제하지 않는다, #1394).
+  const [deleteTarget, setDeleteTarget] = useState<RagDocument | null>(null);
+
+  async function handleConfirmDelete() {
+    if (!deleteTarget) {
+      return;
+    }
+    try {
+      await deleteDocument(deleteTarget.id);
+      setDeleteTarget(null);
+    } catch {
+      // 에러는 deleteError로 모달 안에 표시한다 — 모달을 닫지 않아 재시도(idempotent 삭제) 가능.
+    }
+  }
 
   const documents = rawDocuments ?? [];
   const totalPages = Math.max(1, Math.ceil(documents.length / pageSize));
@@ -107,6 +130,8 @@ export function RagDocumentsPage() {
           // reEmbedError로 표시된다(RagDocumentUploadForm과 동일 패턴, code-review P1).
           onReEmbed={(id) => void reEmbed(id).catch(() => {})}
           reEmbedPendingId={reEmbedPendingId}
+          onDelete={(document) => setDeleteTarget(document)}
+          deletePendingId={deletePendingId}
         />
 
         {/* 서버 페이지네이션 API가 없어(목록 전체를 한 번에 받아옴) 이미 불러온 documents를
@@ -126,6 +151,49 @@ export function RagDocumentsPage() {
           </div>
         )}
       </div>
+
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="RAG 문서 삭제"
+        closeOnOverlayClick={deletePendingId === undefined}
+      >
+        <div className="flex w-[360px] max-w-full flex-col gap-5">
+          <p className="m-0 text-sm text-text-default">
+            {deleteTarget && (
+              <>
+                <span className="font-semibold text-heading">{deleteTarget.title}</span> 문서를
+                삭제합니다. 임베딩된 청크와 원본 파일이 모두 삭제되며 되돌릴 수 없습니다.
+              </>
+            )}
+          </p>
+
+          {deleteError && (
+            <p role="alert" className="m-0 text-sm text-danger">
+              {getApiErrorMessage(deleteError, '문서 삭제에 실패했습니다. 다시 시도해 주세요.')}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deletePendingId !== undefined}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => void handleConfirmDelete()}
+              disabled={deletePendingId !== undefined}
+            >
+              {deletePendingId !== undefined ? '삭제 중...' : '삭제'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

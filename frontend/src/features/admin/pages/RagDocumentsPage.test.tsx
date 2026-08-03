@@ -7,7 +7,7 @@
 // FormData 변환 로직 자체는 ragDocumentApi.test.ts에서 별도 검증) — 여기서는 파일 미선택 시
 // 클라이언트 검증만 확인하고, 실제 제출 성공 경로는 다루지 않는다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { setupServer } from 'msw/node';
 import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -64,6 +64,26 @@ describe('RagDocumentsPage (통합 테스트)', () => {
     expect(await within(row).findByText('완료')).toBeTruthy();
   });
 
+  // MSW 핸들러의 mockRagDocuments는 모듈 스코프 상태라 테스트 간 공유된다(resetHandlers는 데이터를
+  // 리셋하지 않는다) — 삭제는 되돌릴 수 없는 변경이라, 비파괴적인 "취소" 케이스를 먼저 검증하고
+  // 실제로 목록에서 사라지는 "확인" 케이스를 이 파일의 마지막에 둬 이후 테스트에 영향을 주지 않게 한다.
+  it('삭제 확인 다이얼로그에서 취소하면 문서가 그대로 남는다', async () => {
+    renderPage();
+
+    const titleCell = await screen.findByText('균열 하자 보수 지침');
+    const row = titleCell.closest('tr');
+    if (!row) {
+      throw new Error('문서 행을 찾을 수 없습니다');
+    }
+
+    fireEvent.click(within(row).getByRole('button', { name: '삭제' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: '취소' }));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByText('균열 하자 보수 지침')).toBeTruthy();
+  });
+
   it('파일을 고르기 전엔 제목 등 메타데이터 입력·제출 버튼이 보이지 않는다(Figma 디자인 — 드롭존만 노출)', async () => {
     renderPage();
 
@@ -82,5 +102,26 @@ describe('RagDocumentsPage (통합 테스트)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '업로드 및 임베딩 실행' }));
 
     expect(await screen.findByText('제목은 필수입니다.')).toBeTruthy();
+  });
+
+  it('삭제 버튼을 누르면 확인 다이얼로그가 뜨고, 확인하면 목록에서 사라진다', async () => {
+    renderPage();
+
+    const titleCell = await screen.findByText('균열 하자 보수 지침');
+    const row = titleCell.closest('tr');
+    if (!row) {
+      throw new Error('문서 행을 찾을 수 없습니다');
+    }
+
+    fireEvent.click(within(row).getByRole('button', { name: '삭제' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/균열 하자 보수 지침/)).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole('button', { name: '삭제' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(screen.queryByText('균열 하자 보수 지침')).toBeNull());
+    expect(screen.getByText('시설물의 안전관리에 관한 특별법')).toBeTruthy();
   });
 });
