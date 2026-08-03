@@ -287,7 +287,10 @@ describe('InspectionCreatePage (통합 테스트)', () => {
       http.get('/api/inspections', () => {
         const body = {
           success: true,
-          data: { content: [{ id: 900, roundNo: 2, status: 'REVIEWED' }], page: 0, totalElements: 1 },
+          // ANALYZED — 아직 검수도 안 끝난 회차라야 "진행 중" 경고 대상이다. REVIEWED는 페이즈8부터
+          // "점검 요약" 진입 시 이미 확정되므로 더 이상 이 경고 대상이 아니다(InspectionCreatePage
+          // findActiveRound).
+          data: { content: [{ id: 900, roundNo: 2, status: 'ANALYZED' }], page: 0, totalElements: 1 },
         };
         return HttpResponse.json(body);
       }),
@@ -319,6 +322,38 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     expect(createCallCount).toBe(0);
     // 취소 후에도 계속 편집 가능해야 한다(회차를 만들지 않았으므로 잠기지 않음)
     expect((screen.getByLabelText('시설물') as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  // 페이즈8 회귀 가드 — REVIEWED는 "점검 요약" 진입 시 이미 확정된 회차라, 최종 보고서(REPORTED)
+  // 전이 전이라도 더 이상 "진행 중" 경고 대상이면 안 된다.
+  it('기존 회차가 REVIEWED면 중복 회차 경고 없이 바로 생성한다', async () => {
+    let createCallCount = 0;
+    server.use(
+      http.get('/api/inspections', () => {
+        const body = {
+          success: true,
+          data: { content: [{ id: 900, roundNo: 2, status: 'REVIEWED' }], page: 0, totalElements: 1 },
+        };
+        return HttpResponse.json(body);
+      }),
+      http.post('/api/inspections', () => {
+        createCallCount += 1;
+        return HttpResponse.json({ success: true, data: null });
+      }),
+    );
+
+    renderPage();
+    await fillRequiredFields();
+    selectFiles([new File(['a'], 'a.jpg', { type: 'image/jpeg' })]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    });
+
+    await waitFor(() => expect(createCallCount).toBe(1));
+    expect(
+      screen.queryByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?'),
+    ).toBeNull();
   });
 
   it('중복 회차 확인창에서 "계속 생성"을 누르면 정상적으로 점검을 생성한다', async () => {

@@ -87,7 +87,12 @@ interface ActiveRound {
 async function findActiveRound(facilityId: number): Promise<ActiveRound | null> {
   try {
     const res = await inspectionApi.listByFacility(facilityId);
-    const activeRounds = res.data.content.filter((item) => item.status !== 'REPORTED');
+    // REVIEWED도 "완료"로 본다 — "점검 요약" 진입 시 회차 검수가 이미 확정되므로(ResultViewerPage
+    // confirmReview), 최종 보고서 확정(REPORTED) 전이라고 계속 "진행 중"으로 잡으면 검수 다 끝낸
+    // 회차를 두고도 새 회차를 만들 때마다 이 경고가 뜬다.
+    const activeRounds = res.data.content.filter(
+      (item) => item.status !== 'REPORTED' && item.status !== 'REVIEWED',
+    );
     if (activeRounds.length === 0) return null;
     return activeRounds.reduce((latest, item) => (item.roundNo > latest.roundNo ? item : latest));
   } catch {

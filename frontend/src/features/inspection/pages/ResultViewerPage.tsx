@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
+import { getApiErrorMessage } from '../../../shared/api/types';
 import { Modal } from '../../../shared/components/Modal/Modal';
 import { DefectOverlay } from '../components/DefectOverlay';
 import { DeletedDefectsPanel } from '../components/DeletedDefectsPanel';
@@ -564,9 +565,28 @@ export function ResultViewerPage() {
     }
   }, [data, currentDefects, selectedDefectId, isUpdating, refetch]);
 
-  const handleGenerateReport = useCallback(() => {
+  // "점검 요약" 클릭 시 회차 검수를 먼저 확정(ANALYZED→REVIEWED)한 뒤 이동한다 — 이전엔 이 전이가
+  // 최종 보고서 확정에만 묶여 있어, 검수는 끝났는데 보고서를 안(못) 만든 회차가 계속 "진행 중"으로
+  // 잡혀 같은 시설물의 새 회차 생성마다 중복 경고가 떴다. 서버가 멱등 처리하므로 재진입·중복
+  // 클릭은 안전하다.
+  const handleGenerateReport = useCallback(async () => {
+    if (isUpdating) return;
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.confirmReview(inspectionId);
+    } catch (error) {
+      // 확정 실패해도 이동은 막지 않는다(PR머신 리뷰 P2) — 보고서 화면 자체(generateDraft)는
+      // 회차 상태와 무관하게 동작하도록 설계돼 있어(ReportService 주석), 검수 확정 실패를
+      // 진입의 하드 블로커로 두면 "검수 다 끝낸 회차인데 서버 확정만 실패해서 보고서 화면에
+      // 영영 못 들어감"이라는 막다른 길이 생긴다. 서버는 REVIEWED/REPORTED에 멱등이라 다음
+      // 재진입 때 자연히 다시 시도된다 — 여기서는 경고만 남기고 그대로 진행한다.
+      console.warn('회차 검수 확정 실패 — 그대로 보고서 화면으로 진행', getApiErrorMessage(error, ''));
+    } finally {
+      setIsUpdating(false);
+    }
     navigate(`/inspections/${inspectionId}/reports`);
-  }, [inspectionId, navigate]);
+  }, [inspectionId, navigate, isUpdating]);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
@@ -597,11 +617,11 @@ export function ResultViewerPage() {
           type="button"
           variant="secondary"
           size="md"
-          onClick={handleGenerateReport}
-          disabled={data.reviewedCount !== data.totalCount}
+          onClick={() => void handleGenerateReport()}
+          disabled={data.reviewedCount !== data.totalCount || isUpdating}
           title={data.reviewedCount !== data.totalCount ? `${data.reviewedCount}/${data.totalCount} 하자 검수 확정 필요` : ''}
         >
-          점검 요약
+          {isUpdating ? '이동 중...' : '점검 요약'}
         </Button>
       </div>
 
