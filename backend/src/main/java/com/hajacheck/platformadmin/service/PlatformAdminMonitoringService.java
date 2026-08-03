@@ -1,6 +1,17 @@
 package com.hajacheck.platformadmin.service;
 
+import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
+import com.hajacheck.core.analysis.support.AnalysisProgressStore;
+import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.repository.MediaRepository;
+import com.hajacheck.core.media.repository.MediaRepository.InspectionMediaCountProjection;
+import com.hajacheck.platformadmin.dto.AnalysisJobQueueItemResponse;
 import com.hajacheck.platformadmin.dto.AnalysisJobQueueResponse;
+import com.hajacheck.platformadmin.dto.AnalysisJobQueueSummaryResponse;
+import com.hajacheck.platformadmin.dto.AnalysisJobStatus;
 import com.hajacheck.platformadmin.dto.ErrorLogItemResponse;
 import com.hajacheck.platformadmin.dto.ServerHealthItemResponse;
 import com.hajacheck.platformadmin.dto.ServerHealthStatus;
@@ -8,13 +19,24 @@ import com.hajacheck.platformadmin.dto.ServerResourceUsageResponse;
 import com.hajacheck.platformadmin.dto.SystemMonitoringResponse;
 import com.hajacheck.platformadmin.support.ErrorLogStore;
 import java.io.File;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.actuate.health.CompositeHealth;
 import org.springframework.boot.actuate.health.HealthComponent;
 import org.springframework.boot.actuate.health.HealthEndpoint;
 import org.springframework.boot.actuate.health.Status;
 import org.springframework.boot.actuate.metrics.MetricsEndpoint;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -25,8 +47,14 @@ import org.springframework.web.client.RestClientResponseException;
  * 플랫폼 관리자 콘솔 — 시스템 모니터링(#728). companyId 스코프 없이 플랫폼 인프라 상태를 다룬다
  * (PlatformAdminServiceStatsService 와 동일하게 PLATFORM_ADMIN 인가는 SecurityConfig 가 강제).
  *
- * <p>DB 접근이 없어(Actuator/Redis/RestClient 만 사용) {@code @Transactional} 을 붙이지 않는다
- * (AiProxyService 와 동일 이유).
+ * <p>#1408부터 분석 잡 큐가 {@code inspections}/{@code media} 를 조회하지만, 서비스 레벨에
+ * {@code @Transactional} 을 붙이지 않는다(코드 리뷰 P1, 2차 회귀) — 붙이면 {@link #getMonitoring()}
+ * 하나의 트랜잭션이 {@link #checkAiServerHealth()} 의 외부 HTTP 호출까지 감싸게 되어, AI 서버가
+ * 느려지거나 다운되면 그동안 DB 커넥션이 점유된 채 대기한다(관리자가 이 페이지를 반복 새로고침할
+ * 가능성이 높은 바로 그 시점에 커넥션 풀 고갈 위험). {@link InspectionRepository#findRecentOrderByCreatedAtDesc}
+ * 가 {@code facility} 를 join fetch 로 이미 즉시 로딩하므로, 리포지토리 호출(Spring Data JPA 자체가
+ * 메서드 단위로 트랜잭션 경계를 갖는다) 이후에는 지연 로딩 접근이 없어 서비스 레벨 트랜잭션이 없어도
+ * 안전하다.
  *
  * <p><b>Actuator 를 HTTP 로 재호출하지 않는다</b> — {@link HealthEndpoint}/{@link MetricsEndpoint} 빈을
  * Java API 로 직접 호출한다. HTTP show-details/show-components 설정은 웹 노출 계층(HealthEndpointWebExtension)
@@ -44,29 +72,117 @@ public class PlatformAdminMonitoringService {
     private static final int ERROR_LOG_LIMIT = 50;
     private static final String DB_HEALTH_COMPONENT = "db";
 
+    // 분석 잡 큐(#1408) — 전체 이력이 아니라 최근 N건만 반환. 프론트가 recordedAt 기준 "최근 1일"
+    // 필터를 자체적으로 하므로, 백엔드는 과도하게 커지지 않을 상한만 둔다.
+    private static final int JOB_QUEUE_LIMIT = 200;
+    private static final Set<InspectionStatus> IN_PROGRESS_STATUSES =
+            EnumSet.of(InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZING);
+    private static final DateTimeFormatter RECORDED_AT_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    // 코드 리뷰 P2 — AnalysisProgressStore는 단건 조회만 지원해(벌크 조회 없음) 완료 건마다 개별
+    // 왕복이 든다. AnalysisStatusResponse#updatedAt 캐시 TTL(6h, AnalysisJobQueueItemResponse
+    // javadoc 참고)을 이미 지난 게 확실한 건은 캐시 미스가 뻔하므로 조회 자체를 건너뛰고 바로
+    // null(대시 표시)로 처리해 불필요한 Redis 왕복을 줄인다.
+    private static final Duration PROGRESS_CACHE_TTL = Duration.ofHours(6);
+
     private final HealthEndpoint healthEndpoint;
     private final MetricsEndpoint metricsEndpoint;
     private final RestClient aiServerHealthCheckRestClient;
     private final ErrorLogStore errorLogStore;
+    private final InspectionRepository inspectionRepository;
+    private final MediaRepository mediaRepository;
+    private final AnalysisProgressStore analysisProgressStore;
 
     public PlatformAdminMonitoringService(
             HealthEndpoint healthEndpoint,
             MetricsEndpoint metricsEndpoint,
             RestClient aiServerHealthCheckRestClient,
-            ErrorLogStore errorLogStore) {
+            ErrorLogStore errorLogStore,
+            InspectionRepository inspectionRepository,
+            MediaRepository mediaRepository,
+            AnalysisProgressStore analysisProgressStore) {
         this.healthEndpoint = healthEndpoint;
         this.metricsEndpoint = metricsEndpoint;
         this.aiServerHealthCheckRestClient = aiServerHealthCheckRestClient;
         this.errorLogStore = errorLogStore;
+        this.inspectionRepository = inspectionRepository;
+        this.mediaRepository = mediaRepository;
+        this.analysisProgressStore = analysisProgressStore;
     }
 
     public SystemMonitoringResponse getMonitoring() {
         return new SystemMonitoringResponse(
                 getServerHealth(),
-                // 분석 잡 큐(#728 범위 제외) — AnalysisJobQueueResponse#empty() javadoc 참고.
-                AnalysisJobQueueResponse.empty(),
+                getJobQueue(),
                 getResourceUsage(),
                 errorLogStore.recent(ERROR_LOG_LIMIT));
+    }
+
+    private AnalysisJobQueueResponse getJobQueue() {
+        List<Inspection> inspections =
+                inspectionRepository.findRecentOrderByCreatedAtDesc(PageRequest.of(0, JOB_QUEUE_LIMIT));
+        if (inspections.isEmpty()) {
+            return AnalysisJobQueueResponse.empty();
+        }
+
+        List<Long> inspectionIds = inspections.stream().map(Inspection::getId).toList();
+        Map<Long, Long> imageCountByInspectionId = mediaRepository.countGroupByInspectionIds(inspectionIds).stream()
+                .collect(Collectors.toMap(
+                        InspectionMediaCountProjection::getInspectionId,
+                        InspectionMediaCountProjection::getCnt));
+
+        List<AnalysisJobQueueItemResponse> jobs = inspections.stream()
+                .map(inspection -> toJobQueueItem(inspection, imageCountByInspectionId))
+                .toList();
+
+        long inProgress = jobs.stream().filter(job -> job.status() == AnalysisJobStatus.IN_PROGRESS).count();
+        long completed = jobs.stream().filter(job -> job.status() == AnalysisJobStatus.COMPLETED).count();
+
+        return new AnalysisJobQueueResponse(new AnalysisJobQueueSummaryResponse(inProgress, completed, 0), jobs);
+    }
+
+    private AnalysisJobQueueItemResponse toJobQueueItem(Inspection inspection, Map<Long, Long> imageCountByInspectionId) {
+        AnalysisJobStatus status = IN_PROGRESS_STATUSES.contains(inspection.getStatus())
+                ? AnalysisJobStatus.IN_PROGRESS
+                : AnalysisJobStatus.COMPLETED;
+        int imageCount = imageCountByInspectionId.getOrDefault(inspection.getId(), 0L).intValue();
+        Facility facility = inspection.getFacility();
+
+        return new AnalysisJobQueueItemResponse(
+                "job-" + inspection.getId(),
+                facility == null ? null : facility.getAddress(),
+                imageCount,
+                status,
+                durationLabel(inspection, status),
+                inspection.getCreatedAt().format(RECORDED_AT_FORMATTER));
+    }
+
+    // #1408 — IN_PROGRESS는 지금까지 흐른 시간(now - createdAt), COMPLETED는 진행률 캐시(Redis TTL 6h)에
+    // 남아있는 마지막 하트비트(updatedAt) - createdAt. 캐시가 만료됐으면 계산할 방법이 없어 null(대시 표시)로
+    // 폴백한다 — 컬럼 추가 없이는 원천적으로 복구 불가하다는 점을 사용자 확인 완료(#1408 이슈 코멘트).
+    private String durationLabel(Inspection inspection, AnalysisJobStatus status) {
+        LocalDateTime createdAt = inspection.getCreatedAt();
+        if (status == AnalysisJobStatus.IN_PROGRESS) {
+            return formatDuration(Duration.between(createdAt, LocalDateTime.now()));
+        }
+
+        if (Duration.between(createdAt, LocalDateTime.now()).compareTo(PROGRESS_CACHE_TTL) > 0) {
+            return null;
+        }
+
+        Optional<AnalysisStatusResponse> progress = analysisProgressStore.find(inspection.getId());
+        if (progress.isEmpty() || progress.get().updatedAt() == null) {
+            return null;
+        }
+        Instant createdAtInstant = createdAt.atZone(ZoneId.systemDefault()).toInstant();
+        return formatDuration(Duration.between(createdAtInstant, progress.get().updatedAt()));
+    }
+
+    private String formatDuration(Duration duration) {
+        long totalSeconds = Math.max(0, duration.getSeconds());
+        long minutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        return String.format("%02d:%02d", minutes, seconds);
     }
 
     private List<ServerHealthItemResponse> getServerHealth() {

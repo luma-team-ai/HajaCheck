@@ -16,11 +16,12 @@ const JOB_QUEUE_DISPLAY_LIMIT = 5;
 
 // 플랫폼 관리자 > 시스템 모니터링(#729) — Figma node-id 1-404. 헤더(브레드크럼)·사이드바는
 // PlatformAdminShellRoute가 담당하므로 이 페이지는 CONTENT 영역만 그린다(다른 platform-admin
-// 페이지와 동일 계약). 분석 잡 큐는 최신 1일치 중 최대 5건만 노출한다(사용자 지시) — 큐 요약 배지
-// (진행/완료/실패)는 별도 집계값이라 이 필터의 영향을 받지 않는다. 에러 로그는 날짜 검색 + LEVEL 필터 + 페이지네이션으로
-// 전체 목록(백엔드 최근 50건)을 탐색한다(#729 후속).
+// 페이지와 동일 계약). 분석 잡 큐는 최신 1일치 중 최대 5건만 노출한다(사용자 지시) — 요약 배지
+// (진행/완료/실패)도 백엔드가 내려준 전체 기간 합계가 아니라 이 1일치 집합 기준으로 프론트에서
+// 다시 집계한다(#1408 후속 — 목록은 1일치인데 배지만 여러 날 누적치라 숫자가 안 맞아 보이던 문제).
+// 에러 로그는 날짜 검색 + LEVEL 필터 + 페이지네이션으로 전체 목록(백엔드 최근 50건)을 탐색한다(#729 후속).
 export function PlatformAdminMonitoringPage() {
-  const { data, isLoading, isError, refetch } = useSystemMonitoring();
+  const { data, isLoading, isError, isFetching, refetch } = useSystemMonitoring();
 
   // 기본값은 '전체'(빈 문자열) — 예전엔 '오늘'로 고정했으나(#729 후속), 에러가 드문 정상 운영일엔
   // 항상 빈 화면으로 보여 모니터링 패널의 본래 목적(최근 장애 관측)을 무력화했다(PR #766 리뷰 지적,
@@ -38,10 +39,13 @@ export function PlatformAdminMonitoringPage() {
     setErrorLogPage(1);
   }
 
-  const latestDayJobs = filterToLatestDay(data?.jobQueue.jobs ?? [], (job) => job.recordedAt).slice(
-    0,
-    JOB_QUEUE_DISPLAY_LIMIT,
-  );
+  const latestDayAllJobs = filterToLatestDay(data?.jobQueue.jobs ?? [], (job) => job.recordedAt);
+  const latestDayJobs = latestDayAllJobs.slice(0, JOB_QUEUE_DISPLAY_LIMIT);
+  const latestDaySummary = {
+    inProgress: latestDayAllJobs.filter((job) => job.status === 'IN_PROGRESS').length,
+    completed: latestDayAllJobs.filter((job) => job.status === 'COMPLETED').length,
+    failed: latestDayAllJobs.filter((job) => job.status === 'FAILED').length,
+  };
 
   const filteredErrorLogs = (data?.errorLogs ?? []).filter((log) => {
     const matchesDate = !errorLogDate || log.timestamp.startsWith(errorLogDate);
@@ -69,9 +73,10 @@ export function PlatformAdminMonitoringPage() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <AnalysisJobQueueCard
-          queue={data ? { summary: data.jobQueue.summary, jobs: latestDayJobs } : undefined}
+          queue={data ? { summary: latestDaySummary, jobs: latestDayJobs } : undefined}
           isLoading={isLoading}
           isError={isError}
+          isFetching={isFetching}
           onRefresh={() => void refetch()}
         />
         <ServerResourceCard resourceUsage={data?.resourceUsage} isLoading={isLoading} isError={isError} />

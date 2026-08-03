@@ -59,9 +59,12 @@ describe('PlatformAdminMonitoringPage (통합 테스트)', () => {
   it('분석 잡 큐 요약과 잡 목록을 렌더링한다', async () => {
     renderPage();
 
+    // #1408 — 요약 배지는 더 이상 백엔드 summary(전체 기간 누적치, completed: 148)를 그대로 쓰지 않고
+    // jobQueue.jobs 중 "최신 1일치"만 프론트에서 재집계한다. 목데이터 jobs 4건은 전부 같은 날짜라
+    // 전부 집계 대상이고, 그중 COMPLETED는 0건(전부 IN_PROGRESS/FAILED/WAITING)이라 완료는 0이다.
     const queue = within(await screen.findByTestId(JOB_QUEUE_TEST_ID));
     expect(await queue.findByText('진행 2')).toBeTruthy();
-    expect(queue.getByText('완료 148')).toBeTruthy();
+    expect(queue.getByText('완료 0')).toBeTruthy();
     expect(queue.getByText('실패 1')).toBeTruthy();
     expect(queue.getByText('J-8892')).toBeTruthy();
     expect(queue.getByText('힐스테이트 광교 102동')).toBeTruthy();
