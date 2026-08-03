@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-08-02
+> 마지막 갱신: 2026-08-03
 
 ## 인프라
 
@@ -35,6 +35,24 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+- **⏰ 백엔드 CI 복구 — 모니터링 소요시간 테스트 시한폭탄 제거 (→ dev, 2026-08-03)** — **#1431**(squash `36c69779`, 이슈 #1430 / HAJA-639, **사람 수동 머지**). `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`. 테스트 1파일 **+6/-1**, 프로덕션 코드 무변경, 마이그레이션 0건.
+  - **증상**: `./gradlew test` 가 **2026-08-03 16:00 KST부터 영구 실패**. 이후 올라오는 **모든 백엔드 PR의 CI가 빨간불**이 되는 상태였다(`expected "02:45" but was null`).
+  - **원인**: 테스트가 고정 시각을 쓰는데 서비스는 그 값을 `now()` 와 비교했다. `PlatformAdminMonitoringServiceTest:116` 의 `LocalDateTime.of(2026, 8, 3, 10, 0, 0)` ↔ `PlatformAdminMonitoringService:169` 의 `Duration.between(createdAt, LocalDateTime.now()) > PROGRESS_CACHE_TTL(6시간) → durationLabel=null`. **10:00 + 6h = 16:00 을 넘긴 순간부터 항상 null.**
+  - **왜 아무도 못 잡았나** — 유입 PR **#1414**(`9977b198`, 작성자 HyunDove) 머지 시각이 **14:58 KST** 로 TTL 창 안이라 작성자 로컬·PR머신 검수·GitHub CI가 **전부 정상 통과**했다. **머지 1시간 2분 뒤에 스스로 터지는** 구조라 정적 검수로는 원리상 잡히지 않고, 시간이 지난 뒤 테스트를 다시 돌려야만 드러난다. **dev 전체검수(2026-08-03 18:13)에서 발견.**
+  - **수정**: 116행을 `LocalDateTime.now().minusMinutes(10)` 으로 상대화. 단언값 `"02:45"` 는 `createdAt`↔`updatedAt` **차이**라 기준 시각이 흘러도 결정적으로 유지되므로 테스트가 느슨해지지 않는다. 같은 파일의 `:155`(`now().minusHours(7)`)·`:209`(`now().minusMinutes(1)`)는 이미 상대 시각이라 **116행만 예외**였다 — 파일 내 관례로 되돌리는 수정.
+  - **동종 패턴 전수 스캔**: 하드코딩 날짜를 쓰는 백엔드 테스트 28파일 중 대상 클래스가 `now()` 를 쓰는 후보 2건(`CounselTicketServiceTest`·`AuthServiceTest`)을 개별 확인 — 둘 다 고정 날짜를 **임계 비교가 아니라 정렬·표시·엔티티 타임스탬프**로만 써서 같은 결함이 아님. **이 건이 유일.**
+  - **교훈(재발 방지)**: **고정 시각을 `now()` 기반 임계와 비교하는 테스트는 "작성 당일에만 통과"한다.** TTL·만료·경과시간을 다루는 테스트는 반드시 `now()` 상대 시각으로 쓸 것. 근본적으로는 `Clock` 주입이 답이나 프로덕션 코드 변경이라 분리(후속 과제).
+  - **검증**: `./gradlew test` **2099건 PASS**(수정 전 동일 커밋 1 failure) · CI changes·backend SUCCESS · 시크릿 스캔 0건. **G6 PASS** — R1: 문서 승계 없이 실패 로그·서비스 코드·TTL 상수 직접 확인(경과 8.23h > 6h 산술 검증) · R3: 운영 config·env **0건** · R4: destructive·마이그레이션 **0건** · 문서 버전관리 대상 변경 **0건**.
+
+- **🔎 dev 전체검수 (메타, 승격 전, 2026-08-03)** — 승격 대상 **32커밋 / 245파일** 전수 점검. **P1 1건 발견 → 위 #1431로 즉시 복구**, 나머지 이상 없음.
+  · **빌드/테스트**: 백엔드 2099건(P1 수정 후 전건 PASS) · ai-server **408 PASS** · 프론트 빌드 ✓
+  · **마이그레이션**: 신규 **V39·V40**(둘 다 nullable `ADD COLUMN` + `IF NOT EXISTS`) — prod 현재 **V38**, `rag_documents` 8행, 신규 3컬럼 부재 실측 → **충돌 없음**. Flyway 실패 이력 **0**. `NOT NULL`+DEFAULT 없음이라 **#1325류 쓰기 차단 위험 없음**
+  · **R3**: compose·`.env`·nginx·Dockerfile 변경 **0건**. 신규 env 는 `RAG_*` 3종뿐이고 전부 코드 기본값 → **arm1 `.env` 주입 불필요** / **R4**: destructive **0건**
+  · **문서 버전관리**: contract **v0.13→v0.14**, openapi **0.40.0→0.41.0-draft**, archive 스냅샷 2건 헤더 보존 — **완전 준수**
+  · **#1393 배포 스큐 방어 반영 확인** — 사람 검수 지적이 `RagEmbeddingStaleReconciler` 에 `INDETERMINATE` 처리로 구현됨(조회 실패·구버전 `embed_batch_id` 부재를 "미완료"가 아닌 "확인 불가"로 보고 FAILED 로 밀지 않음). 승격 시 **Spring → ai-server 순서** 권장은 유효
+  · **프론트 테스트 8건 실패는 승격 비차단** — `origin/main` 기준선에서 **동일하게 8건 실패**(회귀 아님). 원인은 **로컬 Node v24 의 undici**(`multipartFormDataParser` 의 `webidl.is.File()` 단언 실패로 FormData 업로드가 전부 네트워크 오류) — CI 는 Node 20 이라 green
+  · **로컬 개발 주의**: #1420 이 추가한 `kiwipiepy`·`rank_bm25` 미설치 시 **ai-server 테스트 15파일이 수집 단계에서 폭발**한다(`Kiwi()` 가 모듈 최상단 즉시 생성이라 import 경로에 물림). `git pull` 후 `uv pip install -r ai-server/requirements.txt` 필요
 
 - **🔁 main → dev 역머지 (→ dev, 2026-08-02)** — **#1387**(merge `d32d15c0`, **merge 커밋**). 대응 이슈·Jira 없음(동기화 chore). **신규 코드 0줄** — main-only 20커밋을 dev로 되돌린 것뿐.
   - **왜 필요했나**: `#1368`(기업 계정 회사 스코프 전면 403 복구)이 **main hotfix 직행**이라 dev에 없었다. 그대로 두면 **다음 dev→main 승격이 이 수정을 통째로 되돌려 P0 장애가 재발**한다. 마지막 역머지 #1327 이후 누적분 전량.
