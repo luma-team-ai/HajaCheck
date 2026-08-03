@@ -122,7 +122,8 @@ public class DefectRevisionService {
      * @param request         요청 (type 필수, bbox 선택적 모두-또는-무, grade 선택적)
      * @return 생성된 하자
      * @throws BusinessException 점검 회차 미존재/타인 소유 (404), bbox 불완전/type 누락 (400),
-     *                           분석 진행 중(ANALYZING) (409)
+     *                           분석 진행 중(ANALYZING) (409), 분석 실패(FAILED) — 재분석 시 하자
+     *                           삭제될 수 있음 (409, PR머신 리뷰 3차 P1)
      */
     @Transactional
     public DefectDetailItem createManualDefect(
@@ -138,6 +139,17 @@ public class DefectRevisionService {
         // 자체로 막아야 한다.
         if (inspection.getStatus() == InspectionStatus.ANALYZING) {
             throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
+        }
+        // PR머신 리뷰 3차 P1 — FAILED도 같은 이유로 막는다. FAILED 재분석의 원자적 선점(
+        // InspectionRepository#startAnalyzingIfNotRunning)은 "비삭제 하자 없음" 요건을 FAILED에 한해
+        // 건너뛰는데, 그 전제가 "FAILED에 남은 하자는 전부 이번에 실패한 실행이 만든 AI 결과뿐"이다.
+        // 이 가드가 없으면 그 전제가 거짓이 될 수 있다 — 점검자가 FAILED 회차를 보고 누락 하자를
+        // 수동 등록한 뒤 재분석을 돌리면, 워커의 softDeleteAllForInspectionThenSave(비삭제 하자 전체
+        // 대상)가 그 사람 하자까지 무보상으로 지운다. fail-closed 가드(InspectionAnalysisService
+        // #hasExistingDefects)가 원래 막으려던 바로 그 유실이 FAILED 바이패스로 다시 열리는 것을
+        // 여기서 원천 차단한다.
+        if (inspection.getStatus() == InspectionStatus.FAILED) {
+            throw new BusinessException(ErrorCode.DEFECT_CREATE_BLOCKED_ANALYSIS_FAILED);
         }
 
         // bbox 검증: 4개 모두 지정되거나 모두 미지정

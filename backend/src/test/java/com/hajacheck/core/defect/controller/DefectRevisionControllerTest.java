@@ -733,6 +733,40 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
     }
 
     @Test
+    void POST_FAILED회차면_409_DEFECT_CREATE_BLOCKED_ANALYSIS_FAILED() throws Exception {
+        // PR머신 리뷰 3차 P1 — FAILED 재분석의 원자적 선점은 "비삭제 하자 없음" 요건을 FAILED에 한해
+        // 건너뛰는데, 그 전제("FAILED에 남은 하자는 전부 이번에 실패한 실행의 AI 결과뿐")가 성립하려면
+        // FAILED에서 수동 하자 추가 자체를 막아야 한다. 안 막으면 사람이 FAILED 회차에 등록한 하자가
+        // 재분석 워커의 softDeleteAllForInspectionThenSave(비삭제 하자 전체 대상)에 휩쓸려 무보상
+        // 유실된다 — 위 ANALYZING 테스트와 동일한 이유, 다른 상태.
+        Company company = saveCompany("회사26");
+        User owner = saveUser("owner26@haja.com");
+        addCompanyMembership(owner, company);
+        User inspector = saveInspector("inspector26@haja.com", company);
+        Facility facility = saveFacility(owner);
+        Inspection inspection = inspectionRepository.save(Inspection.builder()
+                .facilityId(facility.getId())
+                .createdBy(owner.getId())
+                .assignedInspectorId(inspector.getId())
+                .roundNo(1)
+                .inspectionDate(java.time.LocalDate.now())
+                .status(InspectionStatus.FAILED)
+                .build());
+
+        DefectCreateRequest request = DefectCreateRequest.builder()
+                .type(DefectType.CRACK)
+                .build();
+
+        mockMvc.perform(post("/api/inspections/{id}/defects", inspection.getId())
+                .with(csrf())
+                .with(authentication(authOf(owner)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("DEFECT_CREATE_BLOCKED_ANALYSIS_FAILED"));
+    }
+
+    @Test
     void POST_생성후조회_200() throws Exception {
         Company company = saveCompany("회사19");
         User owner = saveUser("owner19@haja.com");

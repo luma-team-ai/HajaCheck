@@ -314,6 +314,12 @@ public enum ErrorCode {
     // 결정). 재분석은 소프트삭제로 기존(사람이 검수한) 하자를 지우므로, 최종 상태 회차에서 허용하면
     // 무보상 데이터 유실 표면이 된다.
     ANALYSIS_NOT_ALLOWED(HttpStatus.CONFLICT, "검수 완료 또는 보고서화된 회차는 재분석할 수 없습니다."),
+    // PR머신 리뷰 3차 P1 — FAILED 회차의 재분석 원자적 선점은 "비삭제 하자 없음" 요건을 건너뛰는데,
+    // 이 예외의 전제(FAILED에 남은 하자는 전부 이번 실패한 실행이 만든 AI 결과뿐)가 성립하려면 FAILED
+    // 상태에서 수동 하자 추가 자체를 막아야 한다. 안 막으면 사람이 FAILED 회차에 등록한 하자가 재분석
+    // 워커의 softDeleteAllForInspectionThenSave(비삭제 하자 전체 대상)에 휩쓸려 무보상 유실된다.
+    DEFECT_CREATE_BLOCKED_ANALYSIS_FAILED(HttpStatus.CONFLICT,
+            "분석 실패(FAILED) 회차는 재분석 시 하자가 삭제될 수 있어 하자를 직접 추가할 수 없습니다. 재분석을 먼저 진행해 주세요."),
 
     // AI 서버(FastAPI) 인증 프록시(#228) — 연결/타임아웃/응답형식 3종
     AI_SERVER_UNREACHABLE(HttpStatus.SERVICE_UNAVAILABLE, "AI 서버에 연결할 수 없습니다."),
