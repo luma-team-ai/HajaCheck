@@ -50,7 +50,7 @@ describe('DefectActionForm — 업로드 드롭존 미리보기', () => {
   it('파일을 선택하면 미리보기 이미지와 파일명 칩이 렌더된다', () => {
     renderForm();
 
-    const input = screen.getByLabelText('조치 후 사진 업로드 *');
+    const input = screen.getByLabelText('조치 후 사진 업로드');
     fireEvent.change(input, { target: { files: [makeImageFile('after.png')] } });
 
     const preview = screen.getByAltText('조치 후 사진 미리보기') as HTMLImageElement;
@@ -65,7 +65,7 @@ describe('DefectActionForm — 업로드 드롭존 미리보기', () => {
   it('제거(X) 버튼 클릭 시 미리보기가 사라지고 원래 안내 문구로 돌아오며, 드롭존의 파일선택창 재오픈은 발생하지 않는다', () => {
     renderForm();
 
-    const input = screen.getByLabelText('조치 후 사진 업로드 *') as HTMLInputElement;
+    const input = screen.getByLabelText('조치 후 사진 업로드') as HTMLInputElement;
     fireEvent.change(input, { target: { files: [makeImageFile('after.png')] } });
     expect(screen.getByAltText('조치 후 사진 미리보기')).not.toBeNull();
 
@@ -90,7 +90,7 @@ describe('DefectActionForm — 업로드 드롭존 미리보기', () => {
       </QueryClientProvider>,
     );
 
-    const input = screen.getByLabelText('조치 후 사진 업로드 *');
+    const input = screen.getByLabelText('조치 후 사진 업로드');
     fireEvent.change(input, { target: { files: [makeImageFile('after.png')] } });
     expect(revokeObjectURLMock).not.toHaveBeenCalled();
 
@@ -121,7 +121,7 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
     );
 
     expect(screen.getByText('에폭시 주입 처리')).not.toBeNull();
-    expect(screen.queryByLabelText('조치 후 사진 업로드 *')).toBeNull();
+    expect(screen.queryByLabelText('조치 후 사진 업로드')).toBeNull();
   });
 
   // #1128 회귀 방지 — CONFIRMED→IN_PROGRESS 등록 직후에도 actionResult가 채워지지만, IN_PROGRESS는
@@ -146,7 +146,7 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
       </QueryClientProvider>,
     );
 
-    expect(screen.getByLabelText('조치 후 사진 업로드 *')).not.toBeNull();
+    expect(screen.getByLabelText('조치 후 사진 업로드')).not.toBeNull();
     expect(screen.queryByText('에폭시 주입 처리')).toBeNull();
   });
 });
@@ -191,13 +191,13 @@ describe('DefectActionForm — 진행상태 select(#1128)', () => {
 
     renderForm('IN_PROGRESS');
     fireEvent.change(screen.getByLabelText('진행상태 *'), { target: { value: 'RESOLVED' } });
-    fireEvent.change(screen.getByLabelText('조치 후 사진 업로드 *'), {
+    fireEvent.change(screen.getByLabelText('조치 후 사진 업로드'), {
       target: { files: [makeImageFile('resolved.png')] },
     });
-    fireEvent.change(screen.getByLabelText('조치 내용 *'), { target: { value: '조치 완료 처리' } });
-    fireEvent.change(screen.getByLabelText('조치일 *'), { target: { value: '2026-07-29' } });
+    fireEvent.change(screen.getByLabelText('조치 내용'), { target: { value: '조치 완료 처리' } });
+    fireEvent.change(screen.getByLabelText('조치일'), { target: { value: '2026-07-29' } });
     await screen.findByText('김도현 검사자');
-    fireEvent.change(screen.getByLabelText('담당자 *'), { target: { value: '101' } });
+    fireEvent.change(screen.getByLabelText('담당자'), { target: { value: '101' } });
 
     fireEvent.click(screen.getByRole('button', { name: '상태 저장' }));
 
@@ -234,13 +234,13 @@ describe('DefectActionForm — 진행상태 select(#1128)', () => {
     server.events.on('request:start', listener);
 
     renderForm('CONFIRMED');
-    fireEvent.change(screen.getByLabelText('조치 후 사진 업로드 *'), {
+    fireEvent.change(screen.getByLabelText('조치 후 사진 업로드'), {
       target: { files: [makeImageFile('after.png')] },
     });
-    fireEvent.change(screen.getByLabelText('조치 내용 *'), { target: { value: '조치중 실측 완료' } });
-    fireEvent.change(screen.getByLabelText('조치일 *'), { target: { value: '2026-07-28' } });
+    fireEvent.change(screen.getByLabelText('조치 내용'), { target: { value: '조치중 실측 완료' } });
+    fireEvent.change(screen.getByLabelText('조치일'), { target: { value: '2026-07-28' } });
     await screen.findByText('김도현 검사자');
-    fireEvent.change(screen.getByLabelText('담당자 *'), { target: { value: '101' } });
+    fireEvent.change(screen.getByLabelText('담당자'), { target: { value: '101' } });
 
     fireEvent.click(screen.getByRole('button', { name: '상태 저장' }));
 
@@ -262,7 +262,7 @@ describe('DefectActionForm — 조치일 범위', () => {
       String(today.getMonth() + 1).padStart(2, '0'),
       String(today.getDate()).padStart(2, '0'),
     ].join('-');
-    const actionDateInput = screen.getByLabelText('조치일 *') as HTMLInputElement;
+    const actionDateInput = screen.getByLabelText('조치일') as HTMLInputElement;
 
     expect(actionDateInput.max).toBe(expectedMax);
   });
@@ -278,7 +278,7 @@ describe('DefectActionForm — 조치일 범위', () => {
       String(future.getDate()).padStart(2, '0'),
     ].join('-');
 
-    const actionDateInput = screen.getByLabelText('조치일 *') as HTMLInputElement;
+    const actionDateInput = screen.getByLabelText('조치일') as HTMLInputElement;
     fireEvent.change(actionDateInput, { target: { value: futureDate } });
 
     expect(actionDateInput.value).toBe('');

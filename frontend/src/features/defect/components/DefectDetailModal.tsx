@@ -201,48 +201,53 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
                 )}
               </div>
 
-              <div className="defect-metrics">
-                <article className="defect-metric-card">
-                  <span>AI 신뢰도</span>
-                  <strong>{Math.round(selectedDefect.confidence * 100)} <small>%</small></strong>
-                </article>
-                <article className="defect-metric-card">
-                  <span>균열 폭(최대)</span>
-                  <strong>
-                    {selectedDefect.crackWidthMm != null
-                      ? `${selectedDefect.crackWidthMm}mm`
-                      : <span className="defect-metric-empty">정보 없음</span>}
-                  </strong>
-                </article>
-                <article className="defect-metric-card">
-                  <span>균열 길이(추정)</span>
-                  <strong>
-                    {selectedDefect.crackLengthMm != null
-                      ? `${selectedDefect.crackLengthMm}mm`
-                      : <span className="defect-metric-empty">정보 없음</span>}
-                  </strong>
-                </article>
+              {/* AI 분석 설명 + 지표 3개(신뢰도/균열 폭/균열 길이)를 한 블럭으로 묶는다. 이미지는
+                  이 블럭이 차지하는 만큼을 뺀 나머지 가로폭을 비율(3:4) 유지한 채 그대로 키워
+                  채운다(.defect-detail-modal__image-col의 flex-grow, max-width 해제). */}
+              <div className="defect-detail-modal__diagnosis-col">
+                {isLoading && (
+                  <div className="defect-detail-modal__detail-state" role="status" aria-live="polite">
+                    상세 정보를 불러오는 중...
+                  </div>
+                )}
+                {isError && (
+                  <div className="defect-detail-modal__detail-state" aria-label="선택 하자 상세 오류">
+                    <ErrorFallback message="하자 상세 정보를 불러오지 못했습니다." onRetry={refetch} />
+                  </div>
+                )}
+                {!isLoading && !isError && detailDefect && (
+                  <DefectExplainPanel
+                    defect_type={detailDefect.typeLabel}
+                    severity_grade={detailDefect.grade ?? '미분류'}
+                    location={detailDefect.facilityName}
+                    facility_type={detailDefect.facilityType}
+                  />
+                )}
+
+                <div className="defect-metric-row">
+                  <article className="defect-metric-card">
+                    <span>AI 신뢰도</span>
+                    <strong>{Math.round(selectedDefect.confidence * 100)}%</strong>
+                  </article>
+                  <article className="defect-metric-card">
+                    <span>균열 폭(최대)</span>
+                    <strong>
+                      {selectedDefect.crackWidthMm != null
+                        ? `${selectedDefect.crackWidthMm}mm`
+                        : <span className="defect-metric-empty">측정 예정</span>}
+                    </strong>
+                  </article>
+                  <article className="defect-metric-card">
+                    <span>균열 길이(추정)</span>
+                    <strong>
+                      {selectedDefect.crackLengthMm != null
+                        ? `${selectedDefect.crackLengthMm}mm`
+                        : <span className="defect-metric-empty">측정 예정</span>}
+                    </strong>
+                  </article>
+                </div>
               </div>
             </div>
-
-            {isLoading && (
-              <div className="defect-detail-modal__detail-state" role="status" aria-live="polite">
-                상세 정보를 불러오는 중...
-              </div>
-            )}
-            {isError && (
-              <div className="defect-detail-modal__detail-state" aria-label="선택 하자 상세 오류">
-                <ErrorFallback message="하자 상세 정보를 불러오지 못했습니다." onRetry={refetch} />
-              </div>
-            )}
-            {!isLoading && !isError && detailDefect && (
-              <DefectExplainPanel
-                defect_type={detailDefect.typeLabel}
-                severity_grade={detailDefect.grade ?? '미분류'}
-                location={detailDefect.facilityName}
-                facility_type={detailDefect.facilityType}
-              />
-            )}
           </div>
 
           <div className="defect-detail-modal__secondary" aria-busy={isLoading}>

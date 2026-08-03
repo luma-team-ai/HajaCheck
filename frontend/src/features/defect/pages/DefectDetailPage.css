@@ -97,27 +97,52 @@
   font-size: 14px;
 }
 
+/* #1436: 기존엔 미선택 박스도 진한 마젠타 2px+투명도 12%라 사진 여러 개가 겹치면 실측 사진이
+   라벨링 툴 화면처럼 보였다. 미선택은 얇고 옅게 낮춰 "여기 하자가 있다" 정도만 알리고, 선택된
+   하자만 뚜렷하게(포인트 컬러 링 + 코드 라벨) 강조해 실제로 보고 있는 대상이 뭔지 명확히 한다.
+   디자인 리뷰 P1 — 미선택 마젠타·선택 인디고·하단 알약리스트 푸시아까지 "선택됨"을 뜻하는 색이
+   한 화면에 3개였다. 미선택은 중립 회색조로 낮춰 색 경쟁에서 빼고, "선택됨"은 --color-point
+   (인디고) 하나로 통일한다(아래 .defect-image-selector button.is-selected도 동일 톤으로 맞춤). */
 .defect-detection-box {
   position: absolute;
   margin: 0;
   border-radius: 10px;
-  border: 2px solid #f000e8;
-  background: rgba(240, 0, 232, 0.12);
+  border: 2px solid color-mix(in srgb, var(--color-primary) 65%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
   padding: 0;
   cursor: pointer;
-  transition: border-width 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+  transition: border-width 120ms ease, border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 
-.defect-detection-box:hover,
+.defect-detection-box:hover {
+  border-color: var(--color-point);
+  background: color-mix(in srgb, var(--color-point) 12%, transparent);
+}
+
 .defect-detection-box.is-selected {
-  border-width: 3px;
-  background: rgba(240, 0, 232, 0.22);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+  border-width: 2px;
+  border-color: var(--color-point);
+  background: color-mix(in srgb, var(--color-point) 10%, transparent);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 0 0 4px color-mix(in srgb, var(--color-point) 28%, transparent);
 }
 
 .defect-detection-box:focus-visible {
   outline: 3px solid var(--color-point);
   outline-offset: 2px;
+}
+
+.defect-detection-box__tag {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  border-radius: 999px;
+  background: var(--color-point);
+  padding: 2px 8px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .defect-image-selector {
@@ -155,9 +180,9 @@
 
 .defect-image-selector button:hover,
 .defect-image-selector button.is-selected {
-  border-color: var(--color-selection);
-  color: var(--color-selection);
-  background: var(--color-selection-soft-bg);
+  border-color: var(--color-point);
+  color: var(--color-point);
+  background: color-mix(in srgb, var(--color-point) 10%, var(--color-surface));
 }
 
 .defect-image-selector button:focus-visible {
@@ -268,7 +293,7 @@
 .defect-metric-card strong { color: var(--color-heading); font-size: 18px; line-height: 1.2; }
 .defect-metric-card small { font-size: 12px; font-weight: 500; }
 .defect-metric-card em { margin-top: 0; color: var(--color-text-muted); font-size: 12px; font-style: normal; text-align: center; }
-.defect-metric-card .defect-metric-empty { color: var(--color-text-muted); font-size: 13px; font-weight: 600; }
+.defect-metric-card .defect-metric-empty { color: var(--color-text-muted); font-size: 13px; font-weight: 500; font-style: italic; }
 
 .defect-explain-panel {
   padding: 26px;
@@ -293,13 +318,20 @@
 .defect-activity-panel { padding: 26px; }
 .defect-activity-panel h2 { margin: 0 0 20px; color: var(--color-heading); font-size: 21px; font-weight: 800; }
 
+/* #1436: 활동 기록이 길어지면 모달 전체가 한없이 늘어나(사이드 패널만 스크롤 불가) 조치 폼이
+   화면 밖으로 밀려났다. 검수 화면의 .inspection-activity-panel__list와 동일하게 리스트 자체에
+   내부 스크롤을 둬 옆 패널 높이를 안정시킨다. */
 .defect-activity-list {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  max-height: min(420px, calc(100vh - 420px));
   margin: 0;
   padding: 0;
+  padding-right: 6px;
+  overflow-y: auto;
   list-style: none;
+  scrollbar-gutter: stable;
 }
 
 .defect-activity-list li {

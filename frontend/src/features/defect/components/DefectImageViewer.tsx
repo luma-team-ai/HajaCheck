@@ -144,7 +144,13 @@ export function DefectImageViewer({
                         aria-pressed={isSelected}
                         style={style ?? undefined}
                         onClick={() => onSelectDefect?.(defect.id)}
-                      />
+                      >
+                        {isSelected && (
+                          <span className="defect-detection-box__tag" aria-hidden="true">
+                            {formatDefectCode(defect.id)}
+                          </span>
+                        )}
+                      </button>
                     );
                   })}
               </div>
