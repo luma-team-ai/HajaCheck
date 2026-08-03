@@ -58,11 +58,11 @@ function LoginButton() {
   );
 }
 
-function renderWithProviders() {
+function renderWithProviders(initialEntries: Array<string | { pathname: string; state?: unknown }> = ['/login']) {
   const queryClient = new QueryClient();
   render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={['/login']}>
+      <MemoryRouter initialEntries={initialEntries}>
         <Routes>
           <Route
             path="*"
@@ -95,5 +95,33 @@ describe('useLogin', () => {
     expect(useInspectionStore.getState().activeInspectionId).toBeNull();
     expect(useInspectionStore.getState().activeReportId).toBeNull();
     expect(useAuthStore.getState().user).toEqual(mockUser);
+  });
+
+  // #1442 — ProtectedRoute가 비로그인 접근 시 state.from으로 보존한 원래 목적지로 로그인 후
+  // 복귀해야 한다(지금까지는 '/dashboard'로 항상 고정 이동해 복귀 의도가 무시됐다).
+  it('state.from이 안전한 내부 경로면 로그인 후 그 경로로 이동한다', async () => {
+    renderWithProviders([{ pathname: '/login', state: { from: '/facilities/list' } }]);
+
+    fireEvent.click(screen.getByText('로그인'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/facilities/list'));
+  });
+
+  // state.from은 라우터 state에 실린 값이라 외부에서 임의로 주입 가능 — 오픈 리다이렉트 시도값은
+  // isSafeInternalPath 검증에 걸려 fallback으로 폴백해야 한다(#280 P3와 동일한 위험 방어).
+  it('state.from이 오픈 리다이렉트 시도(//evil.com)면 fallback(/dashboard)으로 폴백한다', async () => {
+    renderWithProviders([{ pathname: '/login', state: { from: '//evil.com' } }]);
+
+    fireEvent.click(screen.getByText('로그인'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/dashboard'));
+  });
+
+  it('state.from이 없으면 기존 동작대로 role별 fallback으로 이동한다', async () => {
+    renderWithProviders(['/login']);
+
+    fireEvent.click(screen.getByText('로그인'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/dashboard'));
   });
 });
