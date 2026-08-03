@@ -38,8 +38,6 @@ public interface PlatformAdminPlanQuotaRepository extends JpaRepository<User, Lo
             @Param("planCompanyIds") Collection<Long> planCompanyIds,
             Pageable pageable);
 
-    // KPI 통계(stats) — 검색어와 무관한 전체 기준. 유효(비만료) 플랜을 가진 회사 소속 사용자만 센다.
-    List<User> findByCompanyIdInAndRoleNot(Collection<Long> companyIds, Role role);
-
+    // KPI 통계(stats) — 검색어와 무관한 전체 기준. 유효(비만료) 플랜을 가진 회사 소속 사용자 수만 센다.
     long countByCompanyIdInAndRoleNot(Collection<Long> companyIds, Role role);
 }

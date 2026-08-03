@@ -168,6 +168,26 @@ class PlatformAdminServiceStatsServiceTest {
         assertThat(response.kpi().counselCount()).isEqualTo(counselSum).isEqualTo(13);
     }
 
+    @Test
+    void 분석장수는_요청건수가아니라이미지장수기준이다() {
+        // #1407 후속 회귀 고정 — 화면 라벨이 "분석 요청 장수"(request 단위 아님)라, 요청 1건이 여러 장을
+        // 한 번에 분석해도(요청 2건·이미지 50장) KPI/트렌드/월별표는 analyzedImageCount(50)를 반영해야
+        // 하고 analysisRequestCount(2)를 반영하면 안 된다.
+        when(userPlanRepository.findByCompanyIdIsNotNull()).thenReturn(List.of());
+        when(planRepository.findAll()).thenReturn(List.of());
+        when(userPlanRepository.findByCompanyIdIsNotNullAndStatus(UserPlanStatus.ACTIVE)).thenReturn(List.of());
+
+        UsageCounter thisMonth = UsageCounter.create(
+                1L, YearMonth.now(KST).atDay(1), 50, 0, 2, 0, 0, 0);
+        when(usageCounterRepository.findByPeriodBetween(any(), any())).thenReturn(List.of(thisMonth));
+
+        PlatformAdminServiceStatsResponse response = service.getStats();
+
+        assertThat(response.kpi().analysisRequests()).isEqualTo(50);
+        assertThat(response.analysisRequestTrend().get(5).requests()).isEqualTo(50);
+        assertThat(response.monthlySummary().get(0).analysisCount()).isEqualTo(50);
+    }
+
     private Plan plan(Long id, PlanName name) {
         Plan plan = Plan.create(name, 10, 300, 5, false, true, true, new BigDecimal("29000.00"));
         setField(plan, "id", id);
@@ -182,8 +202,8 @@ class PlatformAdminServiceStatsServiceTest {
         return userPlan;
     }
 
-    private UsageCounter usageCounter(java.time.LocalDate period, int analysisRequestCount, int counselTicketCount) {
-        return UsageCounter.create(1L, period, 0, 0, analysisRequestCount, 0, counselTicketCount, 0);
+    private UsageCounter usageCounter(java.time.LocalDate period, int analyzedImageCount, int counselTicketCount) {
+        return UsageCounter.create(1L, period, analyzedImageCount, 0, 0, 0, counselTicketCount, 0);
     }
 
     private void setField(Object target, String fieldName, Object value) {

@@ -21,6 +21,8 @@ interface RagDocumentTableProps {
   onRetry: () => void;
   onReEmbed: (id: number) => void;
   reEmbedPendingId?: number;
+  onDelete: (document: RagDocument) => void;
+  deletePendingId?: number;
 }
 
 function formatDateTime(value: string | null): string {
@@ -47,6 +49,8 @@ export function RagDocumentTable({
   onRetry,
   onReEmbed,
   reEmbedPendingId,
+  onDelete,
+  deletePendingId,
 }: RagDocumentTableProps) {
   return (
     <div className="overflow-x-auto">
@@ -96,6 +100,7 @@ export function RagDocumentTable({
             documents.map((document) => {
               const isReEmbedding =
                 reEmbedPendingId === document.id || document.embeddingStatus === 'EMBEDDING';
+              const isDeleting = deletePendingId === document.id;
               return (
                 <tr
                   key={document.id}
@@ -138,15 +143,26 @@ export function RagDocumentTable({
                     {formatUploadedAt(document.createdAt)}
                   </td>
                   <td className={`${BODY_CELL} pr-6 text-right`}>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      disabled={isReEmbedding}
-                      onClick={() => onReEmbed(document.id)}
-                    >
-                      {isReEmbedding ? '재임베딩 중...' : '재임베딩'}
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={isReEmbedding || isDeleting}
+                        onClick={() => onReEmbed(document.id)}
+                      >
+                        {isReEmbedding ? '재임베딩 중...' : '재임베딩'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="danger-soft"
+                        size="sm"
+                        disabled={isReEmbedding || isDeleting}
+                        onClick={() => onDelete(document)}
+                      >
+                        {isDeleting ? '삭제 중...' : '삭제'}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               );

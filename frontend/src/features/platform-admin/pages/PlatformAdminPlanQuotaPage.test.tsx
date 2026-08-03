@@ -58,6 +58,9 @@ describe('PlatformAdminPlanQuotaPage (통합 테스트)', () => {
     expect(kpi.getByText('전체 활성 사용자')).toBeTruthy();
     expect(kpi.getByText('7')).toBeTruthy();
     expect(kpi.getByText('평균 쿼터 사용률')).toBeTruthy();
+    // #1407 후속 — 무제한(ENTERPRISE) 플랜 사용량은 평균 사용률에서 빠지므로 보조 텍스트로 병기된다
+    // (mockPlanQuotaUsers의 박도윤: ENTERPRISE, quotaUsed 120).
+    expect(kpi.getByText('무제한 플랜 별도 사용량: 120장')).toBeTruthy();
   });
 
   it('첫 페이지에는 페이지 크기(4)만큼만 표시한다', async () => {

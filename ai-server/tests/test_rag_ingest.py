@@ -317,6 +317,47 @@ def test_embedding_status_조회예외_VALIDATION_ERROR폴백(mock_get_vectorsto
     assert body["error"]["code"] == "VALIDATION_ERROR"
 
 
+# ── DELETE /ai/rag-documents/{doc_id} (#1394) ──
+
+@patch("routers.ai_router.delete_document")
+def test_delete_endpoint_성공(mock_delete_document):
+    res = client.delete("/ai/rag-documents/42?target_collection=regulations")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    mock_delete_document.assert_called_once_with("42", "regulations")
+
+
+@patch("routers.ai_router.delete_document")
+def test_delete_endpoint_잘못된target_collection_VALIDATION_ERROR(mock_delete_document):
+    mock_delete_document.side_effect = ValueError("unknown collection: bogus")
+
+    res = client.delete("/ai/rag-documents/1?target_collection=bogus")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@patch("routers.ai_router.delete_document")
+def test_delete_endpoint_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_delete_document):
+    mock_delete_document.side_effect = RuntimeError("chroma delete failed")
+
+    res = client.delete("/ai/rag-documents/1?target_collection=regulations")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+
+
+def test_delete_endpoint_target_collection누락_422():
+    res = client.delete("/ai/rag-documents/1")
+    assert res.status_code == 422
+
+
 if __name__ == "__main__":
     print("Running rag_ingest self-check...")
     test_ingest_document_알수없는컬렉션은ValueError()

@@ -39,7 +39,12 @@ from ai.core.grounding import (
     MismatchPolicy,
     check_grounding,
 )
-from ai.core.rag_ingest import delete_stale_chunks, document_ingest_lock, ingest_document
+from ai.core.rag_ingest import (
+    delete_document,
+    delete_stale_chunks,
+    document_ingest_lock,
+    ingest_document,
+)
 from ai.core.schemas import AIErrorCode, AIResponse
 
 logger = logging.getLogger(__name__)
@@ -452,6 +457,24 @@ async def rag_documents_embedding_status(doc_id: str, target_collection: str) ->
         )
 
     return AIResponse.ok({"chunk_count": chunk_count, "embed_batch_id": embed_batch_id})
+
+
+@router.delete("/rag-documents/{doc_id}")
+def rag_documents_delete(doc_id: str, target_collection: str) -> AIResponse:
+    """RAG 문서 Chroma 청크 삭제(#1394, PLATFORM_ADMIN 콘솔 문서 삭제) — Spring RagDocumentService가
+    DB 로우·원본 파일을 지우기 전에 먼저 호출한다. delete_document()는 chromadb {@code where} 삭제라
+    doc_id에 매치되는 청크가 없어도(이미 삭제됐거나 애초에 없던 경우) 에러 없이 조용히 성공한다 —
+    Spring이 실패 후 재시도해도 여러 번 안전하게 수렴하는 idempotent 엔드포인트다.
+    """
+    try:
+        delete_document(doc_id, target_collection)
+    except ValueError as e:
+        # target_collection이 regulations/defect_kb가 아닌 경우 — /ai/rag-documents/embed와 동일 패턴.
+        return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))
+    except Exception:  # noqa: BLE001 — Chroma 삭제 실패 등 표준 폴백(다른 엔드포인트와 동일 패턴)
+        logger.exception("DELETE /ai/rag-documents/{doc_id} 처리 중 예상치 못한 예외 발생")
+        return AIResponse.fail(AIErrorCode.LLM_INVALID_OUTPUT, "문서 삭제 중 오류가 발생했습니다")
+    return AIResponse.ok({"doc_id": doc_id})
 
 
 class BusinessLicenseOcrRequest(BaseModel):

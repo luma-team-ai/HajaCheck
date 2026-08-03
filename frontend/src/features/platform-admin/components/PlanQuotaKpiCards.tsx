@@ -15,6 +15,9 @@ export function PlanQuotaKpiCards({ stats, isError }: PlanQuotaKpiCardsProps) {
     ? PLAN_QUOTA_EMPTY_CELL
     : (stats?.activeUsers ?? 0).toLocaleString('ko-KR');
   const usagePercent = isError ? null : (stats?.totalQuotaUsagePercent ?? 0);
+  // 무제한 플랜 사용량은 평균 사용률 계산에서 항상 제외되므로(#1407), 별도 합계로 병기해 화면에서
+  // 사라지지 않게 한다. 0장이면 굳이 보여줄 필요가 없어 생략한다.
+  const unlimitedPlanUsageTotal = isError ? null : (stats?.unlimitedPlanUsageTotal ?? 0);
 
   return (
     <div
@@ -58,6 +61,11 @@ export function PlanQuotaKpiCards({ stats, isError }: PlanQuotaKpiCardsProps) {
             />
           )}
         </div>
+        {!!unlimitedPlanUsageTotal && (
+          <p className="mt-2 text-xs text-text-muted">
+            무제한 플랜 별도 사용량: {unlimitedPlanUsageTotal.toLocaleString('ko-KR')}장
+          </p>
+        )}
       </section>
     </div>
   );
