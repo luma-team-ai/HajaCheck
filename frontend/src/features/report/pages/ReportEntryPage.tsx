@@ -32,6 +32,7 @@ const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
 };
 
 const GRADE_ORDER = ['A', 'B', 'C', 'D', 'E'] as const;
+const MAX_REPORT_DEFECT_COUNT = 100;
 
 // 유형별 카드 — Figma는 5종을 항상 고정 노출하므로 0건 유형도 렌더한다(AI 자동탐지는 3종이고
 // 누수·백태/도장 손상은 수동 추가로만 생기지만, 칸이 사라지면 레이아웃이 흔들린다).
@@ -53,6 +54,18 @@ function extractErrorMessage(err: unknown, fallback: string): string {
     return err.message;
   }
   return fallback;
+}
+
+function buildReportGenerationFailureMessage(error: unknown): string {
+  const message = extractErrorMessage(error, '');
+  if (message && !['보고서 생성에 실패했습니다.', '네트워크 오류가 발생했습니다.'].includes(message)) {
+    return message;
+  }
+  return [
+    '보고서 초안을 만들지 못했습니다.',
+    '확정 하자나 사진이 많은 점검은 AI 초안 작성에 시간이 오래 걸릴 수 있습니다.',
+    '잠시 후 다시 시도해 주세요. 같은 문제가 반복되면 점검 회차와 실패 시간을 관리자에게 전달해 주세요.',
+  ].join('\n');
 }
 
 // Figma node 180:4977 원본 아이콘 에셋을 그대로 인라인 SVG로 재현(#925 — 아이콘 12곳 누락 수정).
@@ -222,6 +235,7 @@ export function ReportEntryPage() {
     {} as Record<string, number>,
   );
   const hasConfirmedDefects = confirmedDefects.length > 0;
+  const confirmedDefectCount = confirmedDefects.length;
 
   // 유형별 최고 등급 계산 (심각도 순: E > D > C > B > A)
   const defectTypeStats = DEFECT_TYPES.map((typeInfo) => {
@@ -257,11 +271,24 @@ export function ReportEntryPage() {
   const handleGenerateReport = useCallback(async () => {
     if (!data || data.reviewedCount !== data.totalCount || isGenerating || !hasSelectedSections) return;
 
-    if (data.reviewedCount === 0) {
+    if (confirmedDefectCount === 0) {
       setAlertModal({
         open: true,
         title: '보고서 생성 대상 하자가 없습니다',
         message: '확정된 하자가 없어 보고서를 생성할 수 없습니다.',
+      });
+      return;
+    }
+
+    if (confirmedDefectCount > MAX_REPORT_DEFECT_COUNT) {
+      setAlertModal({
+        open: true,
+        title: '보고서 생성 범위를 줄여 주세요',
+        message: [
+          `보고서 초안은 확정 하자 ${MAX_REPORT_DEFECT_COUNT}건까지 생성할 수 있습니다.`,
+          `현재 확정 하자는 ${confirmedDefectCount}건입니다.`,
+          '보고서에 포함할 하자를 줄이거나 점검을 나누어 다시 생성해 주세요.',
+        ].join('\n'),
       });
       return;
     }
@@ -278,11 +305,11 @@ export function ReportEntryPage() {
       setAlertModal({
         open: true,
         title: '보고서 생성 실패',
-        message: extractErrorMessage(error, '보고서 생성에 실패했습니다.'),
+        message: buildReportGenerationFailureMessage(error),
       });
       setIsGenerating(false);
     }
-  }, [inspectionId, data, isGenerating, hasSelectedSections, selectedSectionKeys, includePhoto, navigate]);
+  }, [inspectionId, data, isGenerating, hasSelectedSections, confirmedDefectCount, selectedSectionKeys, includePhoto, navigate]);
 
   const handleEditReport = useCallback(
     (reportId: number) => {

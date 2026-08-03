@@ -1,5 +1,5 @@
 <!-- 보고서 "유형별 상세" 섹션 (FR-5-06, report-chain-design.md §6.3) -->
-<!-- 입력 변수: {defect_count}, {defects_list_text} -->
+<!-- 입력 변수: defect_count, defects_list_text -->
 
 아래는 확정된 하자 목록 {defect_count}건입니다. **목록의 각 하자마다 정확히 1개씩** 상세 항목을 생성하세요(추가·누락·병합 금지 — 입력 개수와 출력 items 개수가 반드시 일치해야 합니다).
 

@@ -1,5 +1,5 @@
 <!-- 보고서 "조치 권고" 섹션 (FR-5-06, report-chain-design.md §6.4) -->
-<!-- 입력 변수: {defect_count}, {defects_list_text}, {legal_basis_context} -->
+<!-- 입력 변수: defect_count, defects_list_text, legal_basis_context -->
 
 아래 확정 하자 목록과 법규·지침 검색 결과를 바탕으로 조치 권고를 작성하세요.
 

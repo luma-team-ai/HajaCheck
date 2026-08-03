@@ -275,7 +275,7 @@ describe('ReportGeneratePage', () => {
     await waitFor(() => expect(purposeInput.readOnly).toBe(false));
   });
 
-  it('내용이 비어 있는 추가 섹션은 저장할 수 없다 — AlertModal로 안내하고 저장 API는 호출하지 않는다', async () => {
+  it('내용이 비어 있는 추가 섹션도 임시저장할 수 있다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
 
@@ -287,11 +287,8 @@ describe('ReportGeneratePage', () => {
 
     fireEvent.click(saveButton);
 
-    await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeTruthy();
-    });
-    expect(within(screen.getByRole('dialog')).getByText(/제출문/)).toBeTruthy();
-    expect(updateReportCallCount).toBe(0);
+    await waitFor(() => expect(updateReportCallCount).toBe(1));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('기존 reportId 상세 content로 진입해 바로 PDF 생성 후 확정할 수 있다', async () => {
@@ -774,7 +771,7 @@ describe('ReportGeneratePage', () => {
     expect(within(dialog).getByText(new RegExp(expectedLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeTruthy();
   });
 
-  it('제출문은 회사명만 있어도 필수값 누락이면 저장과 최종 확정을 막는다', async () => {
+  it('제출문은 회사명만 있어도 임시저장할 수 있고 최종 확정에서만 필수값 누락을 안내한다', async () => {
     reportState = {
       ...mockReport,
       groundingCheckPassed: true,
@@ -813,11 +810,8 @@ describe('ReportGeneratePage', () => {
     fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '제출문 누락 저장 방지' } });
     fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
 
-    const dialog = await screen.findByRole('dialog');
-    expect(dialog).toBeTruthy();
-    expect(screen.getByText('저장할 수 없습니다')).toBeTruthy();
-    expect(within(dialog).getByText(/필수값이 누락된 추가 섹션.*제출문/)).toBeTruthy();
-    expect(updateReportCallCount).toBe(0);
+    await waitFor(() => expect(updateReportCallCount).toBe(1));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('서식 섹션 추가 메뉴에는 결과 요약 하위인 종합의견 및 고정 섹션과 중복되는 항목을 노출하지 않는다', async () => {
@@ -1311,6 +1305,7 @@ describe('DetailSection', () => {
       />,
     );
 
+    fireEvent.load(screen.getByRole('img'));
     const box = container.querySelector('span[aria-hidden="true"].absolute') as HTMLElement | null;
     expect(box).not.toBeNull();
     expect(box?.style.left).toBe('25%');
@@ -1336,6 +1331,7 @@ describe('DetailSection', () => {
     );
 
     expect(screen.getAllByRole('img')).toHaveLength(1);
+    fireEvent.load(screen.getByRole('img'));
     expect(container.querySelector('span[aria-hidden="true"].absolute')).toBeNull();
   });
 });

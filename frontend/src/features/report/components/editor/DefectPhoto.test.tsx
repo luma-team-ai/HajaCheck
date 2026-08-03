@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Defect } from '../../../inspection/types';
 import { DefectPhoto, groupDefectsByMedia } from './DefectPhoto';
@@ -62,6 +62,7 @@ describe('DefectPhoto', () => {
       />,
     );
 
+    fireEvent.load(screen.getByRole('img'));
     const box = container.querySelector(BOX_SELECTOR) as HTMLElement;
     expect(box.style.left).toBe('25%');
     expect(box.style.top).toBe('50%');
@@ -82,6 +83,7 @@ describe('DefectPhoto', () => {
       />,
     );
 
+    fireEvent.load(screen.getByRole('img'));
     expect(screen.getByRole('img')).toBeTruthy();
     expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(0);
   });
@@ -113,6 +115,24 @@ describe('DefectPhoto', () => {
 
     expect(container.querySelector('img')?.className).not.toContain('object-cover');
   });
+
+  it('이미지 로드 전에는 로딩 대지만 표시하고 bbox를 그리지 않는다', () => {
+    const { container } = render(
+      <DefectPhoto
+        group={{ mediaId: 101, imageUrl: '/media/101/thumb', defects: [defect(1, 101, { x: 0.25, y: 0.5, width: 0.1, height: 0.2 })] }}
+        alt="사진"
+        fallback={<div>이미지 없음</div>}
+      />,
+    );
+
+    expect(screen.getByRole('status', { name: '사진 로딩 중' })).toBeTruthy();
+    expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(0);
+
+    fireEvent.load(screen.getByRole('img'));
+
+    expect(screen.queryByRole('status', { name: '사진 로딩 중' })).toBeNull();
+    expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(1);
+  });
 });
 
 describe('PhotosSectionPreview', () => {
@@ -124,6 +144,7 @@ describe('PhotosSectionPreview', () => {
     ]);
     const { container } = render(<PhotosSectionPreview photoGroups={groups} />);
 
+    screen.getAllByRole('img').forEach((img) => fireEvent.load(img));
     // 사진은 2장, 박스는 3개
     expect(screen.getAllByRole('img')).toHaveLength(2);
     expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(3);
@@ -142,6 +163,26 @@ describe('PhotosSectionPreview', () => {
     ]);
     render(<PhotosSectionPreview photoGroups={groups} />);
 
+    fireEvent.load(screen.getByRole('img'));
     expect(screen.getByText('하자 1건')).toBeTruthy();
+  });
+
+  it('부위별 사진이 10장 이상이면 9장 단위로 페이지네이션한다', () => {
+    const groups = Array.from({ length: 10 }, (_, index) =>
+      groupDefectsByMedia([
+        defect(index + 1, index + 1, { x: 0.1, y: 0.1, width: 0.1, height: 0.1 }),
+      ])[0],
+    );
+    render(<PhotosSectionPreview photoGroups={groups} />);
+
+    expect(screen.getAllByRole('img')).toHaveLength(9);
+    expect(screen.getByText('1')).toBeTruthy();
+    expect(screen.getByText('/ 2')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '부위별 사진 다음 페이지' }));
+
+    expect(screen.getAllByRole('img')).toHaveLength(1);
+    expect(screen.getByText('2')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '부위별 사진 다음 페이지' }).hasAttribute('disabled')).toBe(true);
   });
 });

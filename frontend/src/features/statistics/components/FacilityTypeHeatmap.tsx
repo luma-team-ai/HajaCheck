@@ -149,10 +149,20 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
           )}
         </div>
       </div>
-      {isLoading && <LoadingSpinner />}
-      {isError && <p className="dashboard-card-status">히트맵 데이터를 불러오지 못했습니다.</p>}
+      {isLoading && (
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <LoadingSpinner />
+        </div>
+      )}
+      {isError && (
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <p className="dashboard-card-status">히트맵 데이터를 불러오지 못했습니다.</p>
+        </div>
+      )}
       {!isLoading && !isError && data && data.length === 0 && (
-        <p className="dashboard-card-status">표시할 데이터가 없습니다.</p>
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <p className="dashboard-card-status">표시할 데이터가 없습니다.</p>
+        </div>
       )}
       {!isLoading && !isError && data && data.length > 0 && (
         <HeatmapGrid categories={visibleCategories} months={months} findCount={findCount} maxCount={maxCount} />

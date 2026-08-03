@@ -349,14 +349,6 @@ export function ReportGeneratePage() {
   // 재사용한다(#1338). 성공 여부를 반환해 호출부가 다음 단계 진행 여부를 판단할 수 있게 한다.
   const handleSave = async (): Promise<boolean> => {
     if (!report || !content || isSaving) return false;
-    if (hasEmptyManualSections) {
-      setAlertModal({
-        open: true,
-        title: '저장할 수 없습니다',
-        message: `내용이 비어 있거나 필수값이 누락된 추가 섹션이 있습니다: ${emptyManualSectionLabels.join(', ')}`,
-      });
-      return false;
-    }
     setIsSaving(true);
     try {
       const response = await reportApi.updateContent(report.id, content);
