@@ -183,16 +183,18 @@ class ReportServiceTest {
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
         ReportDetailResponse response = reportService.generateDraft(
-                1L, 100L, 200L, Set.of("overview", "opinion"), false);
+                1L, 100L, 200L, Set.of("overview", "summary"), false);
 
         assertThat(response.groundingCheckPassed()).isTrue();
         assertThat(response.content().get("overview").get("purpose").asText()).isNotBlank();
         assertThat(response.content().get("summary").get("overall_opinion").asText()).isNotBlank();
-        assertThat(response.content().get("summary").get("total_count").asInt()).isZero();
+        assertThat(response.content().get("summary").get("total_count").asInt()).isEqualTo(0);
         assertThat(response.content().get("detail").get("items")).isEmpty();
         assertThat(response.content().get("recommendation").get("items")).isEmpty();
         assertThat(response.content().get("reportOptions").get("includePhoto").asBoolean()).isFalse();
-        assertThat(response.content().get("reportOptions").get("sections").toString()).contains("overview", "opinion");
+        assertThat(response.content().get("reportOptions").get("sections").toString())
+                .contains("overview", "summary")
+                .doesNotContain("opinion");
     }
 
     @Test

@@ -33,8 +33,6 @@ const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
 
 const GRADE_ORDER = ['A', 'B', 'C', 'D', 'E'] as const;
 
-
-
 // 유형별 카드 — Figma는 5종을 항상 고정 노출하므로 0건 유형도 렌더한다(AI 자동탐지는 3종이고
 // 누수·백태/도장 손상은 수동 추가로만 생기지만, 칸이 사라지면 레이아웃이 흔들린다).
 // `type`은 백엔드가 내려주는 DefectType(한글) 원본값이라 매칭 키로 그대로 쓰고,
@@ -161,7 +159,6 @@ export function ReportEntryPage() {
     summary: true,
     details: true,
     recommendation: true,
-    opinion: false,
   });
   const [includePhoto, setIncludePhoto] = useState(true);
 
@@ -491,15 +488,12 @@ export function ReportEntryPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               {[
-                // 라벨은 실제 생성된 보고서 편집기의 섹션명과 동일하게 맞춘다(sectionOrder.ts의
-                // FIXED_SECTION_LABELS, SummarySection.tsx의 "종합 의견" 필드 라벨) — key 값은
-                // 백엔드 계약(GroundingReportContentSerializer.ALL_SECTIONS)과 그대로 맞춰야 하므로
-                // 변경하지 않는다.
+                // 결과 요약에는 PDF의 "책임기술자 종합의견" 소절이 포함된다. 같은 개념을
+                // 별도 계약 키로 나누지 않고 `summary` 하나로 전송한다.
                 { key: 'overview', label: '기본현황' },
                 { key: 'summary', label: '결과 요약' },
                 { key: 'details', label: '진단 외관조사결과 기본사항' },
                 { key: 'recommendation', label: '보수ㆍ보강(안)' },
-                { key: 'opinion', label: '종합 의견' },
               ].map((sec) => {
                 const sectionKey = sec.key as keyof typeof sections;
                 const isSelected = sections[sectionKey];

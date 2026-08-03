@@ -8,6 +8,7 @@ export interface ReportOverview {
 }
 
 export interface ReportSummary {
+  responsible_engineer_name?: string; // 책임기술자명(서명란 표기용, 수동 수정 가능)
   overall_opinion: string; // 종합 의견
   total_count: number; // 총 하자 수
   count_by_grade: Record<string, number>; // 등급별 개수 {"A": n, ...}

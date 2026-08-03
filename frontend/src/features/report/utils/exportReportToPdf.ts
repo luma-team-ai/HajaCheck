@@ -4,6 +4,7 @@ import type {
   GenericManualSectionData,
   ParticipantsSectionData,
   ReportContent,
+  ReportSummary,
   SubmissionSectionData,
 } from "../types";
 import { isFixedSectionKey, resolveSectionOrder } from "./sectionOrder";
@@ -74,6 +75,7 @@ export interface ReportPdfContext {
   facilityName?: string;
   inspectionRound?: number;
   issuedAt?: Date;
+  responsibleEngineerName?: string;
   defectImages?: ReportPdfImage[];
 }
 
@@ -99,6 +101,34 @@ export interface ReportPdfImage {
 }
 
 const PHOTO_CAPTION_SUMMARY_MAX = 40;
+
+/** 원본 서식의 소절 번호(`가.`, `나.` …). */
+const KOREAN_ORDINALS = [
+  "가",
+  "나",
+  "다",
+  "라",
+  "마",
+  "바",
+  "사",
+  "아",
+  "자",
+  "차",
+] as const;
+
+/**
+ * `2. 결과 요약`의 소절로 들어가는 섹션 종류 — 원본은 진단 외관조사결과·상태평가·안전성평가·
+ * 현장시험을 모두 `2. 결과 요약` 아래 `가./나./다./라.`로 묶는다(별도 절 번호를 주지 않는다).
+ * 섹션 순서·구성은 그대로 두고 번호 표기만 이 규칙에 맞춘다.
+ */
+const SUMMARY_SUBSECTION_TYPES = new Set<string>([
+  "detail",
+  "recommendation",
+  "inspection-result-repair",
+  "member-condition-repair",
+  "safety-assessment",
+  "field-test",
+]);
 
 /**
  * 사진 캡션은 유형명만 단독으로 쓰지 않는다 — "균열"만으로는 어느 사진인지 구별이 안 된다.
@@ -181,11 +211,49 @@ function legalBasisLabel(legalBasis: string, verified: boolean): string {
   return verified ? basis : `${basis} (미검증)`;
 }
 
+function formatResponsibleEngineerName(name?: string): string {
+  const normalized = (name ?? "").trim();
+  if (!normalized) return "";
+  if (normalized.includes(" ")) return normalized;
+  return /^[가-힣]{2,4}$/.test(normalized)
+    ? normalized.split("").join(" ")
+    : normalized;
+}
+
 /** 셀 안의 목록은 원본처럼 `ㆍ` 불릿을 붙여 줄바꿈으로 나열한다(번호 없음). */
 function toBulletCell(values: string[], fallback: string): string {
   return values.length > 0
     ? values.map((value) => `ㆍ${value}`).join("\n")
     : fallback;
+}
+
+/**
+ * `2. 결과 요약` 본문 한 칸. 원본은 이 절만 소절로 나누지 않고 종합의견을 문단 불릿으로 죽
+ * 나열한다 — 표 안 목록에 쓰는 `ㆍ`가 아니라 `•`를 쓰고, 문단 사이를 한 줄 띄운다(계측 결과).
+ * 그래서 소절 표로 따로 뽑던 주요 발견사항·등급별 건수도 같은 불릿 흐름에 이어 붙이되,
+ * 건수는 원본 문체(서술형 종결)에 맞춰 한 문장으로 적는다 — 새 데이터 없이 표기만 정합화.
+ */
+function buildSummaryOpinionCell(summary: ReportSummary): string {
+  const paragraphs = summary.overall_opinion
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  paragraphs.push(
+    ...summary.key_findings.map((finding) => finding.trim()).filter(Boolean),
+  );
+  if (summary.total_count > 0) {
+    const breakdown = (["A", "B", "C", "D", "E"] as const)
+      .map(
+        (grade) =>
+          `${grade.toLowerCase()} ${normalizeGradeCount(summary.count_by_grade, grade)}건`,
+      )
+      .join(", ");
+    paragraphs.push(
+      `금회 조사 결과 확인된 결함은 총 ${summary.total_count}건으로, 등급별로는 ${breakdown}으로 조사되었다.`,
+    );
+  }
+  if (paragraphs.length === 0) return "종합의견이 작성되지 않았습니다.";
+  return paragraphs.map((paragraph) => `•${paragraph}`).join("\n\n");
 }
 
 async function loadPdfImage(
@@ -356,6 +424,17 @@ export async function exportReportToPdf(
     return y + 4.2;
   };
 
+  /**
+   * 원본은 깊이마다 번호 체계를 바꾼다 — 절 `1.` → 소절 `가.` → 소소절 `1)`.
+   * `2. 결과 요약` 아래로 들어가는 블록(nested)은 절 제목 대신 소절 제목으로 찍고,
+   * 그 블록이 자체적으로 갖고 있던 `가./나.`는 한 단계 더 내려 `1)/2)`로 적는다.
+   */
+  const blockTitle = (label: string, y: number, nested: boolean) =>
+    nested ? subsectionTitle(label, y) : sectionTitle(label, y);
+
+  const childMarker = (nested: boolean, index: number) =>
+    nested ? `${index + 1})` : `${KOREAN_ORDINALS[index] ?? "기타"}.`;
+
   /** 남은 지면이 부족하면 새 페이지로 넘긴다(소절 제목이 페이지 끝에 홀로 남는 것 방지). */
   const ensureSpace = (y: number, needed: number) => {
     if (y + needed <= BOTTOM_LIMIT) return y;
@@ -407,64 +486,41 @@ export async function exportReportToPdf(
   };
 
   // ── 2. 결과 요약 ─────────────────────────────────────────────────────────
+  // 원본은 이 절만 소절(가./나./다.)로 쪼개지 않는다 — 절 제목 바로 아래에 헤더 한 칸
+  // (`책임기술자 종합의견`)짜리 표가 본문 폭 전체로 놓이고, 그 안에 의견 불릿이 이어지다
+  // 우측 하단에 서명란이 붙는 단일 구성이다. 소절이 없으니 표도 들여쓰지 않는다(subTable 미적용).
+  // 기존 소절이 담던 등급별 건수·주요 발견사항은 표를 따로 만들지 않고 같은 불릿 흐름에 흡수한다
+  // — 새 데이터를 붙이지 않고 표시 구조만 원본에 맞춘다(#1409).
   const renderSummaryBlock = (label: string, startY: number): number => {
-    let y = sectionTitle(label, startY);
-    y = subsectionTitle("가. 책임기술자 종합의견", y);
+    const y = sectionTitle(label, startY);
     autoTable(doc, {
       ...tableDefaults,
-      ...subTable,
       startY: y,
+      head: [["책임기술자 종합의견"]],
+      // 서명은 본문 셀에 겹쳐 그리지 않고 아래 행으로 분리한다 — 의견이 길어지면 마지막 줄과
+      // 겹친다. 본문·서명 두 행 모두 괘선을 지워(lineWidth 0) 원본처럼 칸막이 없는 한 상자로
+      // 보이게 하고, 상자 테두리는 tableLineWidth(외곽)가 그대로 그린다.
       body: [
-        [content.summary.overall_opinion || "종합의견이 작성되지 않았습니다."],
-      ],
-      bodyStyles: { minCellHeight: 40, valign: "top", halign: "left" },
-    });
-
-    y = subsectionTitle(
-      "나. 결함 등급별 현황",
-      ensureSpace(lastTableY() + 6, 30),
-    );
-    autoTable(doc, {
-      ...tableDefaults,
-      ...subTable,
-      startY: y,
-      head: [["구  분", "a", "b", "c", "d", "e", "합  계"]],
-      body: [
+        [{ content: buildSummaryOpinionCell(content.summary), styles: { minCellHeight: 40 } }],
         [
-          "건  수",
-          normalizeGradeCount(content.summary.count_by_grade, "A"),
-          normalizeGradeCount(content.summary.count_by_grade, "B"),
-          normalizeGradeCount(content.summary.count_by_grade, "C"),
-          normalizeGradeCount(content.summary.count_by_grade, "D"),
-          normalizeGradeCount(content.summary.count_by_grade, "E"),
-          String(content.summary.total_count),
+          {
+            content: `책임기술자 : ${formatResponsibleEngineerName(content.summary.responsible_engineer_name ?? context.responsibleEngineerName)}    (서명)`,
+            styles: { halign: "right" as const, minCellHeight: 12 },
+          },
         ],
       ],
-      styles: { ...tableDefaults.styles, halign: "center" },
-      columnStyles: { 0: labelColumn(28), 6: { fontStyle: "bold" } },
-    });
-
-    y = subsectionTitle("다. 주요 발견사항", ensureSpace(lastTableY() + 6, 30));
-    autoTable(doc, {
-      ...tableDefaults,
-      ...subTable,
-      startY: y,
-      body: [
-        [
-          toBulletCell(
-            content.summary.key_findings,
-            "주요 발견사항이 없습니다.",
-          ),
-        ],
-      ],
-      bodyStyles: { valign: "top", halign: "left" },
+      bodyStyles: { valign: "top", halign: "left", lineWidth: 0 },
     });
     return lastTableY();
   };
 
   // ── 3. 진단 외관조사결과 ─────────────────────────────────────────────────
-  const renderDetailBlock = (label: string, startY: number): number => {
-    const y = sectionTitle(label, startY);
+  const renderDetailBlock = (
+    label: string,
+    startY: number,
+    nested = false,
+  ): number => {
+    const y = blockTitle(label, startY, nested);
     // 원본은 표 위에 "상태평가 결과 : b" 를 회색 배경 한 행으로 얹는다. 등급별 건수에서
     // 최악 등급을 뽑아 같은 자리에 채운다(새 데이터 요구 없음).
     autoTable(doc, {
@@ -520,9 +576,13 @@ export async function exportReportToPdf(
   };
 
   // ── 4. 보수ㆍ보강(안) ────────────────────────────────────────────────────
-  const renderRecommendationBlock = (label: string, startY: number): number => {
-    let y = sectionTitle(label, startY);
-    y = subsectionTitle("가. 보수ㆍ보강(안)", y);
+  const renderRecommendationBlock = (
+    label: string,
+    startY: number,
+    nested = false,
+  ): number => {
+    let y = blockTitle(label, startY, nested);
+    y = subsectionTitle(`${childMarker(nested, 0)} 보수ㆍ보강(안)`, y);
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
@@ -550,7 +610,7 @@ export async function exportReportToPdf(
     });
 
     y = subsectionTitle(
-      "나. 지속 관찰 부위",
+      `${childMarker(nested, 1)} 지속 관찰 부위`,
       ensureSpace(lastTableY() + 6, 30),
     );
     autoTable(doc, {
@@ -665,8 +725,9 @@ export async function exportReportToPdf(
     label: string,
     data: GenericManualSectionData,
     startY: number,
+    nested = false,
   ): number => {
-    const y = sectionTitle(label, startY);
+    const y = blockTitle(label, startY, nested);
     autoTable(doc, {
       ...tableDefaults,
       ...subTable,
@@ -762,13 +823,27 @@ export async function exportReportToPdf(
     (key) => key !== "photos" || photoEntries.length > 0,
   );
   let cursorY = MARGIN_X;
+  // 절 번호는 "번호를 받는 섹션"만 센다 — 제출문은 원본에서도 번호 없는 커버 페이지라
+  // 1번을 잡아먹으면 뒤 번호가 통째로 밀린다. 결과 요약 뒤에 오는 진단 외관조사결과·상태평가·
+  // 안전성평가·현장시험은 절 번호 대신 `가./나./다./라.` 소절 번호를 이어 받는다.
+  let sectionNumber = 0;
+  let summarySubsectionIndex = 0;
+  let summaryRendered = false;
 
   order.forEach((key, index) => {
     const manual = !isFixedSectionKey(key)
       ? manualSections.find((section) => section.id === key)
       : undefined;
     const isSubmission = manual?.type === "submission";
-    const number = index + 1;
+    const nested =
+      summaryRendered &&
+      SUMMARY_SUBSECTION_TYPES.has(isFixedSectionKey(key) ? key : (manual?.type ?? ""));
+    const marker = isSubmission
+      ? ""
+      : nested
+        ? `${KOREAN_ORDINALS[summarySubsectionIndex++] ?? "기타"}.`
+        : `${++sectionNumber}.`;
+    if (key === "summary") summaryRendered = true;
 
     if (index === 0) {
       cursorY = MARGIN_X;
@@ -781,20 +856,22 @@ export async function exportReportToPdf(
 
     if (isFixedSectionKey(key)) {
       if (key === "overview")
-        cursorY = renderOverviewBlock(`${number}. 기본현황`, cursorY);
+        cursorY = renderOverviewBlock(`${marker} 기본현황`, cursorY);
       else if (key === "summary")
-        cursorY = renderSummaryBlock(`${number}. 결과 요약`, cursorY);
+        cursorY = renderSummaryBlock(`${marker} 결과 요약`, cursorY);
       else if (key === "detail")
         cursorY = renderDetailBlock(
-          `${number}. 진단 외관조사결과 기본사항`,
+          `${marker} 진단 외관조사결과 기본사항`,
           cursorY,
+          nested,
         );
       else if (key === "recommendation")
         cursorY = renderRecommendationBlock(
-          `${number}. 보수ㆍ보강(안)`,
+          `${marker} 보수ㆍ보강(안)`,
           cursorY,
+          nested,
         );
-      else cursorY = renderPhotosBlock(`${number}. 부위별 사진`, cursorY);
+      else cursorY = renderPhotosBlock(`${marker} 부위별 사진`, cursorY);
       return;
     }
 
@@ -806,15 +883,16 @@ export async function exportReportToPdf(
       cursorY = BOTTOM_LIMIT + 1;
     } else if (manual.type === "participants") {
       cursorY = renderParticipantsBlock(
-        `${number}. 참여기술진 명단`,
+        `${marker} 참여기술진 명단`,
         manual.data as ParticipantsSectionData,
         cursorY,
       );
     } else {
       cursorY = renderGenericManualBlock(
-        `${number}. ${manual.title}`,
+        `${marker} ${manual.title}`,
         manual.data as GenericManualSectionData,
         cursorY,
+        nested,
       );
     }
   });

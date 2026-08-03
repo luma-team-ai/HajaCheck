@@ -141,6 +141,7 @@ export function buildReportPdfContext(
       inspectionData?.roundNo ??
       fallback?.inspectionRound,
     issuedAt: new Date(report.createdAt),
+    responsibleEngineerName: report.context?.assignedInspector?.name ?? undefined,
     defectImages: contextImages.length > 0 ? contextImages : fallbackImages,
   };
 }

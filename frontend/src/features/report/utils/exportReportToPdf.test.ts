@@ -106,6 +106,31 @@ function findTableOptions(
     .find(predicate);
 }
 
+/** `2. 결과 요약`의 단일 표(헤더 = 책임기술자 종합의견). */
+function findSummaryTableOptions(): Record<string, unknown> | undefined {
+  return findTableOptions(
+    (options) =>
+      JSON.stringify(options.head) ===
+      JSON.stringify([["책임기술자 종합의견"]]),
+  );
+}
+
+/** 결과 요약 표의 본문 행 텍스트(셀 정의 객체에서 content만 뽑는다). */
+function summaryCellContents(
+  options: Record<string, unknown> | undefined,
+): string[] {
+  const body = (options?.body ?? []) as { content: string }[][];
+  return body.map(([cell]) => cell.content);
+}
+
+function findPhotoTableOptions(): Record<string, unknown> | undefined {
+  return findTableOptions((options) => {
+    if (typeof options.didDrawCell !== "function") return false;
+    const body = options.body as unknown;
+    return Array.isArray(body) && JSON.stringify(body).includes("< ");
+  });
+}
+
 describe("exportReportToPdf", () => {
   beforeEach(() => {
     mockOutput.mockClear();
@@ -171,13 +196,62 @@ describe("exportReportToPdf", () => {
     expect(renderedText).toContain("1. 기본현황");
     expect(renderedText).toContain("가. 일반현황");
     expect(renderedText).toContain("2. 결과 요약");
-    expect(renderedText).toContain("3. 진단 외관조사결과 기본사항");
-    expect(renderedText).toContain("4. 보수ㆍ보강(안)");
+    // 원본은 진단 외관조사결과·보수ㆍ보강을 별도 절이 아니라 `2. 결과 요약`의 소절로 묶는다.
+    expect(renderedText).toContain("가. 진단 외관조사결과 기본사항");
+    expect(renderedText).toContain("나. 보수ㆍ보강(안)");
+    expect(renderedText).not.toContain("3. 진단 외관조사결과 기본사항");
+    // 소절로 내려간 블록의 자체 소절은 한 단계 더 내려간다(가./나. → 1)/2)).
+    expect(renderedText).toContain("1) 보수ㆍ보강(안)");
+    expect(renderedText).toContain("2) 지속 관찰 부위");
     // 지원되지 않는 서명·참여자 필드는 만들지 않는다(수동 섹션을 추가하지 않은 기본 상태).
     expect(renderedText).not.toContain("제  출  문");
     expect(renderedText).not.toContain("작성자");
-    expect(renderedText).not.toContain("(서명)");
     expect(renderedText).not.toContain("입회자");
+  });
+
+  it("결과 요약은 소절 없이 `책임기술자 종합의견` 표 하나로 렌더링하고 하단에 서명란을 붙인다", async () => {
+    await exportReportToPdf(makeContent(), {
+      responsibleEngineerName: "김기준",
+    });
+
+    // 원본 서식대로 가./나./다. 소절 제목을 만들지 않는다.
+    const renderedText = mockText.mock.calls.map(([text]) => text).flat();
+    expect(renderedText).not.toContain("가. 책임기술자 종합의견");
+    expect(renderedText).not.toContain("나. 결함 등급별 현황");
+    expect(renderedText).not.toContain("다. 주요 발견사항");
+
+    const summaryOptions = findSummaryTableOptions();
+    expect(summaryOptions?.head).toEqual([["책임기술자 종합의견"]]);
+    // 종합의견·주요 발견사항·등급별 건수가 원본 문체(`•` 불릿 + 문단 사이 한 줄)로 합쳐지고,
+    // 서명은 본문에 겹쳐 그리지 않고 아래 행으로 분리된다(긴 의견에서 마지막 줄과 겹침 방지).
+    expect(summaryCellContents(summaryOptions)).toEqual([
+      "•양호\n\n•균열 발견\n\n•금회 조사 결과 확인된 결함은 총 1건으로, 등급별로는 a 0건, b 0건, c 1건, d 0건, e 0건으로 조사되었다.",
+      "책임기술자 : 김 기 준    (서명)",
+    ]);
+    // 두 행 모두 칸막이 괘선 없이 한 상자로 보이게 한다(외곽선은 tableLineWidth가 그림).
+    expect(summaryOptions?.bodyStyles).toEqual(
+      expect.objectContaining({ lineWidth: 0 }),
+    );
+    expect(summaryOptions?.didDrawCell).toBeUndefined();
+    expect(mockAddImage).not.toHaveBeenCalled();
+  });
+
+  it("책임기술자 서명란 이름은 수동 입력값을 담당자 fallback보다 우선한다", async () => {
+    const content = makeContent();
+    await exportReportToPdf(
+      {
+        ...content,
+        summary: {
+          ...content.summary,
+          responsible_engineer_name: "박수정",
+        },
+      },
+      { responsibleEngineerName: "김기준" },
+    );
+
+    expect(summaryCellContents(findSummaryTableOptions())).toContain(
+      "책임기술자 : 박 수 정    (서명)",
+    );
   });
 
   it("여러 섹션이 한 페이지에 들어갈 만큼 남으면 새 페이지로 넘기지 않는다(원본처럼 소절을 채움)", async () => {
@@ -234,7 +308,10 @@ describe("exportReportToPdf", () => {
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     expect(renderedText).toContain("제  출  문");
     expect(renderedText).toContain("서울특별시장 귀하");
-    expect(renderedText).toContain("6. 참여기술진 명단");
+    // 제출문은 원본에서도 번호 없는 커버 페이지라 절 번호를 소비하지 않고, 결과 요약 소절로
+    // 내려간 진단 외관조사결과·보수ㆍ보강도 번호를 쓰지 않는다 → 기본현황1·결과요약2·명단3.
+    expect(renderedText).toContain("1. 기본현황");
+    expect(renderedText).toContain("3. 참여기술진 명단");
 
     const participantsOptions = findTableOptions(
       (options) =>
@@ -466,9 +543,7 @@ describe("exportReportToPdf", () => {
     // 호출해 "이미지 행에서만, 셀 좌표에 패딩을 두고" 그리는지 검증한다. rowPageBreak:'avoid'로
     // 표가 페이지를 넘을 때도 사진 1장이 중간에 잘리지 않게 보장한다(예전 방식은 고정 좌표
     // 계산이라 페이지 하단을 넘으면 그대로 잘려나갔다).
-    const photoOptions = findTableOptions(
-      (options) => typeof options.didDrawCell === "function",
-    );
+    const photoOptions = findPhotoTableOptions();
     expect(photoOptions?.rowPageBreak).toBe("avoid");
 
     const didDrawCell = photoOptions?.didDrawCell as (data: {
@@ -527,9 +602,7 @@ describe("exportReportToPdf", () => {
       ],
     });
 
-    const photoOptions = findTableOptions(
-      (options) => typeof options.didDrawCell === "function",
-    );
+    const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
     expect(captionRow[0].content).toBe(
       "< 균열(A등급) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >",
@@ -557,9 +630,7 @@ describe("exportReportToPdf", () => {
       ],
     });
 
-    const photoOptions = findTableOptions(
-      (options) => typeof options.didDrawCell === "function",
-    );
+    const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
     expect(captionRow[0].content).toBe("< 균열 >");
   });
@@ -590,9 +661,7 @@ describe("exportReportToPdf", () => {
       ],
     });
 
-    const photoOptions = findTableOptions(
-      (options) => typeof options.didDrawCell === "function",
-    );
+    const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
     expect(captionRow[0].content).toBe("< 균열(B등급) >");
     expect(captionRow[0].content).not.toContain("외");

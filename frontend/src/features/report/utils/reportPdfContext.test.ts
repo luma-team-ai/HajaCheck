@@ -53,6 +53,19 @@ const SPALLING = {
 };
 
 describe("buildReportPdfContext — 하자 박스", () => {
+  it("상세 응답의 배정 점검자 이름을 책임기술자 이름으로 넘긴다", () => {
+    const report = {
+      createdAt: "2026-07-30T00:00:00Z",
+      context: {
+        assignedInspector: { id: 7, name: "김기준", role: "INSPECTOR" },
+        media: [],
+        defects: [],
+      },
+    } as unknown as ReportDetailResponse;
+
+    expect(buildReportPdfContext(report, null, false).responsibleEngineerName).toBe("김기준");
+  });
+
   it("같은 사진이어도 하자별·등급별 PDF 이미지 항목으로 분리한다", () => {
     const context = buildReportPdfContext(
       buildReport([CRACK_A, CRACK_B, SPALLING]),

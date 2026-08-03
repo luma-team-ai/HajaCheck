@@ -13,7 +13,6 @@ const OPTIONS: ManualSectionType[] = [
   'overview-form',
   'inspection-result-repair',
   'participants',
-  'summary-opinion',
   'member-condition-repair',
   'safety-assessment',
   'field-test',

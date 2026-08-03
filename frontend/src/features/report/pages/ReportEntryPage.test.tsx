@@ -249,18 +249,23 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.queryByText(/법정 제출용/)).toBeNull();
   });
 
-  it('설정 토글은 활성 상태로 표시되고 선택 상태를 전환할 수 있다 (#925 UI 정리)', async () => {
+  it('자동 초안 포함 섹션은 기존처럼 토글로 선택하고 종합 의견은 별도 항목으로 노출하지 않는다', async () => {
     renderPage();
     await screen.findByText(/점검 회차 요약/);
 
-    for (const name of [/기본현황/, /결과 요약/, /진단 외관조사결과 기본사항/, /보수ㆍ보강\(안\)/, /종합 의견/]) {
-      expect(screen.getByRole('button', { name }).hasAttribute('disabled')).toBe(false);
+    for (const name of ['기본현황', '결과 요약', '진단 외관조사결과 기본사항', '보수ㆍ보강(안)']) {
+      const button = screen.getByRole('button', { name });
+      expect(button.hasAttribute('disabled')).toBe(false);
+      expect(button.getAttribute('aria-pressed')).toBe('true');
     }
+    expect(screen.queryByRole('button', { name: /종합 의견/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: '포함 섹션 보기' })).toBeNull();
 
-    const opinionButton = screen.getByRole('button', { name: /종합 의견/ });
-    expect(opinionButton.getAttribute('aria-pressed')).toBe('false');
-    fireEvent.click(opinionButton);
-    expect(opinionButton.getAttribute('aria-pressed')).toBe('true');
+    const summaryButton = screen.getByRole('button', { name: '결과 요약' });
+    fireEvent.click(summaryButton);
+    expect(summaryButton.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(summaryButton);
+    expect(summaryButton.getAttribute('aria-pressed')).toBe('true');
 
     const photoToggle = screen.getByRole('button', { name: /대표 사진 자동 삽입/ });
     expect(photoToggle.hasAttribute('disabled')).toBe(false);
@@ -293,13 +298,14 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     // 모든 기본 섹션이 포함되어 있어야 함
     expect(bodyStr).toContain('"overview"');
     expect(bodyStr).toContain('"summary"');
+    expect(bodyStr).not.toContain('"opinion"');
   });
 
   it('포함 섹션을 모두 해제하면 초안 생성 요청을 보내지 않는다', async () => {
-    let posted = false;
+    let body: unknown = 'NOT_CALLED';
     server.use(
-      http.post('/api/inspections/:id/reports', () => {
-        posted = true;
+      http.post('/api/inspections/:id/reports', async ({ request }) => {
+        body = await request.json().catch(() => null);
         return HttpResponse.json({
           success: true,
           data: { id: 77, inspectionId: 1, version: 1, content: {}, status: 'DRAFT', createdBy: 1, createdAt: '2026-07-22T10:00:00Z' },
@@ -316,8 +322,8 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     const generateButton = screen.getByRole('button', { name: '보고서 생성 시작' });
     expect(generateButton.hasAttribute('disabled')).toBe(true);
     fireEvent.click(generateButton);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(posted).toBe(false);
+
+    expect(body).toBe('NOT_CALLED');
   });
 
   // "미리보기"라는 이름이 지금 고른 섹션 설정을 미리 보여주는 기능처럼 오해를 사서, 실제
