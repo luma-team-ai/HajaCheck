@@ -264,7 +264,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
 
     @Test
     void 삭제_플랫폼관리자_200_목록에서제거() throws Exception {
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(2)));
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(2, "batch-1")));
 
         String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
                         .file(pdfPart())
@@ -288,7 +288,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
 
     @Test
     void 삭제_AI서버실패_DB에는그대로남아재시도가능() throws Exception {
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(1)));
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(1, "batch-1")));
 
         String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
                         .file(pdfPart())
