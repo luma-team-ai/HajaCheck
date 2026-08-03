@@ -14,6 +14,7 @@ import com.hajacheck.core.analysis.dto.AnalysisStatusResponse;
 import com.hajacheck.core.analysis.support.AnalysisProgressStore;
 import com.hajacheck.core.analysis.support.InMemoryAnalysisProgressStore;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.service.DefectWriter;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
@@ -42,11 +43,12 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 /**
  * InspectionAnalysisService 단위 테스트(코드 리뷰 P1/P2 픽스 검증) — 원자적 ANALYZING 선점,
- * ANALYZING 고착 복구, 큐 포화 시 롤백을 고정한다. 기존 하자 소프트삭제(재분석 멱등화)는 더 이상
- * 이 클래스의 책임이 아니라 {@link InspectionAnalysisWorker}로 옮겨졌으므로(P2 —
- * InspectionAnalysisWorkerTest 참고) 이 파일은 더 이상 DefectWriter를 목킹하지 않는다.
- * AnalysisProgressStore/InspectionAnalysisWorker를 목으로 대체해 Redis·@Async 없이 검증한다
- * (이전에는 관련 빈이 전부 {@code @Profile("!test")}로 배제돼 자동화 테스트가 전혀 없었다).
+ * ANALYZING 고착 복구, 큐 포화 시 롤백을 고정한다. 재분석 시작 시점의 기존 하자 소프트삭제(재분석
+ * 멱등화)는 대부분 이 클래스의 책임이 아니라 {@link InspectionAnalysisWorker}로 옮겨졌지만(P2 —
+ * InspectionAnalysisWorkerTest 참고), FAILED 소스 예외(PR머신 리뷰 P1)만은 이 클래스가 직접
+ * {@link DefectWriter}를 호출하므로 그 부분만 목킹한다. AnalysisProgressStore/InspectionAnalysisWorker도
+ * 목으로 대체해 Redis·@Async 없이 검증한다(이전에는 관련 빈이 전부 {@code @Profile("!test")}로
+ * 배제돼 자동화 테스트가 전혀 없었다).
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -60,6 +62,8 @@ class InspectionAnalysisServiceTest {
     private MediaRepository mediaRepository;
     @Mock
     private DefectRepository defectRepository;
+    @Mock
+    private DefectWriter defectWriter;
     @Mock
     private AnalysisProgressStore progressStore;
     @Mock
@@ -294,6 +298,41 @@ class InspectionAnalysisServiceTest {
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                any(), any());
+    }
+
+    @Test
+    void startAnalysis_FAILED회차는_하자가있어도소프트삭제후재분석이정상선점된다() {
+        // PR머신 리뷰 P1 — FAILED는 검수(REVIEWED)에 도달한 적이 없으므로, 남아있는 하자는 전부
+        // 이번에 실패한 분석 실행 자체가 만든 AI 결과다. fail-closed로 계속 막으면 부분 실패 회차가
+        // 재시도도 검수도 못 하는 dead-end가 된다 — 소프트삭제 후 재분석을 허용해야 한다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.FAILED));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(true);
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(defectWriter).softDeleteAllForInspectionThenSave(USER_ID, INSPECTION_ID, List.of());
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                any(), any());
+    }
+
+    @Test
+    void startAnalysis_FAILED인데_하자가없으면_소프트삭제없이바로재분석한다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.FAILED));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(false);
+        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+                .thenReturn(List.of(image(1L)));
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        verify(defectWriter, never()).softDeleteAllForInspectionThenSave(any(), any(), any());
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
                 any(), any());
     }
@@ -683,7 +722,7 @@ class InspectionAnalysisServiceTest {
         AnalysisProgressStore realProgressStore = new InMemoryAnalysisProgressStore();
         realProgressStore.saveGeneration(INSPECTION_ID, "G1");
         InspectionAnalysisService serviceWithRealStore = new InspectionAnalysisService(
-                inspectionService, inspectionRepository, mediaRepository, defectRepository,
+                inspectionService, inspectionRepository, mediaRepository, defectRepository, defectWriter,
                 realProgressStore, worker, quotaService);
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));

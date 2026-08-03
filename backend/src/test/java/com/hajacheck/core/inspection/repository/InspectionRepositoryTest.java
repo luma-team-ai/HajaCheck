@@ -248,17 +248,20 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     @Test
     void startAnalyzingIfNotRunning_허용소스상태에서만_1행영향_그외는0행() {
         // 코드 리뷰 P1 10차(불변식 고정) — 원자적 조건부 UPDATE가 "허용 소스 상태 집합"을 강제하는지
-        // 직접 고정한다. 허용(CREATED/UPLOADING/ANALYZED)은 1행(ANALYZING 선점 성공), 그 외
+        // 직접 고정한다. 허용(CREATED/UPLOADING/ANALYZED/FAILED)은 1행(ANALYZING 선점 성공), 그 외
         // (REVIEWED/REPORTED/이미 ANALYZING)는 0행이어야 한다 — 사전 체크와 무관하게 이 UPDATE
-        // 자체가 REVIEWED/REPORTED 재분석 진입을 원자적으로 막는다는 게 핵심.
+        // 자체가 REVIEWED/REPORTED 재분석 진입을 원자적으로 막는다는 게 핵심. FAILED는 PR머신 리뷰
+        // P1(회복 경로 없는 dead-end 지적)로 허용 목록에 추가됐다.
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         java.util.EnumSet<InspectionStatus> allowed = java.util.EnumSet.of(
-                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED);
+                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED,
+                InspectionStatus.FAILED);
         int roundNo = 1;
 
         for (InspectionStatus allowedSource : List.of(
-                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED)) {
+                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED,
+                InspectionStatus.FAILED)) {
             Inspection insp = inspectionRepository.save(newInspection(
                     facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), allowedSource));
             assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
