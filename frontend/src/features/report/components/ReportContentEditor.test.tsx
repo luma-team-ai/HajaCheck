@@ -239,12 +239,14 @@ describe("ReportContentEditor", () => {
       />,
     );
 
+    screen.getAllByRole("img").forEach((img) => fireEvent.load(img));
     expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(10);
 
     for (const filterGrade of grades) {
       fireEvent.click(
         screen.getByRole("button", { name: `${filterGrade} (1)` }),
       );
+      screen.getAllByRole("img").forEach((img) => fireEvent.load(img));
 
       for (const itemGrade of grades) {
         if (itemGrade === filterGrade) {
@@ -291,6 +293,7 @@ describe("ReportContentEditor", () => {
       />,
     );
 
+    screen.getAllByRole("img").forEach((img) => fireEvent.load(img));
     fireEvent.click(screen.getByRole("button", { name: "C (2)" }));
 
     // 카드 2개 × 박스 1개씩 = 총 2개(예전 버그면 카드마다 2개씩 그려 총 4개가 됨).

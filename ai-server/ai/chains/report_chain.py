@@ -330,7 +330,13 @@ def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
         return ReportDetail(items=[])
 
     if len(confirmed_defects) <= DETAIL_CHUNK_SIZE:
-        return _repair_detail_items(_run_detail_chain_chunk(confirmed_defects).items, confirmed_defects)
+        # 단일 호출 경로는 원본 그대로 반환한다 — 불일치 판정/재생성(node_detail_validation·
+        # node_detail_retry, #1379)이 이 원본을 보고 판단해야 하므로 여기서 미리 repair해 버리면
+        # 그 안전장치가 항상 "일치"로만 보게 되어 재생성도, 최종 VALIDATION_ERROR도 트리거되지
+        # 않는다(PR머신 CI 회귀 — test_detail_item_count_mismatch_returns_validation_error 등).
+        # repair는 아래 멀티청크 경로에서만 적용한다(청크 분할 자체가 개별 청크 누락을 구조적으로
+        # 유발하므로, 그 경우엔 하나 놓쳤다고 70건 전체를 재생성/실패시키는 대신 항목 단위로 보정).
+        return _run_detail_chain_chunk(confirmed_defects)
 
     # 대용량 하자(예: 70건)는 단일 LLM 출력 토큰 한도로 인해 cut-off(예: 21건만 출력)되는 문제를 방지하기 위해
     # 15건 단위 청크로 분할 후 병렬로 호출해 결합한다.
