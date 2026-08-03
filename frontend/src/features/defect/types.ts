@@ -23,6 +23,9 @@ export interface Defect {
   bboxH: number | null;
   crackWidthMm: number | null;
   crackLengthMm: number | null;
+  // GET /api/inspections/{id}/defects(DefectDetailItem)는 직접 제공하며, 단건 상세
+  // GET /api/defects/{id}(DefectResponse)에는 없으므로 optional로 호환한다.
+  mediaId?: number | null;
   // 인가된 /api/media/{id}/thumbnail 경로 — mediaId가 없으면 null(HAJA-314)
   imageUrl: string | null;
   createdAt: string;
@@ -208,3 +211,14 @@ export interface DefectActionLogEntry {
 }
 
 export type DefectActionLogPhase = 'IN_PROGRESS' | 'RESOLVED';
+
+// 점검 하자 화면 전용 이미지 그룹. mediaId가 없는 하자는 defect:{id} 키로 개별 그룹을 유지한다.
+export interface DefectImageGroup {
+  key: string;
+  mediaId: number | null;
+  imageUrl: string | null;
+  defects: Defect[];
+  representative: Defect;
+  latestCreatedAt: string;
+  highestConfidence: number;
+}

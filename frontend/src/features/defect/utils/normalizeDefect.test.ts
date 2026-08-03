@@ -79,4 +79,9 @@ describe('normalizeDefect', () => {
 
     expect(normalizeDefect(raw).status).toBe('CONFIRMED');
   });
+
+  it('점검별 하자 응답의 mediaId는 그대로 보존하고 단건 상세의 누락도 허용한다', () => {
+    expect(normalizeDefect({ ...baseDefect, mediaId: 901 }).mediaId).toBe(901);
+    expect(normalizeDefect(baseDefect).mediaId).toBeUndefined();
+  });
 });

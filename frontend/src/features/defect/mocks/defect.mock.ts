@@ -20,6 +20,7 @@ export const mockDefects: Defect[] = [
     bboxH: 0.15,
     crackWidthMm: null,
     crackLengthMm: null,
+    mediaId: 901,
     imageUrl: '/api/media/901/thumbnail',
     createdAt: '2026-07-01T09:00:00.000Z',
   },
@@ -41,6 +42,7 @@ export const mockDefects: Defect[] = [
     bboxH: 0.1,
     crackWidthMm: 1.2,
     crackLengthMm: 45.0,
+    mediaId: 902,
     imageUrl: '/api/media/902/thumbnail',
     createdAt: '2026-07-02T09:00:00.000Z',
   },
@@ -63,6 +65,7 @@ export const mockDefects: Defect[] = [
     crackWidthMm: null,
     crackLengthMm: null,
     // mediaId 없는 하자(HAJA-314) — 이미지 없이 조회되는 케이스를 목데이터에서도 재현.
+    mediaId: null,
     imageUrl: null,
     createdAt: '2026-07-03T09:00:00.000Z',
   },
