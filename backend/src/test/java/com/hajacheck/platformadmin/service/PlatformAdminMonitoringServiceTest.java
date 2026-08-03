@@ -113,7 +113,12 @@ class PlatformAdminMonitoringServiceTest {
         when(metricsEndpoint.metric(any(), any())).thenReturn(null);
         when(errorLogStore.recent(anyInt())).thenReturn(List.of());
 
-        LocalDateTime createdAt = LocalDateTime.of(2026, 8, 3, 10, 0, 0);
+        // ⚠️ 반드시 상대 시각으로 둘 것(#1430). durationLabel()은 createdAt이 PROGRESS_CACHE_TTL(6시간)을
+        // 넘으면 진행률 캐시를 보지 않고 null을 돌려주므로, 고정 시각을 쓰면 그 시각으로부터 6시간이
+        // 지난 뒤 이 테스트가 영구 실패한다(실제로 `LocalDateTime.of(2026, 8, 3, 10, 0, 0)`이 들어가
+        // 2026-08-03 16:00 KST부터 `./gradlew test`가 깨졌다). 단언값 "02:45"는 createdAt↔updatedAt
+        // 차이라 기준 시각이 흘러도 결정적으로 유지된다.
+        LocalDateTime createdAt = LocalDateTime.now().minusMinutes(10);
         Inspection analyzed = inspectionOf(1L, InspectionStatus.ANALYZED, "힐스테이트 광교 102동", createdAt);
         when(inspectionRepository.findRecentOrderByCreatedAtDesc(any())).thenReturn(List.of(analyzed));
         when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
