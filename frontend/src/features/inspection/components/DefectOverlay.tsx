@@ -161,8 +161,9 @@ export function DefectOverlay({
         )}
       </div>
       {/* 박스 색상 범례(팀 QA 요청) — 마젠타가 "미확정", 초록이 "검수 확정"이라는 걸 처음 보는
-          사용자도 알 수 있게. */}
-      {sortedDefects.length > 0 && (
+          사용자도 알 수 있게. 위치 미지정 칩도 같은 색상을 쓰므로(colorForDefect), 온-이미지
+          박스가 0건이고 칩만 있는 미디어에서도 범례가 떠야 한다(PR머신 리뷰 P3). */}
+      {(sortedDefects.length > 0 || unplacedDefects.length > 0) && (
         <div className="flex items-center gap-3 text-[11px] text-text-muted">
           <span className="flex items-center gap-1">
             <span
