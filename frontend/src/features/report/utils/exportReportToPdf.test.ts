@@ -621,7 +621,7 @@ describe("exportReportToPdf", () => {
     const options = findTableOptions(
       (candidate) =>
         Array.isArray(candidate.head) &&
-        (candidate.head as string[][])[0]?.includes("결함발생 부재"),
+        (candidate.head as string[][])[1]?.includes("결함발생 부재"),
     );
     expect(options?.body).toEqual([
       ["1", "1층 벽체", "c", "균열", "설명", "원인"],
@@ -640,14 +640,15 @@ describe("exportReportToPdf", () => {
       }),
     );
 
+    // 상태평가 결과 바는 이제 컬럼 헤더 행과 같은 표의 head 첫 행이라(페이지 넘김 시 함께
+    // 반복시키기 위함, PR머신 리뷰 취지 반영) body가 아니라 head[0]에서 찾는다.
     const options = findTableOptions(
       (candidate) =>
-        Array.isArray(candidate.body) &&
-        String((candidate.body as string[][])[0]?.[1] ?? "").startsWith(
-          "상태평가 결과 :",
-        ),
+        Array.isArray(candidate.head) &&
+        (candidate.head as string[][])[1]?.includes("결함발생 부재"),
     );
-    expect((options?.body as string[][])[0][1]).toBe("상태평가 결과 : d");
+    const barRow = (options?.head as { content: string }[][])[0];
+    expect(barRow[1].content).toBe("상태평가 결과 : d");
   });
 
   it("점검 축소본을 부위별 사진 표 안에 안전하게 배치한다(자동 페이지분할되는 autoTable 셀)", async () => {
