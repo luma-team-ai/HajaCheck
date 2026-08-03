@@ -326,10 +326,10 @@ def test_crack_mask_to_detections_grade_is_invariant_to_fragmentation():
 
 
 def test_crack_mask_to_detections_caps_grade_for_bright_hairline_crack():
-    """v4 min 합의 — 면적(길이)만 크고 어두움이 낮은 실금은 D·E로 못 간다(2026-08-03 재보정).
+    """v4 min 합의 — 면적(길이)만 크고 어두움이 낮은 실금은 등급이 어두움 축으로 제한된다(2026-08-03 재보정).
 
     실사용 근접촬영 실금 사진에서 area_ratio가 높게 나오는 케이스: 같은 마스크라도
-    dark_ratio가 낮으면(실금) 등급이 어두움 축으로 캡되어야 한다.
+    dark_ratio가 낮으면(실금) 등급이 어두움 축으로 제한되어야 한다.
     """
     mask = _blank_crack_canvas()
     mask[100:200, 100:200] = True  # area 2.4% → area_s=0.9
@@ -338,7 +338,7 @@ def test_crack_mask_to_detections_caps_grade_for_bright_hairline_crack():
     severe = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO)
     hairline = chain._crack_mask_to_detections(mask, probability, 0.0005)  # dark_s=0.5 (0.00010537 < 0.0005 < 0.00151626)
 
-    assert severe[0].grade == "D"  # min(0.9, 0.7)=0.7
+    assert severe[0].grade == "E"  # min(0.9, fallback 0.9)=0.9, SEVERE_DARK_RATIO=0.003 >= 0.00194422
     assert hairline[0].grade == "C"  # min(0.9, 0.5)=0.5
 
 

@@ -104,14 +104,11 @@ _CRACK_AREA_RATIO_SEVERITY_BANDS: list[tuple[float, float]] = [
 
 # 균열(CRACK) 전용 — 어두움총량(dark_ratio) 구간표. v4(모듈 docstring 참고), AI Hub 아파트 균열
 # 470장에서 area와 동일한 로그 등간격 공식으로 도출. dark_ratio 산출 조건이 바뀌면 재측정 필요.
-# ⚠️ 마지막 항목(float('inf'), 0.7)은 이상(>=) 조건: dark >= 0.00194422일 때도 s=0.7(area보다 낮음)로
-# 유지해서 min 합의에서 dark가 "등급 캡" 역할을 한다(v3 이후 설계).
 _CRACK_DARK_RATIO_SEVERITY_BANDS: list[tuple[float, float]] = [
     (0.00000897, 0.1),
     (0.00010537, 0.3),
     (0.00151626, 0.5),
     (0.00194422, 0.7),
-    (float('inf'), 0.7),  # 최상위 캡(area 0.9와 구분)
 ]
 
 _AREA_RATIO_SEVERITY_BANDS_BY_TYPE: dict[str, list[tuple[float, float]]] = {

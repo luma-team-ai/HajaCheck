@@ -126,18 +126,18 @@ def test_compute_grade_rebar_exposure_never_better_than_c_even_with_tiny_area():
 
 def test_compute_crack_grade_requires_both_area_and_darkness_for_severe():
     """v4 min 합의(2026-08-03) — 심각(D·E) 판정엔 면적·어두움 둘 다 필요하다(모듈 docstring 참고)."""
-    assert compute_crack_grade(0.01, 0.003) == "D"  # 둘 다 최상위 밴드(area=0.9, dark=0.7) → min=0.7
-    assert compute_crack_grade(0.01, 0.00005) == "B"  # 실금: 면적 0.9여도 어두움 0.1으로 캡
-    assert compute_crack_grade(0.00001, 0.003) == "A"  # 어두운 소형 오탐: 면적 0.1로 캡
+    assert compute_crack_grade(0.01, 0.003) == "E"  # 둘 다 최상위(area=0.9, dark는 0.003>=0.00194422이므로 fallback 0.9) → min=0.9
+    assert compute_crack_grade(0.01, 0.00005) == "B"  # 실금: 면적 0.9여도 어두움 0.1으로 제한
+    assert compute_crack_grade(0.00001, 0.003) == "A"  # 어두운 소형 오탐: 면적 0.1로 제한
     assert compute_crack_grade(0.001, 0.0017) == "C"  # 중간 면적(0.5) × 중간 어두움(0.7) → min=0.5
 
 
 def test_compute_crack_grade_dark_band_boundaries():
     # dark 구간표 경계 — area는 최상위로 고정해 dark 축만 검증. v4 임계값 기준.
-    # dark 최상위는 0.7(area 최상위 0.9와 달라 min 합의에서 캡 역할).
+    # dark >= 마지막 임계값(0.00194422)일 때는 fallback으로 _AREA_RATIO_SEVERITY_MAX(0.9) 반환.
     area_severe = 0.01  # area_s = 0.9
     assert compute_crack_grade(area_severe, 0.000005) == "A"  # dark_s=0.1, min(0.9,0.1)=0.1
     assert compute_crack_grade(area_severe, 0.00000897) == "B"  # dark_s=0.3, min(0.9,0.3)=0.3
     assert compute_crack_grade(area_severe, 0.00010537) == "C"  # dark_s=0.5, min(0.9,0.5)=0.5
     assert compute_crack_grade(area_severe, 0.00151626) == "D"  # dark_s=0.7, min(0.9,0.7)=0.7
-    assert compute_crack_grade(area_severe, 0.00194422) == "D"  # dark >= 최상위 경계 → dark_s=0.7, min(0.9,0.7)=0.7
+    assert compute_crack_grade(area_severe, 0.003) == "E"  # dark >= 0.00194422 → fallback 0.9, min(0.9,0.9)=0.9
