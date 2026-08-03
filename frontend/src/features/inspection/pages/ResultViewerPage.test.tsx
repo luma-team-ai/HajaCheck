@@ -454,6 +454,25 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('이미지 2/2')).not.toBeNull();
   });
 
+  // PR머신 리뷰 P2 — 확정 후 자동 이동(#1255 결정 재검토)의 핵심 동작을 직접 단언한다. 기본
+  // mockDefects는 mediaId=67 한 이미지에 DETECTED가 3건(id=1 균열/98%, id=2 박리박락/81%,
+  // id=4 철근노출/58%) 섞여 있어 별도 오버라이드 없이 재현 가능하다.
+  it('확정 후 같은 이미지에 미확정 하자가 남아있으면 다음 미확정 하자로 자동 전환된다', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+
+    // 기본 선택 = 첫 미확정 하자(id=1, 균열 C등급, confidence 98%)
+    expect(await screen.findByText('98%')).not.toBeNull();
+    expect(screen.getByText('예상 길이')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '이 하자 검수 확정' }));
+
+    // id=1 확정 → 다음 미확정(id=2, 박리박락 B등급, confidence 81%)으로 자동 전환
+    expect(await screen.findByText('81%')).not.toBeNull();
+    expect(screen.getByText('면적 비율')).not.toBeNull();
+  });
+
   it('이 이미지 검수가 끝나면 오탐 삭제·등급 수정·누락 추가가 잠긴다(#1255)', async () => {
     // 이미지1(mediaId=67)의 하자를 전부 확정/해결 상태로 둔다 — 더 손댈 게 없는 이미지.
     const reviewedMock: DefectDetailItem[] = mockDefects.map((d) => ({

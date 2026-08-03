@@ -187,6 +187,10 @@ export function DefectOverlay({
           <span className="shrink-0 text-xs text-text-muted">위치 미지정:</span>
           {unplacedDefects.map((defect) => {
             const isSelected = selectedId === defect.id;
+            // 위치 미지정 칩도 박스와 같은 범례(미확정=마젠타/검수확정=초록)를 따르게 한다(PR머신
+            // 리뷰 P2) — 예전엔 상태와 무관하게 항상 마젠타 계열만 써서, 확정된 위치 미지정 하자도
+            // 계속 "미확정" 색으로 보여 범례와 어긋났다.
+            const color = colorForDefect(defect);
             return (
               <button
                 key={defect.id}
@@ -195,10 +199,13 @@ export function DefectOverlay({
                 disabled={drawMode}
                 title={`${defect.type} · ${gradeLabel(defect.grade)} · 이미지 위 위치가 지정되지 않은 하자`}
                 className={`rounded-full border-2 px-3 py-1 text-xs font-medium transition ${
-                  isSelected
-                    ? 'border-selection bg-selection text-white'
-                    : 'border-dashed border-selection text-text-default hover:bg-surface-muted'
+                  isSelected ? 'text-white' : 'text-text-default hover:bg-surface-muted'
                 } ${drawMode ? 'cursor-default opacity-50' : 'cursor-pointer'}`}
+                style={{
+                  borderColor: color,
+                  borderStyle: isSelected ? 'solid' : 'dashed',
+                  backgroundColor: isSelected ? color : 'transparent',
+                }}
               >
                 {defect.type} {gradeLabel(defect.grade)}
               </button>
