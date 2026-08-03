@@ -99,28 +99,31 @@
 
 /* #1436: 기존엔 미선택 박스도 진한 마젠타 2px+투명도 12%라 사진 여러 개가 겹치면 실측 사진이
    라벨링 툴 화면처럼 보였다. 미선택은 얇고 옅게 낮춰 "여기 하자가 있다" 정도만 알리고, 선택된
-   하자만 뚜렷하게(포인트 컬러 링 + 코드 라벨) 강조해 실제로 보고 있는 대상이 뭔지 명확히 한다. */
+   하자만 뚜렷하게(포인트 컬러 링 + 코드 라벨) 강조해 실제로 보고 있는 대상이 뭔지 명확히 한다.
+   디자인 리뷰 P1 — 미선택 마젠타·선택 인디고·하단 알약리스트 푸시아까지 "선택됨"을 뜻하는 색이
+   한 화면에 3개였다. 미선택은 중립 회색조로 낮춰 색 경쟁에서 빼고, "선택됨"은 --color-point
+   (인디고) 하나로 통일한다(아래 .defect-image-selector button.is-selected도 동일 톤으로 맞춤). */
 .defect-detection-box {
   position: absolute;
   margin: 0;
   border-radius: 10px;
-  border: 1.5px solid rgba(240, 0, 232, 0.55);
-  background: rgba(240, 0, 232, 0.08);
+  border: 1.5px solid color-mix(in srgb, var(--color-primary) 35%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 6%, transparent);
   padding: 0;
   cursor: pointer;
   transition: border-width 120ms ease, border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 
 .defect-detection-box:hover {
-  border-color: #f000e8;
-  background: rgba(240, 0, 232, 0.16);
+  border-color: var(--color-point);
+  background: color-mix(in srgb, var(--color-point) 12%, transparent);
 }
 
 .defect-detection-box.is-selected {
   border-width: 2px;
   border-color: var(--color-point);
-  background: rgba(79, 70, 229, 0.1);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 0 0 4px rgba(79, 70, 229, 0.28);
+  background: color-mix(in srgb, var(--color-point) 10%, transparent);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92), 0 0 0 4px color-mix(in srgb, var(--color-point) 28%, transparent);
 }
 
 .defect-detection-box:focus-visible {
@@ -177,9 +180,9 @@
 
 .defect-image-selector button:hover,
 .defect-image-selector button.is-selected {
-  border-color: var(--color-selection);
-  color: var(--color-selection);
-  background: var(--color-selection-soft-bg);
+  border-color: var(--color-point);
+  color: var(--color-point);
+  background: color-mix(in srgb, var(--color-point) 10%, var(--color-surface));
 }
 
 .defect-image-selector button:focus-visible {

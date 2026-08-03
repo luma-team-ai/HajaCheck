@@ -50,9 +50,20 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
         ? selectedResolvedLog
         : null;
   const panelRef = useRef<HTMLDivElement>(null);
+  const actionSectionRef = useRef<HTMLDivElement>(null);
   const previousActiveElementRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+
+  // 좁은 화면(<980px)에서는 primary(사진·지표·AI 설명)와 secondary(조치 등록)가 위아래로
+  // 쌓이는데, 진단 내용을 다 지나야 조치 폼에 닿을 수 있었다(#1436 디자인 리뷰 P0). 넓은
+  // 화면에서는 이미 같은 줄에 나란히 있어 사실상 no-op이고, 좁은 화면에서만 실제로 점프한다.
+  function handleJumpToAction() {
+    const section = actionSectionRef.current;
+    if (!section) return;
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    getFocusableElements(section)[0]?.focus();
+  }
 
   const handleSelectDefect = (defectId: number) => {
     if (defectId === selectedDefect.id) return;
@@ -121,6 +132,13 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
             <i aria-hidden="true" />
             {DEFECT_STATUS_LABEL[selectedDefect.status]}
           </span>
+          <button
+            type="button"
+            className="defect-detail-modal__jump-to-action"
+            onClick={handleJumpToAction}
+          >
+            조치 등록하기 ↓
+          </button>
         </header>
 
         <div className="defect-detail-modal__body">
@@ -211,24 +229,31 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
                   </span>
                   <span className="defect-metric-hero-label">AI 신뢰도</span>
                 </article>
-                <div className="defect-metric-row">
-                  <article className="defect-metric-card">
-                    <span>균열 폭(최대)</span>
-                    <strong>
-                      {selectedDefect.crackWidthMm != null
-                        ? `${selectedDefect.crackWidthMm}mm`
-                        : <span className="defect-metric-empty">측정 예정</span>}
-                    </strong>
-                  </article>
-                  <article className="defect-metric-card">
-                    <span>균열 길이(추정)</span>
-                    <strong>
-                      {selectedDefect.crackLengthMm != null
-                        ? `${selectedDefect.crackLengthMm}mm`
-                        : <span className="defect-metric-empty">측정 예정</span>}
-                    </strong>
-                  </article>
-                </div>
+                {/* #1436 디자인 리뷰 P1 — 히어로 카드가 그라데이션·그림자로 시선을 끌게
+                    만들었는데, 정작 옆 두 카드가 둘 다 비어있으면("측정 예정") 가장 힘준 자리가
+                    플레이스홀더만 가리키는 셈이었다. 둘 다 없을 때는 한 줄로 압축한다. */}
+                {selectedDefect.crackWidthMm == null && selectedDefect.crackLengthMm == null ? (
+                  <p className="defect-metric-empty-row">균열 폭·길이 측정 데이터 없음</p>
+                ) : (
+                  <div className="defect-metric-row">
+                    <article className="defect-metric-card">
+                      <span>균열 폭(최대)</span>
+                      <strong>
+                        {selectedDefect.crackWidthMm != null
+                          ? `${selectedDefect.crackWidthMm}mm`
+                          : <span className="defect-metric-empty">측정 예정</span>}
+                      </strong>
+                    </article>
+                    <article className="defect-metric-card">
+                      <span>균열 길이(추정)</span>
+                      <strong>
+                        {selectedDefect.crackLengthMm != null
+                          ? `${selectedDefect.crackLengthMm}mm`
+                          : <span className="defect-metric-empty">측정 예정</span>}
+                      </strong>
+                    </article>
+                  </div>
+                )}
               </div>
 
               {/* #1436: AI 분석 설명을 미디어 행 안으로 옮겨왔다 — 예전엔 이 자리가 사진(고정폭)보다
@@ -258,7 +283,7 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
             </div>
           </div>
 
-          <div className="defect-detail-modal__secondary" aria-busy={isLoading}>
+          <div className="defect-detail-modal__secondary" aria-busy={isLoading} ref={actionSectionRef}>
             {isLoading && <div className="defect-detail-modal__detail-state">조치·활동 정보를 준비하는 중...</div>}
             {isError && <div className="defect-detail-modal__detail-state">다른 하자를 선택하거나 다시 시도해 주세요.</div>}
             {!isLoading && !isError && detailDefect && (

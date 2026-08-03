@@ -237,14 +237,14 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
   }
 
   // 폼이 뭘 더 채워야 활성화되는지 안 보여서 "상태 저장" 버튼이 그냥 고장난 것처럼 보인다는
-  // 지적(#1436) — 버튼 스타일 자체(공용 Button, 53개 화면 공유)는 건드리지 않고, 이 폼 안에서만
-  // 남은 필수 항목을 짚어주는 문구를 추가해 비활성 사유를 명확히 한다.
-  const missingFieldLabels = [
-    file == null && '조치 후 사진',
-    actionContent.trim().length === 0 && '조치 내용',
-    actionDate.trim().length === 0 && '조치일',
-    assigneeId === '' && '담당자',
-  ].filter((label): label is string => Boolean(label));
+  // 지적(#1436) — 버튼 스타일 자체(공용 Button, 53개 화면 공유)는 건드리지 않는다. 처음엔 버튼
+  // 아래 문장 하나로 부족 항목을 나열했는데, 디자인 리뷰에서 "그 문장이 실제 빈 필드와 공간적으로
+  // 안 이어져 있어 다시 훑어야 한다"는 지적을 받아 — 각 라벨 옆에 직접 "필수" 표시를 붙이는 방식으로
+  // 바꿨다(값이 채워지면 즉시 사라짐).
+  const isPhotoMissing = file == null;
+  const isContentMissing = actionContent.trim().length === 0;
+  const isDateMissing = actionDate.trim().length === 0;
+  const isAssigneeMissing = assigneeId === '';
 
   return (
     <form className="defect-action-form" aria-label="조치 결과 등록" onSubmit={handleSubmit}>
@@ -253,7 +253,10 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
       <div className="defect-action-form__section">
         <p className="defect-action-form__section-label">사진</p>
         <div className="defect-action-form__field">
-          <label htmlFor="defect-action-photo">조치 후 사진 업로드 *</label>
+          <span className="defect-action-form__label-row">
+            <label htmlFor="defect-action-photo">조치 후 사진 업로드</label>
+            {isPhotoMissing && <span className="defect-action-form__required-flag" aria-hidden="true">필수</span>}
+          </span>
           <div
             className={`defect-action-form__dropzone${isDragActive ? ' is-drag-active' : ''}${file ? ' has-preview' : ''}`}
             onDrop={handleDrop}
@@ -327,7 +330,10 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
         <p className="defect-action-form__section-label">조치 세부정보</p>
 
         <div className="defect-action-form__field">
-          <label htmlFor="defect-action-content">조치 내용 *</label>
+          <span className="defect-action-form__label-row">
+            <label htmlFor="defect-action-content">조치 내용</label>
+            {isContentMissing && <span className="defect-action-form__required-flag" aria-hidden="true">필수</span>}
+          </span>
           <textarea
             id="defect-action-content"
             placeholder="조치 내용을 입력해 주세요."
@@ -339,7 +345,10 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
 
         <div className="defect-action-form__row">
           <div className="defect-action-form__field">
-            <label htmlFor="defect-action-date">조치일 *</label>
+            <span className="defect-action-form__label-row">
+              <label htmlFor="defect-action-date">조치일</label>
+              {isDateMissing && <span className="defect-action-form__required-flag" aria-hidden="true">필수</span>}
+            </span>
             <input
               id="defect-action-date"
               type="date"
@@ -367,7 +376,10 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
         </div>
 
         <div className="defect-action-form__field">
-          <label htmlFor="defect-action-assignee">담당자 *</label>
+          <span className="defect-action-form__label-row">
+            <label htmlFor="defect-action-assignee">담당자</label>
+            {isAssigneeMissing && <span className="defect-action-form__required-flag" aria-hidden="true">필수</span>}
+          </span>
           <select
             id="defect-action-assignee"
             value={assigneeId}
@@ -402,16 +414,9 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
         </p>
       )}
 
-      <div className="defect-action-form__submit-row">
-        <Button type="submit" variant="primary" size="lg" disabled={!canSubmit}>
-          {isUploading || isSubmitting ? '저장하는 중...' : '상태 저장'}
-        </Button>
-        {!canSubmit && !isUploading && !isSubmitting && missingFieldLabels.length > 0 && (
-          <p className="defect-action-form__hint">
-            {missingFieldLabels.join(', ')} 입력 시 저장할 수 있어요.
-          </p>
-        )}
-      </div>
+      <Button type="submit" variant="primary" size="lg" disabled={!canSubmit}>
+        {isUploading || isSubmitting ? '저장하는 중...' : '상태 저장'}
+      </Button>
     </form>
   );
 }

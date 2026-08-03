@@ -476,7 +476,7 @@
 .defect-detail-modal__overlay {
   position: absolute;
   inset: 0;
-  background: rgba(24, 24, 27, 0.35);
+  background: var(--color-overlay);
 }
 
 .defect-detail-modal__panel {
@@ -528,6 +528,29 @@
   font-weight: 800;
 }
 
+/* #1436 디자인 리뷰 P0 — 좁은 화면에서 진단(사진·지표·AI 설명)을 다 지나야 조치 폼에 닿을 수
+   있던 문제를 완화. 스크롤 없이 항상 보이는 헤더에 둬 화면 폭과 무관하게 바로 접근 가능하다. */
+.defect-detail-modal__jump-to-action {
+  margin-left: auto;
+  border: 1px solid var(--color-point);
+  border-radius: 9999px;
+  background: var(--color-surface);
+  padding: 7px 16px;
+  color: var(--color-point);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.defect-detail-modal__jump-to-action:hover {
+  background: color-mix(in srgb, var(--color-point) 8%, var(--color-surface));
+}
+
+.defect-detail-modal__jump-to-action:focus-visible {
+  outline: 3px solid var(--color-point);
+  outline-offset: 2px;
+}
+
 .defect-image-viewer-label {
   margin: 0;
   color: var(--color-text-muted);
@@ -576,6 +599,12 @@
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: #fff;
+}
+
+.defect-detail-modal__photo-tab:focus-visible,
+.defect-detail-modal__close:focus-visible {
+  outline: 3px solid var(--color-point);
+  outline-offset: 2px;
 }
 
 .defect-detail-modal__body {
@@ -715,6 +744,14 @@
   font-weight: 700;
 }
 
+/* #1436 디자인 리뷰 P1 — 균열 폭·길이가 둘 다 비어있을 때 카드 2개 대신 한 줄로 압축. */
+.defect-metric-empty-row {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
 .defect-metric-row {
   display: flex;
   gap: 10px;
@@ -763,19 +800,6 @@
   text-transform: uppercase;
 }
 
-.defect-action-form__submit-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.defect-action-form__hint {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: 12px;
-  text-align: center;
-}
-
 .defect-action-form h2 {
   margin: 0;
   color: var(--color-heading);
@@ -793,6 +817,11 @@
   color: var(--color-text-default);
   font-size: 13px;
   font-weight: 600;
+}
+
+.defect-action-form__label-row {
+  display: flex;
+  align-items: center;
 }
 
 .defect-action-form__field textarea,
@@ -871,6 +900,23 @@
   font-size: 11px;
   line-height: 1;
   padding: 0;
+}
+
+.defect-action-form__preview-remove:focus-visible {
+  outline: 2px solid var(--color-point);
+  outline-offset: 2px;
+}
+
+/* #1436 디자인 리뷰 P2 — 미입력 힌트 문장이 실제 빈 필드와 안 이어진다는 지적을 받아, 라벨
+   옆에 값이 채워지면 사라지는 "필수" 표시로 바꿨다. */
+.defect-action-form__required-flag {
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--color-warning-soft-bg);
+  padding: 1px 7px;
+  color: var(--color-warning-soft-fg);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .defect-action-form__dropzone-icon {
