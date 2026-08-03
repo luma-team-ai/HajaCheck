@@ -1,5 +1,6 @@
 // 플랫폼 관리자 > 시스템 모니터링(#729/#728) 도메인 타입. Figma node-id 1-404.
 // 백엔드 /api/platform-admin/monitoring 실제 구현(#728)과 1:1 계약.
+// 분석 잡 큐 실데이터(#1408)는 inspections 테이블 기준으로 채워진다.
 
 export type ServerHealthStatus = 'HEALTHY' | 'DEGRADED' | 'DOWN';
 
@@ -15,7 +16,8 @@ export type AnalysisJobStatus = 'IN_PROGRESS' | 'COMPLETED' | 'FAILED' | 'WAITIN
 
 export interface AnalysisJobQueueItem {
   id: string;
-  facilityName: string;
+  /** 시설물 위치(facilities.address) — 시설물명이 아니라 주소 텍스트 */
+  facilityAddress: string;
   imageCount: number;
   status: AnalysisJobStatus;
   /** 소요 시간(mm:ss) — 대기 상태 등 아직 소요 시간이 없으면 null */
@@ -58,7 +60,7 @@ export interface ErrorLogItem {
 
 export interface SystemMonitoringResponse {
   serverHealth: ServerHealthItem[];
-  /** AI 자동 분석 파이프라인 도입 전까지 백엔드가 항상 빈 값(summary 전부 0, jobs 빈 배열)을 반환한다(#728) */
+  /** inspections 테이블 기준 실데이터(#1408) — 회차가 하나도 없으면 summary 전부 0, jobs 빈 배열 */
   jobQueue: AnalysisJobQueue;
   resourceUsage: ServerResourceUsage;
   errorLogs: ErrorLogItem[];

@@ -12,7 +12,7 @@ export const mockSystemMonitoring: SystemMonitoringResponse = {
     jobs: [
       {
         id: 'J-8892',
-        facilityName: '힐스테이트 광교 102동',
+        facilityAddress: '힐스테이트 광교 102동',
         imageCount: 42,
         status: 'IN_PROGRESS',
         durationLabel: '00:12',
@@ -20,7 +20,7 @@ export const mockSystemMonitoring: SystemMonitoringResponse = {
       },
       {
         id: 'J-8891',
-        facilityName: '래미안 블레스티지 지하주차장',
+        facilityAddress: '래미안 블레스티지 지하주차장',
         imageCount: 128,
         status: 'IN_PROGRESS',
         durationLabel: '02:45',
@@ -28,7 +28,7 @@ export const mockSystemMonitoring: SystemMonitoringResponse = {
       },
       {
         id: 'J-8890',
-        facilityName: '아이파크 스위트 공용부',
+        facilityAddress: '아이파크 스위트 공용부',
         imageCount: 15,
         status: 'FAILED',
         durationLabel: '00:04',
@@ -36,7 +36,7 @@ export const mockSystemMonitoring: SystemMonitoringResponse = {
       },
       {
         id: 'J-8889',
-        facilityName: '자이 더 샵 외벽',
+        facilityAddress: '자이 더 샵 외벽',
         imageCount: 56,
         status: 'WAITING',
         durationLabel: null,
