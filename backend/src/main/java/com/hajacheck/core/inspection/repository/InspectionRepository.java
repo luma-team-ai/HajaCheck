@@ -89,14 +89,25 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 재분석이 그 사람 하자를 원자적 선점은 통과시키고 이후 워커의 소프트삭제가 지워버리는 TOCTOU가
     // 있었다. 소스 상태 TOCTOU를 WHERE의 allowedStatuses로 닫은 것과 동일한 방식으로, "비삭제 하자
     // 없음"도 이 원자적 UPDATE의 WHERE에 함께 강제해 선점 성공 자체를 막는다.
+    //
+    // statusesIgnoringExistingDefects(PR머신 리뷰 2차 P1) — FAILED에서는 이 "비삭제 하자 없음" 요건을
+    // 건너뛴다. FAILED 재분석 허용 초판이 startAnalysis에서 기존 하자를 미리(즉시 커밋으로) 소프트삭제
+    // 했었는데, 그 뒤에 미디어없음·동시성상한·월한도초과·선점실패·큐포화 등 여러 거부 경로가 남아있어
+    // 그중 하나만 걸려도 "하자는 지워졌는데 재분석은 시작 안 됨"으로 부분 성공 회차의 AI 결과가 보상
+    // 없이 유실됐다. 이제 미리 지우지 않고, 이 원자적 UPDATE의 WHERE만 FAILED에 한해 느슨하게 열어
+    // 선점을 통과시킨 뒤, 실제 새 탐지가 첫 성공하는 시점에 워커가 기존 하자를 소프트삭제한다
+    // (InspectionAnalysisWorker의 재분석 멱등화 로직 그대로 재사용 — 큐 포화·전체 재실패로 끝나도
+    // 아무것도 지워지지 않는다는 계약이 그대로 성립한다).
     @Modifying
     @Query("update Inspection i set i.status = :analyzingStatus "
             + "where i.id = :id and i.status in :allowedStatuses "
-            + "and not exists (select 1 from Defect d where d.inspectionId = i.id and d.deleted = false)")
+            + "and (i.status in :statusesIgnoringExistingDefects "
+            + "or not exists (select 1 from Defect d where d.inspectionId = i.id and d.deleted = false))")
     int startAnalyzingIfNotRunning(
             @Param("id") Long id,
             @Param("analyzingStatus") InspectionStatus analyzingStatus,
-            @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses);
+            @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses,
+            @Param("statusesIgnoringExistingDefects") Collection<InspectionStatus> statusesIgnoringExistingDefects);
 
     // 검수 확정(InspectionService.confirmReview, PR머신 리뷰 P2) — read-then-advanceTo(더티 체킹)
     // 대신 원자적 조건부 UPDATE로 ANALYZED→REVIEWED를 쓴다. 위 startAnalyzingIfNotRunning과 같은

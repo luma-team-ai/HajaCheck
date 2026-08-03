@@ -45,6 +45,10 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     @Autowired
     private TestEntityManager em;
 
+    // startAnalyzingIfNotRunning 4번째 인자용 — "비삭제 하자 없음" 요건을 건너뛸 상태가 없다는 뜻
+    // (PR머신 리뷰 2차 P1, FAILED 전용 bypass 테스트가 아닌 나머지 테스트는 전부 이 상수를 쓴다).
+    private static final java.util.Set<InspectionStatus> NO_DEFECT_BYPASS = java.util.EnumSet.noneOf(InspectionStatus.class);
+
     // HAJA-25 배정 검증 트리거(trg_inspections_check_assigned_inspector_company)는
     // assigned_inspector_id가 승인+검증된 회사에 속한 INSPECTOR/ADMIN 역할이면서 유효한
     // APPROVED 멤버십을 가질 것을 요구한다. 이 픽스처는 owner를 그대로 담당자로도 재사용하므로
@@ -264,7 +268,8 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 InspectionStatus.FAILED)) {
             Inspection insp = inspectionRepository.save(newInspection(
                     facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), allowedSource));
-            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
+            assertThat(inspectionRepository.startAnalyzingIfNotRunning(
+                    insp.getId(), InspectionStatus.ANALYZING, allowed, NO_DEFECT_BYPASS))
                     .as("허용 소스 상태 %s 는 선점 성공(1행)", allowedSource)
                     .isEqualTo(1);
         }
@@ -273,7 +278,8 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 InspectionStatus.REVIEWED, InspectionStatus.REPORTED, InspectionStatus.ANALYZING)) {
             Inspection insp = inspectionRepository.save(newInspection(
                     facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), blockedSource));
-            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
+            assertThat(inspectionRepository.startAnalyzingIfNotRunning(
+                    insp.getId(), InspectionStatus.ANALYZING, allowed, NO_DEFECT_BYPASS))
                     .as("허용되지 않은 소스 상태 %s 는 선점 거부(0행)", blockedSource)
                     .isZero();
         }
@@ -299,7 +305,8 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 .build());
         em.flush();
 
-        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withDefect.getId(), InspectionStatus.ANALYZING, allowed))
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(
+                withDefect.getId(), InspectionStatus.ANALYZING, allowed, NO_DEFECT_BYPASS))
                 .as("비삭제 하자가 있으면 허용 소스 상태여도 선점 실패(0행)")
                 .isZero();
 
@@ -314,9 +321,53 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         em.persist(deleted);
         em.flush();
 
-        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withOnlyDeletedDefect.getId(), InspectionStatus.ANALYZING, allowed))
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(
+                withOnlyDeletedDefect.getId(), InspectionStatus.ANALYZING, allowed, NO_DEFECT_BYPASS))
                 .as("남은 하자가 전부 소프트삭제 상태면 선점 성공(1행)")
                 .isEqualTo(1);
+    }
+
+    @Test
+    void startAnalyzingIfNotRunning_FAILED는_비삭제하자가있어도선점성공한다() {
+        // PR머신 리뷰 2차 P1 — FAILED에서는 "비삭제 하자 없음" 요건을 건너뛴다(statusesIgnoringExistingDefects
+        // 에 FAILED를 넘긴 경우). 남은 하자는 이번에 실패한 실행이 만든 AI 결과일 뿐이라, 삭제는 여기서
+        // 하지 않고 워커가 첫 탐지 성공 시점에 한다 — 이 테스트는 원자적 선점 자체가 막히지 않는다는
+        // 것만 고정한다. 대조군으로 ANALYZED(비FAILED, 허용 소스 상태)는 같은 bypass 집합을 줘도 여전히
+        // 하자 때문에 막혀야 한다 — bypass가 FAILED에만 좁게 적용되는지 함께 검증한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        java.util.EnumSet<InspectionStatus> allowed = java.util.EnumSet.of(
+                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED,
+                InspectionStatus.FAILED);
+        java.util.EnumSet<InspectionStatus> bypassFailed = java.util.EnumSet.of(InspectionStatus.FAILED);
+
+        Inspection failedWithDefect = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.FAILED));
+        em.persist(Defect.builder()
+                .inspectionId(failedWithDefect.getId())
+                .type(DefectType.CRACK)
+                .confidence(1.0)
+                .build());
+        em.flush();
+
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(
+                failedWithDefect.getId(), InspectionStatus.ANALYZING, allowed, bypassFailed))
+                .as("FAILED는 bypass 집합에 있으면 비삭제 하자가 있어도 선점 성공(1행)")
+                .isEqualTo(1);
+
+        Inspection analyzedWithDefect = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        em.persist(Defect.builder()
+                .inspectionId(analyzedWithDefect.getId())
+                .type(DefectType.CRACK)
+                .confidence(1.0)
+                .build());
+        em.flush();
+
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(
+                analyzedWithDefect.getId(), InspectionStatus.ANALYZING, allowed, bypassFailed))
+                .as("ANALYZED는 bypass 집합(FAILED만)에 없으므로 비삭제 하자가 있으면 여전히 선점 실패(0행)")
+                .isZero();
     }
 
     @Test

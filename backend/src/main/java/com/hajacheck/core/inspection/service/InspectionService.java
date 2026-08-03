@@ -46,6 +46,13 @@ public class InspectionService {
     // (HajaCheck_script.sql, testcontainers-users-init.sql 양쪽 다 동일 정의).
     private static final String ROUND_NO_UNIQUE_CONSTRAINT = "inspections_facility_id_round_no_key";
 
+    // tryStartAnalyzing 전용(PR머신 리뷰 2차 P1) — 이 상태에서 재분석을 선점할 때는 "비삭제 하자 없음"
+    // 요건을 건너뛴다. FAILED는 검수(REVIEWED)에 도달한 적이 없어 남은 하자가 전부 이번에 실패한
+    // 분석 실행 자체가 만든 AI 결과뿐이다 — 실제 삭제는 워커가 첫 탐지 성공 시점에 한다(tryStartAnalyzing
+    // 참고).
+    private static final java.util.Set<InspectionStatus> FAILED_SOURCE_IGNORING_EXISTING_DEFECTS =
+            java.util.EnumSet.of(InspectionStatus.FAILED);
+
     private final InspectionRepository inspectionRepository;
     private final FacilityService facilityService;
     private final AuthService authService;
@@ -375,8 +382,13 @@ public class InspectionService {
     public boolean tryStartAnalyzing(Long requesterUserId, Long companyId, Long inspectionId,
             java.util.Collection<InspectionStatus> allowedStatuses) {
         getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+        // FAILED_SOURCE_IGNORING_EXISTING_DEFECTS(PR머신 리뷰 2차 P1) — FAILED에서 재분석을 선점할 때는
+        // "비삭제 하자 없음" 요건을 건너뛴다. 남은 하자를 지우는 시점은 여기가 아니라 워커가 실제로
+        // 첫 탐지에 성공한 순간이다(InspectionAnalysisWorker 참고) — 그래야 선점 이후 큐 포화 등으로
+        // 재분석이 시작되지 못해도 기존 하자가 유실되지 않는다(startAnalyzingIfNotRunning 주석 참고).
         return inspectionRepository.startAnalyzingIfNotRunning(
-                inspectionId, InspectionStatus.ANALYZING, allowedStatuses) > 0;
+                inspectionId, InspectionStatus.ANALYZING, allowedStatuses,
+                FAILED_SOURCE_IGNORING_EXISTING_DEFECTS) > 0;
     }
 
     // 점검일은 "실제로 점검을 수행한 날짜"를 기록하는 필드다(회차 생성과 동시에 촬영 데이터를
