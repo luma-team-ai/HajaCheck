@@ -87,7 +87,8 @@ class DetectedDefect(BaseModel):
     area_ratio: float  # 세그멘테이션 마스크 기반 면적비율(또는 바운딩박스 근사치)
     # 물리 측정값(원본 이미지 픽셀 단위, 보고서 표기용 — 등급 입력 아님). mm 환산은 사진 속
     # 기준물(촬영 규약 docs/design/crack-measurement-protocol.md)로 스케일을 얻은 뒤에만 가능하다.
-    # Spring DetectedDefectItem은 @JsonIgnoreProperties(ignoreUnknown)라 additive-only로 안전.
+    # Spring DetectedDefectItem은 @JsonIgnoreProperties(ignoreUnknown)라 additive-only로 안전
+    # (backend/src/main/java/com/hajacheck/core/ai/dto/DetectedDefectItem.java:11 확인, #1447 P2).
     area_px: float | None = None  # 마스크 픽셀 수(원본 해상도 환산)
     length_px: float | None = None  # 균열만 — 면적/폭 근사
     width_px: float | None = None  # 균열만 — 2×면적/둘레 근사(skeletonize 대비 r=0.9989)
@@ -159,18 +160,27 @@ def _crack_dark_ratio(image: "Image.Image", mask: "np.ndarray") -> float:
     return float(blackhat[band].sum()) / (255.0 * mask.size)
 
 
-def _crack_component_measurements(component_mask: "np.ndarray", area: int) -> tuple[float, float]:
+def _crack_component_measurements(closed_component_mask: "np.ndarray", area: int) -> tuple[float, float]:
     """연결요소 1개의 (length_px, width_px) — 콘텐츠 좌표계 기준(호출부가 원본 px로 스케일).
 
     폭은 `2×면적/둘레` 근사 — skeletonize(distance transform) 실측 대비 r=0.9989로 검증됐고
     (2026-07-28 조사), scikit-image 신규 의존성 없이 OpenCV만으로 계산된다. 면적은
     `cv2.contourArea`가 아니라 마스크 픽셀 수를 쓴다(contourArea는 -18.8% 과소평가 실측).
     길이=면적/폭. 등급 입력으로는 쓰지 않는다(폭 단독 지표는 촬영건 CV에서 과적합 확정).
+
+    ⚠️ 둘레는 반드시 `closed_component_mask`(MORPH_CLOSE로 병합된, 원래 마스크와 교집합하기
+    **이전**의 연결영역)로 구해야 한다(#1447 P2). threshold 잡음으로 하나의 균열이 원래 마스크
+    상 여러 조각으로 끊겨 있어도 close가 채운 좁은 틈은 실제로는 균열의 일부다 — 원래 마스크와
+    교집합한 파편화 마스크로 둘레를 구하면 `findContours`가 조각마다 별도 외곽선을 찾아 둘레를
+    합산해버려(실측 재현: 8조각·1px 간극에서 폭 -7.5%, 길이 -5% 왜곡), 진짜 폭보다 작게·길이는
+    크게 계산된다. 반면 면적(`area` 인자)은 close가 채운 가짜 픽셀을 빼야 하므로 여전히 원래
+    마스크 기준 픽셀 수를 그대로 받는다 — 분자(면적)는 참값, 분모(둘레)만 "끊김 없는 하나의
+    균열"이라는 전제에 맞는 닫힌 형태를 쓰는 조합이다.
     """
     import cv2
 
     contours, _ = cv2.findContours(
-        component_mask.astype("uint8"), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        closed_component_mask.astype("uint8"), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
     )
     perimeter = sum(cv2.arcLength(c, closed=True) for c in contours)
     if perimeter <= 0:  # 1~2px 퇴화 케이스(최소 크기 필터보다 작아 실제론 도달 어려움)
@@ -238,7 +248,9 @@ def _crack_mask_to_detections(
         original_area = int(original_pixels.size)
         if original_area < min_component_pixels:
             continue
-        length_px, width_px = _crack_component_measurements(component_mask, original_area)
+        # 둘레는 닫힌 연결영역(labels == label) 기준 — 이유는 _crack_component_measurements
+        # 독스트링 참고(#1447 P2, 파편화된 component_mask를 쓰면 둘레가 부풀어 폭이 과소평가된다).
+        length_px, width_px = _crack_component_measurements(labels == label, original_area)
         components.append((original_area, label, x, y, w, h, original_pixels, length_px, width_px))
 
     # 면적 큰 순으로 상한만큼만 남긴다(P2-2).
