@@ -1,7 +1,7 @@
-import type { Defect, DefectActionLogEntry, DefectRevision } from '../types';
+import type { DefectActionLogEntry, DefectRevision, InspectionDefect } from '../types';
 
 // HAJA-30 목록/상세 통합 테스트용 목 데이터 — 유형/등급/상태 다양화
-export const mockDefects: Defect[] = [
+export const mockDefects: InspectionDefect[] = [
   {
     id: 1,
     inspectionId: 101,

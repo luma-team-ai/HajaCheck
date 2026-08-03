@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
 import { mockDefects } from '../mocks/defect.mock';
 import { mockInspections } from '../mocks/inspection.mock';
-import type { Defect, InspectionListItem } from '../types';
+import type { InspectionDefect, InspectionListItem } from '../types';
 import {
   defectApi,
   fetchAllFilteredInspections,
@@ -321,8 +321,9 @@ describe('defectApi.getInspections', () => {
 describe('defectApi.getByInspection', () => {
   it('점검에 속한 하자 목록을 반환한다', async () => {
     const res = await defectApi.getByInspection(101);
+    const defects: InspectionDefect[] = res.data;
 
-    expect(res.data.map((defect) => defect.id).sort()).toEqual([1, 2]);
+    expect(defects.map((defect) => defect.id).sort()).toEqual([1, 2]);
   });
 
   it('존재하지 않는 점검 id는 INSPECTION_NOT_FOUND 에러로 reject된다', async () => {
@@ -452,12 +453,12 @@ describe('fetchFilteredDefectsForExport', () => {
         await new Promise((resolve) => setTimeout(resolve, 5));
         inFlight -= 1;
 
-        const defect: Defect = {
+        const defect: InspectionDefect = {
           ...source,
           id: inspectionId,
           inspectionId,
         };
-        const body: ApiResponse<Defect[]> = {
+        const body: ApiResponse<InspectionDefect[]> = {
           success: true,
           data: [defect],
         };

@@ -7,7 +7,7 @@ import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { useDefect } from '../hooks/useDefect';
 import { useDefectActionLogs } from '../hooks/useDefectActionLogs';
 import { DEFECT_GRADE_LABEL, DEFECT_STATUS_LABEL } from '../types';
-import type { Defect } from '../types';
+import type { InspectionDefect } from '../types';
 import { formatDefectCode } from '../utils/defectFormat';
 import { getBboxStyle } from '../utils/defectImageGeometry';
 import { ActivityHistoryPanel } from './ActivityHistoryPanel';
@@ -16,7 +16,7 @@ import { DefectExplainPanel } from './DefectExplainPanel';
 import { DefectImageViewer } from './DefectImageViewer';
 
 type Props = {
-  defects: Defect[];
+  defects: InspectionDefect[];
   initialDefectId: number;
   onClose: () => void;
 };

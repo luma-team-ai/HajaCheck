@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { Defect } from '../types';
+import type { InspectionDefect } from '../types';
 import {
   groupDefectsByImage,
   groupMatchesFilters,
   sortDefectImageGroups,
 } from './defectImageGroups';
 
-function defect(id: number, overrides: Partial<Defect> = {}): Defect {
+function defect(id: number, overrides: Partial<InspectionDefect> = {}): InspectionDefect {
   return {
     id,
     inspectionId: 1,

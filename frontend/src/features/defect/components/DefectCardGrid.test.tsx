@@ -3,12 +3,14 @@
 // 드롭다운으로 바뀌면서 새로 생긴 필터 UI 로직(상태 탭 클릭 필터링, 퍼넬 패널 열림+필터 적용)을 검증.
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Defect } from '../types';
+import type { InspectionDefect } from '../types';
 import { DefectCardGrid } from './DefectCardGrid';
 
 afterEach(() => cleanup());
 
-function makeDefect(overrides: Partial<Defect> & Pick<Defect, 'id'>): Defect {
+function makeDefect(
+  overrides: Partial<InspectionDefect> & Pick<InspectionDefect, 'id'>,
+): InspectionDefect {
   return {
     inspectionId: 101,
     facilityId: 1,
@@ -26,13 +28,14 @@ function makeDefect(overrides: Partial<Defect> & Pick<Defect, 'id'>): Defect {
     bboxH: null,
     crackWidthMm: null,
     crackLengthMm: null,
+    mediaId: null,
     imageUrl: null,
     createdAt: '2026-07-01T09:00:00.000Z',
     ...overrides,
   };
 }
 
-const defects: Defect[] = [
+const defects: InspectionDefect[] = [
   makeDefect({ id: 1, type: 'CRACK', typeLabel: '균열', grade: 'C', status: 'CONFIRMED' }),
   makeDefect({ id: 2, type: 'REBAR_EXPOSURE', typeLabel: '철근 노출', grade: 'D', status: 'IN_PROGRESS' }),
   makeDefect({ id: 3, type: 'SPALLING', typeLabel: '박리·박락', grade: 'E', status: 'RESOLVED' }),

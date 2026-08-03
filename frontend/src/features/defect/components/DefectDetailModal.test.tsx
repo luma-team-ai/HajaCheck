@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { defectHandlers } from '../api/defectApi.handlers';
 import { mockDefects } from '../mocks/defect.mock';
-import type { Defect, DefectActionLogEntry } from '../types';
+import type { Defect, DefectActionLogEntry, InspectionDefect } from '../types';
 import { DefectDetailModal } from './DefectDetailModal';
 
 // DefectExplainPanel이 마운트 시 자동으로 호출하는 AI 설명 엔드포인트의 최소 목이다.
@@ -39,7 +39,7 @@ function renderModal(defectId: number) {
   renderModalGroup(groupDefects, defectId);
 }
 
-function renderModalGroup(defects: Defect[], initialDefectId: number) {
+function renderModalGroup(defects: InspectionDefect[], initialDefectId: number) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -207,7 +207,7 @@ describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#119
   });
 
   it('복수 bbox와 위치 미지정 칩 선택 시 상세 헤더와 지표를 해당 하자로 전환한다', async () => {
-    const group: Defect[] = [
+    const group: InspectionDefect[] = [
       { ...mockDefects[0], id: 11, mediaId: 901, confidence: 0.91 },
       {
         ...mockDefects[0],

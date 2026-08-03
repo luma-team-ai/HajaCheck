@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { DefectCard } from './DefectCard';
 import { DefectCardGridControls } from './DefectCardGridControls';
 import type { SortOption, StatusTabValue } from './DefectCardGridControls';
-import type { Defect, DefectGrade, DefectType } from '../types';
+import type { DefectGrade, DefectType, InspectionDefect } from '../types';
 import {
   groupDefectsByImage,
   groupMatchesFilters,
@@ -10,7 +10,7 @@ import {
 } from '../utils/defectImageGroups';
 
 type Props = {
-  defects: Defect[];
+  defects: InspectionDefect[];
   onSelectDefect: (id: number) => void;
 };
 

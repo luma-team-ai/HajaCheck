@@ -14,6 +14,7 @@ import type {
   DefectRevision,
   DefectStatus,
   InspectionFacilityOption,
+  InspectionDefect,
   InspectionGradeDistribution,
   InspectionListItem,
 } from '../types';
@@ -376,7 +377,7 @@ export const defectHandlers = [
     }
 
     const defects = mockDefects.filter((defect) => defect.inspectionId === inspectionId);
-    const body: ApiResponse<Defect[]> = { success: true, data: defects };
+    const body: ApiResponse<InspectionDefect[]> = { success: true, data: defects };
     return HttpResponse.json(body);
   }),
 

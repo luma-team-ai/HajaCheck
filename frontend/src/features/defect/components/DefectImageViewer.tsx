@@ -6,13 +6,13 @@ import {
   getBboxStyle,
 } from "../utils/defectImageGeometry";
 import type { Size } from "../utils/defectImageGeometry";
-import type { Defect } from "../types";
+import type { InspectionDefect } from "../types";
 import { formatDefectCode } from "../utils/defectFormat";
 
 type Props = {
   imageUrl: string | null;
   typeLabel: string;
-  defects?: Defect[];
+  defects?: InspectionDefect[];
   selectedDefectId?: number;
   onSelectDefect?: (defectId: number) => void;
 };
@@ -140,7 +140,7 @@ export function DefectImageViewer({
                         className={`defect-detection-box${isSelected ? " is-selected" : ""}`}
                         aria-label={`${formatDefectCode(defect.id)} ${defect.typeLabel} 하자 영역 선택`}
                         aria-pressed={isSelected}
-                        style={{ ...style, zIndex: isSelected ? 2 : 1 }}
+                        style={style ?? undefined}
                         onClick={() => onSelectDefect?.(defect.id)}
                       />
                     );

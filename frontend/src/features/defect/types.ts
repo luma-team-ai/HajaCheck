@@ -23,9 +23,6 @@ export interface Defect {
   bboxH: number | null;
   crackWidthMm: number | null;
   crackLengthMm: number | null;
-  // GET /api/inspections/{id}/defects(DefectDetailItem)는 직접 제공하며, 단건 상세
-  // GET /api/defects/{id}(DefectResponse)에는 없으므로 optional로 호환한다.
-  mediaId?: number | null;
   // 인가된 /api/media/{id}/thumbnail 경로 — mediaId가 없으면 null(HAJA-314)
   imageUrl: string | null;
   createdAt: string;
@@ -34,6 +31,12 @@ export interface Defect {
   // actionAssigneeId/actionAssigneeName flat 필드로 응답한다 — normalizeDefect()가 API 경계에서
   // 이 형태로 조립한다(#1182). 필드가 옵셔널이라 기존 mock/테스트 데이터를 건드리지 않아도 된다.
   actionResult?: DefectActionResult | null;
+}
+
+// GET /api/inspections/{id}/defects 전용 응답. 단건 DefectResponse와 달리
+// 이미지 그룹 식별자인 mediaId를 항상 포함하며, 수동 추가 하자는 null로 응답한다.
+export interface InspectionDefect extends Defect {
+  mediaId: number | null;
 }
 
 // GET /api/defects/{id}/revisions 응답 항목 — backend DefectRevisionResponse와 1:1(HAJA-314)
@@ -217,8 +220,8 @@ export interface DefectImageGroup {
   key: string;
   mediaId: number | null;
   imageUrl: string | null;
-  defects: Defect[];
-  representative: Defect;
+  defects: InspectionDefect[];
+  representative: InspectionDefect;
   latestCreatedAt: string;
   highestConfidence: number;
 }

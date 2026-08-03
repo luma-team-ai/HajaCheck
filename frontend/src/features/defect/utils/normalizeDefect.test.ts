@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import type { Defect } from '../types';
+import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { Defect, InspectionDefect } from '../types';
 import { normalizeDefect } from './normalizeDefect';
 
 const baseDefect: Defect = {
@@ -80,8 +80,11 @@ describe('normalizeDefect', () => {
     expect(normalizeDefect(raw).status).toBe('CONFIRMED');
   });
 
-  it('점검별 하자 응답의 mediaId는 그대로 보존하고 단건 상세의 누락도 허용한다', () => {
-    expect(normalizeDefect({ ...baseDefect, mediaId: 901 }).mediaId).toBe(901);
-    expect(normalizeDefect(baseDefect).mediaId).toBeUndefined();
+  it('점검별 하자 전용 타입의 필수 mediaId를 보존한다', () => {
+    const inspectionDefect: InspectionDefect = { ...baseDefect, mediaId: 901 };
+    const result = normalizeDefect(inspectionDefect);
+
+    expectTypeOf(result).toMatchTypeOf<InspectionDefect>();
+    expect(result.mediaId).toBe(901);
   });
 });

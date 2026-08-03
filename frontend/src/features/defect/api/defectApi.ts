@@ -10,6 +10,7 @@ import type {
   DefectRevision,
   DefectStatus,
   InspectionFacilityOption,
+  InspectionDefect,
   InspectionListFilters,
   InspectionListItem,
 } from '../types';
@@ -112,7 +113,7 @@ export const defectApi = {
   // inspection feature의 inspectionApi.getDefects와 동일 엔드포인트를 defect feature 안에 자체
   // 복제해서 호출한다(feature 간 직접 import 금지, React_코드_컨벤션.md §1).
   getByInspection: (inspectionId: number) =>
-    api.get<Defect[]>(`/inspections/${inspectionId}/defects`).then((response) => ({
+    api.get<InspectionDefect[]>(`/inspections/${inspectionId}/defects`).then((response) => ({
       ...response,
       data: response.data.map(normalizeDefect),
     })),

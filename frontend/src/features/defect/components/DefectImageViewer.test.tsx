@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { calculateImageCanvasSize } from "../utils/defectImageGeometry";
-import type { Defect } from "../types";
+import type { InspectionDefect } from "../types";
 import { DefectImageViewer } from "./DefectImageViewer";
 
 afterEach(() => {
@@ -36,7 +36,10 @@ function mockStageSize(width: number, height: number): void {
   });
 }
 
-function makeDefect(id: number, overrides: Partial<Defect> = {}): Defect {
+function makeDefect(
+  id: number,
+  overrides: Partial<InspectionDefect> = {},
+): InspectionDefect {
   return {
     id,
     inspectionId: 1,
@@ -192,6 +195,15 @@ describe("DefectImageViewer", () => {
 
     expect(screen.getByRole("button", { name: "DEF-0001 균열 하자 영역 선택" }).getAttribute("aria-pressed")).toBe("true");
     const secondBox = screen.getByRole("button", { name: "DEF-0002 박리·박락 하자 영역 선택" });
+    const boxes = screen
+      .getAllByRole("button")
+      .filter((element) => element.classList.contains("defect-detection-box"));
+    expect(boxes.map((element) => element.getAttribute("aria-label"))).toEqual([
+      "DEF-0001 균열 하자 영역 선택",
+      "DEF-0002 박리·박락 하자 영역 선택",
+    ]);
+    expect(boxes[0].style.zIndex).toBe("");
+    expect(boxes[1].style.zIndex).toBe("");
     fireEvent.click(secondBox);
     expect(onSelectDefect).toHaveBeenCalledWith(2);
   });
