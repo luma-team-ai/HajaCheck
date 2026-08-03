@@ -3,6 +3,8 @@ import notoRegularUrl from "../../../assets/fonts/NotoSansKR-Regular.subset.ttf?
 import type {
   GenericManualSectionData,
   ParticipantsSectionData,
+  LocationDrawingPhotoItem,
+  LocationDrawingPhotosSectionData,
   ReportContent,
   ReportDetail,
   ReportRecommendation,
@@ -553,10 +555,13 @@ export async function exportReportToPdf(
       startY: y,
       body: [
         ["중대한 결함 등", criticalDefectSummary(content.detail)],
-        // 원본은 "공중이 이용하는 부위"(보도·난간 등)를 따로 판정해 적지만, 우리 하자 데이터엔
-        // 그 구분이 없다. 근거 없이 "없음"이라 단정하면 허위가 되므로 빈칸으로 두고 점검자가
-        // 편집기에서 채우도록 한다.
-        ["공중이 이용하는\n부위의 결함", "-"],
+        // 하자 데이터엔 "공중이 이용하는 부위"(보도·난간 등) 여부 구분이 없어 자동 판정할 수
+        // 없다 — 근거 없이 "없음"이라 단정하면 허위가 되므로, 편집기(1.기본현황)에서 점검자가
+        // 직접 입력한 값만 쓰고 미입력이면 "-"로 표기한다.
+        [
+          "공중이 이용하는\n부위의 결함",
+          content.overview.public_use_area_defect?.trim() || "-",
+        ],
         ["점검 주요결과", inspectionResultSummary(content)],
         ["주요 보수ㆍ보강", majorRepairSummary(content.recommendation)],
       ],
@@ -917,6 +922,78 @@ export async function exportReportToPdf(
     });
   };
 
+  // ── 위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도(수동 섹션) ─────────────────────────
+  // 원본에서 이 섹션은 텍스트가 아니라 이미지 자체가 본문이다(위치 지도, 전경 사진, 도면 스캔본).
+  // 편집기가 업로드 시점에 이미 리사이즈된 JPEG data URL로 저장해 두므로(resizeImageToDataUrl),
+  // 부위별 사진과 달리 fetch로 불러올 필요 없이 바로 그린다 — 페이지 경계 처리는 부위별 사진과
+  // 동일한 "사진 1장 = 표 1개, 통째로 들어갈 자리 확인 후 그리기" 패턴을 그대로 재사용한다(#1409).
+  const renderLocationDrawingPhotoTable = (
+    image: LocationDrawingPhotoItem,
+    startY: number,
+  ): void => {
+    autoTable(doc, {
+      ...tableDefaults,
+      startY,
+      tableWidth: CONTENT_WIDTH,
+      body: [
+        [{ content: "", styles: { minCellHeight: PHOTO_ROW_HEIGHT + 4 } }],
+        [
+          {
+            content: `< ${image.caption.trim() || "이미지"} >`,
+            styles: {
+              halign: "center" as const,
+              fontStyle: "bold" as const,
+              fontSize: FONT_SIZE.caption,
+              minCellHeight: PHOTO_CAPTION_HEIGHT,
+            },
+          },
+        ],
+      ],
+      columnStyles: { 0: { cellWidth: CONTENT_WIDTH } },
+      didDrawCell: (data: AutoTableCellHookData) => {
+        if (data.section !== "body" || data.row.index !== 0) return;
+        const padding = 2;
+        doc.addImage(
+          image.dataUrl,
+          "JPEG",
+          data.cell.x + padding,
+          data.cell.y + padding,
+          data.cell.width - padding * 2,
+          data.cell.height - padding * 2,
+        );
+      },
+    });
+  };
+
+  const renderLocationDrawingPhotosBlock = (
+    label: string,
+    data: LocationDrawingPhotosSectionData,
+    startY: number,
+  ): number => {
+    if (data.images.length === 0) {
+      // 다른 수동 섹션과 동일하게, 비어 있어도 섹션 자체는 생략하지 않고 상태를 표시한다
+      // (부위별 사진과 달리 이 섹션은 순서에 사용자가 직접 추가한 항목이라 자동 생략 대상이 아님).
+      const y = blockTitle(label, startY, false);
+      autoTable(doc, {
+        ...tableDefaults,
+        startY: y,
+        body: [["추가된 이미지가 없습니다."]],
+        bodyStyles: { minCellHeight: 24, valign: "top", halign: "left" },
+      });
+      return lastTableY();
+    }
+    let y = sectionTitle(
+      label,
+      ensureSpace(startY, SECTION_TITLE_HEIGHT + PHOTO_BLOCK_HEIGHT),
+    );
+    data.images.forEach((image) => {
+      y = ensureSpace(y, PHOTO_BLOCK_HEIGHT);
+      renderLocationDrawingPhotoTable(image, y);
+      y = lastTableY();
+    });
+    return y;
+  };
+
   // ── 편집기 순서(sectionOrder)대로 렌더링 ────────────────────────────────
   // 원본처럼 여러 소절을 한 페이지에 채운다: 섹션 사이 간격만큼 남는 공간이 있으면 이어 쓰고,
   // 최소 여백(제목+한 줄 표 분량)조차 없을 때만 새 페이지로 넘긴다. 제출문은 formal한 커버
@@ -994,6 +1071,12 @@ export async function exportReportToPdf(
       cursorY = renderParticipantsBlock(
         `${marker} 참여기술진 명단`,
         manual.data as ParticipantsSectionData,
+        cursorY,
+      );
+    } else if (manual.type === "location-drawing-photos") {
+      cursorY = renderLocationDrawingPhotosBlock(
+        `${marker} ${manual.title}`,
+        manual.data as LocationDrawingPhotosSectionData,
         cursorY,
       );
     } else {

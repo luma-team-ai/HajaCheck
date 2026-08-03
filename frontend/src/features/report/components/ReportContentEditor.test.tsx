@@ -76,6 +76,29 @@ describe("ReportContentEditor", () => {
     expect(screen.getByText("법적 근거 (검증됨)")).not.toBeNull();
   });
 
+  it("기본현황에서 공중이 이용하는 부위의 결함을 입력할 수 있다", () => {
+    const handleChange = vi.fn();
+    render(
+      <ReportContentEditor
+        content={mockContent}
+        onChange={handleChange}
+        readOnly={false}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("공중이 이용하는 부위의 결함"), {
+      target: { value: "3층 보도 난간 파손" },
+    });
+
+    expect(handleChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        overview: expect.objectContaining({
+          public_use_area_defect: "3층 보도 난간 파손",
+        }),
+      }),
+    );
+  });
+
   it("결과 요약에서 책임기술자명을 수동 수정할 수 있다", () => {
     const handleChange = vi.fn();
     render(

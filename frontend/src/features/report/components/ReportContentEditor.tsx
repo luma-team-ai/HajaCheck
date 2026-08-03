@@ -1,6 +1,7 @@
 import { useAuthStore } from '../../auth/store/authStore';
 import type {
   GenericManualSectionData,
+  LocationDrawingPhotosSectionData,
   ManualSection,
   ManualSectionType,
   ParticipantsSectionData,
@@ -21,6 +22,7 @@ import type { DefectPhotoGroup } from './editor/DefectPhoto';
 import { DetailSection } from './editor/DetailSection';
 import { DraggableSectionSlot } from './editor/DraggableSectionSlot';
 import { GenericManualSectionForm } from './editor/GenericManualSectionForm';
+import { LocationDrawingPhotosForm } from './editor/LocationDrawingPhotosForm';
 import { OverviewSection } from './editor/OverviewSection';
 import { ParticipantsSectionForm } from './editor/ParticipantsSectionForm';
 import { PhotosSectionPreview } from './editor/PhotosSectionPreview';
@@ -57,6 +59,7 @@ function defaultManualData(type: ManualSectionType, companyName?: string | null)
     return { ...EMPTY_SUBMISSION, companyName: companyName ?? '' };
   }
   if (type === 'participants') return { ...EMPTY_PARTICIPANTS };
+  if (type === 'location-drawing-photos') return { images: [] };
   return { body: '' };
 }
 
@@ -156,6 +159,12 @@ export function ReportContentEditor({
             ) : manual.type === 'participants' ? (
               <ParticipantsSectionForm
                 data={manual.data as ParticipantsSectionData}
+                readOnly={readOnly}
+                onChange={(data) => updateManualSectionData(manual.id, data)}
+              />
+            ) : manual.type === 'location-drawing-photos' ? (
+              <LocationDrawingPhotosForm
+                data={manual.data as LocationDrawingPhotosSectionData}
                 readOnly={readOnly}
                 onChange={(data) => updateManualSectionData(manual.id, data)}
               />

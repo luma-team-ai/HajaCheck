@@ -236,6 +236,23 @@ describe("exportReportToPdf", () => {
     ]);
   });
 
+  it("공중이 이용하는 부위의 결함은 편집기 수동 입력값을 그대로 쓰고 자동 판정하지 않는다", async () => {
+    const content = makeContent();
+    await exportReportToPdf({
+      ...content,
+      overview: { ...content.overview, public_use_area_defect: "3층 보도 난간 파손" },
+    });
+
+    const options = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    expect(options?.body).toEqual(
+      expect.arrayContaining([
+        ["공중이 이용하는\n부위의 결함", "3층 보도 난간 파손"],
+      ]),
+    );
+  });
+
   it("결과 요약은 소절 없이 `책임기술자 종합의견` 표 하나로 렌더링하고 하단에 서명란을 붙인다", async () => {
     await exportReportToPdf(makeContent(), {
       responsibleEngineerName: "김기준",
@@ -386,6 +403,95 @@ describe("exportReportToPdf", () => {
     expect(genericOptions?.body).toEqual([
       ["구조 안전성 검토 결과를 입력합니다."],
     ]);
+  });
+
+  it("위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도는 편집기에 저장된 base64 이미지를 사진과 같은 형식(사진+캡션)으로 렌더링한다", async () => {
+    const content = makeContent({
+      manualSections: [
+        {
+          id: "manual-location-1",
+          type: "location-drawing-photos",
+          title: "위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도",
+          data: {
+            images: [
+              { dataUrl: "data:image/jpeg;base64,AAA", caption: "한남대교 위치도" },
+              { dataUrl: "data:image/jpeg;base64,BBB", caption: "" },
+            ],
+          },
+        },
+      ],
+      sectionOrder: [
+        "overview",
+        "summary",
+        "detail",
+        "recommendation",
+        "manual-location-1",
+      ],
+    });
+
+    await exportReportToPdf(content);
+
+    const renderedText = mockText.mock.calls.map(([text]) => text).flat();
+    // 폰트 로딩 외에는 어떤 media 엔드포인트도 fetch하지 않는다 — 부위별 사진(defectImages)과
+    // 달리 이 섹션은 편집기에서 이미 완성된 data URL을 들고 있다(#1409).
+    const fetchedUrls = vi.mocked(fetch).mock.calls.map(([url]) => String(url));
+    expect(fetchedUrls.some((url) => url.includes("/api/media"))).toBe(false);
+
+    // 사진 1장 = 표 1개(사진 표와 동일한 구조). 캡션이 없으면 "이미지"로 폴백한다.
+    const photoTables = mockAutoTable.mock.calls.filter(([, options]) =>
+      JSON.stringify((options as Record<string, unknown>).body).includes("< "),
+    );
+    expect(photoTables).toHaveLength(2);
+    // overview=1, summary=2(진단 외관조사결과·보수ㆍ보강은 그 소절로 편입돼 번호를 안 씀) →
+    // 이 섹션은 sectionOrder상 summary 이후에 와도 소절 대상이 아니므로 다음 절 번호 3을 받는다.
+    expect(renderedText).toContain("3. 위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도");
+
+    const [, firstOptions] = photoTables[0] as [unknown, Record<string, unknown>];
+    const didDrawCell = firstOptions.didDrawCell as (data: {
+      section: string;
+      row: { index: number };
+      cell: { x: number; y: number; width: number; height: number };
+    }) => void;
+    didDrawCell({
+      section: "body",
+      row: { index: 0 },
+      cell: { x: 23, y: 50, width: 164, height: 96 },
+    });
+    expect(mockAddImage).toHaveBeenCalledWith(
+      "data:image/jpeg;base64,AAA",
+      "JPEG",
+      25,
+      52,
+      160,
+      92,
+    );
+  });
+
+  it("위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도에 이미지가 없으면 다른 수동 섹션처럼 빈 상태를 안내한다", async () => {
+    const content = makeContent({
+      manualSections: [
+        {
+          id: "manual-location-1",
+          type: "location-drawing-photos",
+          title: "위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도",
+          data: { images: [] },
+        },
+      ],
+      sectionOrder: [
+        "overview",
+        "summary",
+        "detail",
+        "recommendation",
+        "manual-location-1",
+      ],
+    });
+
+    await exportReportToPdf(content);
+
+    const options = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("추가된 이미지가 없습니다."),
+    );
+    expect(options?.body).toEqual([["추가된 이미지가 없습니다."]]);
   });
 
   it("부위별 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다", async () => {

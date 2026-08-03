@@ -40,6 +40,16 @@ export function OverviewSection({ content, onChange, readOnly }: OverviewSection
           onChange={(value) => updateOverview({ scope: value })}
         />
       </div>
+
+      <LabeledTextArea
+        label="공중이 이용하는 부위의 결함"
+        value={content.overview.public_use_area_defect ?? ''}
+        readOnly={readOnly}
+        rows={2}
+        textareaClassName="min-h-16"
+        placeholder="보도·난간 등 공중이 이용하는 부위에 결함이 있으면 입력하세요. 없으면 비워두세요."
+        onChange={(value) => updateOverview({ public_use_area_defect: value })}
+      />
     </section>
   );
 }

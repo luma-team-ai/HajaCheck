@@ -631,7 +631,10 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByRole('button', { name: '확정 검증' })).toBeNull();
   });
 
-  it('저장된 보고서에 내용이 비어 있는 수동 섹션이 있으면 최종 보고서 확정 버튼을 비활성화한다', async () => {
+  it('저장된 보고서에 내용이 비어 있는 수동 섹션이 있으면 최종 보고서 확정 버튼 클릭 시 어떤 섹션을 채워야 하는지 모달로 안내한다', async () => {
+    // #1341 원 설계: 버튼을 비활성화해 이유를 숨기지 않는다 — 항상 클릭 가능하고, 클릭 시
+    // AlertModal이 무엇이 비었는지 알려준다(#1375/#1377에서 버튼을 조용히 비활성화하도록 되돌아간
+    // 회귀를 #1409에서 원복).
     reportState = {
       ...mockReport,
       groundingCheckPassed: true,
@@ -652,10 +655,15 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
 
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(true);
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(/필수값이 누락된 추가 섹션.*안전성평가 결과/)).toBeTruthy();
   });
 
-  it('종합 의견이 비어 있으면 최종 보고서 확정 버튼을 비활성화한다', async () => {
+  it('종합 의견이 비어 있으면 최종 보고서 확정 버튼 클릭 시 모달로 안내한다', async () => {
     reportState = {
       ...mockReport,
       groundingCheckPassed: true,
@@ -672,7 +680,12 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
 
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(true);
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(/결과 요약 > 종합 의견/)).toBeTruthy();
   });
 
   it('결과 요약 책임기술자는 배정 점검자 이름으로 기본 표시되고 수동 수정할 수 있다', async () => {
@@ -720,6 +733,7 @@ describe('ReportGeneratePage', () => {
   it.each([
     {
       label: '기본현황',
+      expectedLabel: '기본현황 > 점검 목적',
       content: {
         ...mockContent,
         overview: { ...mockContent.overview, purpose: '   ' },
@@ -727,6 +741,7 @@ describe('ReportGeneratePage', () => {
     },
     {
       label: '진단 외관조사결과 기본사항',
+      expectedLabel: '진단 외관조사결과 기본사항 > 하자 #1 설명',
       content: {
         ...mockContent,
         detail: { items: [{ ...mockContent.detail.items[0], description: '' }] },
@@ -734,12 +749,13 @@ describe('ReportGeneratePage', () => {
     },
     {
       label: '보수ㆍ보강(안)',
+      expectedLabel: '보수ㆍ보강(안) > 권고 #1 방법',
       content: {
         ...mockContent,
         recommendation: { ...mockContent.recommendation, items: [{ ...mockContent.recommendation.items[0], method: '' }] },
       },
     },
-  ])('$label 편집 필드가 비어 있으면 최종 보고서 확정 버튼을 비활성화한다', async ({ content }) => {
+  ])('$label 편집 필드가 비어 있으면 최종 보고서 확정 버튼 클릭 시 모달로 안내한다', async ({ content, expectedLabel }) => {
     reportState = {
       ...mockReport,
       groundingCheckPassed: true,
@@ -750,7 +766,12 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
 
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(true);
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(new RegExp(expectedLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeTruthy();
   });
 
   it('제출문은 회사명만 있어도 필수값 누락이면 저장과 최종 확정을 막는다', async () => {
@@ -780,7 +801,14 @@ describe('ReportGeneratePage', () => {
     await screen.findByText('보고서 생성 결과');
 
     const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
-    expect(finalizeButton.disabled).toBe(true);
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const finalizeDialog = await screen.findByRole('dialog');
+    expect(within(finalizeDialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(finalizeDialog).getByText(/필수값이 누락된 추가 섹션.*제출문/)).toBeTruthy();
+    fireEvent.click(within(finalizeDialog).getByRole('button', { name: '확인' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '제출문 누락 저장 방지' } });
     fireEvent.click(screen.getByRole('button', { name: '임시저장' }));

@@ -1,5 +1,6 @@
 import type {
   GenericManualSectionData,
+  LocationDrawingPhotosSectionData,
   ManualSection,
   ParticipantsSectionData,
   ReportContent,
@@ -28,6 +29,10 @@ function hasManualSectionContent(section: ManualSection): boolean {
     return (section.data as ParticipantsSectionData).entries.some((entry) =>
       Object.values(entry).some(hasText),
     );
+  }
+
+  if (section.type === 'location-drawing-photos') {
+    return (section.data as LocationDrawingPhotosSectionData).images.length > 0;
   }
 
   return hasText((section.data as GenericManualSectionData).body);
