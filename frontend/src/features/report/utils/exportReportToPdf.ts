@@ -234,10 +234,20 @@ function formatResponsibleEngineerName(name?: string): string {
     : normalized;
 }
 
-/** 셀 안의 목록은 원본처럼 `ㆍ` 불릿을 붙여 줄바꿈으로 나열한다(번호 없음). */
-function toBulletCell(values: string[], fallback: string): string {
+/**
+ * 문서 전체에서 목록 표기는 이 불릿 하나로만 한다 — 절마다 `•`/`-`/`1)`/`//`가 섞이면
+ * 같은 보고서 안에서 문단 표기가 제멋대로로 보인다(원본도 표 안 목록은 `ㆍ` 하나뿐).
+ */
+const BULLET = "ㆍ";
+
+/** 셀 안의 목록은 `ㆍ` 불릿을 붙여 줄바꿈으로 나열한다(번호 없음). */
+function toBulletCell(
+  values: string[],
+  fallback: string,
+  separator = "\n",
+): string {
   return values.length > 0
-    ? values.map((value) => `ㆍ${value}`).join("\n")
+    ? values.map((value) => `${BULLET}${value}`).join(separator)
     : fallback;
 }
 
@@ -275,11 +285,12 @@ function inspectionResultSummary(content: ReportContent): string {
   if (byLocation.size === 0) return "확인된 결함이 없습니다.";
   const lines = [...byLocation].map(
     ([location, types]) =>
-      `//${location} ${[...types]
-        .map(([type, count], index) => `${index + 1})${type} ${count}건`)
+      `${location} : ${[...types]
+        .map(([type, count]) => `${type} ${count}건`)
         .join(", ")}`,
   );
-  return `금회 조사결과 주요 결함은 다음과 같다.\n${lines.join(" ")}`;
+  // 문장 종결은 AI가 생성하는 본문(존댓말)에 맞춘다 — 한 보고서 안에서 평서체와 섞이지 않게.
+  return `금회 조사 결과 주요 결함은 다음과 같습니다.\n${toBulletCell(lines, "")}`;
 }
 
 /** 원본 1.나 `주요 보수ㆍ보강` — 조치 우선순위별로 묶어 `-1순위 : 공법, 공법` 형태로 적는다. */
@@ -292,16 +303,17 @@ function majorRepairSummary(recommendation: ReportRecommendation): string {
     byPriority.set(priority, [...(byPriority.get(priority) ?? []), method]);
   }
   if (byPriority.size === 0) return "해당 없음";
-  return [...byPriority]
-    .map(
-      ([priority, methods]) => `-${priority} : ${[...new Set(methods)].join(", ")}`,
-    )
-    .join("\n");
+  return toBulletCell(
+    [...byPriority].map(
+      ([priority, methods]) => `${priority} : ${[...new Set(methods)].join(", ")}`,
+    ),
+    "해당 없음",
+  );
 }
 
 /**
  * `2. 결과 요약` 본문 한 칸. 원본은 이 절만 소절로 나누지 않고 종합의견을 문단 불릿으로 죽
- * 나열한다 — 표 안 목록에 쓰는 `ㆍ`가 아니라 `•`를 쓰고, 문단 사이를 한 줄 띄운다(계측 결과).
+ * 나열한다 — 불릿은 문서 공용 표기(`ㆍ`)를 쓰고 문단 사이만 한 줄 띄운다.
  * 그래서 소절 표로 따로 뽑던 주요 발견사항·등급별 건수도 같은 불릿 흐름에 이어 붙이되,
  * 건수는 원본 문체(서술형 종결)에 맞춰 한 문장으로 적는다 — 새 데이터 없이 표기만 정합화.
  */
@@ -321,11 +333,11 @@ function buildSummaryOpinionCell(summary: ReportSummary): string {
       )
       .join(", ");
     paragraphs.push(
-      `금회 조사 결과 확인된 결함은 총 ${summary.total_count}건으로, 등급별로는 ${breakdown}으로 조사되었다.`,
+      `금회 조사 결과 확인된 결함은 총 ${summary.total_count}건으로, 등급별로는 ${breakdown}으로 조사되었습니다.`,
     );
   }
-  if (paragraphs.length === 0) return "종합의견이 작성되지 않았습니다.";
-  return paragraphs.map((paragraph) => `•${paragraph}`).join("\n\n");
+  // 문단 사이만 한 줄 띄우고, 불릿은 문서 공용 표기(`ㆍ`)를 그대로 쓴다.
+  return toBulletCell(paragraphs, "종합의견이 작성되지 않았습니다.", "\n\n");
 }
 
 async function loadPdfImage(
