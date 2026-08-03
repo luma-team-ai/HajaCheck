@@ -20,5 +20,9 @@ export function useDeleteRagDocument() {
     deleteDocument: mutation.mutateAsync,
     pendingId: mutation.isPending ? mutation.variables : undefined,
     error: mutation.error,
+    // react-query의 mutation.error는 다음 mutate까지 유지되므로, 문서 A 삭제 실패 후 문서 B의 삭제
+    // 모달을 열면 아직 시도도 안 한 B에 A의 에러가 그대로 노출된다(#1412 P2). 모달을 열고/닫을 때
+    // 호출해 초기화한다 — useUploadRagDocument와 동일 패턴.
+    resetError: mutation.reset,
   };
 }
