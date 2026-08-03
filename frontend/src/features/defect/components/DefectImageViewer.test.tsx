@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { fireEvent } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { calculateImageCanvasSize } from "../utils/defectImageGeometry";
@@ -43,9 +43,6 @@ function makeDefect(
   return {
     id,
     inspectionId: 1,
-    facilityId: 1,
-    facilityName: "테스트 시설물",
-    facilityType: "건물",
     type: "CRACK",
     typeLabel: "균열",
     grade: "C",
@@ -58,8 +55,10 @@ function makeDefect(
     bboxH: 0.4,
     crackWidthMm: null,
     crackLengthMm: null,
+    areaRatio: null,
     mediaId: 42,
     imageUrl: "/api/media/42/thumbnail",
+    detailUrl: "/api/media/42/detail",
     createdAt: "2026-08-01T00:00:00Z",
     ...overrides,
   };
@@ -143,12 +142,15 @@ describe("DefectImageViewer", () => {
     expect(overlay.style.height).toBe("100%");
   });
 
-  it("이미지 로딩이 실패하면 깨진 이미지 대신 오류 상태를 표시한다", () => {
+  it("이미지 로딩이 실패해도 모든 하자를 선택할 수 있다", () => {
+    const onSelectDefect = vi.fn();
     render(
       <DefectImageViewer
         imageUrl="/broken.jpg"
         typeLabel="균열"
-        defects={[makeDefect(1)]}
+        defects={[makeDefect(1), makeDefect(2, { typeLabel: "박리·박락" })]}
+        selectedDefectId={1}
+        onSelectDefect={onSelectDefect}
       />,
     );
 
@@ -159,6 +161,9 @@ describe("DefectImageViewer", () => {
     );
     expect(screen.queryByRole("img")).toBeNull();
     expect(screen.queryByRole("button", { name: /하자 영역 선택/ })).toBeNull();
+    const selector = screen.getByLabelText("이미지 내 하자 선택");
+    fireEvent.click(within(selector).getByRole("button", { name: "DEF-0002 · 박리·박락" }));
+    expect(onSelectDefect).toHaveBeenCalledWith(2);
   });
 
   it("imageUrl이 없으면 빈 상태 메시지를 표시한다", () => {
@@ -205,6 +210,32 @@ describe("DefectImageViewer", () => {
     expect(boxes[0].style.zIndex).toBe("");
     expect(boxes[1].style.zIndex).toBe("");
     fireEvent.click(secondBox);
+    expect(onSelectDefect).toHaveBeenCalledWith(2);
+  });
+
+  it("bbox가 완전히 같아도 상시 선택 목록에서 각 하자를 선택할 수 있다", () => {
+    mockStageSize(800, 390);
+    const onSelectDefect = vi.fn();
+    render(
+      <DefectImageViewer
+        imageUrl="/api/media/42/detail"
+        typeLabel="균열"
+        defects={[
+          makeDefect(1, { bboxX: 0.2, bboxY: 0.2, bboxW: 0.3, bboxH: 0.3 }),
+          makeDefect(2, { typeLabel: "박리·박락", bboxX: 0.2, bboxY: 0.2, bboxW: 0.3, bboxH: 0.3 }),
+        ]}
+        selectedDefectId={1}
+        onSelectDefect={onSelectDefect}
+      />,
+    );
+
+    const image = screen.getByRole("img", { name: "균열 촬영 이미지" }) as HTMLImageElement;
+    setNaturalSize(image, 640, 480);
+    fireEvent.load(image);
+    expect(screen.getAllByRole("button", { name: /하자 영역 선택/ })).toHaveLength(2);
+
+    const selector = screen.getByLabelText("이미지 내 하자 선택");
+    fireEvent.click(within(selector).getByRole("button", { name: "DEF-0002 · 박리·박락" }));
     expect(onSelectDefect).toHaveBeenCalledWith(2);
   });
 });

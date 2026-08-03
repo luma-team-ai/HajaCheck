@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Defect } from '../types';
+import type { DefectExportItem } from '../types';
 import { buildDefectExportRows, exportDefectsToPdf } from './exportDefectsToPdf';
 
 const mockAutoTable = vi.fn();
@@ -36,7 +36,7 @@ vi.mock('pretendard/dist/public/static/alternative/Pretendard-Bold.ttf?url', () 
   default: 'https://example.test/Pretendard-Bold.ttf',
 }));
 
-function makeDefect(overrides: Partial<Defect> = {}): Defect {
+function makeDefect(overrides: Partial<DefectExportItem> = {}): DefectExportItem {
   return {
     id: 1,
     inspectionId: 101,
@@ -55,7 +55,10 @@ function makeDefect(overrides: Partial<Defect> = {}): Defect {
     bboxH: null,
     crackWidthMm: null,
     crackLengthMm: null,
+    areaRatio: null,
+    mediaId: null,
     imageUrl: null,
+    detailUrl: null,
     createdAt: '2026-07-01T09:00:00.000Z',
     ...overrides,
   };

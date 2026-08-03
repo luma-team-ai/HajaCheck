@@ -1,75 +1,111 @@
-import type { DefectActionLogEntry, DefectRevision, InspectionDefect } from '../types';
+import type {
+  Defect,
+  DefectActionLogEntry,
+  DefectRevision,
+  InspectionDefectResponse,
+} from '../types';
+import { mapInspectionDefect } from '../utils/inspectionDefectMapper';
 
 // HAJA-30 목록/상세 통합 테스트용 목 데이터 — 유형/등급/상태 다양화
-export const mockDefects: InspectionDefect[] = [
+export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
   {
     id: 1,
     inspectionId: 101,
-    facilityId: 1,
-    facilityName: '강남 오피스타워 A동',
-    facilityType: '건물',
     type: 'REBAR_EXPOSURE',
     typeLabel: '철근 노출',
     grade: 'D',
     status: 'CONFIRMED',
     confidence: 0.92,
-    reviewed: true,
+    isReviewed: true,
     bboxX: 0.1,
     bboxY: 0.2,
     bboxW: 0.3,
     bboxH: 0.15,
     crackWidthMm: null,
     crackLengthMm: null,
+    areaRatio: 0.045,
     mediaId: 901,
     imageUrl: '/api/media/901/thumbnail',
+    detailUrl: '/api/media/901/detail',
     createdAt: '2026-07-01T09:00:00.000Z',
   },
   {
     id: 2,
     inspectionId: 101,
-    facilityId: 1,
-    facilityName: '강남 오피스타워 A동',
-    facilityType: '건물',
     type: 'CRACK',
     typeLabel: '균열',
     grade: 'C',
     status: 'DETECTED',
     confidence: 0.81,
-    reviewed: false,
+    isReviewed: false,
     bboxX: 0.4,
     bboxY: 0.5,
     bboxW: 0.2,
     bboxH: 0.1,
     crackWidthMm: 1.2,
     crackLengthMm: 45.0,
+    areaRatio: null,
     mediaId: 902,
     imageUrl: '/api/media/902/thumbnail',
+    detailUrl: '/api/media/902/detail',
     createdAt: '2026-07-02T09:00:00.000Z',
   },
   {
     id: 3,
     inspectionId: 202,
-    facilityId: 3,
-    facilityName: '한강대교 북단',
-    facilityType: '교량',
     type: 'SPALLING',
     typeLabel: '박리·박락',
     grade: null,
     status: 'DETECTED',
     confidence: 0.65,
-    reviewed: false,
+    isReviewed: false,
     bboxX: null,
     bboxY: null,
     bboxW: null,
     bboxH: null,
     crackWidthMm: null,
     crackLengthMm: null,
+    areaRatio: null,
     // mediaId 없는 하자(HAJA-314) — 이미지 없이 조회되는 케이스를 목데이터에서도 재현.
     mediaId: null,
     imageUrl: null,
+    detailUrl: null,
     createdAt: '2026-07-03T09:00:00.000Z',
   },
+  {
+    id: 4,
+    inspectionId: 101,
+    type: 'CRACK',
+    typeLabel: '균열',
+    grade: 'B',
+    status: 'IN_PROGRESS',
+    confidence: 0.87,
+    isReviewed: true,
+    bboxX: 0.58,
+    bboxY: 0.42,
+    bboxW: 0.16,
+    bboxH: 0.22,
+    crackWidthMm: 0.6,
+    crackLengthMm: 31.5,
+    areaRatio: null,
+    mediaId: 901,
+    imageUrl: '/api/media/901/thumbnail',
+    detailUrl: '/api/media/901/detail',
+    createdAt: '2026-07-01T09:10:00.000Z',
+  },
 ];
+
+export const mockInspectionDefects = mockInspectionDefectResponses.map(mapInspectionDefect);
+
+export const mockDefects: Defect[] = mockInspectionDefects.map((defect) => {
+  const fields = Object.fromEntries(
+    Object.entries(defect).filter(([key]) => !['areaRatio', 'detailUrl', 'mediaId'].includes(key)),
+  ) as Omit<InspectionDefect, 'areaRatio' | 'detailUrl' | 'mediaId'>;
+  const facility = defect.inspectionId === 101
+    ? { facilityId: 1, facilityName: '강남 오피스타워 A동', facilityType: '건물' }
+    : { facilityId: 3, facilityName: '한강대교 북단', facilityType: '교량' };
+  return { ...fields, ...facility };
+});
 
 // GET /api/defects/{id}/revisions 통합 테스트용 목 데이터 — id=1 하자의 상태 전이 이력(HAJA-314)
 export const mockDefectRevisions: Record<number, DefectRevision[]> = {

@@ -1,6 +1,11 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
-import { mockDefectActionLogs, mockDefectRevisions, mockDefects } from '../mocks/defect.mock';
+import {
+  mockDefectActionLogs,
+  mockDefectRevisions,
+  mockDefects,
+  mockInspectionDefectResponses,
+} from '../mocks/defect.mock';
 import {
   mockDefectAssignees,
   mockInspectionFacilityOptions,
@@ -14,7 +19,7 @@ import type {
   DefectRevision,
   DefectStatus,
   InspectionFacilityOption,
-  InspectionDefect,
+  InspectionDefectResponse,
   InspectionGradeDistribution,
   InspectionListItem,
 } from '../types';
@@ -29,7 +34,7 @@ function computeInspectionAggregates(inspectionId: number): {
   defectCount: number;
   gradeDistribution: InspectionGradeDistribution;
 } {
-  const defects = mockDefects.filter((defect) => defect.inspectionId === inspectionId);
+  const defects = mockInspectionDefectResponses.filter((defect) => defect.inspectionId === inspectionId);
   const gradeDistribution: InspectionGradeDistribution = { A: 0, B: 0, C: 0, D: 0, E: 0 };
   defects.forEach((defect) => {
     if (defect.grade) {
@@ -41,6 +46,11 @@ function computeInspectionAggregates(inspectionId: number): {
 
 function toInspectionListItem(inspection: InspectionListItem): InspectionListItem {
   return { ...inspection, ...computeInspectionAggregates(inspection.id) };
+}
+
+function syncInspectionDefectStatus(id: number, status: DefectStatus): void {
+  const inspectionDefect = mockInspectionDefectResponses.find((defect) => defect.id === id);
+  if (inspectionDefect) inspectionDefect.status = status;
 }
 
 // 백엔드 Defect#changeStatus 와 동일한 순서 — 신규→검수확정→조치중→조치완료(역행/스킵 금지).
@@ -132,6 +142,7 @@ export const defectHandlers = [
     }
 
     found.status = status;
+    syncInspectionDefectStatus(id, status);
 
     const body: ApiResponse<Defect> = { success: true, data: found };
     return HttpResponse.json(body);
@@ -171,6 +182,7 @@ export const defectHandlers = [
       afterPhotoUrl: `/api/media/${reqBody.actionMediaId}/thumbnail`,
     };
     found.status = reqBody.targetStatus;
+    syncInspectionDefectStatus(id, reqBody.targetStatus);
 
     // 백엔드 registerActionResult()와 동일하게 제출마다 이력을 append한다(#1193/HAJA-569) — 프론트
     // 테스트가 "IN_PROGRESS 유지 재제출로 이력이 쌓인다"를 실제 요청 흐름으로 검증할 수 있게 한다.
@@ -327,7 +339,7 @@ export const defectHandlers = [
       if (!hasDefectConditionFilter) {
         return true;
       }
-      return mockDefects.some(
+      return mockInspectionDefectResponses.some(
         (defect) =>
           defect.inspectionId === inspectionId &&
           (defectTypeParams.length === 0 || defectTypeParams.includes(defect.type)) &&
@@ -376,8 +388,8 @@ export const defectHandlers = [
       return HttpResponse.json(failure, { status: 404 });
     }
 
-    const defects = mockDefects.filter((defect) => defect.inspectionId === inspectionId);
-    const body: ApiResponse<InspectionDefect[]> = { success: true, data: defects };
+    const defects = mockInspectionDefectResponses.filter((defect) => defect.inspectionId === inspectionId);
+    const body: ApiResponse<InspectionDefectResponse[]> = { success: true, data: defects };
     return HttpResponse.json(body);
   }),
 

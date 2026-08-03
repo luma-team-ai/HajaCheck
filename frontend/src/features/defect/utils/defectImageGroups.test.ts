@@ -10,9 +10,6 @@ function defect(id: number, overrides: Partial<InspectionDefect> = {}): Inspecti
   return {
     id,
     inspectionId: 1,
-    facilityId: 1,
-    facilityName: '테스트 시설물',
-    facilityType: '건물',
     type: 'CRACK',
     typeLabel: '균열',
     grade: 'C',
@@ -25,8 +22,10 @@ function defect(id: number, overrides: Partial<InspectionDefect> = {}): Inspecti
     bboxH: 0.2,
     crackWidthMm: null,
     crackLengthMm: null,
+    areaRatio: null,
     mediaId: 10,
     imageUrl: '/api/media/10/thumbnail',
+    detailUrl: '/api/media/10/detail',
     createdAt: '2026-08-01T00:00:00Z',
     ...overrides,
   };

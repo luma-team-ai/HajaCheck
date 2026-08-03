@@ -13,9 +13,6 @@ function makeDefect(
 ): InspectionDefect {
   return {
     inspectionId: 101,
-    facilityId: 1,
-    facilityName: '강남 오피스타워 A동',
-    facilityType: '건물',
     type: 'CRACK',
     typeLabel: '균열',
     grade: 'C',
@@ -28,8 +25,10 @@ function makeDefect(
     bboxH: null,
     crackWidthMm: null,
     crackLengthMm: null,
+    areaRatio: null,
     mediaId: null,
     imageUrl: null,
+    detailUrl: null,
     createdAt: '2026-07-01T09:00:00.000Z',
     ...overrides,
   };
@@ -55,10 +54,10 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
     render(<DefectCardGrid defects={defects} onSelectDefect={vi.fn()} />);
 
     const tabs = screen.getByRole('tablist', { name: '상태 필터' });
-    expect(within(tabs).getByRole('tab', { name: '전체 3' })).not.toBeNull();
-    expect(within(tabs).getByRole('tab', { name: '검수확정 1' })).not.toBeNull();
-    expect(within(tabs).getByRole('tab', { name: '조치중 1' })).not.toBeNull();
-    expect(within(tabs).getByRole('tab', { name: '조치완료 1' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '전체 이미지 3장' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '검수확정 포함 이미지 1장' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '조치중 포함 이미지 1장' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '조치완료 포함 이미지 1장' })).not.toBeNull();
 
     expect(screen.getByRole('button', { name: '균열 이미지 카드 상세 보기' })).not.toBeNull();
     expect(screen.getByRole('button', { name: '철근 노출 이미지 카드 상세 보기' })).not.toBeNull();
@@ -68,7 +67,7 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
   it('조치중 탭을 클릭하면 조치중 상태 카드만 보여준다', () => {
     render(<DefectCardGrid defects={defects} onSelectDefect={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('tab', { name: '조치중 1' }));
+    fireEvent.click(screen.getByRole('tab', { name: '조치중 포함 이미지 1장' }));
 
     expect(screen.getByRole('button', { name: '철근 노출 이미지 카드 상세 보기' })).not.toBeNull();
     expect(screen.queryByRole('button', { name: '균열 이미지 카드 상세 보기' })).toBeNull();
@@ -80,7 +79,12 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
 
     expect(screen.queryByRole('button', { name: '도장 손상 이미지 카드 상세 보기' })).toBeNull();
 
-    for (const tabName of ['검수확정 1', '조치중 1', '조치완료 1', '전체 3']) {
+    for (const tabName of [
+      '검수확정 포함 이미지 1장',
+      '조치중 포함 이미지 1장',
+      '조치완료 포함 이미지 1장',
+      '전체 이미지 3장',
+    ]) {
       fireEvent.click(screen.getByRole('tab', { name: tabName }));
       expect(screen.queryByRole('button', { name: '도장 손상 이미지 카드 상세 보기' })).toBeNull();
     }
@@ -90,8 +94,8 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
     render(<DefectCardGrid defects={[...defects, detectedDefect]} onSelectDefect={vi.fn()} />);
 
     const tabs = screen.getByRole('tablist', { name: '상태 필터' });
-    expect(within(tabs).getByRole('tab', { name: '전체 3' })).not.toBeNull();
-    expect(within(tabs).queryByRole('tab', { name: '전체 4' })).toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '전체 이미지 3장' })).not.toBeNull();
+    expect(within(tabs).queryByRole('tab', { name: '전체 이미지 4장' })).toBeNull();
   });
 
   it('같은 이미지의 혼합 상태 하자를 카드 하나로 표시하고 각 상태 탭에 이미지 수를 센다', () => {
@@ -112,9 +116,9 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
     render(<DefectCardGrid defects={grouped} onSelectDefect={onSelectDefect} />);
 
     const tabs = screen.getByRole('tablist', { name: '상태 필터' });
-    expect(within(tabs).getByRole('tab', { name: '전체 1' })).not.toBeNull();
-    expect(within(tabs).getByRole('tab', { name: '검수확정 1' })).not.toBeNull();
-    expect(within(tabs).getByRole('tab', { name: '조치중 1' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '전체 이미지 1장' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '검수확정 포함 이미지 1장' })).not.toBeNull();
+    expect(within(tabs).getByRole('tab', { name: '조치중 포함 이미지 1장' })).not.toBeNull();
     expect(screen.getByText('하자 2건')).not.toBeNull();
     expect(screen.getByText('검수확정 1')).not.toBeNull();
     expect(screen.getByText('조치중 1')).not.toBeNull();
@@ -123,6 +127,26 @@ describe('DefectCardGrid — 상태 탭 필터', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '박리·박락 · 균열 이미지 카드 상세 보기' }));
     expect(onSelectDefect).toHaveBeenCalledWith(11);
+  });
+
+  it('카드 이미지는 상세 URL이 있어도 썸네일 URL을 사용한다', () => {
+    const { container } = render(
+      <DefectCardGrid
+        defects={[
+          makeDefect({
+            id: 20,
+            mediaId: 88,
+            imageUrl: '/api/media/88/thumbnail',
+            detailUrl: '/api/media/88/detail',
+          }),
+        ]}
+        onSelectDefect={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('.defect-card-grid__thumb img')?.getAttribute('src')).toBe(
+      '/api/media/88/thumbnail',
+    );
   });
 });
 

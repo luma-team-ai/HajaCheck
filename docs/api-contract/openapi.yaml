@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.41.0-draft"
+  version: "0.42.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -4588,7 +4588,7 @@ components:
       description: >
         DefectListItem + 뷰어 오버레이·정밀 검수에 필요한 필드(bbox·균열 실측치). 목록(#/api/defects)은
         가벼운 DefectListItem을 쓰고, 점검 회차 단위 조회·검수 API는 이 스키마를 쓴다.
-      required: [id, inspectionId, type, typeLabel, grade, status, confidence, isReviewed, createdAt]
+      required: [id, inspectionId, type, typeLabel, grade, status, confidence, isReviewed, mediaId, imageUrl, createdAt]
       properties:
         id: { type: integer, format: int64 }
         inspectionId: { type: integer, format: int64 }
@@ -4609,6 +4609,15 @@ components:
           format: double
           nullable: true
           description: 결함 면적비율(탐지 bbox 면적 ÷ 이미지 전체 면적) — 박리박락·철근노출 전용, 균열은 항상 null(#802/#803)
+        mediaId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 탐지 이미지 ID. 수동 추가 등 이미지와 연결되지 않은 하자는 null
+        imageUrl:
+          type: string
+          nullable: true
+          description: 카드용 썸네일 URL(/api/media/{mediaId}/thumbnail) — mediaId가 있을 때만 채워짐
         detailUrl:
           type: string
           nullable: true

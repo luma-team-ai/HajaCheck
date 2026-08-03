@@ -3,6 +3,7 @@ import { api } from '../../../shared/api/axios';
 import type { PageResponse } from '../../../shared/api/types';
 import type {
   Defect,
+  DefectExportItem,
   DefectActionLogEntry,
   DefectActionLogPhase,
   DefectActionSubmitRequest,
@@ -10,12 +11,13 @@ import type {
   DefectRevision,
   DefectStatus,
   InspectionFacilityOption,
-  InspectionDefect,
+  InspectionDefectResponse,
   InspectionListFilters,
   InspectionListItem,
 } from '../types';
 import type { NlSearchResult } from '../nlSearchTypes';
 import { normalizeDefect } from '../utils/normalizeDefect';
+import { mapInspectionDefect } from '../utils/inspectionDefectMapper';
 
 // DefectController.getRevisions @PageableDefault(size=20)과 반드시 일치시킬 것.
 export const DEFECT_REVISIONS_PAGE_SIZE = 20;
@@ -113,9 +115,9 @@ export const defectApi = {
   // inspection feature의 inspectionApi.getDefects와 동일 엔드포인트를 defect feature 안에 자체
   // 복제해서 호출한다(feature 간 직접 import 금지, React_코드_컨벤션.md §1).
   getByInspection: (inspectionId: number) =>
-    api.get<InspectionDefect[]>(`/inspections/${inspectionId}/defects`).then((response) => ({
+    api.get<InspectionDefectResponse[]>(`/inspections/${inspectionId}/defects`).then((response) => ({
       ...response,
-      data: response.data.map(normalizeDefect),
+      data: response.data.map(mapInspectionDefect),
     })),
   // GET /api/facilities — 점검 목록 필터의 시설물 select 옵션. facility/inspection feature import
   // 없이 실 엔드포인트만 재사용(이미 다른 feature도 동일 엔드포인트를 각자 호출하는 기존 패턴과 동일).
@@ -197,9 +199,9 @@ async function mapWithConcurrency<T, R>(
 }
 
 export function filterDefectsForExport(
-  defects: Defect[],
+  defects: DefectExportItem[],
   filters: InspectionListFilters,
-): Defect[] {
+): DefectExportItem[] {
   return defects.filter((defect) => {
     const matchesType = !filters.defectType?.length || filters.defectType.includes(defect.type);
     const matchesGrade =
@@ -215,12 +217,20 @@ export function filterDefectsForExport(
 // 반환 순서는 점검 목록 순서를 유지하고, 하자 조건 필터는 PDF의 실제 행에도 다시 적용한다.
 export async function fetchFilteredDefectsForExport(
   filters: InspectionListFilters,
-): Promise<Defect[]> {
+): Promise<DefectExportItem[]> {
   const inspections = await fetchAllFilteredInspections(filters);
   const defectsByInspection = await mapWithConcurrency(
     inspections,
     DEFECT_EXPORT_CONCURRENCY,
-    (inspection) => defectApi.getByInspection(inspection.id).then((response) => response.data),
+    (inspection) =>
+      defectApi.getByInspection(inspection.id).then((response) =>
+        response.data.map((defect) => ({
+          ...defect,
+          facilityId: inspection.facilityId,
+          facilityName: inspection.facilityName,
+          facilityType: inspection.facilityType,
+        })),
+      ),
   );
   return filterDefectsForExport(defectsByInspection.flat(), filters);
 }

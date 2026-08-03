@@ -15,6 +15,7 @@ type Props = {
   defects?: InspectionDefect[];
   selectedDefectId?: number;
   onSelectDefect?: (defectId: number) => void;
+  showDetectionBoxes?: boolean;
 };
 
 type LoadedImage = Size & {
@@ -30,6 +31,7 @@ export function DefectImageViewer({
   defects = [],
   selectedDefectId,
   onSelectDefect,
+  showDetectionBoxes = true,
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [stageSize, setStageSize] = useState<Size>({ width: 0, height: 0 });
@@ -130,7 +132,7 @@ export function DefectImageViewer({
                   onLoad={handleImageLoad}
                   onError={handleImageError}
                 />
-                {isLoaded &&
+                {isLoaded && showDetectionBoxes &&
                   drawableDefects.map(({ defect, style }) => {
                     const isSelected = defect.id === selectedDefectId;
                     return (
@@ -159,6 +161,27 @@ export function DefectImageViewer({
           </div>
         )}
       </div>
+      {defects.length > 0 && (
+        <div className="defect-image-selector" aria-label="이미지 내 하자 선택">
+          <span>하자 선택</span>
+          <div>
+            {defects.map((defect) => {
+              const isSelected = defect.id === selectedDefectId;
+              return (
+                <button
+                  key={defect.id}
+                  type="button"
+                  className={isSelected ? 'is-selected' : ''}
+                  aria-pressed={isSelected}
+                  onClick={() => onSelectDefect?.(defect.id)}
+                >
+                  {formatDefectCode(defect.id)} · {defect.typeLabel}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </section>
   );
 }

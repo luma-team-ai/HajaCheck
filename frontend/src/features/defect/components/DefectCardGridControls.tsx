@@ -22,10 +22,10 @@ export const SORT_OPTION_LABEL: Record<SortOption, string> = {
 };
 
 const STATUS_TABS: { value: StatusTabValue; label: string }[] = [
-  { value: '', label: '전체' },
-  { value: 'CONFIRMED', label: '검수확정' },
-  { value: 'IN_PROGRESS', label: '조치중' },
-  { value: 'RESOLVED', label: '조치완료' },
+  { value: '', label: '전체 이미지' },
+  { value: 'CONFIRMED', label: '검수확정 포함 이미지' },
+  { value: 'IN_PROGRESS', label: '조치중 포함 이미지' },
+  { value: 'RESOLVED', label: '조치완료 포함 이미지' },
 ];
 
 type Props = {
@@ -100,7 +100,7 @@ export function DefectCardGridControls({
                 />
               )}
               <span className="defect-card-grid__status-tab-label">{tab.label}</span>{' '}
-              <span className="defect-card-grid__status-tab-count">{statusCounts[tab.value]}</span>
+              <span className="defect-card-grid__status-tab-count">{statusCounts[tab.value]}장</span>
             </button>
           );
         })}

@@ -1,7 +1,7 @@
 import pretendardRegularUrl from 'pretendard/dist/public/static/alternative/Pretendard-Regular.ttf?url';
 import pretendardBoldUrl from 'pretendard/dist/public/static/alternative/Pretendard-Bold.ttf?url';
 import { STATUS_PRESENTATION } from '../constants/defectPresentation';
-import type { Defect } from '../types';
+import type { DefectExportItem } from '../types';
 import { formatDefectCode, formatDefectDate } from './defectFormat';
 
 const FONT_REGULAR_FILE_NAME = 'Pretendard-Regular.ttf';
@@ -32,7 +32,7 @@ function buildFileName(): string {
   return `하자목록_${yyyy}${mm}${dd}.pdf`;
 }
 
-export function buildDefectExportRows(defects: Defect[]): string[][] {
+export function buildDefectExportRows(defects: DefectExportItem[]): string[][] {
   return defects.map((defect) => [
     formatDefectCode(defect.id),
     defect.typeLabel,
@@ -45,7 +45,7 @@ export function buildDefectExportRows(defects: Defect[]): string[][] {
 
 // 현재 필터에 해당하는 하자 행을 표 형식 그대로 클라이언트에서 PDF로 내보낸다(서버 호출 없음).
 // jsPDF/jspdf-autotable/폰트는 번들 크기 때문에 클릭 시점에만 동적 import한다.
-export async function exportDefectsToPdf(defects: Defect[]): Promise<void> {
+export async function exportDefectsToPdf(defects: DefectExportItem[]): Promise<void> {
   const [{ default: jsPDF }, { default: autoTable }, regularFontResponse, boldFontResponse] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
