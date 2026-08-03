@@ -274,8 +274,8 @@ describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#119
     const secondBox = screen.getByRole('button', { name: 'DEF-0012 균열 하자 영역 선택' });
     secondBox.focus();
     fireEvent.click(secondBox);
-    expect(screen.getByText('DEF-0012')).not.toBeNull();
-    expect(screen.getByText('73').textContent).toBe('73 %');
+    expect(screen.getByRole('heading', { name: 'DEF-0012' })).not.toBeNull();
+    expect(screen.getByText('73%')).not.toBeNull();
     expect(screen.getByRole('img', { name: '균열 촬영 이미지' })).toBe(image);
     expect(document.activeElement).toBe(secondBox);
     expect(screen.getByText('상세 정보를 불러오는 중...')).not.toBeNull();
@@ -287,8 +287,8 @@ describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#119
     const thirdChip = screen.getByRole('button', { name: 'DEF-0013 · 박리·박락' });
     thirdChip.focus();
     fireEvent.click(thirdChip);
-    expect(screen.getByText('DEF-0013')).not.toBeNull();
-    expect(screen.getByText('66').textContent).toBe('66 %');
+    expect(screen.getByRole('heading', { name: 'DEF-0013' })).not.toBeNull();
+    expect(screen.getByText('66%')).not.toBeNull();
     expect(screen.getByRole('tab', { name: '조치 전 사진' }).getAttribute('aria-selected')).toBe('true');
     expect(document.activeElement).toBe(thirdChip);
   });
