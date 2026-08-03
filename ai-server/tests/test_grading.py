@@ -41,19 +41,19 @@ def test_compute_severity_score_band_boundaries_for_default_types(area_ratio, ex
     "area_ratio,expected_s",
     [
         (0.0, 0.1),
-        (0.00274, 0.1),
-        (0.00275, 0.3),  # 하한 포함(반열림) — 0.00275는 다음 구간으로 넘어간다
-        (0.00417, 0.3),
-        (0.00418, 0.5),
-        (0.00636, 0.5),
-        (0.00637, 0.7),
-        (0.00968, 0.7),
-        (0.00969, 0.9),
+        (0.00002955, 0.1),
+        (0.00002956, 0.3),  # 하한 포함(반열림) — 0.00002956은 다음 구간으로 넘어간다
+        (0.00070103, 0.3),
+        (0.00070104, 0.5),
+        (0.00197857, 0.5),
+        (0.00197858, 0.7),
+        (0.00398632, 0.7),
+        (0.00398633, 0.9),
         (0.5, 0.9),
     ],
 )
 def test_compute_severity_score_band_boundaries_for_crack(area_ratio, expected_s):
-    # 균열 전용 재보정 구간표 v2(2026-07-27, U-Net+레터박스+전체마스크합 기준 재측정) — 모듈
+    # 균열 전용 재보정 구간표 v4(2026-08-03, U-Net v2+레터박스+전체마스크합 기준 재측정) — 모듈
     # docstring "균열 구간표 캘리브레이션 이력" 참고.
     assert compute_severity_score("CRACK", area_ratio) == expected_s
 
@@ -61,7 +61,7 @@ def test_compute_severity_score_band_boundaries_for_crack(area_ratio, expected_s
 def test_compute_severity_score_crack_and_spalling_diverge_at_same_area_ratio():
     # 유형별로 다른 구간표가 실제로 적용되는지 고정 — 같은 area_ratio라도 균열은 재보정된
     # 낮은 임계값 때문에 훨씬 더 심각하게(=원점수가 높게) 산정돼야 한다.
-    area_ratio = 0.005  # 0.5% — 균열 기준 C(0.00418~0.00637), SPALLING 기준 A(<0.01)
+    area_ratio = 0.001  # 0.1% — 균열 기준 C(0.00070104~0.00197858), SPALLING 기준 A(<0.01)
     assert compute_severity_score("CRACK", area_ratio) == 0.5
     assert compute_severity_score("SPALLING", area_ratio) == 0.1
 
@@ -110,14 +110,14 @@ def test_compute_grade_end_to_end_matches_score_and_grade_composition_for_defaul
 
 
 def test_compute_grade_end_to_end_matches_score_and_grade_composition_for_crack():
-    # 균열 재보정 구간표 v2(2026-07-27) 기준 — 위 SPALLING 테스트보다 훨씬 작은 area_ratio에서
+    # 균열 재보정 구간표 v4(2026-08-03) 기준 — 위 SPALLING 테스트보다 훨씬 작은 area_ratio에서
     # 같은 등급 시퀀스(A~E)가 나와야 한다(균열은 선형이라 면적비가 작을 수밖에 없다는 게 이번
     # 재보정의 핵심 — 모듈 docstring 참고).
-    assert compute_grade("CRACK", 0.001) == "A"  # s=0.1 → g=0.9
-    assert compute_grade("CRACK", 0.003) == "B"  # s=0.3 → g=0.7
-    assert compute_grade("CRACK", 0.005) == "C"  # s=0.5 → g=0.5
-    assert compute_grade("CRACK", 0.007) == "D"  # s=0.7 → g=0.3
-    assert compute_grade("CRACK", 0.01) == "E"  # s=0.9 → g=0.1
+    assert compute_grade("CRACK", 0.00001) == "A"  # s=0.1 → g=0.9
+    assert compute_grade("CRACK", 0.0001) == "B"  # s=0.3 → g=0.7 (0.00002956 < 0.0001 < 0.00070104)
+    assert compute_grade("CRACK", 0.001) == "C"  # s=0.5 → g=0.5 (0.00070104 < 0.001 < 0.00197858)
+    assert compute_grade("CRACK", 0.003) == "D"  # s=0.7 → g=0.3 (0.00197858 < 0.003 < 0.00398633)
+    assert compute_grade("CRACK", 0.01) == "E"  # s=0.9 → g=0.1 (0.01 > 0.00398633)
 
 
 def test_compute_grade_rebar_exposure_never_better_than_c_even_with_tiny_area():
@@ -125,18 +125,19 @@ def test_compute_grade_rebar_exposure_never_better_than_c_even_with_tiny_area():
 
 
 def test_compute_crack_grade_requires_both_area_and_darkness_for_severe():
-    """v3 min 합의(2026-07-28) — 심각(D·E) 판정엔 면적·어두움 둘 다 필요하다(모듈 docstring 참고)."""
-    assert compute_crack_grade(0.01, 0.003) == "E"  # 둘 다 최상위 밴드
-    assert compute_crack_grade(0.01, 0.0002) == "B"  # 실금: 면적 E여도 어두움 B로 캡
-    assert compute_crack_grade(0.0005, 0.003) == "A"  # 어두운 소형 오탐: 면적 A로 캡
-    assert compute_crack_grade(0.005, 0.0005) == "C"  # 중간×중간은 낮은 쪽(C) 채택
+    """v4 min 합의(2026-08-03) — 심각(D·E) 판정엔 면적·어두움 둘 다 필요하다(모듈 docstring 참고)."""
+    assert compute_crack_grade(0.01, 0.003) == "D"  # 둘 다 최상위 밴드(area=0.9, dark=0.7) → min=0.7
+    assert compute_crack_grade(0.01, 0.00005) == "B"  # 실금: 면적 0.9여도 어두움 0.1으로 캡
+    assert compute_crack_grade(0.00001, 0.003) == "A"  # 어두운 소형 오탐: 면적 0.1로 캡
+    assert compute_crack_grade(0.001, 0.0017) == "C"  # 중간 면적(0.5) × 중간 어두움(0.7) → min=0.5
 
 
 def test_compute_crack_grade_dark_band_boundaries():
-    # dark 구간표 경계(상한 미만) — area는 최상위로 고정해 dark 축만 검증.
-    area_severe = 0.01
-    assert compute_crack_grade(area_severe, 0.0001) == "A"
-    assert compute_crack_grade(area_severe, 0.000114) == "B"
-    assert compute_crack_grade(area_severe, 0.000329) == "C"
-    assert compute_crack_grade(area_severe, 0.000952) == "D"
-    assert compute_crack_grade(area_severe, 0.002755) == "E"
+    # dark 구간표 경계 — area는 최상위로 고정해 dark 축만 검증. v4 임계값 기준.
+    # dark 최상위는 0.7(area 최상위 0.9와 달라 min 합의에서 캡 역할).
+    area_severe = 0.01  # area_s = 0.9
+    assert compute_crack_grade(area_severe, 0.000005) == "A"  # dark_s=0.1, min(0.9,0.1)=0.1
+    assert compute_crack_grade(area_severe, 0.00000897) == "B"  # dark_s=0.3, min(0.9,0.3)=0.3
+    assert compute_crack_grade(area_severe, 0.00010537) == "C"  # dark_s=0.5, min(0.9,0.5)=0.5
+    assert compute_crack_grade(area_severe, 0.00151626) == "D"  # dark_s=0.7, min(0.9,0.7)=0.7
+    assert compute_crack_grade(area_severe, 0.00194422) == "D"  # dark >= 최상위 경계 → dark_s=0.7, min(0.9,0.7)=0.7
