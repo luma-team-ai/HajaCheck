@@ -24,4 +24,22 @@ public enum DefectStatus {
     public boolean isAtOrAfter(DefectStatus other) {
         return this.ordinal() >= other.ordinal();
     }
+
+    /**
+     * {@code next}가 이 상태의 <b>정방향 한 단계</b> 다음인지 판정한다 — 상태 전이 규칙의 단일 기준으로,
+     * {@link Defect#changeStatus(DefectStatus, String)}("정방향 한 단계만 사유 없이 허용")과
+     * updateStatus() 그룹 팬아웃("정방향 한 단계인 멤버만 따라간다")이 함께 쓴다.
+     *
+     * <p>ordinal 산술이 아니라 exhaustive switch로 구현한 것은 의도적이다 — 상수가 추가되면 여기서
+     * 컴파일 에러가 나 "다음 단계가 무엇인지"를 반드시 다시 정의하게 만든다(무신호 오동작 방지).
+     */
+    public boolean isForwardStepTo(DefectStatus next) {
+        DefectStatus expectedNext = switch (this) {
+            case DETECTED -> CONFIRMED;
+            case CONFIRMED -> IN_PROGRESS;
+            case IN_PROGRESS -> RESOLVED;
+            case RESOLVED -> null; // 종료 단계 — 정방향 다음이 없다
+        };
+        return next == expectedNext;
+    }
 }

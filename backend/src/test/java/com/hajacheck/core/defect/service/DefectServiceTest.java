@@ -808,6 +808,97 @@ class DefectServiceTest {
     }
 
     @Test
+    void updateStatus_앞선멤버가IN_PROGRESS여도정방향anchor를따라내려오지않는다() {
+        // #1583 — 앞선 멤버가 RESOLVED(종료)일 때만이 아니라 중간 단계(IN_PROGRESS)여도 동일하다.
+        // 목표(CONFIRMED)보다 앞서 있으므로 건너뛴다.
+        Defect anchor = existingDefect(5L, DefectStatus.DETECTED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect aheadMember = existingDefect(9L, 100L, 5L, DefectStatus.IN_PROGRESS, 1, null);
+        ReflectionTestUtils.setField(aheadMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(aheadMember));
+
+        defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.CONFIRMED, null);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(aheadMember.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    void updateStatus_두단계이상뒤처진멤버는건너뛰기전이되지않는다_사유없음() {
+        // #1583 리뷰 P2 — 앞선 멤버를 건너뛰게 되면서 그룹이 분기된 채 남는 상태가 정상 경로가 됐다
+        // (예: {B:CONFIRMED, C:IN_PROGRESS}). 이때 C를 RESOLVED로 밀면 B(CONFIRMED→RESOLVED)는
+        // 건너뛰기라 사유 없이는 거부돼 요청 전체가 400이 됐다. 뒤처진 멤버는 끌고 가지 않는다.
+        Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect behindMember = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(behindMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(behindMember, anchor));
+
+        DefectResponse response =
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.RESOLVED, null);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(behindMember.getStatus()).isEqualTo(DefectStatus.CONFIRMED); // 그대로 남는다
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+        assertThat(response.groupSize()).isEqualTo(2);
+    }
+
+    @Test
+    void updateStatus_두단계이상뒤처진멤버는사유가있어도조치기록없이완료되지않는다() {
+        // #1583 리뷰 P2(거울상) — 사유가 있으면 건너뛰기가 허용되므로, 뒤처진 멤버가
+        // actionContent/actionDate 전부 null인 채 조치완료로 올라가 버렸다(모순 데이터).
+        Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect behindMember = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(behindMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(behindMember, anchor));
+
+        defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.RESOLVED, "현장 확인 후 완료 처리");
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(behindMember.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(behindMember.getActionContent()).isNull();
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    void registerActionResult_updateStatus의그룹스킵규칙에영향받지않는다() {
+        // #1583 무회귀 확인 — 스킵 규칙은 updateStatus 전용이다. registerActionResult는 그룹 전원에게
+        // 조치 결과를 그대로 반영하며, 뒤처진 멤버(CONFIRMED)를 RESOLVED로 미는 건너뛰기 전이는
+        // 사유 입력란이 없는 폼이라 기존대로 거부된다(#1128 조기 완료 방지).
+        Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect behindMember = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(behindMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(behindMember, anchor));
+
+        assertThatThrownBy(() -> defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.RESOLVED)))
+                .isInstanceOf(DomainValidationException.class);
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+    }
+
+    @Test
     void updateStatus_anchor를뒤로되돌릴때는앞선멤버도함께되돌린다() {
         // #1583 — "앞선 멤버 건너뛰기"는 anchor가 정방향으로 밀 때만 적용된다. anchor를 뒤로
         // 되돌리는 요청은 "이 사진의 보수 작업 전체를 다시 연다"는 뜻이라 #1556의 그룹 되돌리기가
