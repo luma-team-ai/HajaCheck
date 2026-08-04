@@ -17,10 +17,12 @@ export const NEXT_STATUS: Record<DefectStatus, DefectStatus | null> = {
 
 // 역행/건너뛰기 전이 대상(HAJA-349/#630 사유 UI가 "보드 보기" 탭 롤백(#726) 이후 어떤 화면에도
 // 연결되지 않던 걸 하자 상세 모달로 재통합하며 정리) — NEXT_STATUS(정방향 1단계)는 DefectActionForm의
-// 조치 등록 폼이 이미 처리하므로 여기서는 그 외의 유효 전이만 나열한다. 백엔드 Defect#changeStatus는
-// RESOLVED에서의 모든 이탈을 사유 유무와 무관하게 거부하므로(종료 상태) RESOLVED는 출발점에서 제외한다.
-// DETECTED도 등급 확정 전에는 changeStatus 자체가 막혀 있어(review() 별도 플로우) 제외한다.
+// "진행상태" select가 이미 처리하므로 여기서는 그 외의 유효 전이만 나열한다.
+// RESOLVED(#1556, HAJA-26 3차)는 더 이상 이탈 불가한 종료 상태가 아니다 — 백엔드가 사유와 함께
+// IN_PROGRESS로 되돌리는 것을 허용하므로 출발점에 포함한다.
+// DETECTED는 등급 확정 전에는 changeStatus 자체가 막혀 있어(review() 별도 플로우) 제외한다.
 export const REASON_REQUIRED_TARGETS: Partial<Record<DefectStatus, DefectStatus[]>> = {
   CONFIRMED: ['DETECTED', 'RESOLVED'],
   IN_PROGRESS: ['DETECTED', 'CONFIRMED'],
+  RESOLVED: ['IN_PROGRESS'],
 };

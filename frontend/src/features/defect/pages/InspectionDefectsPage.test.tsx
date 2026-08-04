@@ -247,7 +247,11 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     );
     expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('IN_PROGRESS');
     expect(within(modal).getByLabelText('조치 후 사진 업로드')).not.toBeNull();
-    expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치중');
+    // 헤더 상태 칩은 카드 그리드 목록 캐시(별도 invalidateQueries, 비동기 refetch)를 참조하므로
+    // 상세 캐시 갱신(위 select 활성화)과는 독립적으로 완료된다 — 명시적으로 기다린다(레이스 방지).
+    await waitFor(() =>
+      expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치중'),
+    );
     // #1128 코드리뷰 P2-2 — 성공 후 폼 필드가 초기화되고 성공 알림이 뜬다(중복 업로드/의도치 않은
     // 완결 방지). 초기화된 상태라 재제출은 필드를 다시 채워야만 가능하다.
     expect(within(modal).getByText('조치중(으)로 저장되었습니다.')).not.toBeNull();
@@ -272,7 +276,10 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     // 조치 필드는 1세트뿐이라 2차 등록 내용이 최종 요약에 남는다(1차 내용은 감사기록으로만 보존,
     // #1128 코드리뷰 P2-1).
     expect(within(modal).getByText('보수 완료 확인 — 재발 없음')).not.toBeNull();
-    expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치완료');
+    // 헤더 상태 칩은 목록 캐시(별도 비동기 refetch)를 참조한다 — 명시적으로 기다린다(레이스 방지).
+    await waitFor(() =>
+      expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치완료'),
+    );
     expect(uploadSpy).toHaveBeenCalledTimes(2);
 
     uploadSpy.mockRestore();

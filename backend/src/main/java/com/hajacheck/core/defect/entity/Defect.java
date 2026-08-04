@@ -185,10 +185,14 @@ public class Defect {
     }
 
     /**
-     * 상태 전이(HAJA-26 2차: 역행/건너뛰기 허용). 정방향 한 단계 전이는 사유 없이 허용하고,
+     * 상태 전이(HAJA-26 3차: RESOLVED 역행 허용, #1556). 정방향 한 단계 전이는 사유 없이 허용하고,
      * 그 외(역행·건너뛰기) 전이는 {@code reason}이 있어야만 허용한다(PRD FR-4 "역행·건너뛰기는
-     * 사유 기록 필수"). 단, 조치완료(RESOLVED)는 사유 유무와 무관하게 이탈(다른 상태로 재전이)이
-     * 불가한 종료 상태로 유지한다 — 완료 처리 자체를 되돌리는 것은 별도 스코프.
+     * 사유 기록 필수"). 조치완료(RESOLVED)에서 다른 상태로 되돌리는 것도 이 일반 규칙을 그대로
+     * 따른다 — RESOLVED의 정방향 다음 단계는 없으므로({@code expectedNext == null}) RESOLVED를
+     * 벗어나는 모든 전이는 항상 역행/건너뛰기로 취급돼 사유가 필요하다.
+     *
+     * <p>과거(HAJA-26 2차)엔 RESOLVED를 사유 유무와 무관하게 이탈 불가한 종료 상태로 취급했으나,
+     * "조치완료로 잘못 넘어간 하자를 되돌릴 방법이 없다"는 현장 피드백(#1556)에 따라 완화했다.
      *
      * <p>신규(DETECTED) 이탈에는 등급이 필요하다(#1397) — PRD FR-4가 검수를 "오탐 수정·등급 확정"으로
      * 정의하므로, 등급이 없는 채로 DETECTED를 벗어나면 "검수는 끝났는데 등급은 없는" 상태가 된다.
@@ -206,10 +210,6 @@ public class Defect {
             throw new DomainValidationException(
                     "changeStatus 불가: 등급이 없는 신규(DETECTED) 결함은 먼저 등급을 확정해야 한다 (요청 상태=%s)"
                             .formatted(status));
-        }
-        if (this.status == DefectStatus.RESOLVED) {
-            throw new DomainStateTransitionException(
-                    "changeStatus 불가: 조치완료(RESOLVED)는 종료 상태라 다른 상태로 전이할 수 없다");
         }
         if (status == this.status) {
             throw new DomainStateTransitionException(

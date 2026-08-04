@@ -9,8 +9,9 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defectHandlers } from '../api/defectApi.handlers';
 import { defectMediaApi } from '../api/defectMediaApi';
+import { mockDefects } from '../mocks/defect.mock';
 import { DefectActionForm } from './DefectActionForm';
-import type { DefectStatus } from '../types';
+import type { Defect, DefectStatus } from '../types';
 
 const server = setupServer(...defectHandlers);
 
@@ -38,11 +39,15 @@ function makeImageFile(name: string): File {
   return new File(['fake-image-bytes'], name, { type: 'image/png' });
 }
 
+function makeDefect(status: DefectStatus, overrides: Partial<Defect> = {}): Defect {
+  return { ...mockDefects[0], id: 1, inspectionId: 101, status, actionResult: null, ...overrides };
+}
+
 function renderForm(status: DefectStatus = 'CONFIRMED') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <DefectActionForm defectId={1} inspectionId={101} status={status} actionResult={null} />
+      <DefectActionForm defect={makeDefect(status)} actionResult={null} />
     </QueryClientProvider>,
   );
 }
@@ -87,7 +92,7 @@ describe('DefectActionForm — 업로드 드롭존 미리보기', () => {
   it('언마운트 시 생성된 objectURL을 revoke한다', () => {
     const { unmount } = render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-        <DefectActionForm defectId={1} inspectionId={101} status="CONFIRMED" actionResult={null} />
+        <DefectActionForm defect={makeDefect('CONFIRMED')} actionResult={null} />
       </QueryClientProvider>,
     );
 
@@ -107,9 +112,7 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
     render(
       <QueryClientProvider client={queryClient}>
         <DefectActionForm
-          defectId={1}
-          inspectionId={101}
-          status="RESOLVED"
+          defect={makeDefect('RESOLVED')}
           actionResult={{
             actionContent: '에폭시 주입 처리',
             actionDate: '2026-07-20',
@@ -125,6 +128,38 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
     expect(screen.queryByLabelText('조치 후 사진 업로드')).toBeNull();
   });
 
+  // HAJA-26 3차(#1556) — RESOLVED도 더 이상 이탈 불가한 종료 상태가 아니다. 조치 필드는 읽기
+  // 전용으로 유지하되, "다른 상태로 변경" 통합으로 진행상태 select만 남겨 사유와 함께 되돌릴 수
+  // 있게 한다(DefectStatusChangeControl이 담당하던 것을 흡수).
+  it('RESOLVED에서도 진행상태 select로 IN_PROGRESS로 되돌릴 수 있고, 선택 즉시 사유 모달이 열린다', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DefectActionForm
+          defect={makeDefect('RESOLVED')}
+          actionResult={{
+            actionContent: '에폭시 주입 처리',
+            actionDate: '2026-07-20',
+            assigneeId: 1,
+            assigneeName: '홍길동',
+            afterPhotoUrl: '/api/media/999/thumbnail',
+          }}
+        />
+      </QueryClientProvider>,
+    );
+
+    const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
+    expect(select.value).toBe('RESOLVED');
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+      '조치완료',
+      '조치중(으)로 되돌리기',
+    ]);
+
+    fireEvent.change(select, { target: { value: 'IN_PROGRESS' } });
+
+    expect(await screen.findByRole('dialog', { name: '상태 변경 사유 입력' })).not.toBeNull();
+  });
+
   // #1128 회귀 방지 — CONFIRMED→IN_PROGRESS 등록 직후에도 actionResult가 채워지지만, IN_PROGRESS는
   // 아직 종료 상태가 아니므로(RESOLVED로 한 번 더 전이 필요) 읽기 전용 요약이 아니라 폼이 계속
   // 보여야 한다.
@@ -133,9 +168,7 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
     render(
       <QueryClientProvider client={queryClient}>
         <DefectActionForm
-          defectId={1}
-          inspectionId={101}
-          status="IN_PROGRESS"
+          defect={makeDefect('IN_PROGRESS')}
           actionResult={{
             actionContent: '균열 부위 실측 완료',
             actionDate: '2026-07-24',
@@ -152,27 +185,69 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
   });
 });
 
-describe('DefectActionForm — 진행상태 select(#1128)', () => {
-  it('CONFIRMED 상태에서는 진행상태가 "조치중"으로 고정 표시된다', () => {
+describe('DefectActionForm — 진행상태 select(#1128, "다른 상태로 변경" 통합 #1556)', () => {
+  it('CONFIRMED 상태에서는 정방향(조치중) 옵션이 기본 선택되고, 역행 옵션(신규/조치완료로 되돌리기)도 함께 노출된다', () => {
     renderForm('CONFIRMED');
 
     const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
     expect(select.value).toBe('IN_PROGRESS');
-    expect(select.disabled).toBe(true);
-    expect(screen.getByText('조치중')).not.toBeNull();
+    // 역행 옵션이 함께 있으므로 더 이상 disabled 고정 select가 아니다(#1556).
+    expect(select.disabled).toBe(false);
+    const optionLabels = Array.from(select.options).map((option) => option.textContent);
+    expect(optionLabels).toEqual(['조치중', '신규(으)로 되돌리기', '조치완료(으)로 되돌리기']);
   });
 
   // #1193/HAJA-569 — IN_PROGRESS 단계에서 조치중 사진을 시간차를 두고 여러 번 등록할 수 있어야
   // 하므로, 더 이상 "조치완료"로 고정되지 않고 두 옵션 중 사용자가 고른다. 기본값은 실수로 바로
   // 완료 처리되지 않도록 "조치중"(유지)이다.
-  it('IN_PROGRESS 상태에서는 진행상태 select가 활성화되고 "조치중"/"조치완료" 두 옵션을 노출하며 기본값은 "조치중"이다', () => {
+  it('IN_PROGRESS 상태에서는 정방향(조치중/조치완료) 옵션과 역행 옵션(신규/검수확정으로 되돌리기)이 함께 노출되며 기본값은 "조치중"이다', () => {
     renderForm('IN_PROGRESS');
 
     const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
     expect(select.disabled).toBe(false);
     expect(select.value).toBe('IN_PROGRESS');
     const optionLabels = Array.from(select.options).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['조치중', '조치완료']);
+    expect(optionLabels).toEqual([
+      '조치중',
+      '조치완료',
+      '신규(으)로 되돌리기',
+      '검수확정(으)로 되돌리기',
+    ]);
+  });
+
+  it('역행 옵션을 선택하면 사유 입력 모달이 열리고, 사진/내용 등 조치 필드는 그대로 유지된다', async () => {
+    renderForm('CONFIRMED');
+
+    fireEvent.change(screen.getByLabelText('조치 내용'), { target: { value: '유지될 조치 내용' } });
+    fireEvent.change(screen.getByLabelText('진행상태 *'), { target: { value: 'DETECTED' } });
+
+    expect(await screen.findByRole('dialog', { name: '상태 변경 사유 입력' })).not.toBeNull();
+    expect((screen.getByLabelText('조치 내용') as HTMLTextAreaElement).value).toBe('유지될 조치 내용');
+  });
+
+  it('사유를 제출하면 PATCH /status가 호출되고 모달이 닫힌다', async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.patch('/api/defects/:id/status', async ({ request }) => {
+        capturedBody = (await request.clone().json()) as Record<string, unknown>;
+        return HttpResponse.json({
+          success: true,
+          data: { ...makeDefect('CONFIRMED'), status: 'DETECTED' },
+        });
+      }),
+    );
+
+    renderForm('CONFIRMED');
+    fireEvent.change(screen.getByLabelText('진행상태 *'), { target: { value: 'DETECTED' } });
+    await screen.findByRole('dialog', { name: '상태 변경 사유 입력' });
+
+    fireEvent.change(screen.getByLabelText('사유'), { target: { value: '오탐 재확인 필요' } });
+    fireEvent.click(screen.getByRole('button', { name: '확인' }));
+
+    await waitFor(() => expect(capturedBody).not.toBeNull());
+    expect((capturedBody as unknown as { status: string; reason: string }).status).toBe('DETECTED');
+    expect((capturedBody as unknown as { status: string; reason: string }).reason).toBe('오탐 재확인 필요');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '상태 변경 사유 입력' })).toBeNull());
   });
 
   it('IN_PROGRESS 상태에서 "조치완료"를 선택해 제출하면 요청 바디의 targetStatus가 RESOLVED가 된다', async () => {

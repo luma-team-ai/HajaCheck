@@ -718,6 +718,105 @@ class DefectServiceTest {
                         .isEqualTo(ErrorCode.DEFECT_NOT_FOUND));
     }
 
+    // ── 강제 상태 전이 이미지 단위 그룹 팬아웃(#1556) ──────────────────────────────────
+
+    @Test
+    void updateStatus_같은mediaId그룹전체에동일상태팬아웃() {
+        // registerActionResult_같은mediaId그룹전체에동일값팬아웃과 동일한 그룹 구성 — "다른 상태로
+        // 변경"도 같은 이미지의 나머지 하자에 함께 반영돼야 한다(#1556).
+        Defect anchor = existingDefect(5L, DefectStatus.DETECTED); // id=10L, inspectionId=100L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect groupMemberBefore = existingDefect(9L, 100L, 5L, DefectStatus.DETECTED, 1, null);
+        ReflectionTestUtils.setField(groupMemberBefore, "mediaId", 77L);
+        Defect groupMemberAfter = existingDefect(15L, 100L, 5L, DefectStatus.DETECTED, 1, null);
+        ReflectionTestUtils.setField(groupMemberAfter, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(groupMemberBefore, anchor, groupMemberAfter));
+
+        DefectResponse response =
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.CONFIRMED, null);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(groupMemberBefore.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(groupMemberAfter.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(response.groupSize()).isEqualTo(3);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        verify(defectRevisionRepository, org.mockito.Mockito.times(3)).save(argThat(revision ->
+                revision.getFieldChanged().equals("status")
+                        && revision.getOldValue().equals("DETECTED")
+                        && revision.getNewValue().equals("CONFIRMED")));
+    }
+
+    @Test
+    void updateStatus_RESOLVED에서도그룹전체를IN_PROGRESS로되돌릴수있다() {
+        // HAJA-26 3차(#1556) — RESOLVED 역행 허용이 그룹 팬아웃과 함께 동작하는지 확인.
+        Defect anchor = existingDefect(5L, DefectStatus.RESOLVED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect groupMember = existingDefect(9L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
+        ReflectionTestUtils.setField(groupMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(groupMember, anchor));
+
+        DefectResponse response = defectService.updateStatus(
+                USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, "재검토 필요");
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(groupMember.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(response.groupSize()).isEqualTo(2);
+    }
+
+    @Test
+    void updateStatus_그룹멤버가이미목표상태면건너뛰고나머지는반영된다() {
+        // #1562 P2 — 그룹 내 진행 속도가 서로 달라 한 멤버가 이미 목표 상태에 도달해 있어도,
+        // changeStatus()의 "동일 상태 재전이 거부"에 걸려 그룹 전체 요청이 실패하면 안 된다.
+        Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect alreadyAtTarget = existingDefect(9L, 100L, 5L, DefectStatus.IN_PROGRESS, 1, null);
+        ReflectionTestUtils.setField(alreadyAtTarget, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(alreadyAtTarget, anchor));
+
+        DefectResponse response =
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, null);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(alreadyAtTarget.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS); // 변화 없이 유지(건너뜀)
+        assertThat(response.groupSize()).isEqualTo(2);
+        // 건너뛴 멤버는 이력도 남기지 않는다 — 실제 변경이 없었으므로.
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    void updateStatus_anchor자신이이미목표상태면기존처럼거부된다() {
+        // anchor는 사용자가 직접 고른 대상이므로, 이미 목표 상태인 경우는 그룹 팬아웃과 무관하게
+        // changeStatus()의 기존 거부를 그대로 표면화한다(#1562 P2 — 그룹 멤버만 건너뛴다).
+        // id 오름차순 처리 순서상 anchor(id=10)가 groupMember(id=15)보다 먼저 처리되도록 구성해,
+        // anchor에서 예외가 나면 뒤 멤버는 전혀 손대지 않는지까지 확인한다.
+        Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect groupMember = existingDefect(15L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(groupMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(anchor, groupMember));
+
+        assertThatThrownBy(() -> defectService.updateStatus(
+                USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, null))
+                .isInstanceOf(com.hajacheck.global.exception.DomainStateTransitionException.class);
+        assertThat(groupMember.getStatus()).isEqualTo(DefectStatus.CONFIRMED); // id 오름차순상 먼저 처리돼도 안전
+    }
+
     @Test
     void getRevisions_본인소유_이력페이지반환() {
         Defect defect = existingDefect(5L);
@@ -726,7 +825,7 @@ class DefectServiceTest {
         DefectRevision revision = DefectRevision.record(
                 10L, USER_ID, "status", "DETECTED", "CONFIRMED", null);
         ReflectionTestUtils.setField(revision, "id", 1L);
-        when(defectRevisionRepository.findByDefectIdOrderByCreatedAtDesc(10L, pageable))
+        when(defectRevisionRepository.findByDefectIdInOrderByCreatedAtDesc(List.of(10L), pageable))
                 .thenReturn(new PageImpl<>(List.of(revision), pageable, 1));
 
         PageResponse<DefectRevisionResponse> response =
@@ -735,6 +834,27 @@ class DefectServiceTest {
         assertThat(response.content()).hasSize(1);
         assertThat(response.content().get(0).fieldChanged()).isEqualTo("status");
         assertThat(response.content().get(0).newValue()).isEqualTo("CONFIRMED");
+    }
+
+    @Test
+    void getRevisions_같은mediaId그룹전체이력을함께조회() {
+        // #1556 — 활동 기록이 anchor 단건이 아니라 같은 이미지 그룹 전체(id 오름차순)를 대상으로
+        // 조회돼야 한다.
+        Defect anchor = existingDefect(5L); // id=10L, inspectionId=100L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect groupMember = existingDefect(9L, 100L, 5L, DefectStatus.DETECTED, 1, null);
+        ReflectionTestUtils.setField(groupMember, "mediaId", 77L);
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(groupMember, anchor));
+        Pageable pageable = PageRequest.of(0, 20);
+        when(defectRevisionRepository.findByDefectIdInOrderByCreatedAtDesc(List.of(9L, 10L), pageable))
+                .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        defectService.getRevisions(USER_ID, COMPANY_ID, 10L, pageable);
+
+        verify(defectRevisionRepository).findByDefectIdInOrderByCreatedAtDesc(List.of(9L, 10L), pageable);
     }
 
     @Test
