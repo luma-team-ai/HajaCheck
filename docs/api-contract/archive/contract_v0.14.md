@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.15 · **최종 수정:** 2026-08-04 · 이전 버전 `archive/`
+> **문서 버전:** v0.14 · **최종 수정:** 2026-08-02 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -482,7 +482,7 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 | 조치 내용 | 텍스트(멀티라인) | ✅ | placeholder "조치 내용을 입력해 주세요." |
 | 조치일 | 날짜 | ✅ | |
 | 담당자 | 드롭다운(예: "김현수 과장") | ✅ | **#690 "배정 가능한 담당자(회사 소속 사용자) 목록 조회 API" 재사용 대상** |
-| (버튼) 조치 완료 등록 | — | — | **결정(2026-07-24, BE)**: 신규 `PATCH /api/defects/{id}/action`, 기존 `PATCH /api/defects/{id}/status`는 확장하지 않음(아래 "엔드포인트 매핑" 근거 참고). **v0.15 정정**: "상태 전이는 RESOLVED로 고정"은 더 이상 사실이 아니다 — **#1128에서 `targetStatus`(필수, `IN_PROGRESS`·`RESOLVED` 2값)가 도입**돼 조치중 단계 등록도 같은 엔드포인트로 처리한다. 전이 가능 여부는 `Defect#changeStatus` 정방향 1단계 규칙을 그대로 따른다(정본 = `openapi.yaml`) |
+| (버튼) 조치 완료 등록 | — | — | **결정(2026-07-24, BE)**: 신규 `PATCH /api/defects/{id}/action` — 상태 전이는 RESOLVED로 고정, 기존 `PATCH /api/defects/{id}/status`는 확장하지 않음(아래 "엔드포인트 매핑" 근거 참고) |
 
 ### 엔드포인트 매핑 (기존 재사용 우선)
 

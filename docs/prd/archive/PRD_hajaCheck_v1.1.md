@@ -1,11 +1,11 @@
 # PRD — hajaCheck : AI 기반 시설물 외관 하자 점검 플랫폼
 
-> **문서 버전:** v1.2 · **최종 수정:** 2026-08-04 · 이전 버전 `archive/`
+> **문서 버전:** v1.1 · **최종 수정:** 2026-08-04 · 이전 버전 `archive/`
 
 | 항목 | 내용 |
 |---|---|
-| 문서 버전 | v1.2 |
-| 변경 이력 | **v1.2: PRD↔테스트시트↔코드 3축 정합성 검사 반영(정정 5건)** — ①FR-9 알림 "폴링(30초)" → **주기 폴링 미구현**(마운트·포커스 refetch만) ②FR-8-B **HF 사용량 카드는 서버 자원 카드로 대체 확정**(#728)·**예산 가드레일 미구현**(후속) ③FR-6·§6 Redis③ **RAG 대화 이력(LangChain Memory) 미구현** — 같은 절의 "멀티턴은 후속"과 모순이던 문장 정정 ④FR-4 `/action`은 **`targetStatus` 포함 5필드이며 상태 전이를 함께 수행**(#1128) — "상태 전이와 분리"의 의미를 엔드포인트 분리로 한정 ⑤FR-1 **이메일 인증코드(6자리) 방식 미구현** → 아이디 찾기 = 사업자번호 대조, 비밀번호 찾기 = **재설정 링크 + 1회성 토큰**으로 정정. 근거는 `docs/report/prd-test-code-alignment-2026-08-04.md` / **v1.1: 중간보고 이후 실측 정합(사용자 테스트 주간)** — ①**기업 가입 즉시 자동승인 + 오너 멤버십**(#1324/#1368 — prod 전면 403 장애 복구, 인증 배지는 provenance 기준) ②**`CompanyScopeGuard` 4조건**을 인가 정본으로 명시 ③**Flyway V34 → V40** ④**dev/prod = 동일 VM 내 postgres 인스턴스 2개**(5432 dev / 5433 prod)로 정정 — "전용 VM 이관"은 향후 목표로 분리 ⑤**균열 모델 파인튜닝 교체(`crack_unet_resnet34_v2`) + 등급 밴드 v4 재교정 + 폭·길이 px 측정**, **RAG 벡터+BM25 하이브리드(RRF)** ⑥보고서 **관공서 표준양식·책임기술자 표기**, 점검 상태머신(REVIEWED·REPORTED), **오탐 되살리기**, RAG 문서 삭제·임베딩 상태, 분석 잡 큐 실데이터 등 신규 기능 반영 ⑦오픈이슈 #10·#11 해소·#9 부분해소, **킬스위치·mm 환산·프레이밍 한계 신규 등재**. **버전별 상세는 [변경 이력 (Changelog)] 참조** / **v1.0: 중간보고 기준선 — 구현 실측 전면 정합** — ①**PG 결제를 Out-of-Scope → 토스페이먼츠 샌드박스 구현**으로 전환(구독 전이·예약 하향·미결제 유예 포함) ②**균열 탐지를 YOLOv8-seg 단일 → U-Net + YOLO 하이브리드**로 정정(등급 임계값 v2 재캘리브레이션) ③**Flyway 도입 완료**(V1~V34) ④상담원 전용 콘솔·조치 이력 테이블·공개 플랜 API·LangSmith PII 제외·국세청 실존확인 API 반영 ⑤플랫폼 관리자 메뉴 재구성(대시보드 최상위 개칭·하자 유형·등급 관리 삭제). v0.5는 dev 단계에 머물러 main 배포된 적이 없어 **v1.0에 흡수해 함께 릴리스**한다(v0.5 스냅샷은 팀 판단으로 `archive/`에 예외 보존 — 아래 v1.0 항목 참조). **버전별 상세는 헤더표 아래 [변경 이력 (Changelog)] 참조** |
+| 문서 버전 | v1.1 |
+| 변경 이력 | **v1.1: 중간보고 이후 실측 정합(사용자 테스트 주간)** — ①**기업 가입 즉시 자동승인 + 오너 멤버십**(#1324/#1368 — prod 전면 403 장애 복구, 인증 배지는 provenance 기준) ②**`CompanyScopeGuard` 4조건**을 인가 정본으로 명시 ③**Flyway V34 → V40** ④**dev/prod = 동일 VM 내 postgres 인스턴스 2개**(5432 dev / 5433 prod)로 정정 — "전용 VM 이관"은 향후 목표로 분리 ⑤**균열 모델 파인튜닝 교체(`crack_unet_resnet34_v2`) + 등급 밴드 v4 재교정 + 폭·길이 px 측정**, **RAG 벡터+BM25 하이브리드(RRF)** ⑥보고서 **관공서 표준양식·책임기술자 표기**, 점검 상태머신(REVIEWED·REPORTED), **오탐 되살리기**, RAG 문서 삭제·임베딩 상태, 분석 잡 큐 실데이터 등 신규 기능 반영 ⑦오픈이슈 #10·#11 해소·#9 부분해소, **킬스위치·mm 환산·프레이밍 한계 신규 등재**. **버전별 상세는 [변경 이력 (Changelog)] 참조** / **v1.0: 중간보고 기준선 — 구현 실측 전면 정합** — ①**PG 결제를 Out-of-Scope → 토스페이먼츠 샌드박스 구현**으로 전환(구독 전이·예약 하향·미결제 유예 포함) ②**균열 탐지를 YOLOv8-seg 단일 → U-Net + YOLO 하이브리드**로 정정(등급 임계값 v2 재캘리브레이션) ③**Flyway 도입 완료**(V1~V34) ④상담원 전용 콘솔·조치 이력 테이블·공개 플랜 API·LangSmith PII 제외·국세청 실존확인 API 반영 ⑤플랫폼 관리자 메뉴 재구성(대시보드 최상위 개칭·하자 유형·등급 관리 삭제). v0.5는 dev 단계에 머물러 main 배포된 적이 없어 **v1.0에 흡수해 함께 릴리스**한다(v0.5 스냅샷은 팀 판단으로 `archive/`에 예외 보존 — 아래 v1.0 항목 참조). **버전별 상세는 헤더표 아래 [변경 이력 (Changelog)] 참조** |
 | 작성 | 김승현 |
 | 작성일 | 2026-07-15 (최초 2026-07-02) |
 | 프로젝트 기간 | 2026-07-09(목) ~ 2026-08-07(금), 4주 |
@@ -13,29 +13,6 @@
 | 프로젝트명 | **hajaCheck** |
 
 ## 변경 이력 (Changelog)
-
-### v1.2 (2026-08-04) — PRD ↔ 테스트 시트 ↔ 코드 3축 정합성 검사 반영
-
-> 3개 스택 테스트 전수 실행(backend 2,111 · ai-server 421 · frontend 1,851) + 시트 항목별 코드 실측 대조 결과,
-> **PRD만 stale한 항목 5건**을 코드 기준으로 정정한다. 기능 변경은 없고 문서 정정만 담는다.
-> 검사 리포트: `docs/report/prd-test-code-alignment-2026-08-04.md`
-
-| # | 절 | v1.1 기재 | v1.2 정정 | 코드 근거 |
-|---|---|---|---|---|
-| 1 | FR-9 | `notifications` + **폴링(30초)** | 주기 폴링 **미구현** — 마운트·창 포커스 시 refetch만 | `useNotifications`에 `refetchInterval` 없음 |
-| 2 | FR-8-B | HF 호출량·누적 토큰 + **예산 가드레일**(경고 배지·디그레이드 모드) | HF 카드는 **서버 자원 카드로 대체 확정**(HF 사용량 공개 API 부재), 가드레일은 **후속 범위** | `SystemMonitoringResponse` 4종 · `monitoring.types.ts:40-41`(#728) |
-| 3 | FR-6 · §6 Redis③ | 대화 이력 관리(LangChain Memory + Redis) | **미구현** — 질의는 무상태 단발. 같은 절 "멀티턴은 후속(YAGNI)"과의 내부 모순 해소 | `session_id`는 스키마 자리만, 체인 미사용 · `RagChatAiRequest` javadoc |
-| 4 | FR-4 | `/action`은 상태 전이와 **의도적 분리**, **4필드** | **`targetStatus` 포함 5필드**이며 정방향 규칙으로 **전이 수행**. "분리"는 엔드포인트·계약의 분리로 한정 | `Defect#registerActionResult`(#1128) · `openapi.yaml` |
-| 5 | FR-1 | 가입·아이디찾기·비번찾기 **이메일 인증코드 6자리**(`email:verify:*`, TTL 5분, 5회 실패 재발급) | 인증코드 방식 **미구현**. 아이디 찾기 = **사업자번호 + 상호명/대표자명 대조**, 비밀번호 = **재설정 링크 + 1회성 토큰**(해시 저장·Host 미신뢰·rate limit) | `email:verify:` 네임스페이스 0건 · `AccountRecoveryService` · `PasswordResetService` · UT-012~021 |
-
-**표기 원칙**: 미구현으로 밝혀진 문장은 삭제하지 않고 **취소선 + "v1.2 정정" 주석**으로 남긴다 — 왜 그렇게 적혀 있었는지와
-현재 사실을 함께 읽을 수 있어야 같은 드리프트가 재발하지 않는다. v0.45 등 과거 변경이력 절은 **역사 기록이라 원문 유지**한다.
-
-**동반 정정**: `docs/api-contract/contract.md`의 "`/action`은 상태 전이를 RESOLVED로 고정" 기술(4번과 세트).
-`openapi.yaml`은 이미 `targetStatus`를 반영하고 있어 무수정.
-
-**이번 범위 밖(후속)**: 초대 코드(`invitecode` 패키지) PRD 신규 기술 · 마이페이지 프로필 수정(#1443) ·
-결제 진입 사업자 인증 게이트(#1444) · 테스트 시트 정정.
 
 ### v1.1 (2026-08-04) — 중간보고 이후 실측 정합 (사용자 테스트 주간)
 
@@ -543,15 +520,9 @@
 - **기업 회원가입 입력 검증 UX**(v1.1): 필수항목(주소·상호명·대표자명) 누락 시 **인라인 에러 + 첫 무효 필드로 스크롤 포커스 + 요약 알림**(#1332) — 어느 항목이 빠졌는지 모른 채 제출이 막히던 문제 해소
 - **구독 결제**(v1.0 신규): 마이페이지 "내 플랜"에서 업그레이드 시 토스페이먼츠 결제창 호출 → 서버 승인 → 플랜 반영. 결제 이력 조회, 예약 하향 확인·취소 제공(§2.4)
 - **플랫폼 관리자 로그인**(v0.47 신규, **v0.5: 경로 `/admin` → `/platform-admin` 분리**): `/platform-admin/login` 접속 시 기업회원·일반 로그인 화면과 **분리된 플랫폼 관리자 전용 로그인 페이지** 노출. 로그인 성공 시 계정 역할이 `PLATFORM_ADMIN`이 아니면 **로그인 거부**(기업회원·일반 사용자는 이 진입점으로 접근 불가). 플랫폼 관리자 계정은 자체 가입 없이 **초기 시드 데이터로 생성**(운영진 발급), ID/PW 로그인 + Spring Session
-- **기업회원 가입 인증 수단(v1.2 정정)**: 가입 검증은 **사업자등록증 OCR + 국세청 진위확인**(위 항목)으로 완결된다. v0.45가 기술한 **가입 이메일 인증코드(6자리) 방식은 구현되지 않았다** — 코드베이스에 `email:verify:*` Redis 네임스페이스도, 대응 서비스 클래스도 존재하지 않는다
-- **아이디 찾기(v1.2 정정 — v0.43 대조 방식이 현행)**: **사업자등록번호 + 상호명/대표자명 대조**로 계정을 찾아 **마스킹된 이메일**을 반환한다(`h***@c***.com`, `EmailMasker`). 매칭 실패는 어느 항목이 틀렸는지 구분하지 않고 **항상 동일한 `AUTH_ACCOUNT_NOT_FOUND`**로 응답해 계정 열거를 막는다. v0.45의 "이메일 인증코드 방식으로 대체" 기술은 무효 — 대체는 일어나지 않았다
-- **비밀번호 찾기(v1.2 정정 — 코드 입력형이 아니라 재설정 링크)**: 이메일 입력 → **재설정 링크 메일 발송**(Spring Mail SMTP) → 링크의 **1회성 토큰**으로 새 비밀번호 설정. 규약:
-  - 토큰은 Redis에 **`sha256(token)` 해시로 저장**(덤프에 원문이 남지 않음), 원문은 메일로만 나간다. **소비 즉시 무효화**(재사용 시 `AUTH_RESET_TOKEN_INVALID`)
-  - **계정 열거 방지**: 미가입 이메일도 동일한 200 응답(발송 없음). **소셜 전용 계정**(비밀번호 없음)도 계정 상태를 노출하지 않고 동일하게 거부
-  - **Rate limit**(이메일 축·IP 축) 초과 시 `AUTH_TOO_MANY_REQUESTS`
-  - 링크 도메인은 요청 `Host`/`X-Forwarded-Host`를 **신뢰하지 않고 설정값(`frontendBaseUrl`)만** 사용 — 헤더 위조로 피싱 링크가 발송되는 경로 차단
-  - 재설정 완료 후 기존 세션 전체 무효화(재로그인 요구)
-  - > 검증 근거: `PasswordResetService`·`RedisPasswordResetTokenStore`·`AccountRecoveryService` 및 단위테스트 UT-012~021
+- **기업회원 가입 — 이메일 인증**(v0.45 신규, **Spring Mail SMTP**): 사업자등록증 OCR 인증에 더해 가입 이메일 소유 확인을 위한 인증코드(6자리 숫자) 발송·검증 통과 시 가입 완료 처리. 인증코드는 Redis에 `email:verify:SIGNUP:{email}` 키로 저장(아래 공통 규약 참조)
+- **아이디 찾기 / 비밀번호 찾기**(v0.45 개정 — **이메일 인증 코드 방식으로 전환, Spring Mail SMTP**): 이메일 입력 → 인증코드(6자리 숫자) 발송(아이디 찾기는 PURPOSE=FIND_ID, 비밀번호 찾기는 PURPOSE=RESET_PW) → 사용자가 코드를 직접 입력해 검증 → 성공 시 **동일 세션 내에서 즉시** 아이디 마스킹 표시(예: `abc***@company.com`) 또는 새 비밀번호 설정 화면으로 진행. 계정 미존재 시에도 "인증코드를 발송했습니다" 등 동일한 응답을 반환해 계정 존재 여부 비노출. 비밀번호 재설정 완료 후 기존 세션 전체 무효화(재로그인 요구). (v0.43의 사업자등록번호 대조 방식은 본 방식으로 대체)
+- **이메일 인증 공통 규약**(v0.45 신규 — SIGNUP/FIND_ID/RESET_PW 3개 화면 공용): Redis 키 `email:verify:{PURPOSE}:{email}`(PURPOSE enum: SIGNUP/FIND_ID/RESET_PW) · 값 = 6자리 랜덤 숫자(또는 검증용 해시) · **TTL 5분**(Redis 자체 만료 — 별도 배치/스케줄러 불필요) · **1회성**: 검증 성공 시 즉시 삭제(재사용 방지) · **실패 횟수 제한**: 같은 키에 attempt count 병행 저장, **5회 실패 시 코드 재발급 강제**(무차별 대입 방지) · **재발송 쿨다운 60초**(이메일 폭탄 방지). JWT 서명 토큰 방식도 검토했으나, 재발송 시 이전 토큰 무효화·1회성 강제에는 결국 서버 측 상태 저장이 필요해 이미 스택에 있는 **Redis TTL 방식**이 더 단순·적합하다고 판단
 
 ### FR-2 촬영 데이터 업로드
 
@@ -596,9 +567,7 @@
   - **`조치대기`(`ACTION_PENDING`)는 V22에서 제거**됐다(#1072/#1083/#1097, `V22__collapse_defect_status_action_pending.sql`). "검수는 끝났고 조치는 아직"이라는 상태를 `검수확정`(`CONFIRMED`)이 그대로 겸하므로 단계를 따로 둘 실익이 없었고, 실사용에서도 두 상태의 구분 기준이 사람마다 달랐다. 기존 `ACTION_PENDING` 행은 마이그레이션에서 `CONFIRMED`로 백필한다.
   - enum 정본은 `core/defect/entity/DefectStatus.java` = `DETECTED · CONFIRMED · IN_PROGRESS · RESOLVED`
 - **하자 관리 화면 재해석(v0.5, 2026-07-24 확정)**: 하자 단건 목록이 아니라 **점검(Inspection) 단위 그룹 목록**(`GET /api/inspections` — 페이지네이션, 로우 = 점검일·시설물·하자건수·등급분포) → **점검 상세(카드형 하자 그리드 + KPI 4종 헤더) → 하자 상세 풀스크린 모달** 2단계 진입
-- **조치 결과 등록(v0.5 신규, v1.2 정정 — `targetStatus` 도입 #1128)**: 조치후사진·조치내용·조치일·담당자 4필드 **+ `targetStatus`(진행상태 select) = 총 5필드 필수** 폼 → `PATCH /api/defects/{id}/action`. 담당자 드롭다운은 `GET /api/facilities/assignable-users` 재사용(회사 소속·cross-company IDOR 검증)
-  - **"`/status`와 분리"의 정확한 의미**: 분리된 것은 **엔드포인트와 계약**이지 상태 전이 자체가 아니다. `/action`은 `targetStatus`로 **상태를 함께 전이**하며, 허용 값은 `IN_PROGRESS`·`RESOLVED` 2개뿐이다(`DETECTED`·`CONFIRMED`는 400). 전이 가능 여부는 `Defect#changeStatus`의 정방향 1단계 규칙을 그대로 따라 `CONFIRMED→IN_PROGRESS`·`IN_PROGRESS→RESOLVED`만 사유 없이 허용되고, 건너뛴 전이는 거부된다(폼에 사유 입력란이 없기 때문). 전이 성공 시 `defect_revisions`에 상태 변경 이력이 남는다
-  - v1.1까지의 "상태 전이와 의도적으로 분리"라는 표현은 "`/action`은 상태를 바꾸지 않는다"로 읽힐 수 있어 정정한다(계약 정본 = `openapi.yaml` `/api/defects/{id}/action`)
+- **조치 결과 등록(v0.5 신규)**: 조치후사진·조치내용·조치일·담당자 4필드 폼 → `PATCH /api/defects/{id}/action` — 상태 전이(`/status`)와 **의도적으로 분리**한 별도 엔드포인트. 담당자 드롭다운은 `GET /api/facilities/assignable-users` 재사용(회사 소속·cross-company IDOR 검증)
 - **조치 등록 이력 append-only(v1.0 신규)**: `defects`의 조치 4필드는 **"최신 스냅샷"만 담는 단일 값 컬럼**이라, 조치중(`IN_PROGRESS`) 단계에서 시간차를 두고 여러 번 등록하는 사진·조치내용이 **매번 덮어써지고 이력이 남지 않았다**. `defect_revisions`는 필드 변경 감사용(구/신 값이 짧은 문자열)이라 사진 URL을 담기에 스키마가 맞지 않아, **조치 등록 제출 자체를 통째로 append하는 `defect_action_logs` 테이블을 신설**했다(`phase` = `IN_PROGRESS`/`RESOLVED` 2단계 구분)
 - **활동 기록 타임라인(v0.5)**: 감사용 `defect_revisions`를 화면에 노출 — 상태 변경·담당자 배정·조치 내용을 사용자용 타임라인 UI로 표시(v1.0: 조치 등록분은 `defect_action_logs` 기반으로 다회 이력까지 표시 가능)
 
@@ -636,7 +605,7 @@
   - 문서 재적재(ingest) 시 **BM25 캐시 무효화 훅** 연결
 - **검색 품질 평가 하네스**(v1.1 신규, `ai/eval/`): 벡터-only vs 하이브리드를 **recall / MRR / nDCG**로 정량 비교(`run_eval.py`, CSV·PNG 산출). 지표 순수함수는 단위테스트 대상이고, 실행 자체는 로컬 전용(pytest 대상 아님)
 - 점검 기준·법규 질의 **전담** (데이터 질의는 하자 관리 "자연어 검색"으로 일원화 — 기능 중복 방지), 답변 출처 표시
-- ~~대화 이력 관리(LangChain Memory + Redis)~~ — **v1.2: 미구현(후속 범위)**. 각 질의는 **무상태 단발**로 처리된다. FastAPI 요청 스키마에 `session_id`(선택) 자리만 잡혀 있고 체인은 이 값을 쓰지 않으며, 백엔드 프록시(`RagChatAiRequest`)는 아예 전송하지 않는다. 아래 LangGraph 항목의 "멀티턴·재검색 루프는 후속 범위"와 같은 맥락이며, v1.1까지 두 문장이 서로 모순돼 있던 것을 정정한다
+- 대화 이력 관리(LangChain Memory + Redis)
 - **LLM 응답 캐시**: 프롬프트 해시 키 기반 Redis 캐시 — 개발·테스트 중 동일 질의 반복 호출로 인한 HF 크레딧 소진 방지
 - **LangGraph StateGraph 오케스트레이션(v0.5 도입, #710)**: 단발 파이프라인(`cache_check → retrieve → answer → build_sources → cache_write`)을 그래프로 감싸고 조건부 엣지 2곳 적용 — 캐시 히트 시 즉시 종료, 검색 0건이면 `no_result`(캐시 저장 생략, `RAG_NO_RESULT` 응답). 멀티턴·재검색 루프는 후속 범위로 미포함(YAGNI)
 
@@ -677,17 +646,15 @@
   - 분석 잡 큐 현황: 대기/진행/완료/실패 건수 (Redis 잡 상태 집계), 실패 잡 재실행 버튼 — **v1.1 실데이터 구현 완료**(#1414, 이전에는 목/플레이스홀더)
   - 최근 에러 로그: API 5xx·분석 실패 최근 N건 조회
   - 서버 자원: CPU·메모리·디스크 사용률 (Actuator metrics 활용)
-  - ~~HF Inference API 호출량·누적 토큰 카운트 (예산 관리용)~~ — **v1.2: 미구현·대체 확정**. HF는 사용량 조회 공개 API가 없어 이 카드를 만들 수 없다 → **서버 자원(CPU·메모리·디스크) 카드로 대체**(#728, `monitoring.types.ts` 주석에 근거 기록). 사용량 추적이 필요하면 자체 호출 카운터를 두는 별도 과업으로 분리
-  - ~~**예산 가드레일**: 일일/주간 토큰 한도 초과 시 관리자 경고 배지 + 초과 심화 시 디그레이드 모드~~ — **v1.2: 미구현(후속 범위)**. 위 사용량 카운터가 선행 조건이라 함께 보류된다. 현재 LLM 비용 방어는 **이중 Rate Limit(사용자·전체)과 Redis 응답 캐시**가 담당한다(FR-5)
-  - > ⚠️ 현재 `GET /api/platform-admin/monitoring` 응답은 **`serverHealth`·`jobQueue`·`resourceUsage`·`errorLogs` 4종**이다(`SystemMonitoringResponse`). 위 2개 항목은 응답에 없다
+  - HF Inference API 호출량·누적 토큰 카운트 (예산 관리용)
+  - **예산 가드레일**: 일일/주간 토큰 한도 초과 시 관리자 경고 배지 + 초과 심화 시 디그레이드 모드(챗봇이 LLM 생성 생략, 문서 검색 결과만 반환)
 - ~~하자 유형·등급 기준 관리(코드 테이블)~~ — **v1.0: 메뉴·라우트에서 삭제**(v0.5의 "향후 개발 이관"을 실제 제거로 확정. 등급 임계값은 현재 상수 모듈 하드코딩이며 DB화 시점은 재검토 — FR-3·§11)
 
 ### FR-9 알림 센터 (P1)
 
 - 헤더 벨 아이콘 + 알림 드롭다운/목록, 미읽음 뱃지, 읽음 처리
 - 알림 이벤트: 분석 완료, 검수 대기 발생, 상담 답변 도착, 점검일 도래(점검 주기 연계) + **구독 전이 3종(v1.0)**: 플랜 만료 · 하향 완료 · **하향 실패**(예약 하향 처리 중 오류 — 운영자 개입 필요 신호)
-- 구현: `notifications` 테이블 + **클라이언트 조회(마운트·창 포커스 시 refetch)** — WebSocket 푸시·이메일은 범위 제외(상담용 WS와 별개로 단순 유지)
-  - **v1.2 정정**: v1.1까지 "폴링(30초)"으로 기술했으나 **주기 폴링은 구현되지 않았다** — `useNotifications`는 `refetchInterval` 없이 react-query 기본 동작(마운트·포커스 복귀 시 갱신)만 쓴다. 화면을 열어둔 채로는 새 알림이 즉시 뜨지 않는다는 뜻이며, 주기 폴링 도입 여부는 후속 결정 사항
+- 구현: `notifications` 테이블 + 폴링(30초) — WebSocket 푸시·이메일은 범위 제외(상담용 WS와 별개로 단순 유지)
 - 이벤트 발행은 각 도메인 서비스에서 공통 `NotificationService` 호출로 통일
 - **발행 배선 완료(v1.1)**: AI 분석 완료 시 `ANALYSIS_DONE`·`REVIEW_PENDING`을 **실제로 발행**한다(#1283 — 이전에는 타입만 정의돼 있고 발행부가 없어 알림이 뜨지 않았다). 알림 목록의 "결과 보기 / 검수하기" 버튼도 해당 화면으로 **네비게이션 연결**(#1288)
 
@@ -727,13 +694,13 @@
 
 - **모듈러 모놀리스**: Spring Boot 내부 패키지를 도메인별(auth / core / counsel / admin)로 엄격 분리 — 향후 서비스 분리 가능한 구조로 설계
 - **ORM: Spring Data JPA(Hibernate)** — Entity·Repository 규약은 `SpringBoot_코드_컨벤션.md` 참조. 프론트 규약은 `React_코드_컨벤션.md` 참조
-- **이메일 발송: Spring Boot Starter Mail(SMTP)**(v0.45 신규, **v1.2 정정 — 용도 축소**) — **비밀번호 재설정 링크 발송 전용**(인증코드 발송 용도는 미구현, FR-1 참조). 실제 발송은 비동기 처리(`@Async`)로 API 응답 지연 방지
+- **이메일 발송: Spring Boot Starter Mail(SMTP)**(v0.45 신규) — 회원가입·아이디 찾기·비밀번호 찾기 인증코드 발송 전용. 실제 발송은 비동기 처리(`@Async`)로 API 응답 지연 방지
 - **프론트엔드 공통 UI 스택**(v0.44): 스타일링은 **Tailwind CSS 4.3.2**로 통일, 대시보드·통계·회차 비교 등 화면 전반의 차트·그래프는 **Recharts 3.9.2**를 공통 컴포넌트로 사용(개별 화면별 차트 라이브러리 혼용 금지)
 - Spring Boot ↔ FastAPI: REST + 비동기 잡 패턴(분석 요청 → 잡 ID → 폴링/콜백). FastAPI·DB·Redis·Chroma는 외부 포트 미개방(내부 통신 전용)
 - **FastAPI 워커 분리(설계 목표 — 현재 미구성, v0.5 정정)**: 목표는 CPU-bound YOLO 추론을 별도 워커 프로세스(`ProcessPoolExecutor` 또는 uvicorn `--workers`)로 오프로드(3 OCPU: 탐지용 1 + API용 1~2). **실제 배포는 `uvicorn main:app` 단일 프로세스**(`docker-compose.arm1.yml`/`override.yml`에 `--workers`·`ProcessPoolExecutor` 없음). `detect_defects`가 동기 `def`라 FastAPI 기본 스레드풀로 돌지만 프로세스 단위 격리는 **후속 과제**
 - **Correlation ID**: 모든 분석 잡·요청에 `X-Request-Id` 발급, Spring·FastAPI 양쪽 로그에 동일 ID 기록 — 경계 넘는 요청 추적(디버깅 시간 절감)
 - 영상 프레임 추출: FastAPI 측 OpenCV/ffmpeg — **미구현, 후속 범위**(현재 업로드는 이미지 전용, FR-2)
-- **Redis 활용처**(v1.2 정정 — ③·⑧): ① Spring Session(로그인 세션) ② 분석 잡 상태·진행률 캐시 ③ ~~LangChain 챗봇 대화 메모리~~ **미구현(FR-6)** ④ 상담 대기열(Sorted Set) ⑤ 대시보드 통계 캐시 ⑥ OAuth 인가 state 임시 저장 ⑦ LLM 응답 캐시(프롬프트 해시 키) ⑧ ~~이메일 인증 코드(`email:verify:*`)~~ → **비밀번호 재설정 토큰**(`sha256(token)` 해시 저장, 1회성) ⑨ 초대 코드
+- **Redis 활용처**: ① Spring Session(로그인 세션) ② 분석 잡 상태·진행률 캐시 ③ LangChain 챗봇 대화 메모리 ④ 상담 대기열(Sorted Set) ⑤ 대시보드 통계 캐시 ⑥ OAuth 인가 state 임시 저장 ⑦ LLM 응답 캐시(프롬프트 해시 키) ⑧ **이메일 인증 코드**(`email:verify:{PURPOSE}:{email}`, TTL 5분 — v0.45)
 
 ### 6.1 배포 환경 — OCI (Oracle Cloud Infrastructure)
 
@@ -820,7 +787,7 @@
 > - 마이그레이션 검증은 **일회용 DB(testcontainer/로컬)**에서, 확정(리뷰 통과) 전엔 공유 dev DB에 찍지 않는다. 빈 DB·기존 DB 양쪽을 CI에서 검증하는 통합테스트를 둔다
 > - Flyway 적용 트리거는 "머지"가 아니라 **"그 코드로 앱이 부팅되는 순간"** — prod 적용은 main 승격 자동배포 재기동 시점
 
-- `users`(소셜 연동 + 기업회원용 `password_hash`·`business_reg_no`·`email`·`email_verified` / `company_id`·`business_verified` / 플랫폼 관리자는 `company_id = null`·역할 `PLATFORM_ADMIN`). **비밀번호 재설정 토큰**은 Redis TTL 키로만 관리한다(별도 토큰 테이블 불필요 — v1.2 정정: v0.45의 "이메일 인증코드"는 미구현)
+- `users`(소셜 연동 + 기업회원용 `password_hash`·`business_reg_no`·`email`·`email_verified` / `company_id`·`business_verified` / 플랫폼 관리자는 `company_id = null`·역할 `PLATFORM_ADMIN`). 이메일 인증코드는 Redis TTL 키로만 관리(별도 토큰 테이블 불필요, v0.45)
 - **`companies`(기업 — v0.5 실재. `status`·`verification_status`가 `CompanyScopeGuard` 4조건 중 2개 — FR-1. **v1.1: 가입 시 자동승인으로 `VERIFIED+APPROVED` 전이**, 인증 배지는 `ocr_raw.ntsOutcome` provenance로 판정)**, **`company_memberships`(소속·초대·승인 — `status` PENDING/APPROVED/REJECTED/REVOKED/EXPIRED 상태머신, 사용자당 APPROVED 1개 부분 유니크. **v1.1: 가입 시 오너 멤버십 자동 발급** — 이전엔 발급 경로가 없어 prod 전면 403이었다)**, **`user_consents`(이용약관·개인정보 동의)**
 - `facilities`(점검 주기 필드 — P1, **소유 주체 = 회사**(#660), **`initial_grade` A~E enum·`assignee_user_id` FK·메모** 필드 확장 — v0.5), `inspections`, `media`
 - `defects`(유형, bbox, confidence, 등급, 상태, 검수 여부 + 조치 4필드 **최신 스냅샷**), **`defect_revisions`(검수·조치 수정 이력 — append-only, FR-4 감사 추적/활동 기록)**, **`defect_action_logs`(조치 등록 제출 이력 — append-only, `phase` IN_PROGRESS/RESOLVED, v1.0 신규 — 스냅샷 컬럼이 덮어쓰는 다회 조치 이력 보존)**
