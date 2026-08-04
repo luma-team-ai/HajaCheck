@@ -33,11 +33,17 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
   // 종료 후에도 갱신되지 않는다(종료된 티켓은 WAITING/IN_PROGRESS 조회에서 빠져 큐 reload로도
   // 최신화되지 않는다). 그래서 티켓을 열 때마다 서버에서 최신 상태를 1회 조회해 종료 판정의
   // 소스로 쓴다(#1506이 useChatBot에 넣은 REST 백필과 동일 패턴).
-  const [latestTicket, setLatestTicket] = useState<CounselTicketSummaryResponse | null>(null);
-  // 위 조회가 끝나기 전까지는 종료 여부가 "미확정"이다(#1590 리뷰 P3) — 이 창에서 isEnded=false로
-  // 단정하면 종료된 티켓인데도 "상담 종료" 버튼·입력창이 잠깐 열렸다가 닫힌다(그 사이 전송하면
-  // 서버가 거부). 소비자가 확정 전까지 조작을 잠글 수 있도록 함께 노출한다.
-  const [endedPending, setEndedPending] = useState(false);
+  // 조회 결과는 "어느 ticketId의 결과인지"와 함께 담는다 — 그래야 ticketId가 바뀐 첫 렌더부터
+  // (effect의 setState를 기다리지 않고) 미확정 상태를 파생값으로 계산할 수 있다(#1590 리뷰 P3).
+  // ticket: 조회 성공 시 응답, 실패 시 null(= 확정은 됐고 서버 값은 못 얻음).
+  const [latestByTicket, setLatestByTicket] = useState<{
+    ticketId: number;
+    ticket: CounselTicketSummaryResponse | null;
+  } | null>(null);
+  const latestTicket = latestByTicket?.ticketId === ticketId ? latestByTicket.ticket : null;
+  // 조회가 끝나기 전까지는 종료 여부가 "미확정"이다 — 이 창에서 isEnded=false로 단정하면 종료된
+  // 티켓인데도 "상담 종료" 버튼·입력창이 잠깐 열렸다가 닫힌다(그 사이 전송하면 서버가 거부).
+  const endedPending = ticketId !== null && latestByTicket?.ticketId !== ticketId;
 
   useEffect(() => {
     if (ticketId === null) {
@@ -88,24 +94,18 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
   // 거쳐 되돌아왔을 때 remoteEndedTicket이 리셋되고 stale한 ticket prop만 남아 종료 표시가 사라지고
   // 입력창이 다시 열린다(전송하면 서버가 거부).
   useEffect(() => {
-    setLatestTicket(null);
-    if (ticketId === null) {
-      setEndedPending(false);
-      return;
-    }
+    if (ticketId === null) return;
 
     let cancelled = false;
-    setEndedPending(true);
     counselApi
       .getTicket(ticketId)
       .then((res) => {
-        if (!cancelled) setLatestTicket(res.data);
+        if (!cancelled) setLatestByTicket({ ticketId, ticket: res.data });
       })
       .catch(() => {
-        // 조회 실패는 조용히 무시 — 종료 판정은 소켓(onEnded)과 호출부의 ticket 스냅샷으로 폴백된다.
-      })
-      .finally(() => {
-        if (!cancelled) setEndedPending(false);
+        // 조회 실패해도 "확정"으로는 넘긴다(ticket=null) — 계속 미확정으로 두면 입력창이 영영
+        // 잠긴다. 종료 판정은 소켓(onEnded)과 호출부의 ticket 스냅샷으로 폴백된다.
+        if (!cancelled) setLatestByTicket({ ticketId, ticket: null });
       });
     return () => {
       cancelled = true;
