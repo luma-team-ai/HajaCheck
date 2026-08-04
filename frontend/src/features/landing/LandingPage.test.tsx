@@ -1,14 +1,29 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import LandingPage from './LandingPage';
+import { useAuthStore } from '../auth/store/authStore';
+import type { User } from '../auth/types';
 import { planApi, planQueryKeys, type PlanCatalogResponse } from '../../shared/api/planApi';
+
+const mockUser: User = {
+  id: 1,
+  email: 'hajacheck@example.com',
+  name: '하자체크 담당자',
+  role: 'USER',
+  companyId: 1,
+  profileImageUrl: null,
+  createdAt: '2026-01-01T00:00:00',
+  companyName: '하자체크',
+  status: 'ACTIVE',
+};
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  useAuthStore.setState({ user: null });
 });
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -23,6 +38,23 @@ function renderWithProviders(ui: React.ReactElement) {
       </QueryClientProvider>,
     ),
   };
+}
+
+// 로그인 사용자 리다이렉트 검증용 — 랜딩이 /dashboard로 넘어갔는지를 화면 전환으로 확인한다.
+function renderLandingRoute() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/dashboard" element={<div>대시보드 페이지</div>} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
 }
 
 describe('LandingPage 제품 스크린샷 및 요금제', () => {
@@ -112,6 +144,35 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
     await waitFor(() => expect(getPlans).toHaveBeenCalledTimes(2));
     expect(screen.getByText('₩12,345')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  // 로그인 사용자 리다이렉트(#1474) — WAITING은 예외. 대시보드로 보내면 ProtectedRoute가 다시
+  // /invite-code로 되돌려 초대 코드 화면의 "홈으로"·로고·"취소"가 제자리로 튕긴다.
+  it('status=WAITING(초대 코드 미입력) 사용자는 대시보드로 보내지 않고 랜딩에 머무르게 한다', async () => {
+    useAuthStore.setState({ user: { ...mockUser, companyId: null, status: 'WAITING' } });
+
+    renderLandingRoute();
+
+    await waitFor(() => expect(screen.getByAltText('하자 상세 화면')).toBeTruthy());
+    expect(screen.queryByText('대시보드 페이지')).toBeNull();
+  });
+
+  it('status=ACTIVE 사용자는 기존대로 대시보드로 이동한다', async () => {
+    useAuthStore.setState({ user: mockUser });
+
+    renderLandingRoute();
+
+    await waitFor(() => expect(screen.getByText('대시보드 페이지')).toBeTruthy());
+  });
+
+  it('WAITING 사용자에게는 헤더 CTA를 로그인 대신 초대 코드 입력으로 노출한다', async () => {
+    useAuthStore.setState({ user: { ...mockUser, companyId: null, status: 'WAITING' } });
+
+    renderLandingRoute();
+
+    const cta = await screen.findByRole('link', { name: '초대 코드 입력' });
+    expect(cta.getAttribute('href')).toBe('/invite-code');
+    expect(screen.queryByRole('link', { name: '로그인' })).toBeNull();
   });
 
   it('공개 요금제 API 호출 실패 시 하드코딩 요금제가 아닌 에러 안내 메시지와 다시 시도 버튼을 렌더링한다', async () => {
