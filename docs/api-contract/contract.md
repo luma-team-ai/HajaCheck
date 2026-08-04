@@ -151,6 +151,8 @@
 
 정상 응답은 Redis에 `ai:cache:rag-chat:{sha256(question)[:16]}` 키로 캐시된다(TTL 1일, `llm_client.CACHE_TTL_SECONDS` 공유). 캐시 히트 시 Chroma·LLM 호출 없이 저장된 `RagAnswerData`를 그대로 반환한다.
 
+이 exact 캐시 키에 **`company_id`가 없는 것은 의도된 설계다**(#1584 검수 확인). 답변 생성 입력이 `질문 원문 + 전 회사 공용 regulations 청크`뿐이고 `company_id`는 검색 필터에도 프롬프트에도 들어가지 않으므로, 질문이 바이트 단위로 동일하면 회사와 무관하게 생성 결과도 동일하다 — B사는 자기가 입력한 질문 이상을 얻지 못한다. 반면 아래 시맨틱 캐시는 **다른** 질문(A사가 쓴 고유명사가 실린 질문)에 대해 생성된 답변을 반환하므로 유출이 성립한다. 이 비대칭이 회사 스코프를 시맨틱 캐시에만 건 이유다.
+
 **2차 시맨틱 캐시(#1475)** — exact-match(Redis) 미스 시 Chroma `semantic_cache` 컬렉션에서 유사 질문을 찾아 재사용한다. 이 캐시는 **회사 스코프가 강제된다**(#1584): 저장 시 `metadata.company_id`를 함께 기록하고, 조회 시 `filter={"company_id": …}`로 같은 회사가 남긴 항목만 본다. 요청에 `company_id`가 없으면(개인회원) **조회·저장을 모두 건너뛴다** — 필터 없는 전역 조회로 폴백하면 A사 질문 맥락으로 생성된 답변이 B사 유사 질문에 반환되므로, 캐시 이득을 포기하고 fail-closed로 간다(exact 캐시와 LLM 경로는 정상 동작). 대화 이력(`history`)이 있는 요청은 기존대로 두 캐시를 모두 우회한다.
 
 `sources[].doc_id`는 PostgreSQL `rag_documents.id`를 문자열화한 양의 정수 문자열(`^[1-9][0-9]*$`)이다. Spring Boot가 `chat_message_citations.document_id`에 저장할 때 패턴 검증을 통과한 값을 `int(doc_id)`로 변환한다.
