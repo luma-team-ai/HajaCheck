@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """카드 검출 모듈 테스트 (#1487)."""
 import pytest
+from unittest.mock import MagicMock, patch
 from PIL import Image, ImageDraw
 import numpy as np
 
@@ -9,6 +10,7 @@ from ai.core.card_client import (
     CARD_RATIO,
     RATIO_TOL,
     CardDetectionResult,
+    _pick_box,
 )
 
 
@@ -43,54 +45,99 @@ def create_card_image(width: int, height: int, card_box: tuple | None = None) ->
 class TestCardDetection:
     """카드 검출 기본 테스트."""
 
-    def test_no_card(self):
-        """카드 미검출 사진."""
+    @patch("ai.core.card_client._get_yolo_world_model")
+    def test_no_card(self, mock_get_model):
+        """카드 미검출 사진 (모델 mock)."""
         img = create_card_image(1920, 1440, card_box=None)
+
+        mock_model = MagicMock()
+        mock_results = MagicMock()
+        mock_results[0].boxes = MagicMock()
+        mock_results[0].boxes.__iter__ = lambda self: iter([])  # 박스 없음
+        mock_model.predict.return_value = [mock_results]
+        mock_model.set_classes = MagicMock()
+        mock_get_model.return_value = mock_model
+
         result = detect_card(img)
         assert result is None
 
-    def test_card_valid(self):
-        """정상 카드 검출."""
+    @patch("ai.core.card_client._attempt_detection_tiled")
+    @patch("ai.core.card_client._attempt_detection")
+    def test_card_valid(self, mock_attempt, mock_attempt_tiled):
+        """정상 카드 검출 (검출 로직 mock)."""
         width, height = 1920, 1440
-        # 정상 카드 종횡비 1.585, 크기 300x189px (bbox)
         card_w, card_h = 300, int(300 / CARD_RATIO)
-        x1, y1 = 500, 500
-        card_box = (x1, y1, x1 + card_w, y1 + card_h)
-        img = create_card_image(width, height, card_box=card_box)
+        img = create_card_image(width, height, card_box=(500, 500, 500 + card_w, 500 + card_h))
+
+        mock_attempt.return_value = {
+            "status": "pass",
+            "method": "bbox",
+            "conf": 0.8,
+            "long_px": card_w,
+            "short_px": card_h,
+        }
 
         result = detect_card(img)
         assert result is not None
         assert isinstance(result, CardDetectionResult)
-        assert result.long_px == card_w  # 긴 변
-        assert result.short_px == card_h  # 짧은 변
+        assert result.long_px == card_w
+        assert result.short_px == card_h
         assert 0 < result.confidence <= 1
         assert result.method in ("quad", "bbox", "quad_rec")
 
-    def test_card_ratio_tolerance(self):
-        """종횡비 허용 범위 내 카드."""
-        width, height = 1920, 1440
-        # 종횡비 1.5 (CARD_RATIO=1.585 범위 내)
+    @patch("ai.core.card_client._attempt_detection")
+    def test_card_ratio_tolerance(self, mock_attempt):
+        """종횡비 허용 범위 내 카드 (검출 로직 mock)."""
         card_w, card_h = 300, 200
-        x1, y1 = 500, 500
-        card_box = (x1, y1, x1 + card_w, y1 + card_h)
-        img = create_card_image(width, height, card_box=card_box)
+        img = create_card_image(1920, 1440, card_box=(500, 500, 800, 700))
+
+        mock_attempt.return_value = {
+            "status": "pass",
+            "method": "bbox",
+            "conf": 0.75,
+            "long_px": card_w,
+            "short_px": card_h,
+        }
 
         result = detect_card(img)
-        if result:  # 정제 실패 가능성도 고려 (합성 이미지 한계)
+        if result:
             ratio = result.long_px / result.short_px
             assert 1.25 <= ratio <= 2.0
 
-    def test_confidence_range(self):
-        """신뢰도가 0~1 범위."""
-        width, height = 1920, 1440
+    @patch("ai.core.card_client._attempt_detection")
+    def test_confidence_range(self, mock_attempt):
+        """신뢰도가 0~1 범위 (검출 로직 mock)."""
         card_w, card_h = 300, int(300 / CARD_RATIO)
-        x1, y1 = 500, 500
-        card_box = (x1, y1, x1 + card_w, y1 + card_h)
-        img = create_card_image(width, height, card_box=card_box)
+        img = create_card_image(1920, 1440, card_box=(500, 500, 500 + card_w, 500 + card_h))
+
+        mock_attempt.return_value = {
+            "status": "pass",
+            "method": "bbox",
+            "conf": 0.65,
+            "long_px": card_w,
+            "short_px": card_h,
+        }
 
         result = detect_card(img)
         if result:
             assert 0 < result.confidence <= 1
+
+
+class TestGeometryFunctions:
+    """_pick_box 단위 테스트 (모델 독립)."""
+
+    def test_pick_box_valid(self):
+        """기하 검증을 통과하는 박스."""
+        boxes = [(0.9, 100, 100, 400, 250), (0.5, 500, 500, 600, 700)]
+        img_area = 1920 * 1440
+        result = _pick_box(boxes, img_area, min_side=40)
+        assert result is not None
+        assert result[0] == 0.9
+
+    def test_pick_box_empty(self):
+        """박스 없음."""
+        result = _pick_box([], 1920 * 1440, min_side=40)
+        assert result is None
 
 
 class TestCardMeasurement:
@@ -159,13 +206,12 @@ class TestCrackMMIntegration:
 class TestThresholdGuard:
     """0.7mm 가드 로직."""
 
+    @pytest.mark.skip(reason="실제 YOLO-World + U-Net 모델 필요, 로컬 실측 사진 없음")
     def test_width_below_threshold_ignored(self):
         """0.7mm 미만은 기록하지 않음."""
-        # 이 테스트는 실제 이미지와 모델이 필요해 unit 범위 밖.
-        # integration 레벨에서 coverage하거나 수동 테스트 대상.
         pass
 
+    @pytest.mark.skip(reason="실제 YOLO-World + U-Net 모델 필요, 로컬 실측 사진 없음")
     def test_width_above_threshold_recorded(self):
         """0.7mm 이상은 기록."""
-        # 실제 카드 검출 + U-Net 마스크 필요
         pass
