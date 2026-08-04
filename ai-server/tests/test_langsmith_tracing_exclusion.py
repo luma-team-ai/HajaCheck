@@ -10,15 +10,12 @@ OCR 체인(사업자등록번호·대표자명 등 개인정보 포함)은 민�
 3. 대조군(제약 없는 일반 LLM 호출)이 실제로 전송됨을 보증 (억제 검증의 신뢰도 확보).
 """
 import io
-import threading
+import json
 import time
-from datetime import date
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import zstandard
-from langchain_core.runnables import RunnableLambda
 from langsmith import run_trees as ls_run_trees
 from langsmith import utils as ls_utils
 from langsmith.client import Client
@@ -28,8 +25,6 @@ SENSITIVE_INPUT = "사업자등록번호 123-45-67890 대표자 홍길동"
 SENSITIVE_OUTPUT = "원인은 콘크리트 중성화로 추정됩니다"
 FAKE_LANGSMITH_KEY = "-".join(("test", "dummy", "langsmith", "key", "not", "a", "real", "secret"))
 FAKE_HF_TOKEN = "-".join(("test", "dummy", "hf", "token", "not", "a", "real", "secret"))
-
-_AI_SERVER_DIR = Path(__file__).resolve().parent.parent
 
 
 _ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
@@ -90,8 +85,7 @@ def _reset_langsmith_process_state():
     _reset()
 
 
-@pytest.mark.parametrize("hide_enabled", [True])
-def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch, hide_enabled):
+def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch):
     """OCR 체인의 tracing_context(enabled=False) 블록이 실제로 전송을 억제하는지 검증.
 
     이 테스트는 두 가지를 연속으로 검증한다:
@@ -103,8 +97,18 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch,
     monkeypatch.setenv("LANGCHAIN_API_KEY", FAKE_LANGSMITH_KEY)
     monkeypatch.setenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
     monkeypatch.setenv("LANGCHAIN_PROJECT", "tracing-exclusion-test")
-    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true" if hide_enabled else "false")
-    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true" if hide_enabled else "false")
+    # HIDE env는 이 테스트의 관심사가 아니다 — tracing_context(enabled=False)는 HIDE 설정과
+    # 무관하게 전송 자체를 막는다. true로 둬서 "마스킹까지 겹쳐도 여전히 미전송"임을 함께 보인다.
+    monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "true")
+    monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "true")
+    # OCR 체인은 get_llm()을 그대로 통과시켜야(mock하지 않아야) 실제 HFInferenceChatModel이
+    # LangChain 콜백/트레이싱 경로에 실제로 올라탄다 — get_llm 자체를 mock하면 LangSmith
+    # 트레이서가 아예 개입하지 않아 "tracing_context가 억제했다"는 걸 증명할 수 없다.
+    # 그래서 get_llm()이 내부적으로 읽는 env(HF_API_TOKEN·REDIS_URL)도 실제로 채워줘야 한다.
+    # REDIS_URL은 존재하지 않는 주소를 줘도 된다 — llm_client.py가 RedisError를 캐시 미스로
+    # 흡수하도록 이미 방어돼 있다(연결 실패 → 캐시 스킵, 응답 자체는 정상 진행).
+    monkeypatch.setenv("HF_API_TOKEN", FAKE_HF_TOKEN)
+    monkeypatch.setenv("REDIS_URL", "redis://127.0.0.1:1/0")
 
     captured_ocr: list[bytes] = []
     captured_control: list[bytes] = []
@@ -121,6 +125,26 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch,
             captured_control.append(_extract_bytes(data))
         raise RuntimeError("테스트에서 실제 전송을 막음")
 
+    # OCR 체인은 with_structured_output(BusinessLicenseOcrExtract)로 파싱하므로 응답이 그
+    # 스키마에 맞는 JSON이어야 한다(자유 텍스트를 주면 PydanticOutputParser가 파싱 실패로
+    # 재시도를 반복하다 예외를 던져 LLM 호출까지는 도달했는지 자체를 가릴 수 없게 된다).
+    # SENSITIVE_INPUT 문자열 자체는 프롬프트(OCR 원문)에 실리므로, 여기서는 응답에 별도로
+    # 담지 않아도 "입력이 전송되는지"라는 이 테스트의 목적은 충분히 검증된다.
+    ocr_hf_response = MagicMock()
+    ocr_hf_response.choices[0].message.content = json.dumps(
+        {
+            "business_registration_number": "123-45-67890",
+            "company_name": "테스트회사",
+            "representative_name": "김테스트",
+            "business_start_date": "2020.01.15",
+        },
+        ensure_ascii=False,
+    )
+    ocr_hf_response.choices[0].finish_reason = "stop"
+    ocr_hf_response.usage.prompt_tokens = 10
+    ocr_hf_response.usage.completion_tokens = 5
+    ocr_hf_response.usage.total_tokens = 15
+
     hf_response = MagicMock()
     hf_response.choices[0].message.content = SENSITIVE_OUTPUT
     hf_response.choices[0].finish_reason = "stop"
@@ -133,20 +157,33 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch,
         "ai.core.hf_chat_model.InferenceClient"
     ) as mock_inference, patch(
         "ai.chains.business_license_ocr_chain.get_ocr_engine"
-    ) as mock_ocr_engine, patch(
+    ) as mock_get_ocr_engine, patch(
         "ai.chains.business_license_ocr_chain._decode_image"
     ) as mock_decode:
-        mock_inference.return_value.chat_completion.return_value = hf_response
-        mock_ocr_engine.return_value = MagicMock(txts=[SENSITIVE_INPUT], scores=[0.95])
+        mock_inference.return_value.chat_completion.return_value = ocr_hf_response
+        # get_ocr_engine()이 엔진을 반환하고, 그 엔진을 호출(engine(image_bytes))해야 결과가
+        # 나온다 — txts/scores는 엔진 "호출 결과"에 실어야 한다(엔진 자체에 실으면 코드가
+        # engine(image_bytes)로 얻는 result는 별개의 빈 MagicMock이 되어 zip()이 조용히
+        # 빈 리스트를 만들고, "텍스트 없음" 조기 반환 경로로 새 LLM을 아예 호출 안 하게 된다 —
+        # 그 상태에서도 captured_ocr가 비어있어 이 테스트가 "억제됐다"고 오판할 뻔했다).
+        mock_engine = MagicMock()
+        mock_engine.return_value = MagicMock(txts=[SENSITIVE_INPUT], scores=[0.95])
+        mock_get_ocr_engine.return_value = mock_engine
         mock_decode.return_value = b"fake-image"
 
         from ai.chains.business_license_ocr_chain import run_business_license_ocr_chain
 
         with tracing_context(enabled=True):  # 트레이싱 켜짐 상태를 시뮬레이션
-            try:
-                run_business_license_ocr_chain("aGVsbG8=")  # base64로 인코딩된 "hello"
-            except Exception:
-                pass  # OCR/LLM 목 조립 단계에서 깨질 수 있음, 무시
+            result = run_business_license_ocr_chain("aGVsbG8=")  # base64로 인코딩된 "hello"
+
+        # LLM 호출까지 실제로 도달했는지 확인 — 이게 없으면 조기 반환(OCR 텍스트 없음 등)으로
+        # LLM을 아예 안 불러서 페이로드가 비어있는 것과, tracing_context가 억제한 것을
+        # 구분할 수 없다.
+        assert result.business_registration_number == "123-45-67890", (
+            "OCR 체인이 LLM 호출까지 도달하지 못했다(mock 설정 오류) — "
+            "이 경우 아래 '전송 안 됨' 단언이 tracing_context 억제 때문인지 "
+            "애초에 호출을 안 해서인지 구분할 수 없어 검증이 무효화된다"
+        )
 
         _wait_for_flush(captured_ocr)
 
