@@ -138,6 +138,15 @@ export const DEFECT_GRADE_LABEL: Record<DefectGrade, string> = {
   E: '중대',
 };
 
+// 등급 색상 — features/map/constants.ts GRADE_COLOR와 동일 값(feature 간 직접 import 금지로 로컬 재정의)
+export const DEFECT_GRADE_COLOR: Record<DefectGrade, string> = {
+  A: '#16a34a',
+  B: '#65a30d',
+  C: '#eab308',
+  D: '#f97316',
+  E: '#dc2626',
+};
+
 // ---------------------------------------------------------------------------
 // 하자 목록·상세 개편 (draft, HAJA-393/394 · #725/#726, 2026-07-24)
 // docs/api-contract/contract.md §"하자 목록·상세 화면 개편" 참고 — 목록 화면은 하자 단건이 아니라
