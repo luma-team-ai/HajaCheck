@@ -32,6 +32,11 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // DB에서 바로 조회한다.
     Optional<Media> findFirstByInspectionIdOrderByIdAsc(Long inspectionId);
 
+    // 시설물 상세 "점검 이력" 썸네일 미리보기(#1549) — 최신 회차만 미리보기 2장을 보여주는데(
+    // FacilityInspectionHistoryItem.tsx THUMBNAIL_PREVIEW_COUNT=2), 위와 같은 이유로 전체 목록
+    // 대신 id asc 첫 2건만 DB에서 바로 조회한다.
+    List<Media> findTop2ByInspectionIdOrderByIdAsc(Long inspectionId);
+
     // 시설물 대표 사진(#632/#652, HAJA-377) — 최대 4장 제한을 업로드 전 애플리케이션 레벨에서 검증하기
     // 위한 현재 보유 장수 집계. facility_id 만 채워진 로우(inspection_id=null)만 센다.
     long countByFacilityId(Long facilityId);

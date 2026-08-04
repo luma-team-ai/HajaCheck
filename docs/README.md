@@ -1,6 +1,6 @@
 # hajaCheck 문서 가이드 (`docs/`)
 
-> **문서 버전:** v0.2 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.3 · **최종 수정:** 2026-08-04 · 이전 버전 `archive/`
 
 이 문서는 `docs/` 폴더의 **진입점**이다. (1) 어떤 문서가 어디에 있는지, (2) 문서를 어떻게 버전 관리·최신화하는지, (3) 개발 가이드라인이 무엇인지 안내한다.
 
@@ -14,12 +14,16 @@
 | `api-contract/contract.md` | API 계약 사람용 요약·설명 | openapi 보조 |
 | `api-contract/requirements_endpoints.md` | 요구사항↔엔드포인트 매핑 | 참조 |
 | `conventions/` | 스택별 코딩 컨벤션 + 로컬 개발 가이드 + 도메인 규칙 | ✅ **컨벤션 SOT** |
-| `design/ai/` | AI 체인 설계(브리핑·grounding·보고서) | 설계 |
+| `design/ai/` | AI 체인 설계(브리핑·grounding·보고서·RAG) | 설계 |
+| `data/` | 외부 데이터 출처 목록(법규 원문 등) | 참조 |
 | `design/db/table_design.md` | 테이블 설계서(컬럼·enum·제약 의미) | 설계(실 스키마는 아래 §3 참고) |
 | `design/db/*.sql` | 참조용 DDL 스크립트 (**배포 실행본 아님**) | 참조 |
 | `../backend/src/main/resources/db/migration/` | Flyway 버전 마이그레이션 | ✅ **DB 변경 실행 SOT** |
 | `prd/PRD_hajaCheck.md` | 제품 요구사항 정의서(최신) | ✅ **요구사항 SOT** |
-| `report/` | 보고서·버전 정합 자료 | 산출물 |
+| `report/` | 보고서·버전 정합 자료·감사 결과 | 산출물 |
+| `handoff/` | 작업 인수인계 지시서(완료분은 `handoff/archive/`) | 임시 |
+| `troubleshooting/` | 이슈에 못 붙인 트러블슈팅 기록 | 산출물 |
+| `pr-screenshots/` | PR 본문에 참조하는 스크린샷 | 자료 |
 | `STATUS.md` | 인프라·마지막 머지·다음 작업·알려진 이슈 | ✅ **운영 현황 SOT** |
 | `*/archive/` | 각 문서의 **구버전 스냅샷** | 이력 |
 | `_local/` | 내부 작업지시·개인 메모(비공개) | — |

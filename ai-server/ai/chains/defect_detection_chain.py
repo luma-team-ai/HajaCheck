@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from ai.core.grading import compute_crack_grade, compute_grade
 from ai.core.unet_client import (
+    CRACK_INPUT_SIZE,
     CRACK_MASK_THRESHOLD,
     get_crack_model,
     predict_crack_probability,
@@ -92,6 +93,7 @@ class DetectedDefect(BaseModel):
     area_px: float | None = None  # 마스크 픽셀 수(원본 해상도 환산)
     length_px: float | None = None  # 균열만 — 면적/폭 근사
     width_px: float | None = None  # 균열만 — 2×면적/둘레 근사(skeletonize 대비 r=0.9989)
+    width_mm: float | None = None  # 균열만 — 카드 기준물로 환산한 폭(원본 고해상도 재측정, #1487)
 
 
 class DefectDetectionError(Exception):
@@ -291,7 +293,17 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
     약 25%)이 섞여 있다. 이 경계에서 한 번만 잘라내면 area_ratio 분모·bbox 정규화 모두 자동으로
     "원본 이미지 기준"이 된다 — 패딩 오프셋을 아래 함수 곳곳에 하드코딩해 흩뿌리지 않는다(그렇게
     두면 area_ratio가 콘텐츠 비율만큼 축소돼 #953이 고쳤던 "전부 A" 버그가 재발한다).
+
+    또한 카드(기준물) 자동검출을 시도해 스케일(mm/px)을 산출하고, 성공 시 각 균열의 width_mm을
+    계산한다 (#1487). 카드 미검출 또는 폭 <0.7mm인 경우는 width_mm을 None으로 유지한다(신뢰
+    구간 밖).
     """
+    import cv2
+    import numpy as np
+
+    from ai.core.card_client import CARD_LONG_MM, detect_card
+    from ai.core.crack_mm_measurement import measure_crack_width_mm
+
     model = get_crack_model()
     prediction = predict_crack_probability(model, image)
     top, left = prediction.content_top, prediction.content_left
@@ -301,7 +313,58 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
     dark_ratio = _crack_dark_ratio(image, content_mask)
     # 레터박스는 종횡비를 보존하므로 가로/세로 스케일이 같다 — 측정값(px)을 원본 해상도로 환산.
     scale = image.width / width if width > 0 else 1.0
-    return _crack_mask_to_detections(content_mask, content_probability, dark_ratio, scale=scale)
+
+    detections = _crack_mask_to_detections(content_mask, content_probability, dark_ratio, scale=scale)
+
+    # 균열이 하나도 없으면 카드 검출 자체를 건너뛴다 — width_mm은 CRACK detection에만 붙는
+    # 부가 정보인데, 고비용 YOLO-World 추론(imgsz=2048, 실패 시 2x2 타일 재검출로 요청당 최대
+    # 5회)을 균열 없는 사진(대다수)에서 매번 돌 이유가 없다(#1547 P2).
+    if not detections:
+        return detections
+
+    # 카드 검출 및 mm 환산 시도 — width_mm은 부가 정보(설계상 미검출 시 None)라, 이 호출이
+    # 던지는 예외가 균열 탐지 자체를 무너뜨리면 안 된다. _crack_detections는 상위 detect_defects의
+    # 유형별 try/except(카드 예외 없이도 존재)로 감싸여 있어, 여기서 예외가 새면 이미 구한 균열
+    # detections까지 통째로 failed_types["CRACK"]로 사라진다(#1547 정재봉 P1 리뷰).
+    try:
+        card_result = detect_card(image)
+    except Exception:
+        logger.exception("카드 검출 실패 — width_mm 없이 균열 탐지는 계속 진행한다 (#1547)")
+        card_result = None
+    if card_result:
+        # mm/px(카드 실제 크기 ÷ 카드 픽셀 길이) — px/mm과 방향 반대이니 헷갈리지 말 것(#1547 P1).
+        card_scale_mm_per_px = CARD_LONG_MM / card_result.long_px
+        # 원본 해상도 BGR 변환 — measure_crack_width_mm의 BLACKHAT 재측정 입력(축소본이 아니라
+        # 원본을 그대로 쓰는 것이 B안의 핵심).
+        image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        content_h, content_w = content_probability.shape
+        for detection in detections:
+            if detection.type == "CRACK" and detection.width_px is not None:
+                # detection 자신의 bbox 영역만 남긴 마스크로 측정한다 — 이미지 전체
+                # content_probability를 그대로 넘기면 measure가 내부에서 "가장 큰 연결요소"
+                # 하나만 재므로, 분리된 균열이 여러 개일 때 모든 detection에 같은(가장 큰
+                # 균열의) 폭이 들어가는 정합성 버그가 된다(#1547 P2). bbox는 콘텐츠 좌표
+                # 정규화값이라 원복 시 ±2px 여유를 둔다(반올림 오차 방어).
+                x0 = max(0, int(detection.bbox_x * content_w) - 2)
+                y0 = max(0, int(detection.bbox_y * content_h) - 2)
+                x1 = min(content_w, int((detection.bbox_x + detection.bbox_w) * content_w) + 2)
+                y1 = min(content_h, int((detection.bbox_y + detection.bbox_h) * content_h) + 2)
+                scoped_probability = np.zeros_like(content_probability)
+                scoped_probability[y0:y1, x0:x1] = content_probability[y0:y1, x0:x1]
+                # content_probability는 패딩 제거본, crack_input_size는 고정 640(레터박스 캔버스
+                # 크기 — 비정사각 사진에서 콘텐츠 폭과 다르다)이어야 좌표가 맞는다(#1547 P1).
+                width_mm = measure_crack_width_mm(
+                    image_bgr,
+                    scoped_probability,
+                    card_scale_mm_per_px,
+                    crack_input_size=CRACK_INPUT_SIZE,
+                    crack_mask_threshold=CRACK_MASK_THRESHOLD,
+                )
+                # 0.7mm 이상만 기록 (미만은 신뢰도 부족)
+                if width_mm and width_mm >= 0.7:
+                    detection.width_mm = round(width_mm, 4)
+
+    return detections
 
 
 def _yolo_type_detections(defect_type: str, image: "Image.Image") -> list[DetectedDefect]:

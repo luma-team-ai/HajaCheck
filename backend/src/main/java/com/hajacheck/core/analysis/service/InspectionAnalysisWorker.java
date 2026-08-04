@@ -329,6 +329,7 @@ public class InspectionAnalysisWorker {
                 .confidence(item.confidence())
                 .grade(grade)
                 .areaRatio(item.areaRatio())
+                .crackWidthMm(item.widthMm())
                 .build();
     }
 

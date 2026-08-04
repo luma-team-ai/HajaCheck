@@ -28,6 +28,10 @@ public record ReportDetailResponse(
         Long editedBy,
         Long createdBy,
         LocalDateTime createdAt,
+        // PDF 내보내기 화면의 "저장됨" 표시가 지금까지 항상 createdAt(생성 시각, 불변)만 보여줘
+        // 편집·임시저장 이후에도 경과 시간이 갱신되지 않던 문제 — BaseTimeEntity의
+        // @LastModifiedDate updatedAt이 이 DTO에 없어 프론트가 대체로 createdAt을 썼다.
+        LocalDateTime updatedAt,
         ReportContext context) {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -48,6 +52,7 @@ public record ReportDetailResponse(
                 report.getEditedBy(),
                 report.getCreatedBy(),
                 report.getCreatedAt(),
+                report.getUpdatedAt(),
                 context);
     }
 

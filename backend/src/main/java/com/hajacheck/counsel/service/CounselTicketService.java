@@ -10,6 +10,7 @@ import com.hajacheck.counsel.entity.BotScenario;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSession;
 import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.entity.ChatSenderType;
 import com.hajacheck.counsel.entity.CounselTicket;
 import com.hajacheck.counsel.entity.CounselTicketStatus;
 import com.hajacheck.counsel.entity.CounselType;
@@ -72,6 +73,21 @@ public class CounselTicketService {
     private static final int CUSTOMER_HISTORY_SIZE = 20;
     private static final DateTimeFormatter TRANSCRIPT_TS =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    // 내보내기(.txt) 전용 한글 라벨 — 프론트 constants.ts의 CATEGORY_LABEL과 동일한 문구를 유지한다.
+    // 프론트 전용 상수라 백엔드에서 재사용할 수 없어 이 자리에 별도로 둔다(#1506 후속: 내보내기 파일에
+    // ACCOUNT_BILLING 같은 raw 코드가 그대로 노출되던 문제).
+    private static final Map<String, String> EXPORT_CATEGORY_LABEL = Map.of(
+            "ACCOUNT_BILLING", "계정 및 결제",
+            "ERROR_REPORT", "오류 신고",
+            "INSPECTION_REPORT", "점검 결과서 관련",
+            "USAGE_GUIDE", "이용 방법 안내");
+
+    private static final Map<CounselTicketStatus, String> EXPORT_STATUS_LABEL = Map.of(
+            CounselTicketStatus.WAITING, "배정 대기중",
+            CounselTicketStatus.IN_PROGRESS, "상담중",
+            CounselTicketStatus.RESOLVED, "상담 완료",
+            CounselTicketStatus.OFFLINE_LEFT, "고객 이탈 종료");
 
     private final CounselTicketRepository ticketRepository;
     private final ChatSessionRepository chatSessionRepository;
@@ -213,16 +229,17 @@ public class CounselTicketService {
     /** 대화 내보내기 — 당사자만. 전체 대화를 평문 텍스트 트랜스크립트(UTF-8)로 변환해 반환한다. */
     public Transcript exportTranscript(Long ticketId, Long requesterId) {
         CounselTicket ticket = loadParticipantTicket(ticketId, requesterId);
+        String counselorName = resolveCounselorName(ticket.getCounselorId());
         StringBuilder sb = new StringBuilder();
         sb.append("상담 티켓: ").append(ticket.getTicketNumber()).append('\n');
-        sb.append("카테고리: ").append(ticket.getCategory()).append('\n');
+        sb.append("카테고리: ").append(EXPORT_CATEGORY_LABEL.getOrDefault(ticket.getCategory(), ticket.getCategory())).append('\n');
         sb.append("제목: ").append(ticket.getTitle()).append('\n');
-        sb.append("상태: ").append(ticket.getStatus()).append('\n');
+        sb.append("상태: ").append(EXPORT_STATUS_LABEL.get(ticket.getStatus())).append('\n');
         sb.append("생성: ").append(ticket.getCreatedAt().format(TRANSCRIPT_TS)).append('\n');
         sb.append("----------------------------------------\n");
         for (ChatMessage message : loadMessages(ticket)) {
             sb.append('[').append(message.getCreatedAt().format(TRANSCRIPT_TS)).append("] ")
-                    .append(message.getSender()).append(": ")
+                    .append(exportSenderLabel(message.getSender(), counselorName)).append(": ")
                     .append(message.getContent() == null ? "" : message.getContent());
             if (message.getAttachmentKey() != null) {
                 sb.append(" [이미지 첨부]");
@@ -231,6 +248,16 @@ public class CounselTicketService {
         }
         byte[] content = sb.toString().getBytes(StandardCharsets.UTF_8);
         return new Transcript(ticket.getTicketNumber() + ".txt", content);
+    }
+
+    // 내보내기 발신자 라벨 — 고객은 계정 실명 대신 "고객"으로 익명화(파일이 상담원 손을 떠나
+    // 공유될 수 있어 개인정보 노출을 피한다), 상담원은 담당자 실명, 봇은 "챗봇"으로 표기한다.
+    private String exportSenderLabel(ChatSenderType sender, String counselorName) {
+        return switch (sender) {
+            case USER -> "고객";
+            case BOT -> "챗봇";
+            case COUNSELOR -> counselorName != null ? "상담원 " + counselorName : "상담원";
+        };
     }
 
     /**
@@ -260,6 +287,9 @@ public class CounselTicketService {
                 CounselTicketResponse.from(ticket, resolveCounselorName(counselorId));
         messagingTemplate.convertAndSendToUser(
                 String.valueOf(ticket.getUserId()), DEST_ASSIGNED, response);
+        // #1506 — 상담원 콘솔도 자신이 방금 배정받은 티켓을 알아야 한다(그래야 목록/화면이 즉시 갱신).
+        messagingTemplate.convertAndSendToUser(
+                String.valueOf(counselorId), DEST_ASSIGNED, response);
         return response;
     }
 
@@ -286,6 +316,12 @@ public class CounselTicketService {
                 CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
         messagingTemplate.convertAndSendToUser(
                 String.valueOf(ticket.getUserId()), DEST_ENDED, response);
+        // #1506 — 종료 시점 진입 전 ticket.resolve()가 IN_PROGRESS만 허용하므로 counselorId는 항상 non-null.
+        // 담당 상담원 콘솔도 종료 사실을 실시간으로 알아야 "종료됨" 배지가 즉시 반영된다.
+        messagingTemplate.convertAndSendToUser(
+                String.valueOf(ticket.getCounselorId()), DEST_ENDED, response);
+        // 활성 채팅 목록(대기열 IN_PROGRESS 필터) 실시간 갱신 — createTicket과 동일 패턴, 신호만 전달.
+        messagingTemplate.convertAndSend(DEST_QUEUE_UPDATED, "TICKET_RESOLVED");
         return response;
     }
 
@@ -348,6 +384,28 @@ public class CounselTicketService {
         ticket.leaveOffline();
         endSession(ticket.getSessionId());
         ticketRepository.saveAndFlush(ticket);
+        CounselTicketResponse response =
+                CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
+        // #1506 — 이전엔 아무에게도 알리지 않아 상담원 콘솔이 사용자 이탈을 몰랐다(활성 채팅에 "상담 중"
+        // 잔존 → 상담원이 종료를 누르면 409). WAITING 상태에서 이탈하면 counselorId가 없을 수 있다.
+        if (ticket.getCounselorId() != null) {
+            messagingTemplate.convertAndSendToUser(
+                    String.valueOf(ticket.getCounselorId()), DEST_ENDED, response);
+        }
+        messagingTemplate.convertAndSend(DEST_QUEUE_UPDATED, "TICKET_RESOLVED");
+        return response;
+    }
+
+    /**
+     * 티켓 단건 상태 조회(#1506) — 고객 화면이 WS 재연결 시점에 REST로 최신 상태를 백필하기 위한 폴백
+     * 엔드포인트. 당사자(사용자 본인/담당 상담원) 또는 PLATFORM_ADMIN만 허용 — {@link #getMessages}와
+     * 동일한 인가 패턴({@link #loadParticipantTicket}).
+     */
+    public CounselTicketResponse getTicket(Long ticketId, Long requesterId, boolean platformAdmin) {
+        CounselTicket ticket = platformAdmin
+                ? ticketRepository.findById(ticketId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND))
+                : loadParticipantTicket(ticketId, requesterId);
         return CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
     }
 

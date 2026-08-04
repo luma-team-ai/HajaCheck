@@ -38,6 +38,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import com.hajacheck.support.PngTestFixtures;
 
 /**
  * 가입 직후 <b>회사 스코프가 실제로 열리는지</b>를 실 PostgreSQL(Testcontainers)에서 검증한다(#1324).
@@ -77,7 +78,7 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
 
     private CompanySignupResponse signup(String email, String brn, String companyName) {
         MockMultipartFile file = new MockMultipartFile(
-                "businessRegistrationFile", "brn.png", MediaType.IMAGE_PNG_VALUE, "PNGDATA".getBytes());
+                "businessRegistrationFile", "brn.png", MediaType.IMAGE_PNG_VALUE, PngTestFixtures.realPng());
         return companySignupService.signup(new CompanySignupRequest(
                 email, "pass1234", companyName, brn, "김민수",
                 LocalDate.of(2020, 1, 1), "서울시 강남구 테헤란로 1", "10층", true, true, file));

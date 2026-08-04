@@ -338,6 +338,7 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
 
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(screen.getByText('아직 생성된 보고서가 없습니다')).toBeTruthy();
+    expect(screen.getByText(/이 점검에 대해 생성된 보고서가 없습니다/)).toBeTruthy();
     expect(screen.queryByText('편집화면')).toBeNull();
   });
 

@@ -1,5 +1,10 @@
 package com.hajacheck.core.ai.service;
 
+import com.hajacheck.counsel.entity.ChatMessage;
+import com.hajacheck.counsel.entity.ChatSenderType;
+import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
+import com.hajacheck.counsel.service.ChatSessionService;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.BriefingAiEnvelope;
 import com.hajacheck.core.ai.dto.BriefingResponse;
@@ -13,6 +18,7 @@ import com.hajacheck.core.ai.dto.DetectedDefectItem;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
+import com.hajacheck.core.ai.dto.HistoryTurnDto;
 import com.hajacheck.core.ai.dto.RagChatAiEnvelope;
 import com.hajacheck.core.ai.dto.RagChatAiRequest;
 import com.hajacheck.core.ai.dto.RagChatRequest;
@@ -33,6 +39,8 @@ import com.hajacheck.global.exception.ErrorCode;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -64,12 +72,26 @@ public class AiProxyService {
     private static final String RAG_DELETE_PATH = "/ai/rag-documents/{docId}";
     private static final String DETECT_DEFECTS_PATH = "/ai/detect-defects";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
+    // 프롬프트에 실어 보낼 최근 이력 턴 수(질문+답변 페어) — 설계 §3, HF_MAX_TOKENS 여유 고려한 초안값.
+    private static final int RECENT_HISTORY_TURN_LIMIT = 3;
 
     private final RestClient aiServerRestClient;
     private final AiServerProperties aiServerProperties;
     private final BriefingStatsService briefingStatsService;
     private final AiProxyRateLimiter aiProxyRateLimiter;
     private final RestClient aiServerEmbeddingStatusRestClient;
+    // 세션 소유 검증 전용(#1467/HAJA-647). 인가 로직을 여기서 재구현하지 않고 counsel 도메인 서비스에
+    // 위임해 /api/chat-sessions 와 동일한 규칙·동일한 403을 쓴다.
+    private final ChatSessionService chatSessionService;
+    // 세션 이력 조회 전용(#1493/HAJA-657). ChatSessionService.findMessages()가 쓰는 것과 동일한
+    // 리포지토리를 재사용한다(조회 로직 중복 금지). 조회는 단건 repository 호출이라 별도
+    // @Transactional 불필요 — 쓰기(저장)만 RagConversationPersistenceService로 분리한 이유는
+    // 그 클래스 javadoc 참고.
+    private final ChatMessageRepository chatMessageRepository;
+    // 대화 저장(질문/답변/citation)은 별도 빈에 위임 — ragChat()이 FastAPI 호출까지 트랜잭션으로
+    // 묶어 DB 커넥션을 오래 점유하는 것을 막기 위함(PR #1510 P1 픽스, RagConversationPersistenceService
+    // javadoc 참고).
+    private final RagConversationPersistenceService ragConversationPersistenceService;
 
     /**
      * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
@@ -213,14 +235,43 @@ public class AiProxyService {
      *
      * <p>프론트 요청({@code query})을 FastAPI 계약({@code question})으로 변환해 전달한다 — 필드명이 달라
      * {@link RagChatRequest} 를 그대로 재사용할 수 없다({@link RagChatAiRequest} javadoc 참고).
-     * {@code session_id} 는 세션 소유·{@code session_type='RAG'} 검증이 후속 이슈로 분리돼 있어
-     * (contract.md §"내부 호출 계약", {@code /api/chat-sessions} 미구현) 이번 범위에서는 보내지 않는다.
+     * <p>{@code sessionId}(#1467/HAJA-647)는 선택 값이다. 값이 있으면 <b>FastAPI를 호출하기 전에</b>
+     * 세션 소유자({@code userId} 일치)와 {@code sessionType=RAG} 를 검증하고, 불일치·미존재면
+     * {@link ErrorCode#CHAT_SESSION_FORBIDDEN}(403)으로 중단한다 — 타인 세션 식별자를 실어 보내는
+     * cross-user 접근(IDOR) 차단이 목적이라, 검증은 반드시 외부 호출·과금보다 앞서야 한다.
+     * 세션이 있으면 최근 3턴 이력을 FastAPI에 함께 전달하고, 응답 성공 시 질의/답변/출처를 저장한다
+     * (#1493/HAJA-657). 세션이 없으면(단발 질의) 이력 전달·저장 둘 다 생략 — 기존 무상태 호출과 회귀 없음.
+     * <p>이 저장은 <b>best-effort</b> 다(#1593) — 실패해도 답변은 정상 반환하고 로그만 남긴다. 이유와
+     * 트레이드오프(출처 칩 유실, 최악의 경우 그 턴 누락)는 아래 호출 지점 주석 참고.
+     *
+     * <p>이 메서드 자체에는 {@code @Transactional} 을 붙이지 않는다(PR #1510 P1 픽스) — FastAPI 호출
+     * ({@code callAiServer}, 캐시 미스 시 수 초 소요 가능)까지 트랜잭션으로 묶으면 그 동안 DB 커넥션을
+     * 계속 점유해 동시 요청이 몰릴 때 커넥션 풀 고갈로 이어질 수 있다. 저장(DB 쓰기)만
+     * {@link RagConversationPersistenceService} 로 분리해 그 빈에만 {@code @Transactional} 을 붙인다
+     * (클래스 상단 주석 "이 서비스는 DB 접근이 없어 @Transactional 미부착" 그대로 유지 — ragChat()도
+     * 자체적으로는 DB에 직접 쓰지 않는다, 조회는 read-only 단건 호출이라 별도 트랜잭션 불필요).
+     *
+     * @param userId    요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal} 에서만 취득해 전달한다.
+     * @param companyId 요청자의 회사 식별자(#1584) — 마찬가지로 {@code @AuthenticationPrincipal} 에서만
+     *                  취득한다(요청 바디 금지). AI 서버 시맨틱 캐시의 회사 스코프 키로 그대로 전달되며,
+     *                  바디에서 받으면 임의 회사의 캐시 답변을 읽어갈 수 있으므로 신뢰하지 않는다.
+     *                  회사 미소속 개인회원은 {@code null} — AI 서버가 시맨틱 캐시를 건너뛴다(fail-closed).
      */
-    public ApiResponse<RagChatResponse> ragChat(Long userId, RagChatRequest request) {
+    public ApiResponse<RagChatResponse> ragChat(Long userId, Long companyId, RagChatRequest request) {
+        // 인가 먼저: rate-limit 소모나 AI 서버 호출보다 앞서 타인 세션 접근을 차단한다.
+        if (request.sessionId() != null) {
+            chatSessionService.getOwnedSession(userId, request.sessionId(), ChatSessionType.RAG);
+        }
         // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
         aiProxyRateLimiter.checkUser(userId);
         aiProxyRateLimiter.checkGlobal();
-        RagChatAiEnvelope envelope = callAiServer(new RagChatAiRequest(request.query()));
+
+        List<HistoryTurnDto> history = request.sessionId() != null
+                ? buildRecentHistory(request.sessionId())
+                : List.of();
+
+        RagChatAiEnvelope envelope =
+                callAiServer(new RagChatAiRequest(request.query(), companyId, history));
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
@@ -238,7 +289,70 @@ public class AiProxyService {
         if (envelope.data() == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
+
+        if (request.sessionId() != null) {
+            // 대화 저장은 best-effort(#1593) — 이 시점엔 이미 FastAPI LLM 파이프라인이 돌아 비용이 발생했고
+            // 답변도 손에 있다. 저장 실패로 답변까지 500으로 뒤집으면 사용자는 답을 못 받고 비용만 나간다.
+            // AuthController.login() 의 lastLoginAt 갱신과 같은 취지다.
+            //
+            // 실패 경로는 전부 citation 쪽이다 — chat_message_citations 는 document_id → rag_documents FK 와
+            // unique(message_id, document_id, chunk_ref), 그리고 NOT NULL·varchar(100) 제약을 갖는다:
+            //   ① FK 위반 — 검색 시점엔 존재하던 문서를 LLM 생성(수 초) 중에 관리자가 삭제하면 저장 시점엔
+            //      대상이 사라진 상태다(TOCTOU 레이스). RagDocumentService.delete() 가 Chroma → PG 순서를
+            //      고정해도(#1394) 이 레이스 자체는 닫히지 않는다.
+            //   ② unique 위반 — 같은 청크 중복 인용. RagCitationWriter 의 중복 제거로 선제 차단.
+            //   ③ NOT NULL·길이 위반 — RagCitationWriter 의 필드 가드로 선제 차단.
+            // 저장은 (메시지 트랜잭션) → (출처 트랜잭션) 두 단계로 쪼개져 있어, ①~③ 이 터져도 질문·답변
+            // 이력은 커밋된 채 남고 출처 칩만 사라진다(RagConversationPersistenceService 참고).
+            //
+            // ⚠️ try/catch 는 반드시 "호출부"인 여기 있어야 한다. 저장 빈들은 @Transactional 이 붙은 별도
+            // 빈이라(PR #1510) 예외가 프록시 경계를 넘는 순간 해당 저장 트랜잭션만 롤백되고 답변 반환은
+            // 살아남는다. 서비스 내부에서 잡으면 트랜잭션이 이미 rollback-only 로 마킹돼 커밋 시점에
+            // UnexpectedRollbackException 으로 다시 터진다.
+            //
+            // ⚠️ 트레이드오프: 여기까지 예외가 올라오는 경우(= 메시지 저장 자체가 실패)엔 답변은 정상
+            // 반환되지만 그 턴이 대화 이력에 남지 않는다 — 새로고침하면 사라지고 다음 질의의 history(최근
+            // 3턴)에서도 빠져 문맥이 한 턴 끊긴다. 답변을 통째로 잃는 것보다는 낫다는 판단이며, 조용히
+            // 삼키지 않고 아래 로그로 관측 가능하게 남긴다.
+            try {
+                ragConversationPersistenceService.saveConversation(
+                        request.sessionId(), request.query(), envelope.data());
+            } catch (Exception e) {
+                log.error("RAG 대화 저장 실패(답변 자체는 정상 반환) — 이 턴은 이력에 남지 않음 "
+                                + "userId={}, sessionId={}, docIds={}",
+                        userId, request.sessionId(),
+                        RagConversationPersistenceService.docIds(envelope.data()), e);
+            }
+        }
         return ApiResponse.ok(envelope.data());
+    }
+
+    /**
+     * 세션의 (질문, 답변) 페어 중 최근 {@link #RECENT_HISTORY_TURN_LIMIT}개만 시간순으로 추린다.
+     * citation은 제외하고 질문/답변 텍스트만 담는다(설계 §3).
+     *
+     * <p>세션 전체 이력이 아니라 최근 {@link #RECENT_HISTORY_TURN_LIMIT} * 2(=6)건만 DB에서 가져온다
+     * (PR #1510 P2 픽스) — 세션이 길어질수록 전체 조회량이 선형 증가하는 것을 막는다.
+     * {@code findTop6BySessionIdOrderByCreatedAtDesc}는 최신순(desc)이라 프롬프트에 넣을 때는
+     * 다시 시간순(asc)으로 뒤집어야 한다.
+     */
+    private List<HistoryTurnDto> buildRecentHistory(Long sessionId) {
+        List<ChatMessage> recentDesc = chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(sessionId);
+        List<ChatMessage> messages = new ArrayList<>(recentDesc);
+        Collections.reverse(messages);
+
+        List<HistoryTurnDto> turns = new ArrayList<>();
+        ChatMessage pendingQuestion = null;
+        for (ChatMessage message : messages) {
+            if (message.getSender() == ChatSenderType.USER) {
+                pendingQuestion = message;
+            } else if (message.getSender() == ChatSenderType.BOT && pendingQuestion != null) {
+                turns.add(new HistoryTurnDto(pendingQuestion.getContent(), message.getContent()));
+                pendingQuestion = null;
+            }
+        }
+        int fromIndex = Math.max(0, turns.size() - RECENT_HISTORY_TURN_LIMIT);
+        return turns.subList(fromIndex, turns.size());
     }
 
     private RagChatAiEnvelope callAiServer(RagChatAiRequest request) {

@@ -78,6 +78,9 @@ class AdminPlanServiceTest {
     // 아래 BeforeEach 가 "유예 아님"(= 구독 요금제 그대로)으로 스텁한다.
     @Mock
     private com.hajacheck.membership.service.PaymentGraceService paymentGraceService;
+    // 좌석 실측 단일 소스(#1473) — QuotaService#measureSeats 재사용 확인용.
+    @Mock
+    private com.hajacheck.membership.service.QuotaService quotaService;
 
     @InjectMocks
     private AdminPlanService service;
@@ -103,6 +106,62 @@ class AdminPlanServiceTest {
                 .when(planRepository.findById(org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(Optional.of(Plan.create(PlanName.ENTERPRISE, null, null, 50,
                         false, true, true, new BigDecimal("99000.00"))));
+    }
+
+    @Test
+    void 현재플랜조회_좌석은_저장카운터가아니라_실측값이다() {
+        // #1473 — usage_counters.seat_count(저장 카운터=99, 드리프트된 값)가 아니라 QuotaService#measureSeats
+        // 실측값이 응답에 실려야 한다. MyPlanResponse 와 동일한 회귀 방지 테스트.
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan plan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true,
+                new BigDecimal("29000.00"));
+        com.hajacheck.membership.entity.UsageCounter usage = com.hajacheck.membership.entity.UsageCounter.create(
+                current.getId(), java.time.YearMonth.now(java.time.ZoneId.of("Asia/Seoul")).atDay(1),
+                10, 2, 3, 99, 0, 0); // seatCount=99(오염된 저장값)
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findById(100L)).thenReturn(Optional.of(plan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(current.getId()), any()))
+                .thenReturn(Optional.of(usage));
+        when(quotaService.measureSeats(companyId)).thenReturn(1);
+
+        var response = service.getCurrentPlan(adminUserId);
+
+        assertThat(response.usage().seatCount()).isEqualTo(1);
+        // 분석·시설물 카운트는 여전히 저장 카운터 그대로(회귀 없음).
+        assertThat(response.usage().analyzedImageCount()).isEqualTo(10);
+        assertThat(response.usage().facilityCount()).isEqualTo(2);
+    }
+
+    @Test
+    void 현재플랜조회_당월사용량행없어도_좌석은실측값() {
+        // #1473 재현 시나리오 — usage_counters 행 자체가 없는 회사(좌석 점유 시점에 lazy 생성 안 됨).
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("admin@haja.com").name("관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan plan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true,
+                new BigDecimal("29000.00"));
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findById(100L)).thenReturn(Optional.of(plan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(eq(current.getId()), any()))
+                .thenReturn(Optional.empty());
+        when(quotaService.measureSeats(companyId)).thenReturn(1);
+
+        var response = service.getCurrentPlan(adminUserId);
+
+        assertThat(response.usage().seatCount()).isEqualTo(1);
+        assertThat(response.usage().analyzedImageCount()).isZero();
     }
 
     @Test

@@ -360,8 +360,25 @@ class DefectControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 하자상태전이_해결상태이탈요청_409_INVALID_STATE_TRANSITION() throws Exception {
+    void 하자상태전이_해결상태이탈요청_사유없으면400_INVALID_INPUT() throws Exception {
+        // HAJA-26 3차(#1556) — RESOLVED도 다른 역행/건너뛰기 전이와 동일하게 사유가 있어야만 허용된다.
         User owner = saveOwner("owner13@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        Inspection inspection = saveInspection(facility.getId(), owner.getId());
+        Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.RESOLVED);
+
+        mockMvc.perform(patch("/api/defects/{id}/status", defect.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("status", "IN_PROGRESS"))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    @Test
+    void 하자상태전이_해결상태이탈요청_사유있으면200() throws Exception {
+        // HAJA-26 3차(#1556) — 조치완료로 잘못 넘어간 하자를 사유와 함께 되돌릴 수 있다.
+        User owner = saveOwner("owner14@haja.com");
         Facility facility = saveFacility(owner.getId());
         Inspection inspection = saveInspection(facility.getId(), owner.getId());
         Defect defect = saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.RESOLVED);
@@ -371,8 +388,8 @@ class DefectControllerTest extends PostgresTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
                                 Map.of("status", "IN_PROGRESS", "reason", "재검토 필요"))))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value("INVALID_STATE_TRANSITION"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("IN_PROGRESS"));
     }
 
     // IDOR 회귀 테스트(필수) — 타 사용자 소유 하자 상태 전이는 404(리소스 존재 여부 비노출).

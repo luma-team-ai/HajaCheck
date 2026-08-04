@@ -42,6 +42,11 @@ public enum InspectionStatus {
         transitions.put(ANALYZING, EnumSet.of(CREATED, UPLOADING, ANALYZED));
         transitions.put(ANALYZED, EnumSet.of(ANALYZING, REVIEWED));
         transitions.put(REVIEWED, EnumSet.of(REPORTED));
+        // REPORTED = 종단(추가 전이 없음). ⚠️ 다음 점검일 재계산 가드
+        // (FacilityService#isStaleInspectionDate)가 이 종단성에 의존한다 — "REPORTED 회차는
+        // 집계에서 절대 빠지지 않는다"를 전제로 max(REPORTED)를 최신 확정 회차로 쓰기 때문이다.
+        // 훗날 REPORTED → 재작성/취소 전이를 열면 확정 회차가 집계에서 이탈해 낡은 회차가 다시
+        // 다음 점검일을 덮어쓸 수 있으므로, 그 가드도 함께 재설계할 것(#1591 리뷰).
         transitions.put(REPORTED, EnumSet.noneOf(InspectionStatus.class));
         ALLOWED_TRANSITIONS = transitions;
     }

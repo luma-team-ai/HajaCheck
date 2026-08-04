@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-08-04
+> 마지막 갱신: 2026-08-05
 
 ## 인프라
 
@@ -35,6 +35,49 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+> 📌 **2026-08-05 승격 준비 세션 — 인계 요약은 [다음 작업] 최상단 "🔴 승격 배치 인계" 참조.** P1 3건 해소 완료. **미완 2건 전부 dev 머지 완료(08-05)**: PR #1602(dev 수리)→#1600(#1594)→#1601(#1598) 순 수동 머지 — 머신이 "dev 자체 깨짐"(`test_card_client.py` 3건, YOLO 로더 mock 누락 → 머신 러너 캐시 권한 PermissionError)으로 #1600을 보류해, #1602로 dev 수리 후 메타 검수(code-reviewer sonnet ×2, P1/P2 0) 거쳐 사람 머지. **코드 작업 완결 — 남은 건 승격 절차뿐**(사전 확인 3개: #660 프리플라이트 쿼리 · WS host nginx Upgrade 헤더 · 승격 배포의 프론트 재빌드 여부 → 승격 PR 생성 → 사람 승인).
+
+- **PR #1599 dev 머지 (2026-08-05)** — RAG 대화 저장 실패가 성공한 답변을 500으로 뒤집던 문제 수정(#1593). 승격 검수 P2. `saveConversation`이 FastAPI 호출 **성공 뒤**에 불리는데 예외를 안 삼켜, `chat_message_citations`의 FK(삭제된 `rag_document` 인용)·unique(동일 청크 중복) 위반 시 **이미 LLM 비용을 쓴 답변까지 롤백**되고 사용자는 500을 받았다. 저장을 3계층으로 분리 — `RagChatMessageWriter`(`REQUIRES_NEW`, USER/BOT 한 트랜잭션 유지: 반쪽 이력이면 `buildRecentHistory()` 페어링이 깨짐) → **커밋 이후 순차로** `RagCitationWriter`(`REQUIRES_NEW`) → `@Transactional` 없는 오케스트레이터가 출처 실패만 흡수. ⚠️ **중첩이 아니라 순차인 이유**: citation을 메시지 트랜잭션 *안에서* `REQUIRES_NEW`로 부르면 별도 물리 트랜잭션이 **아직 커밋 안 된 봇 메시지 행을 볼 수 없어** FK 위반이 난다(리뷰 제안대로 했다가 구현자가 잡아 정정, 순서 제약을 통합테스트로 고정). 트레이드오프가 2안→**3안**으로 개선: 답변 ✓ / **이력 ✓** / 출처 칩만 유실(초기 판단은 "이력 유실 불가피"였으나 실패 경로가 전부 citation 쪽이라 분리 가능했다). `REQUIRES_NEW` 명시로 **전제를 구조로 승격** — 기본 `REQUIRED`면 누가 `@Transactional` 붙은 서비스에서 `ragChat()`을 호출하는 순간 rollback-only 오염 → catch가 삼킴 → 바깥 커밋에서 `UnexpectedRollbackException`으로 **막으려던 실패 모드가 부활**한다(사보타주로 실제 PG에서 재현 확인). `isStorable()` 가드로 `chunkRef` null/blank/>100자·`locator`/`snippet` null/blank 방어. FK 원인 주석도 정정 — `RagDocumentService.delete()`(#1394)가 Chroma→PG 순서를 고정하므로 "PG에 없는데 Chroma에 잔존"은 정상 경로에서 안 생기고, **실제는 TOCTOU 레이스**(검색 후 LLM 생성 수 초 사이 삭제)라 삭제 순서로는 못 닫는다. `./gradlew test` **2240건 0 failures**. GitHub #1593 `awaiting-promotion`.
+- **PR #1596 dev 머지 (2026-08-05)** — Kakao geocode 무한 대기 · RAG session_id 미정리 · 상담원 종료 stale(#1590). 승격 검수 프론트 P2 3건. ① 주소 필수화(#1546)로 `if (values.address.trim())`가 **항상 참**이 돼 모든 시설물 등록이 SDK 로드를 타는데 타임아웃이 없어, `onload`/`onerror` 미발화 시 Promise가 영구 pending → `finally` 미도달 → 등록 모달이 **새로고침 없이 복구 불가**. 로더 15초 + **`addressSearch` 콜백 8초** 양쪽에 상한(로더만 막으면 "타임아웃 계약이 절반만 참"), `GeocodeFailedError`로 변환해 기존 best-effort catch로 흘려 **등록 자체는 성공**. `sdkReady` 플래그로 단축 경로 판정을 `maps.load()` 콜백 이후로 좁혀 #835 조기 resolve 재발 차단. ② `hajacheckRagSessionId`를 로그인 3진입점+로그아웃+**`axios.ts` 401 강제 로그아웃**(5번째 지점)에서 정리, 복원 promise를 `restoreRef`에 담아 `runQuery`가 세션 발급 전 await(상한 3초 + `sessionCommittedRef`). ③ `ticketId` 변경 시 `counselApi.getTicket()` 1회 백필(#1506 패턴), 확정 전 버튼 미렌더·입력창 disabled. **환경 독립성 실측**: dev+Kakao키=16실패 → 이 PR+키주입=**10실패**(키 없을 때와 동일) = 6건 해소 + "알려진 실패 목록이 환경마다 달라지던" 문제 소멸. 사보타주 6건. GitHub #1590 `awaiting-promotion`.
+- **PR #1595 dev 머지 (2026-08-05)** — 점검일 재계산 역행 + `registerActionResult` 앞선 멤버 차단(#1591). 승격 검수 백엔드 P2 2건. ① `updateSchedule(cycle, baseDate)`가 무조건 덮어써, 3회차 확정 뒤 밀린 2회차를 확정하면 `next_inspection_due_at`이 **과거로 회귀**했다 → `isStaleInspectionDate` 가드(**최신 REPORTED 회차**보다 앞선 `baseDate`면 skip). `max(기존값, …)`을 쓰지 않은 이유: 파생값이 단조증가로 고정돼 `FacilityService.update()`로 주기를 12→3개월 줄여도 옛 값에 눌러앉는다. ⚠️ **1차 픽스가 새 회귀를 만들었다** — 가드가 쓰던 `findMaxInspectionDateByFacilityId`에 `status` 조건이 없어 **미확정 회차까지 max를 끌어올려**, "3회차 분석 중 + 2회차 확정"에서 재계산이 skip되며 원래 증상이 다른 경로로 부활했다(리뷰가 잡음, `REPORTED` 필터로 해소). **유닛 테스트로는 못 잡는 영역**이라 `@DataJpaTest`(Testcontainers PG16 + 운영 DDL + `validate`) 기반 `InspectionRepositoryTest` 2건 추가 — 리포지토리를 목킹하면 JPQL 변경을 원리적으로 감지할 수 없고, 이 테스트가 `i.status = :status`의 **PG named enum 파라미터 바인딩**(깨지면 배포 후 500)까지 함께 고정한다. ② 팬아웃 루프에 스킵 규칙이 없어 그룹에 RESOLVED 멤버가 하나만 있어도 그 사진의 조치 등록이 **영구 불가**였다 → `updateStatus`의 `shouldSkipGroupMember` 공유(상태 전이는 생략, 조치 필드·revision·action log는 기록). 기존 테스트 2건 갱신은 "의도 보존, 방식만 변경"으로 리뷰 판정 — 특히 PR #1587 본문이 그 테스트를 "후속 픽스 때 갱신 대상"으로 **직접 지목**해둔 것이 결정적 근거였다. `./gradlew test` **2227건 0 failures**. GitHub #1591 `awaiting-promotion`.
+- **PR #1587 dev 머지 (2026-08-05)** — 하자 상태 그룹 팬아웃이 앞서간/뒤처진 멤버를 잘못 전이시키던 P1(#1583). 승격 검수 P1. 스킵 조건이 `defect.getStatus() == status`뿐이라, 사진 1장에 A=RESOLVED·B=DETECTED일 때 B만 CONFIRMED로 바꾸면 **사유 없으면 트랜잭션 전체 롤백(B조차 400)**, **사유 있으면 A가 RESOLVED→CONFIRMED로 조용히 역행**하며 `actionContent`/`actionDate`는 남아 "조치 기록은 있는데 상태는 미조치"인 모순 데이터가 됐다. 스킵 규칙을 **anchor 이동 방향에 종속**시켜 해결 — 정방향은 `!memberStatus.isForwardStepTo(target)`(동일·앞선·두 단계 이상 뒤처진 멤버 전부 스킵), 역방향은 `memberStatus == target`만 스킵해 #1556 "그룹 전체 되돌리기"를 보존. ⚠️ 이슈가 제시한 무조건 `ordinal() >=` 스킵을 그대로 넣으면 #1556이 죽고, 1차 픽스는 **거울상**(뒤처진 멤버가 사유만 있으면 `actionContent=null`인 채 조치완료로 건너뜀)을 열었다 — 두 번의 리뷰 라운드로 닫았다. `Defect.changeStatus`의 `expectedNext` switch를 `DefectStatus.isForwardStepTo`로 **위임**해 엔티티·서비스가 단일 기준을 공유(규칙이 두 곳으로 갈릴 수 없음). 기존 테스트가 못 잡던 이유도 교정 — 그룹 멤버를 전부 DETECTED로 스텁했는데 프로덕션 쿼리(`GROUP_ELIGIBLE_STATUSES`)는 **DETECTED를 절대 반환하지 않는다**(존재할 수 없는 상황을 green으로 만들고 있었음). 사보타주 3회. `./gradlew test` **2218건 0 failures**. GitHub #1583 `awaiting-promotion`.
+- **PR #1589 dev 머지 (2026-08-05)** — RAG 시맨틱 캐시에 회사 스코프 강제, cross-tenant 답변 노출 차단(#1584). squash `8d6d1688`. dev→main 승격 직전 전체 검수에서 code-reviewer·security-reviewer(opus)가 **독립적으로 지적한 P1**. 시맨틱 캐시(Chroma `semantic_cache`)가 회사 스코프 없는 전역 컬렉션이라, 저장은 `metadata={"answer_json": …}`(스코프 필드 없음)·조회는 `similarity_search_with_score(q, k=1)`(`filter` 없음)이었다 → A사가 "○○아파트 3동 외벽 균열 보수 의무 주체"를 물으면 그 질문 맥락으로 생성된 **LLM 답변 본문**을 B사의 유사 질문(cosine distance ≤ 0.05)이 그대로 수신(법규 코퍼스는 공용이라 `sources`는 무해, 답변이 질문 고유명사를 되받는 게 문제). 기존 Redis exact-match(sha256 완전일치)는 동일 문장에만 히트해 위험이 낮았고, **시맨틱 캐시가 노출 범위를 "유사 질문"으로 구조적으로 확장**한 것이 핵심. 수정: Spring이 `@AuthenticationPrincipal`의 `companyId`만 FastAPI로 전달(**요청 바디 금지** — 클라이언트 DTO `RagChatRequest`에 필드 자체가 없어 바인딩 경로 부재) → 저장 `metadata["company_id"]` + 조회 `filter={"company_id": …}`. **개인회원(`companyId == null`)은 fail-closed** — Chroma가 `None`을 metadata·filter 양쪽에서 `ValueError`로 거부해(실측) 유일한 대안이 전역 폴백이므로, 시맨틱 캐시를 조회도 저장도 하지 않고 통과시킨다(라우팅 가드 + 노드 가드 이중화 → 그래프 엣지가 바뀌어도 전역 조회가 되살아나지 않음). exact 캐시·LLM 경로는 정상. 테스트가 **mock이 아닌 실제 Chroma**(임시 `PersistentClient` + 결정론적 임베딩 스텁, 운영과 동일 `hnsw:space=cosine`)를 써서 "필터 없었다면 히트했을 유사도"를 대조군으로 먼저 단언 — B사 미스의 원인이 질문 비유사가 아니라 회사 필터임을 증명. `filter=`가 **pre-filter**임도 실측(post-filter였다면 같은 회사 히트가 조용히 사라지는 회귀). 픽스 라운드에서 회귀 검출기 1건 복원(`test_rag_chat_with_history_skips_cache_lookup_and_write`가 `company_id` 미전달로 **새 null 가드가 `skip_cache` 가드를 가려** #1493 불변식 검출력을 잃고 있었음 — 가드를 통째로 지워도 전건 통과). `pytest` **407 passed, 2 skipped** · `./gradlew test` **2209건 0 failures**. **PR머신 P1 2건 중 1건 수용·1건 오탐 판정**: openapi `info.version` 0.43.0-draft→**0.44.0-draft**·contract **v0.15→v0.16** bump는 반영(`288c8310`) / contract v0.15 archive 스냅샷은 **거부** — `origin/main`이 v0.14라 v0.15는 released가 아니고, 프로젝트 CLAUDE.md 문서 버전 관리 **규칙 5**(릴리스된 적 없는 버전명 archive 등재 금지)에 정면으로 걸린다(머신 근거 중 "선행 40건 예외 없이 bump"도 `0374c631`/`938780b4`/`8ba0cbed`·`724ed904`/`a386354c`로 반증). 머신이 재검수를 돌리지 않아 `ai:p1-blocked` 잔존 상태에서 **메타 직접 검수 후 사람 머지**. G6 PASS — Flyway·운영 config 무변경, 시크릿 3패턴 0건, CI 전 잡 pass. GitHub #1584 `awaiting-promotion` 라벨 부여. **⚠️ 승격 전제: `semantic_cache` 컬렉션 1회 purge — 아래 [다음 작업] 참조.**
+- **PR #1586 dev 머지 (2026-08-05)** — LangSmith 트레이스에 정규식 PII 스크럽 anonymizer 도입(#1585). squash `a2eb7669`. #1534/PR #1545에서 전면 마스킹(`LANGSMITH_HIDE_INPUTS/OUTPUTS`)을 가시성 때문에 폐기한 뒤 생긴 공백을 메운다 — `rag_chat`/`nl_search`는 사용자 자유 입력이라 질의에 전화·이메일·주민번호를 적으면 그대로 외부 SaaS(LangSmith APAC)로 나갔다. 전면 마스킹 복원이 **아니라** `Client(anonymizer=...)` 훅으로 **부분 치환**: 정규식 5종(이메일·주민번호·카드·사업자번호·전화)만 `[REDACTED:종류]`로 바꾸고 프롬프트·응답 원문과 dict 키·list 순서·비-str 메타는 보존. `inputs`/`outputs`/`error` 세 경로 모두 같은 훅이 커버(`_hide_run_error`가 `{"error": …}`로 감싸 넘김 — langsmith 0.10.10 실측). 사업자등록증 OCR 체인의 `tracing_context(enabled=False)`(#1557)는 무수정 = 계속 트레이싱 완전 제외. **PR머신 P1 1건 픽스**(`50517d91`): `install_pii_scrub_anonymizer()`가 main.py 모듈 최상위에서 무보호 호출돼 langsmith private API 실패 시 `import main`까지 예외가 전파돼 ai-server가 기동 불가(실측 재현) → 함수 본문을 `try/except`+`logger.exception`으로 fail-safe화 + 회귀 테스트 2건. P3(테스트 헬퍼 복붙)도 `tests/_langsmith_test_helpers.py` 추출로 해소. 2라운드 P1 0건, G6 PASS. 자동머지는 "시크릿 의심 값" 가드(테스트 더미 상수 오탐, 이미 dev에 존재)로 보류돼 **사람 수동 머지**. `pytest` **409 passed, 2 skipped**. 운영 config·마이그레이션 무변경 — arm1은 `LANGCHAIN_TRACING_V2=true`(실측)라 **승격 즉시 스크럽 실효**, 신규 env 불필요. GitHub #1585 `awaiting-promotion` 라벨 부여.
+- **PR #1580 dev 머지 (2026-08-05)** — 균열 폭 mm 측정값이 Spring에서 유실되던 문제 수정(#1578, #1487/#1547 후속). ai-server(#1547)가 카드 기준물 자동검출로 `width_mm`을 계산해 응답에 실어도, `DetectedDefectItem`에 그 필드가 선언돼 있지 않아 `@JsonIgnoreProperties(ignoreUnknown = true)`에 의해 조용히 버려지고 `InspectionAnalysisWorker.toDefect()`도 `Defect.crackWidthMm`에 매핑하지 않아 화면엔 항상 "정보 없음"만 떴다(#1547 PR 본문에 "Spring 연결은 별도 후속 PR"로 명시된 그 스코프). `DetectedDefectItem`에 `widthMm` 필드 추가 + `toDefect()`에 `.crackWidthMm(item.widthMm())` 매핑 두 줄로 해결 — DB 컬럼(`crack_width_mm`)·DTO(`DefectResponse`/`DefectDetailItem`/`ReportDetailResponse`)·프론트(`DefectDetailModal.tsx`)는 V1 베이스라인부터 이미 준비돼 있어 프론트 코드 변경 없음. 신규 마이그레이션 없음(기존 컬럼 재사용). 회귀 테스트(카드 검출 성공/실패 케이스 동시 검증) 추가, 백엔드 전체 스위트 **2206건 0 failures**. GitHub #1578 `awaiting-promotion` 라벨 부여. **⚠️ 이미 분석 완료된 기존 데이터는 소급 반영 안 됨 — 재분석 필요.**
+- **PR #1533 dev 머지 (2026-08-04)** — 로그인 API를 화면별 3개 엔드포인트로 분리하고 **서버가 role 화이트리스트를 강제**(#1514). 기존엔 기업·플랫폼관리자·상담원 세 화면이 같은 `POST /api/auth/login`을 써서 서버가 요청 출처를 알 수 없었고, role 판정은 프론트 훅이 "이미 발급된 세션을 `logout()`으로 되돌리는" 사후 처리라 devtools로 그 logout만 막거나 curl로 직접 치면 뚫렸다. → `/api/auth/login`(ADMIN·INSPECTOR·USER) · `/api/auth/platform-admin/login`(PLATFORM_ADMIN) · `/api/auth/counselor/login`(COUNSELOR)로 분리, **인증 성공해도 role 불일치면 세션 자체를 미발급**(403 `AUTH_ROLE_NOT_ALLOWED`). 게이트를 `getSession(true)`/`changeSessionId()` **앞**에 배치한 게 핵심 — 사이에 두면 `saveContext`를 건너뛰어도 세션 회전·쿠키 발급이 이미 끝나 같은 구멍이 재현된다. 화이트리스트는 `unmodifiableSet`, 무검사 캐스트→`instanceof` fail-closed. `SecurityConfig`·소셜 로그인 무수정. 테스트 **2175건 전건 PASS**(신규 `LoginRoleGateIntegrationTest` 19 + `AuthControllerPortalRolesTest` 3), 사보타주 3회로 테스트 실효성 실증. code-reviewer·security-reviewer(opus) 각 2회 — 최종 P1 0(코드) · P2 0 · P3 1(의식적 보류). G1/G3.5/G6 전부 PASS. openapi 0.42.0-draft→0.43.0-draft bump + archive 스냅샷. 후속 #1519. **⚠️ 승격 시 #1513 동반 필수 — 아래 [다음 작업] 최상단 참조.**
+- **PR #1515 dev 머지 (2026-08-04)** — 하자 목록(`DefectListPage`)에서 필터 적용 후 점검 상세로 이동했다가 뒤로가기하면 필터·목록 상태가 기본값으로 리셋되던 버그(#1508) 수정. 필터 상태를 컴포넌트 로컬 `useState`에서 `useSearchParams`(URL 쿼리파라미터) 기반으로 전환, 필터/페이지 변경은 `replace:true`로 히스토리 엔트리를 쌓지 않게 처리. 신규 `inspectionListFiltersUrl.ts`(URL 직렬화 유틸, enum 화이트리스트로 URL 복원값 검증). 백엔드/DB 변경 없음. Self-review(직접, 서브에이전트 미사용) P1/P2 없음 — P3 1건(조건식 소소한 중복, 동작엔 무관). `tsc -b`/`eslint`/`defect` 기능 테스트(25 files·194 tests, #1508 회귀 테스트 포함) 전부 PASS. Jira HAJA-661 dev-pr-check 전환, GitHub #1508 `awaiting-promotion` 라벨 부여.
+
+- **PR #1509 dev 머지 (2026-08-04)** — 하자 상세 모달 이미지 상자가 와이드 화면(1920폭)에서 aspect-ratio(3:4)만으로 1110px까지 커지던 문제에 `max-height:480px` 캡핑 추가 + 등급 칩(A~E) 색상 코드 적용(`features/map` GRADE_COLOR와 동일 값 로컬 재정의). 이슈/Jira 미연동(ad-hoc UI 폴리싱, 별도 이슈 없음). Self-review(직접, 서브에이전트 미사용) P1/P2 없음 — P3 2건: C등급 칩 흰 텍스트 WCAG 대비 미달(기존 `GradeBadge` 패턴 재사용분, 이번 PR 신규 유발 아님) · 등급 색상 렌더링 테스트 부재. `npm run build` PASS, 라이브 프로덕션에서 실측 버그 케이스로 max-height 동작 확인.
+
+- **PR #1485 dev 머지 (2026-08-04)** — 초대 코드 redeem 시 `company_memberships` 미생성으로 회사 스코프 API 전면 403이던 결함(#1474) + 랜딩↔초대코드 리다이렉트 루프(#1484). squash `15499b94`, `ai:needs-human`(민감영역 `CompanyMembership.java` 자동머지 가드) → 사람 수동 머지.
+  - 검수: 워크트리 재실행 backend **2119건 0 failures** · frontend landing **11건 PASS** · CI backend/frontend pass. code-reviewer(opus) **P1 1 / P2 1 / P3 4**.
+  - **G3.5** — P1(기존 초대 사용자 멤버십 백필 부재)은 **prod 실측으로 해소**: arm1 전용 postgres `hajacheck`에서 "ACTIVE + company_id 보유인데 멤버십 행 없음" **0건**(ACTIVE 13명 = 멤버십 13건 전부 APPROVED). 등급 임의 격하 아님 — 리뷰어가 제시한 해소 조건 충족. 승격 프리플라이트에 재실측 항목으로 남김.
+  - **G6** PASS — 운영 config·마이그레이션·docs 변경 0건, destructive 0건. 좌석 실측 단일 소스(#1476)는 `users` 기준이라 멤버십 행 추가가 이중 카운트를 만들지 않음(코드 실측 확인).
+  - 후속(미등록): P2 실 PG 통합테스트로 인가 계약 고정 · P3 redeem이 회사 APPROVED·VERIFIED 미검증 · P3 동시 redeem 유니크 위반 500 · P3 랜딩 히어로 CTA WAITING 분기 누락.
+
+- **PR #1500 dev 머지 (2026-08-04)** — `DefectStatusReasonModal`(하자 상태 역행/건너뛰기 사유 입력)이 "보드 보기" 탭 롤백(#899/#726) 이후 오펀 상태로 남아있던 것(#900, 별도 라우트 vs 폐기 결정 대기 이슈)을 별도 라우트 대신 **하자 상세 모달로 재통합**. `DefectStatusChangeControl`+`useChangeDefectStatus` 신설, 백엔드 `Defect#changeStatus`는 무변경(프론트 `REASON_REQUIRED_TARGETS`를 그 판정 로직과 1:1 대조 확인). 2커밋(`feat` 재통합 + `fix`), 이슈 **#900** Closes, `awaiting-promotion` 라벨 부여. Jira 미연동.
+  - **버그 발견·수정(브라우저 수동 검증 중)**: `PATCH /api/defects/:id/status`가 `inspectionApi.handlers.ts`·`defectApi.handlers.ts` 두 곳에 중복 MSW 목 핸들러로 등록돼 있어 `mocks/handlers.ts` 등록 순서상 얕은 쪽(무조건 성공, 실제 미반영)이 항상 먼저 매치 — 재통합한 흐름이 로컬 MSW 목 모드에서 "성공한 것처럼 보이지만 반영 안 됨"으로 재현됐다(격리 핸들러로 도는 자동화 테스트는 이 충돌을 못 잡음). 중복 핸들러 제거로 해소, `ResultViewerPage.tsx`(동일 실엔드포인트) 영향 없음 확인.
+  - 검증: `defect`+`inspection` 피처 320/320 통과 · `tsc`/`eslint`/`build` 클린. 전체 스위트 중 무관한 기존 실패 8건(`facilityMediaApi.test.ts` 5·`FacilityListPage.test.tsx` 1·`ReportGeneratePage.test.tsx` 2) 발견 — stash 재현으로 이번 PR 무관 확인. `ReportGeneratePage` 2건은 기존 #1272로 트래킹 중, `facilityMediaApi`/`FacilityListPage` 5+1건은 **미트래킹 — 후속 이슈화 필요**.
+
+- **🧹 이슈 보드 정합 정리 (2026-08-04)** — GitHub·Jira 누적 드리프트 해소.
+  - **GitHub**: 머지된 PR 본문의 `Closes` ↔ main 포함 여부를 전수 대조해, **main 배포 완료인데 열려 있던 43건 close**(258 → 215). 원인은 승격 PR 본문의 `Closes` 나열 누락. dev 머지분 8건은 `awaiting-promotion` 라벨 정합(누락 3건 보강: #1462·#1479·#1488).
+  - **Jira**: `dev-pr-check` 적체 **136 → 4건**. 실제 승격 완료분 **134건을 `완료`로 전환**(완료 268 → 402). 남긴 4건 = 실제 승격 대기(HAJA-652/#1473 · HAJA-649/#1468 · HAJA-656/#1497 · HAJA-647/#1467).
+  - ⚠️ Jira 설명의 GitHub 링크는 **JQL 텍스트 검색으로 매칭 불가**(URL 토크나이즈). 매핑이 필요하면 상태별로 목록을 뽑아 로컬에서 대조할 것.
+  - 남은 열린 이슈 **219건 중 211건은 머지 PR에 연결된 적 없는 실백로그**: 기능 미착수 91 · PR머신 P2 후속 51 · 버그 미착수 37 · 라벨없음 28 · 문서 2. 정리 여부는 미결정.
+
+- **🚀 dev → main 승격 (2026-08-04)** — **PR #1465**(merge 커밋 `6e2eeda8`, **48커밋 / 306파일 / PR 46건 / 이슈 38건 종료**). 선행 역머지 **PR #1466** + merge 커밋 `cc449f38`. CD success, arm1 자동배포 완료.
+  - **승격 전 전체검수 — 전 게이트 PASS**: backend `./gradlew test` **2111건 0 failures** · ai-server `pytest` **421 passed** · frontend `npm run build` ✓ · dev CI 최근 5커밋 전부 success.
+  - **스키마 드리프트 프리플라이트 CLEAN** — 일회용 PG16에 **V1~V40 전량 적용 성공** 후 prod(`hajacheck` 전용 컨테이너, 30테이블/315컬럼)와 **양방향 전수 diff** → 차이는 V39/V40이 추가할 3컬럼뿐, **prod-only 드리프트 0건**(#531·baseline 스탬프 사각지대 재점검 포함).
+  - **배포 실측**: prod Flyway **V39·V40 success=t** 적용 확인, `rag_documents` 3컬럼(`embedding_started_at`·`expected_chunk_count`·`embed_batch_id`) 생성 확인. 컨테이너 spring/fastapi/frontend 전부 healthy. front 200 · api 401(정상 응답) · `/ai/` **404**(외부 폐쇄 유지).
+  - **R3(운영 config)**: `.env.example`·compose·Dockerfile·nginx **전부 무변경**, `application.yml`은 기본값 있는 프로퍼티 1개 추가(`ai.*.embedding-status-timeout-ms: 5000`) → **승격이 요구한 신규 env 0건**. / **R4**: destructive **0건**(V39·V40 둘 다 `add column if not exists`).
+  - **arm1 `.env`에 LangSmith 4키 추가**(별건) — `LANGCHAIN_TRACING_V2`/`ENDPOINT`/`API_KEY`/`PROJECT`. 백업 `.env.bak.20260804-langsmith`, 26→30키, **기존 26키 해시 무변동**. **#1534: 전역 마스킹 env 제거, OCR 체인만 `tracing_context(enabled=False)`로 트레이싱 제외, 나머지 5개 체인은 원문 전송**(PR #1545, P1 반려 반영) — fastapi 재기동으로 트레이싱 활성화 확인.
+    - ⚠️ **로컬 `.env`를 arm1에 통째 복사 금지** — `DB_URL`이 로컬 `hajacheck_dev`(호스트 PG 터널) ↔ arm1 `hajacheck`(전용 컨테이너)로 다르고, `COMPOSE_FILE`에 터널 프로파일이 딸려가며, arm1 전용 4키(`ARM1_DB_NAME`·`DEPLOY_TARGET`·`FRONTEND_BASE_URL`·`REDIS_DB_INDEX`)가 소실된다. 추가는 **백업 후 필요한 키만 append**.
+  - **⚠️ 역머지 squash 사고(재발 방지)** — PR #1466을 **PR머신이 squash 머지**(부모 1개)해 main 커밋이 dev의 조상이 되지 않았고, 승격 PR #1465가 계속 CONFLICTING이었다. dev에 **진짜 merge 커밋**(`cc449f38`, 내용 변경 0)을 직접 올려 해소. **역머지는 반드시 merge 커밋** — 머신에 맡기면 squash되므로 사람이 수동 merge 하거나 이번처럼 merge 커밋을 직접 올려야 한다.
+  - **⚠️ STATUS.md는 앞으로 dev에 커밋** — main에 직접 넣으면(과거 `953c219a`·`0991a693`) dev와 갈라져 다음 승격에서 같은 충돌이 재발한다. main은 승격으로 받는다.
+  - **📌 위 인프라 표의 "dev 브랜치 보호 활성화(직접 push 차단)"은 stale** — 실측 결과 dev·main 모두 **브랜치 보호 없음**(`gh api .../protection` 404), 직접 push가 실제로 성공했다. 표 정정 필요(후속).
+  - **이슈 종료 38건** — `Closes`를 **번호마다 따로** 붙여 전건 자동종료 확인(한 줄 1키워드면 첫 번호만 닫힘). **#1342는 제외**(`awaiting-promotion` 라벨이 붙었으나 P2 체크리스트 2건 미완료 — 라벨 정리 필요).
+  - **Jira**: 대응 20건 `완료` 전환(HAJA-542·575·616·618~621·623·624·626·627·629~632·636·637·639~641). 나머지 18건은 Jira 티켓 미생성이거나 이미 완료 상태. **`dev-pr-check`에 149건 적체** — 과거 승격들이 5단계(완료 전환)를 누락한 결과, 별도 정리 필요.
 
 - **🛠️ 하자 조치 등록 그룹 팬아웃 — 이미지 단위 보수 작업 v0.2 (→ dev, 2026-08-04)** — BE **#1460**(이슈 #1456), FE **#1461**(이슈 #1457). 둘 다 `awaiting-promotion` 라벨 부여. **마이그레이션 0건** — `docs/_local/repair-work-image-unit-plan_v0.2.md`(신규 엔티티 대신 `inspection_id+media_id` 계산 그룹, 스키마 무변경 버전)를 채택해 v0.1(신규 테이블 3개) 대비 마이그레이션 리스크를 제거했다.
   - **BE(#1460)**: `DefectService#registerActionResult` 내부를 단일 하자 처리 → 그룹 팬아웃으로 확장. 같은 `inspection_id+media_id`로 확정된(CONFIRMED 이상) 비삭제 하자 전체를 **id 오름차순**으로 묶어 동일 트랜잭션에서 반복 반영(잠금 순서 고정으로 교착 방지, 낙관적 락 충돌 시 그룹 전체 롤백). API는 기존 `PATCH /api/defects/{id}/action` 그대로(신규 엔드포인트 없음), `DefectResponse`에 `groupSize`/`groupStatus`/`mediaId` additive 필드만 추가.
@@ -345,6 +388,54 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 다음 작업
 
+- **🔴 승격 배치 인계 — 2026-08-05 세션 (다음 세션은 여기부터 읽을 것)**
+
+  ### 지금 어디까지 왔나
+  직전 승격 PR **#1579는 닫았다** — 59커밋 기준으로 stale했고, 본문이 "전 항목 PASS"라고 적혀 있었으나 **그 뒤 돌린 전체 검수에서 P1 3건이 나왔다**(그 PR로 승인했으면 미해결 상태로 배포될 뻔했다). 닫는 이유는 PR 코멘트에 남겼다.
+
+  검수 방식: **4개 병렬(백엔드·프론트·AI서버/운영config·보안, 전부 opus)** + 각 픽스마다 code-reviewer 재검토. `main..dev` **71커밋**.
+
+  ### 승격 차단 P1 3건 — 전부 해소 ✅
+  | P1 | 해소 |
+  |---|---|
+  | 하자 상태 팬아웃 역행(조치완료 하자가 되돌아감) | #1583 → PR #1587 ✅ |
+  | RAG 시맨틱 캐시 cross-tenant(A사 답변이 B사에 노출) | #1584 → PR #1589 ✅ |
+  | LangSmith 마스킹 제거 + arm1 트레이싱 ON | arm1 `.env` `LANGCHAIN_TRACING_V2=false` 적용 ✅ |
+
+  ### 미완 2건 → 둘 다 PR 올라감, 머신 검수 대기 (2026-08-05 갱신)
+  - **PR #1600**(ai-server 캐시 TTL·워밍업, #1594) — 올림, 머신 검수 대기. G6 PASS
+  - **PR #1601**(#1598 axios 전역 timeout) — **08-05 push+PR 완료**(직전 세션 "순서 무관하면 미리 올려놔" 방침 적용, dev 머지≠승격이라 배치 포함 여부와 독립). 커밋 3건(`b4d74d60`·`7d1617fe`·`a62836f2`), baseline 10실패 유지·통과 +18·사보타주 3건, 시크릿 스캔 3종 clean, dev 최신분과 파일 겹침 0
+  - ⚠️ **PR머신 정지 상태** — 마지막 활동 08-04 19:05Z(#1599 머지). #1600은 그 3분 뒤 생성돼 검수를 못 받음(CI는 전부 PASS). 재가동은 운영자 몫
+
+  ### ⚠️ 승격 전제조건 — 이제 1개뿐
+  - **트레이싱 OFF 유지.** arm1 `.env`는 이미 `false`(백업 `.env.bak.20260805-langsmith`). 다시 켜려면 **LangSmith 계정 판단이 선행**돼야 한다 — compose에서 `LANGSMITH_HIDE_*`가 빠져 켜면 "내용 원문 + 정규식 PII만 가림"이 되고, **시설명·회사명은 정규식이 못 잡는다**(개인 무료 계정, DPA 없음)
+  - ~~`semantic_cache` 1회 purge~~ → **불필요해짐.** #1594가 `created_at` 없는 레거시 항목을 매 정리마다 삭제하는데, #1584 이전 세대(회사 스코프 없음)도 `created_at`이 없어 **함께 자동 정리**된다
+
+  ### 신규 env — #1594의 3개가 전부, `.env` 수정 불필요
+  `SEMANTIC_CACHE_THRESHOLD`·`_TTL_SECONDS`·`_MAX_ENTRIES`. **소프트 기본값(`:-`)** 이고 compose 기본값이 코드 기본값과 **완전 일치**(0.95 / 86400 / 5000) → 미설정이어도 동작 변화 0, 기동도 안 막힌다. 숫자 상수라 과거 `APP_STORAGE_LOCAL_BASE_URL` 유형(절대경로/URL 기본값) 사고와 무관. 배치 내 다른 신규 env는 **0건**(실측).
+
+  ### 결정 대기 2건
+  1. **#1598을 이번 배치에 넣을지** — 넣으면 push+PR 후 머지. 조사 중 **axios 인스턴스가 2개**(`api` 외에 `aiClient`, LLM 4곳이 여기를 탐)이고 둘 다 timeout 0이었음이 드러나, 축소판(전역 한 줄)으로는 **가장 느린 LLM 경로가 그대로 뚫린다** → 완성본이 맞다는 판단
+  2. **nginx `/api/` `proxy_read_timeout` 부재(기본 60초) vs 스프링 `ai.server` read-timeout 150초 불일치** — 운영에서 AI 경로가 nginx 504로 먼저 끊길 수 있다. #1598의 결함은 아니지만(504는 응답이 있어 정상 종료 — #1598이 막는 건 "응답이 아예 없는" 경우) **실제 운영 설정 불일치**라 별도 이슈화 판단 필요
+
+  ### 이번 세션 후속 이슈
+  - **#1597** — `chat_message_citations.document_id → rag_documents` FK에 `ON DELETE` 누락 + 앱 정리 코드 없음 → **한 번이라도 인용된 RAG 문서는 삭제가 영구 실패**(관리자에게 500). 그 직전에 Chroma 청크는 이미 지워져 **목록엔 보이는데 검색은 안 되는 반쪽 상태로 고착**
+  - **#1598** — axios 전역 timeout(위 참조)
+  - 코드 주석·PR 본문에 남긴 후속: 프롬프트/모델/top_k 변경 시 캐시 무효화 훅 부재 · write-after-purge 레이스 근본 해결(Redis 공유 카운터 필요) · `chunk_ref`/`chunk_hash` 서빙 직전 대조 · `hajacheckRagSessionId:{userId}` 스코프 키
+
+  ### 조사만 하고 손대지 않은 것
+  운영 DB의 **삭제된 하자 `is_reviewed=true` 20건**(4개 회사, 사람 검수 이력 0건 = 전부 옛 `softDelete` 버그 산물). 복구 시 "검수한 적 없는 하자가 검수완료로 부활"하지만 **사용자 판단으로 보류**. 판정 기준은 `is_deleted AND is_reviewed AND (grade 변경 이력 없음)` — 재조사 불필요.
+
+- **✅ 로그인 role 게이트 — 해소 (2026-08-05 확인): FE #1513이 PR #1577로 dev 머지 완료(08-04 15:30)** — dev `authApi.ts`에 3경로(`/auth/login`·`/auth/platform-admin/login`·`/auth/counselor/login`) 배선 실측 확인. BE(#1533)·FE(#1577) 모두 dev에 있어 배치 승격 시 자동 동반. G6 체크(승격 PR diff에 `authApi.ts` 3경로 포함)는 형식적으로만 확인하면 됨. (아래 원문은 #1577 머지 전 기록 — 이력 보존용)
+  - **PR #1533이 단독으로 main에 올라가면 PLATFORM_ADMIN·COUNSELOR가 어떤 화면으로도 로그인할 수 없다.** 프론트는 아직 세 화면 모두 `POST /api/auth/login` 하나만 호출한다(`frontend/src/features/auth/api/authApi.ts:51`, 세 훅 공용) → 신설 화이트리스트에서 두 role이 거부되어 403. **최상위 권한 콘솔이 잠겨 장애 대응 주체까지 막힌다.** 소셜 미보유 native 계정은 우회 경로도 없다.
+  - **G6 승격 체크(검증 가능 형태)**: *승격 PR diff에 `frontend/src/features/auth/api/authApi.ts`의 로그인 3경로가 포함되어 있는가*. "#1513 동반" 같은 서술형은 확인 누락이 나기 쉬워 파일·경로 단위로 못박는다.
+  - **⚠️ 영향 시점은 승격이 아니라 "dev 코드로 스택을 띄우는 순간"이다.** 팀원이 `docker-compose.oci-db.yml` 터널로 dev 브랜치를 로컬 spring에 부팅하면 그 환경에서 즉시 두 콘솔 로그인이 막힌다(#1513이 dev에 들어가기 전까지). **공지 대상 = 공유 dev DB 사용자가 아니라 "dev 브랜치로 로컬 스택을 띄우는 모든 사람"**(DB가 아니라 앱 코드 이슈). 노출 창을 줄이려면 #1513을 dev에 최대한 빨리 넣는다.
+  - **하위호환 shim(구 경로에 전 role 허용) 금지** — #1514가 막은 구멍을 그대로 복원한다(양 리뷰어 동의).
+  - #1513 프론트 범위: `authApi`에 3경로 배선 → 각 훅이 자기 엔드포인트 호출 · `logout()` 사후 처리 패턴 제거(서버가 세션을 안 주므로 불필요) · 403 `AUTH_ROLE_NOT_ALLOWED` 안내 문구 · `LoginPage` 기존세션 fallback을 role별 홈으로 · `router.tsx` AppShell role 가드(+`ProtectedRoute` 거부 이동지를 role별 홈으로 — `DASHBOARD_ROUTE` 고정이면 무한 루프). 워크트리 `hajacheck-frontend-1513`에 1차 작업분(`resolveRoleHomeRoute` 등)이 **미커밋·미검증** 보존됨.
+- **🔴 RAG 시맨틱 캐시 승격 전제 — `semantic_cache` 컬렉션 1회 purge (#1584/PR #1589, 2026-08-05 신설)**
+  - `company_id` metadata가 없는 **#1584 이전 레거시 캐시 항목**은 어떤 회사 필터에도 매칭되지 않아(실측 확인) 앱 경유 노출은 없다. 다만 영구히 읽히지 않는 채 **전 회사의 질문 원문**을 계속 보관하므로 승격 배포 시 1회 비운다. **코드 변경은 불필요** — 운영 절차 항목이다.
+  - **`chroma_data` 볼륨 통째 삭제 금지** — `regulations`(법규 코퍼스)가 같은 볼륨이라 전체 재적재가 필요해진다. `delete_collection('semantic_cache')`만 하면 `regulations`는 보존되고 재기동 없이 자동 재생성된다(실측 확인).
+  - 절차·검증 결과: `docs/troubleshooting/rag-semantic-cache-purge-on-1584-deploy.md`.
 - **🔴 결제(토스페이먼츠 샌드박스) 승격 전제 — BE·FE 반드시 같은 배치 (2026-07-27 신설)**
   - **#1016(BE)·#1030(FE)를 따로 승격하면 프로덕션 결제 UI가 깨진다.** #1016이 `POST /api/me/plan/checkout`을 제거하므로 BE만 먼저 가면 마이페이지 플랜 업그레이드가 404, FE만 먼저 가면 없는 API를 호출한다.
   - **arm1 `.env` 토스 키 3종 주입 완료**(2026-07-27, `VITE_TOSS_CLIENT_KEY`·`TOSS_SECRET_KEY`·`TOSS_SECURITY_KEY`, 백업 `.env.bak.20260727-toss`). compose 가드는 **소프트 `:-`** — 미설정이어도 배포는 성공하고 **결제 진입점만 502**가 된다(결제는 부가기능이라 키 누락으로 전체 배포를 죽이지 않는 선택, `BUSINESS_REGISTRATION_API_KEY` 선례와 정합).

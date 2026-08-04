@@ -60,8 +60,9 @@ class AiProxyServiceTest {
     }
 
     private AiProxyService newService(RateLimiter rateLimiter) {
+        // chatSessionService(null): defect-explain 경로는 채팅 세션과 무관하다(#1467 추가 의존성).
         return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter),
-                builder.build());
+                builder.build(), null, null, null);
     }
 
     @Test

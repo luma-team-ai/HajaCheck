@@ -171,11 +171,11 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_ANALYZING인데_캐시하트비트가오래됐으면_고착으로보고복구후재시작() {
         // 코드 리뷰 P2(사용자 확인 완료) — 워커가 JVM 재기동·OOM 등으로 크래시해도 진행률 캐시는
         // TTL 6시간 동안 살아있다. "캐시 부재"만 고착으로 보면 이 경우를 못 잡는다 — 캐시가
-        // 있어도 하트비트(updatedAt)가 임계값(5분)보다 오래됐으면 고착으로 봐야 한다.
+        // 있어도 하트비트(updatedAt)가 임계값(15분)보다 오래됐으면 고착으로 봐야 한다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID))
-                .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)))));
+                .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)))));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
@@ -362,9 +362,9 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(List.of(image(1L)));
         when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
                 .thenReturn(List.of(analyzingWithId(201L), analyzingWithId(202L)));
-        // 하트비트가 임계(5분)보다 오래됨 → isStuck=true → 둘 다 카운트에서 제외 → 살아있는 잡 0건.
+        // 하트비트가 임계(15분)보다 오래됨 → isStuck=true → 둘 다 카운트에서 제외 → 살아있는 잡 0건.
         AnalysisStatusResponse stale =
-                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)));
+                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)));
         when(progressStore.find(201L)).thenReturn(Optional.of(stale));
         when(progressStore.find(202L)).thenReturn(Optional.of(stale));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
@@ -381,7 +381,7 @@ class InspectionAnalysisServiceTest {
         // 시스템 복원(revertStuckAnalyzing, 회사 스코프 없는 배치 전용)을 호출하고, startAnalysis
         // 재선점과 대칭으로 새 세대 토큰을 발급해 하트비트 오탐 시 원본 워커의 잔여 쓰기를 펜싱한다.
         AnalysisStatusResponse stale =
-                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)));
+                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(stale));
 
         assertThat(service.reapIfStuck(INSPECTION_ID)).isTrue();
@@ -480,7 +480,7 @@ class InspectionAnalysisServiceTest {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID))
-                .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)))));
+                .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)))));
         when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
@@ -608,7 +608,7 @@ class InspectionAnalysisServiceTest {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         AnalysisStatusResponse stale =
-                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(10)));
+                progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(stale));
 
         AnalysisStatusResponse result = service.getStatus(USER_ID, COMPANY_ID, INSPECTION_ID);

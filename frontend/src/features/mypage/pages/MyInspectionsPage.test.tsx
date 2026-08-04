@@ -83,10 +83,12 @@ describe('MyInspectionsPage', () => {
     const previewLink = screen.getAllByRole('link', { name: '미리보기' })[0];
     expect(previewLink.getAttribute('href')).toBe('/reports/1');
 
-    // 다운로드 버튼은 이번 스코프 밖 — storageKey/pdfUrl이 목록 API 응답에 없어 여전히 비활성이어야 한다.
+    // pdfUrl이 있는 보고서(1·2)는 다운로드 가능, 없는 보고서(3)만 비활성이어야 한다(#1464).
     const downloadButtons = screen.getAllByRole('button', { name: /다운로드/ });
     expect(downloadButtons.length).toBe(3);
-    downloadButtons.forEach((button) => expect(button).toHaveProperty('disabled', true));
+    expect(downloadButtons[0]).toHaveProperty('disabled', false);
+    expect(downloadButtons[1]).toHaveProperty('disabled', false);
+    expect(downloadButtons[2]).toHaveProperty('disabled', true);
   });
 
   it("'점검 이력' 탭으로 되돌아가면 테이블이 다시 보인다", async () => {

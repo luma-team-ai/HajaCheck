@@ -29,3 +29,18 @@ export function isPlatformAdminRole(role: Role | undefined): boolean {
 export function isCounselorRole(role: Role | undefined): boolean {
   return role === 'COUNSELOR';
 }
+
+// 기업회원 대시보드(AppShell) 이용 role 집합(#1513) — company_id 스코프 안에서 일하는 "admin 이하"
+// 세 role이다. PLATFORM_ADMIN(플랫폼 운영 축)·COUNSELOR(상담 축)는 이 셸에 볼일이 없고 각자 전용
+// 콘솔을 쓴다.
+//
+// 상수와 판정 함수를 같이 두는 이유: 기업 로그인 훅(features/auth/useLogin)은 "허용 role인가"를
+// 함수로 묻고, 라우터(app/router.tsx)는 같은 집합을 ProtectedRoute.allowedRoles 튜플로 넘긴다.
+// 두 곳이 role 배열을 각자 인라인으로 적으면 역할 체계가 바뀔 때 한쪽만 고치는 실수가 나온다
+// (isAdminRole 주석의 #378 지적과 동일 이유 — 로그인은 막았는데 라우트는 뚫려 있는 상태가 된다).
+// readonly 튜플: allowedRoles와 같은 "비어 있지 않은" 형태를 유지하면서 외부 변조를 막는다.
+export const COMPANY_DASHBOARD_ROLES: readonly [Role, ...Role[]] = ['ADMIN', 'INSPECTOR', 'USER'];
+
+export function isCompanyDashboardRole(role: Role | undefined): boolean {
+  return role !== undefined && COMPANY_DASHBOARD_ROLES.includes(role);
+}

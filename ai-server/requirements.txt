@@ -11,6 +11,8 @@ langchain-core==0.3.86  # langgraph 0.6.11 호환(0.3.26+ 요구) — 명시 고
 langchain-chroma==0.1.4  # chromadb 0.5.23과 호환, langchain-core<0.4 만족
 langchain-huggingface==0.1.2
 langsmith==0.10.10  # langchain-core>=0.3.26 요구에 따라 upgraded (WS1 PR #703과 동일 조합)
+# 버전 bump 시 tests/test_langsmith_tracing_exclusion.py 필수 재검증 — langsmith 내부 API
+# (run_trees._CLIENT, Client.request_with_retries kwargs 구조)에 직접 의존한다 (PR #1557 P3).
 langgraph==0.6.11  # StateGraph 기반 체인 구현용 (WS1: report_chain, WS3: rag_chat_chain 공용)
 chromadb==0.5.23
 rank_bm25==0.2.2  # regulations 컬렉션 하이브리드 검색(벡터+BM25 RRF, #1410). 순수 파이썬 소구현
@@ -29,6 +31,7 @@ ultralytics==8.3.63  # 하자 탐지(dev-05-04) — spalling/rebar_exposure 전�
                       # torch/torchvision은 Dockerfile에서 이미 CPU 전용 인덱스로 먼저 설치돼 있어
                       # 이걸 재사용한다(rapidocr와 동일 전제). huggingface_hub는 langchain-huggingface의
                       # 기존 전이 의존성을 그대로 사용(신규 pin 없음).
+clip @ git+https://github.com/ultralytics/CLIP.git@488e81a6711eea7346872b46ea928b367da8889d  # YOLO-World 인코더 의존성(#1487 카드검출), 커밋 고정(#1547 P2)
 segmentation-models-pytorch==0.5.0  # 균열(CRACK) 전용 U-Net(resnet34) 추론(dev-05-04, 2026-07-27).
                       # crack_unet_resnet34.pt(HF Hub) state_dict가 이 버전의 Unet(encoder_name=
                       # "resnet34") 구조와 strict 로드로 정확히 일치함을 직접 검증 후 고정(레이어명이

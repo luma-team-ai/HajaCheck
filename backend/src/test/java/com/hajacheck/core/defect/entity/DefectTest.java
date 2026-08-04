@@ -43,7 +43,7 @@ class DefectTest {
     }
 
     @Test
-    void changeStatus_사유없는건너뛰기와동일상태는거부하고해결상태는이탈불가() {
+    void changeStatus_사유없는건너뛰기와동일상태는거부() {
         Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).grade(DefectGrade.C).build();
         assertThatThrownBy(() -> detected.changeStatus(DefectStatus.IN_PROGRESS))
@@ -53,10 +53,24 @@ class DefectTest {
 
         Defect resolved = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).status(DefectStatus.RESOLVED).build();
-        assertThatThrownBy(() -> resolved.changeStatus(DefectStatus.IN_PROGRESS, "재검토 필요"))
-                .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> resolved.changeStatus(null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void changeStatus_해결상태도사유가있으면조치중으로되돌릴수있다() {
+        // HAJA-26 3차(#1556) — RESOLVED는 더 이상 이탈 불가한 종료 상태가 아니다. RESOLVED의
+        // 정방향 다음 단계는 없으므로(expectedNext == null) 이탈은 항상 역행/건너뛰기로 취급돼
+        // 다른 역행 전이와 동일하게 사유가 있어야만 허용된다.
+        Defect resolved = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).status(DefectStatus.RESOLVED).build();
+
+        assertThatThrownBy(() -> resolved.changeStatus(DefectStatus.IN_PROGRESS))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(resolved.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+
+        resolved.changeStatus(DefectStatus.IN_PROGRESS, "재검토 필요");
+        assertThat(resolved.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
     }
 
     @Test
@@ -99,15 +113,47 @@ class DefectTest {
     }
 
     @Test
-    void softDelete_물리삭제대신삭제표시() {
+    void softDelete_물리삭제대신삭제표시_reviewed는건드리지않는다() {
+        // AI가 등급까지 채워 생성한(grade != null) 미확정 하자라도 reviewed는 여전히 false다
+        // (InspectionAnalysisWorker가 grade는 채우고 reviewed는 건드리지 않음 — 사람이 검수했다는
+        // 뜻이 아니므로 softDelete가 임의로 true로 만들면 안 된다, 실측 버그 수정).
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.SPALLING)
-                .confidence(0.8).build();
+                .confidence(0.8).grade(DefectGrade.C).build();
 
         defect.softDelete();
         defect.softDelete();
 
         assertThat(defect.isDeleted()).isTrue();
+        assertThat(defect.isReviewed()).isFalse();
+    }
+
+    @Test
+    void restore_미확정상태로삭제됐던하자는복구후에도미확정을유지한다() {
+        // AI가 등급을 미리 채워도(grade != null) 사람이 검수(review/changeStatus/등)한 적 없으면
+        // reviewed=false다 — softDelete/restore가 이 값을 건드리지 않아야 왕복 후에도 정확하다
+        // (grade 존재 여부로 재판정하던 이전 시도는 AI 사전 등급 때문에 항상 true가 돼 틀렸다).
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.9).grade(DefectGrade.C).build();
+
+        defect.softDelete();
+        defect.restore();
+
+        assertThat(defect.isDeleted()).isFalse();
+        assertThat(defect.isReviewed()).isFalse();
+    }
+
+    @Test
+    void restore_검수확정후삭제됐던하자는복구후에도검수완료를유지한다() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.9).build();
+        defect.review(DefectGrade.C);
+
+        defect.softDelete();
+        defect.restore();
+
+        assertThat(defect.isDeleted()).isFalse();
         assertThat(defect.isReviewed()).isTrue();
+        assertThat(defect.getGrade()).isEqualTo(DefectGrade.C);
     }
 
     @Test

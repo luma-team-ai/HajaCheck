@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.14 · **최종 수정:** 2026-08-02 · 이전 버전 `archive/`
+> **문서 버전:** v0.16 · **최종 수정:** 2026-08-05 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -118,9 +118,12 @@
 ```json
 {
   "question": "균열 보수 기준은 무엇인가요?",
-  "session_id": 42
+  "session_id": 42,
+  "company_id": 7
 }
 ```
+
+`company_id`(선택, 양의 정수)는 요청자의 회사 식별자다. Spring이 **`@AuthenticationPrincipal`에서만** 취득해 넘긴다 — 프론트 요청 바디에서 받지 않는다(`session_id`·`user_id`와 동일 규약, #1584). 시맨틱 캐시의 조회·저장 스코프 키로 쓰인다(아래 캐시 절). 회사 미소속 개인회원은 이 필드가 없으며(null), 그 경우 시맨틱 캐시를 **조회도 저장도 하지 않는다**.
 
 **응답 성공**:
 ```json
@@ -147,6 +150,10 @@
 **응답 실패**: `RAG_NO_RESULT`(검색 결과 0건, 캐시 저장 안 함) · `VALIDATION_ERROR`(비-LLM 검증 실패) · 공통 LLM 오류 코드(`LLM_INVALID_OUTPUT` 등).
 
 정상 응답은 Redis에 `ai:cache:rag-chat:{sha256(question)[:16]}` 키로 캐시된다(TTL 1일, `llm_client.CACHE_TTL_SECONDS` 공유). 캐시 히트 시 Chroma·LLM 호출 없이 저장된 `RagAnswerData`를 그대로 반환한다.
+
+이 exact 캐시 키에 **`company_id`가 없는 것은 의도된 설계다**(#1584 검수 확인). 답변 생성 입력이 `질문 원문 + 전 회사 공용 regulations 청크`뿐이고 `company_id`는 검색 필터에도 프롬프트에도 들어가지 않으므로, 질문이 바이트 단위로 동일하면 회사와 무관하게 생성 결과도 동일하다 — B사는 자기가 입력한 질문 이상을 얻지 못한다. 반면 아래 시맨틱 캐시는 **다른** 질문(A사가 쓴 고유명사가 실린 질문)에 대해 생성된 답변을 반환하므로 유출이 성립한다. 이 비대칭이 회사 스코프를 시맨틱 캐시에만 건 이유다.
+
+**2차 시맨틱 캐시(#1475)** — exact-match(Redis) 미스 시 Chroma `semantic_cache` 컬렉션에서 유사 질문을 찾아 재사용한다. 이 캐시는 **회사 스코프가 강제된다**(#1584): 저장 시 `metadata.company_id`를 함께 기록하고, 조회 시 `filter={"company_id": …}`로 같은 회사가 남긴 항목만 본다. 요청에 `company_id`가 없으면(개인회원) **조회·저장을 모두 건너뛴다** — 필터 없는 전역 조회로 폴백하면 A사 질문 맥락으로 생성된 답변이 B사 유사 질문에 반환되므로, 캐시 이득을 포기하고 fail-closed로 간다(exact 캐시와 LLM 경로는 정상 동작). 대화 이력(`history`)이 있는 요청은 기존대로 두 캐시를 모두 우회한다.
 
 `sources[].doc_id`는 PostgreSQL `rag_documents.id`를 문자열화한 양의 정수 문자열(`^[1-9][0-9]*$`)이다. Spring Boot가 `chat_message_citations.document_id`에 저장할 때 패턴 검증을 통과한 값을 `int(doc_id)`로 변환한다.
 
@@ -482,7 +489,7 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 | 조치 내용 | 텍스트(멀티라인) | ✅ | placeholder "조치 내용을 입력해 주세요." |
 | 조치일 | 날짜 | ✅ | |
 | 담당자 | 드롭다운(예: "김현수 과장") | ✅ | **#690 "배정 가능한 담당자(회사 소속 사용자) 목록 조회 API" 재사용 대상** |
-| (버튼) 조치 완료 등록 | — | — | **결정(2026-07-24, BE)**: 신규 `PATCH /api/defects/{id}/action` — 상태 전이는 RESOLVED로 고정, 기존 `PATCH /api/defects/{id}/status`는 확장하지 않음(아래 "엔드포인트 매핑" 근거 참고) |
+| (버튼) 조치 완료 등록 | — | — | **결정(2026-07-24, BE)**: 신규 `PATCH /api/defects/{id}/action`, 기존 `PATCH /api/defects/{id}/status`는 확장하지 않음(아래 "엔드포인트 매핑" 근거 참고). **v0.15 정정**: "상태 전이는 RESOLVED로 고정"은 더 이상 사실이 아니다 — **#1128에서 `targetStatus`(필수, `IN_PROGRESS`·`RESOLVED` 2값)가 도입**돼 조치중 단계 등록도 같은 엔드포인트로 처리한다. 전이 가능 여부는 `Defect#changeStatus` 정방향 1단계 규칙을 그대로 따른다(정본 = `openapi.yaml`) |
 
 ### 엔드포인트 매핑 (기존 재사용 우선)
 
@@ -491,7 +498,7 @@ Figma: [목록](https://www.figma.com/design/0NUC2R7VZ2pAFeqiMjPjZp/HajaCheck?no
 | ①점검 단위 목록 | `GET /api/inspections` (페이지네이션, 상태/시설물 필터) | **구현 완료** — 응답 `InspectionListItemResponse{id, facilityId, facilityName, roundNo, inspectionDate, assignedInspectorId, assigneeName, status, defectCount, gradeDistribution}`. `gradeDistribution`은 `Map<String,Long>`으로 A~E 5개 키를 항상 포함(하자 없는 등급은 0). 담당자 표시 필드명은 `assigneeName`으로 확정(초기 구현 `assignedInspectorName`에서 FE 계약 정합을 위해 리네임, #893/HAJA-458) |
 | ②점검별 하자 카드 목록 | `GET /api/inspections/{id}/defects` | **기존 재사용** (`DefectRevisionController`, `DefectDetailItem` 반환). 카드 UI에 필요한 필드(썸네일 등)가 부족하면 `DefectDetailItem` 확장 — 신규 엔드포인트 만들지 말 것 |
 | ③하자 상세 모달 조회 | `GET /api/defects/{id}` (`DefectResponse`) | **구현 완료** — "조치 결과 등록" 필드(조치내용/조치일/담당자/조치후사진) 저장용 컬럼을 `Defect` 엔티티에 추가. Flyway **V12**로 추가(handoff는 애초 "V5"를 지정했으나 그 사이 V5~V11이 다른 PR에서 선점돼 다음 번호로 진행, V1~V11 무수정) |
-| ③조치 결과 등록 | **신규** `PATCH /api/defects/{id}/action` (`DefectActionResultRequest`) | **구현 완료** — 상태전이(`PATCH /status`)와 분리한 이유: (1) 조치완료 폼에는 "역행/건너뛰기 사유" 입력란이 없어 4개 필드가 항상 전부 필수인데, `DefectStatusUpdateRequest`에 조건부 필수 필드를 얹으면 검증이 status 값에 따라 달라져 복잡해짐 (2) 상태전이 API의 기존 의미(모든 상태 간 자유 전이+사유)와 "조치 등록"의 의미(IN_PROGRESS→RESOLVED 전용, 항상 4필드 세트)가 달라 한 엔드포인트에 섞으면 계약이 모호해짐. 내부적으로 `Defect#registerActionResult()`가 기존 `changeStatus()`의 정방향 전이 규칙(IN_PROGRESS에서만 사유 없이 허용)을 재사용하므로 순서를 건너뛴 완료 처리는 400으로 자연히 거부됨 |
+| ③조치 결과 등록 | **신규** `PATCH /api/defects/{id}/action` (`DefectActionResultRequest`) | **구현 완료** — ⚠️ **현행은 `targetStatus` 포함 5필드 전부 필수, IN_PROGRESS·RESOLVED 2값 전이**(#1128, 위 필드 표와 동일 — 정본은 `openapi.yaml`). 아래 "분리한 이유"는 **엔드포인트·계약을 분리한 근거**로만 읽을 것(필드 수·전이 대상 서술은 #1128 이전 기준이라 무효). 분리 근거: (1) 조치완료 폼에는 "역행/건너뛰기 사유" 입력란이 없어 폼 필드가 항상 전부 필수인데, `DefectStatusUpdateRequest`에 조건부 필수 필드를 얹으면 검증이 status 값에 따라 달라져 복잡해짐 (2) 상태전이 API의 기존 의미(모든 상태 간 자유 전이+사유)와 "조치 등록"의 의미(정방향 한 단계 전이 + 고정 필드 세트)가 달라 한 엔드포인트에 섞으면 계약이 모호해짐. 내부적으로 `Defect#registerActionResult()`가 기존 `changeStatus()`의 정방향 전이 규칙(IN_PROGRESS에서만 사유 없이 허용)을 재사용하므로 순서를 건너뛴 완료 처리는 400으로 자연히 거부됨 |
 | ③담당자 드롭다운 옵션 | `GET /api/facilities/assignable-users` (#690, `FacilityController.java:102`, `AssignableUserResponse{id,name,role}`) | **구현 완료** — 기존 API 그대로 재사용. `DefectActionResultRequest.actionAssigneeId`도 서비스 계층에서 `AuthService.validateAssignableInspector()`(#690과 동일 자격조건: 활성·INSPECTOR/ADMIN·유효 승인 멤버십)로 검증해 cross-company IDOR 차단 |
 | ③파일 업로드(조치 후 사진) | `POST /api/inspections/{id}/media` | **기존 media API 재사용** — 업로드 후 반환된 mediaId를 `DefectActionResultRequest.actionMediaId`로 전달. 서비스가 해당 media가 하자와 같은 inspection 소속인지 검증(`MediaRepository.findByIdAndInspectionId`)해 타 점검/타 회사 media 연결을 차단 |
 

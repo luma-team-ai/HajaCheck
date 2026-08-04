@@ -294,7 +294,15 @@ public class QuotaService {
         return companyId == null ? 0 : (int) facilityRepository.countByCompanyId(companyId);
     }
 
-    private int measureSeats(Long companyId) {
+    /**
+     * 좌석 실측 단일 소스(#1473 / HAJA-652) — "현재 회사 소속 ACTIVE 사용자 수"(개인 구독은 1 고정).
+     * {@link #reserveSeat}·{@link #hasAvailableSeat} 의 최종 판정 기준이자, 표시용
+     * {@code MembershipService#getMyPlan}·{@code #getSeats}·{@code AdminPlanService#getCurrentPlan} 도
+     * 이 메서드를 그대로 재사용한다 — 좌석 수를 두 곳에서 따로 계산하면(저장 카운터 vs 실측) 화면 숫자가
+     * 서로 어긋나는 드리프트가 재발한다(#1473 원인: {@code usage_counters.seat_count} 는 좌석 점유 시점에
+     * 갱신되지 않는 lazy 카운터라, 행이 없는 회사는 표시가 0으로 떨어졌다).
+     */
+    public int measureSeats(Long companyId) {
         // 개인 구독은 본인 1석 고정(MembershipService#getSeats 와 동일 관례).
         return companyId == null
                 ? 1

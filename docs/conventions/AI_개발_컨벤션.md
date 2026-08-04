@@ -1,6 +1,6 @@
 # hajaCheck — AI 개발 컨벤션
 
-> **문서 버전:** v0.3 · **최종 수정:** 2026-07-22 · 이전 버전 `archive/`
+> **문서 버전:** v0.4 · **최종 수정:** 2026-08-04 · 이전 버전 `archive/`
 
 > 대상: 전체 팀원 (각 메뉴 담당이 자기 메뉴의 AI 기능을 직접 구현하는 체제)
 > 관리: AI-LLM 코치 (공통 모듈·예시 체인 제공, 코드 리뷰 시 준수 점검)
@@ -24,8 +24,19 @@ ai-server/
 ├─ ai/
 │  ├─ core/
 │  │  ├─ llm_client.py      # 공통 LLM 클라이언트 (★유일한 LLM 호출 지점)
-│  │  ├─ embeddings.py      # 임베딩 모델 설정 (ko-sbert/BGE-m3)
-│  │  ├─ vectorstore.py     # Chroma PersistentClient 설정
+│  │  ├─ hf_chat_model.py   # HF Serverless 채팅 모델 어댑터
+│  │  ├─ embeddings.py      # 임베딩 모델 설정 (BAAI/bge-m3 고정, CPU)
+│  │  ├─ vectorstore.py     # Chroma PersistentClient (regulations·defect_kb·semantic_cache)
+│  │  ├─ hybrid_search.py   # 벡터+BM25 RRF 결합 검색 (#1410)
+│  │  ├─ bm25_index.py      # BM25 인메모리 캐시 + kiwipiepy 토큰화 (Chroma 파생)
+│  │  ├─ rag_ingest.py      # 문서 적재·삭제 + BM25 캐시 invalidate 훅
+│  │  ├─ chunking.py        # 법조문 분리자 청킹
+│  │  ├─ unet_client.py     # 균열 U-Net(crack_unet_resnet34_v2) 로더
+│  │  ├─ yolo_client.py     # 박리박락·철근노출 YOLOv8n-seg 로더(유형별 고정 매핑)
+│  │  ├─ ocr_client.py      # 사업자등록증 OCR (RapidOCR + PP-OCRv5 한국어)
+│  │  ├─ grading.py         # 하자 심각도 등급 산정 (★임계값 캘리브레이션 정본)
+│  │  ├─ grounding.py       # 답변 근거 검증
+│  │  ├─ prompt_safety.py   # 프롬프트 인젝션 방어
 │  │  └─ schemas.py         # 공통 요청/응답 Pydantic 모델
 │  ├─ chains/               # 메뉴별 체인 (담당자별 파일)
 │  │  ├─ report_chain.py    # 보고서 생성 (로그인/보고서 담당)
@@ -33,6 +44,7 @@ ai-server/
 │  │  ├─ briefing_chain.py  # 대시보드 브리핑 (대시보드 담당)
 │  │  ├─ defect_explain_chain.py  # 하자 설명 (점검B 담당)
 │  │  └─ nl_search_chain.py # 자연어 검색 (하자 관리 담당)
+│  ├─ eval/                 # 검색 품질 평가 하네스 (python -m ai.eval.run_eval)
 │  └─ prompts/              # 프롬프트 파일 (하드코딩 금지)
 │     ├─ _system_base.md    # 공통 시스템 프롬프트
 │     ├─ report_summary.md
@@ -139,3 +151,8 @@ result = get_llm().with_structured_output(DefectExplain).invoke(prompt)
 - [ ] 프론트 폴백 처리 확인
 - [ ] (RAG) 출처 포함, 0건 처리
 - [ ] requirements 변경 없음 (있다면 코치 승인 여부)
+
+---
+
+## 변경 이력
+- **v0.4 (2026-08-04)**: §1 디렉토리 트리를 실제 구조로 갱신 — `core/`가 4개 파일로 적혀 있었으나 실제 16개(hybrid_search·bm25_index·unet_client·yolo_client·ocr_client·grading·grounding 등). 임베딩 표기 "ko-sbert/BGE-m3" → **`BAAI/bge-m3` 고정**으로 정정, `ai/eval/` 추가(2026-08-04 공개문서 stale 감사).

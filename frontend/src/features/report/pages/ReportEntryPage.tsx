@@ -646,7 +646,7 @@ export function ReportEntryPage() {
                   : setAlertModal({
                       open: true,
                       title: '아직 생성된 보고서가 없습니다',
-                      message: "이 점검에 대해 생성된 보고서가 없습니다. 먼저 '보고서 생성 시작'으로 보고서를 만들어주세요.",
+                      message: "이 점검에 대해 생성된 보고서가 없습니다.\n먼저 '보고서 생성 시작'으로 보고서를 만들어주세요.",
                     })
               }
             >

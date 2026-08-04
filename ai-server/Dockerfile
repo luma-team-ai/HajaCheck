@@ -18,8 +18,13 @@ FROM python:3.11-slim AS build
 WORKDIR /app
 
 # 일부 전이 의존성의 네이티브 확장 컴파일 대비(런타임 이미지에는 포함하지 않음)
+# git — requirements.txt의 VCS 의존성(clip @ git+https://github.com/ultralytics/CLIP.git@...,
+# YOLO-World 텍스트 인코더용 #1487) 설치에 필수다. python:3.11-slim에는 git이 없어서 없으면
+# `pip install -r requirements.txt`가 "Cannot find command 'git'"으로 죽고, deploy.sh의
+# `docker compose build`(set -e)까지 그대로 중단된다(#1547 검수). CI는 ubuntu 러너에서
+# pytest만 돌려 이미지를 빌드하지 않으므로 이 실패를 잡지 못한다.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends build-essential \
+    && apt-get install -y --no-install-recommends build-essential git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
@@ -63,6 +68,19 @@ RUN mkdir -p /app/chroma_data && chown -R fastapi:fastapi /app/chroma_data
 # 재사용하므로 여기서 별도 mkdir 불필요(하위 디렉터리는 fastapi 유저가 런타임에 os.makedirs로
 # 생성, 상위 디렉터리 소유권만 있으면 충분).
 RUN mkdir -p /app/hf_cache && chown -R fastapi:fastapi /app/hf_cache
+
+# 카드 검출(#1487)이 받는 두 모델의 다운로드 경로를 hf_cache 볼륨 하위로 고정한다(#1547 검수).
+# 이 컨테이너는 USER fastapi(999)로 도는데 /app은 root 소유(위 WORKDIR가 만든 그대로)라 쓰기가
+# 막혀 있고, 기본 경로는 둘 다 /app 아래로 떨어진다:
+#   - YOLO-World 가중치(yolov8s-worldv2.pt) → ultralytics가 CWD(=/app)에 다운로드
+#   - CLIP ViT-B/32(YOLOWorld.set_classes가 clip.load 호출) → ~/.cache/clip(HOME=/app)
+# 그래서 손대지 않으면 카드 검출이 컨테이너에서 **항상** Permission denied로 실패하고, 예외는
+# _crack_detections의 가드에 흡수돼 width_mm이 조용히 영구 None이 된다(실제 이미지로 재현 확인).
+# HOME을 볼륨 하위로 옮기면 위 캐시가 쓰기 가능해질 뿐 아니라 재기동 간 영속돼 매번 재다운로드
+# (CLIP만 ~350MB)하지 않는다 — rapidocr·bge-m3가 이 볼륨을 재사용하는 것과 동일한 패턴.
+# HF_HOME은 compose에서 이미 같은 경로로 명시돼 있어 이 변경의 영향을 받지 않는다.
+ENV HOME=/app/hf_cache \
+    YOLO_WORLD_WEIGHTS=/app/hf_cache/weights/yolov8s-worldv2.pt
 
 USER fastapi
 EXPOSE 8000

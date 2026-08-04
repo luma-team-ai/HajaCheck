@@ -53,6 +53,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * 점검 결과 기반 AI 보고서 생성·조회·편집·확정(#446 / HAJA-283).
@@ -113,6 +114,12 @@ public class ReportService {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         InspectionResponse inspection = inspectionService.getInspection(userId, companyId, inspectionId);
         FacilityResponse facility = facilityService.get(userId, companyId, inspection.facilityId());
+        // #1479 — 시설물 주소가 비어 있으면 AI 서버 호출 전에 명확히 차단한다. 그대로 넘기면
+        // ai-server가 location(min_length=1) 위반으로 422를 던지고 그게 AI_REQUEST_REJECTED(400,
+        // "AI 서버가 요청을 거부했습니다")로 뭉뚱그려져 사용자가 원인을 알 수 없게 된다.
+        if (!StringUtils.hasText(facility.address())) {
+            throw new BusinessException(ErrorCode.FACILITY_ADDRESS_MISSING);
+        }
 
         List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
                 inspectionId, CONFIRMED_DEFECT_STATUSES);
@@ -178,14 +185,15 @@ public class ReportService {
     }
 
     public PageResponse<CompanyReportListItemResponse> listCompanyReports(
-            Long userId, Long companyId, Long facilityId, ReportStatus status, String query, String period,
-            Pageable pageable) {
+            Long userId, Long companyId, Long facilityId, Integer roundNo, ReportStatus status, String query,
+            String period, Pageable pageable) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<ReportStatus> statuses = status == null
                 ? List.of(ReportStatus.DRAFT, ReportStatus.FINALIZED) : List.of(status);
         LocalDateTime from = reportPeriodStart(period);
         Page<Report> page = reportRepository.findCompanyPage(companyId, statuses,
-                facilityId == null ? -1L : facilityId, query == null ? "" : query.trim(), from, pageable);
+                facilityId == null ? -1L : facilityId, roundNo == null ? -1 : roundNo,
+                query == null ? "" : query.trim(), from, pageable);
         List<Long> inspectionIds = page.getContent().stream().map(Report::getInspectionId).toList();
         Map<Long, Map<String, Long>> distributions = gradeDistribution(inspectionIds);
         return PageResponse.from(page.map(report -> CompanyReportListItemResponse.from(report,
@@ -416,6 +424,10 @@ public class ReportService {
         }
         if (status == InspectionStatus.REVIEWED) {
             inspectionService.advanceStatus(editedByUserId, companyId, inspection.id(), InspectionStatus.REPORTED);
+            // #1497/HAJA-656 — REPORTED로 실제 전이될 때만(재확정 시 재호출은 이 if에 다시 들어오지
+            // 않아 자연히 멱등) 그 회차의 실제 점검일 기준으로 다음 점검일을 재계산한다.
+            facilityService.recalculateNextInspectionDueAt(
+                    editedByUserId, companyId, inspection.facilityId(), inspection.inspectionDate());
         }
     }
 

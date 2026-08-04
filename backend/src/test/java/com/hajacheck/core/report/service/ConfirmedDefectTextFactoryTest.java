@@ -26,7 +26,7 @@ class ConfirmedDefectTextFactoryTest {
         assertThat(result.defectType()).isEqualTo("균열");
         assertThat(result.location()).isEqualTo("서울시 강남구");
         assertThat(result.severityGrade()).isEqualTo("C");
-        assertThat(result.description()).contains("균열").contains("C").contains("3.0mm").contains("20.0mm");
+        assertThat(result.description()).contains("균열").contains("c").contains("3.0mm").contains("20.0mm");
     }
 
     @Test
@@ -56,7 +56,7 @@ class ConfirmedDefectTextFactoryTest {
 
         assertThat(result.defectType()).isEqualTo("누수·백태");
         assertThat(result.severityGrade()).isEqualTo("B");
-        assertThat(result.description()).isEqualTo("누수·백태(등급 B)로 판정됨");
+        assertThat(result.description()).isEqualTo("누수·백태(b)로 판정됨");
     }
 
     @Test
@@ -70,6 +70,6 @@ class ConfirmedDefectTextFactoryTest {
         ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "인천시 남동구");
 
         assertThat(result.severityGrade()).isEqualTo("미분류");
-        assertThat(result.description()).isEqualTo("박리·박락(등급 미분류)로 판정됨");
+        assertThat(result.description()).isEqualTo("박리·박락(미분류)로 판정됨");
     }
 }

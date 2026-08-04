@@ -18,14 +18,14 @@ import java.time.LocalDate;
 public record FacilityUpdateRequest(
         @NotBlank @Size(max = 200) String name,
         @NotBlank @Size(max = 20) String type,
-        @Size(max = 300) String address,
+        @NotBlank @Size(max = 300) String address,
         @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,
         @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude,
         // 1900 ~ 현재연도+1. 상한이 동적이라 @Max 로 표현 불가 → 커스텀 제약(#351).
         @ValidBuiltYear Integer builtYear,
         @Size(max = 100) String scale,
-        // @Max(120): 상한(10년) — FacilityScheduleRequest 와 동일 기준(#351).
-        @Min(0) @Max(120) Integer inspectionCycleMonths,
+        // @Min(1) @Max(120): FacilityScheduleRequest·FacilityCreateRequest와 동일 범위(#1518/UT-081).
+        @Min(1) @Max(120) Integer inspectionCycleMonths,
         LocalDate nextInspectionDueAt,
         FacilityInitialGrade initialGrade,
         Long assigneeUserId,

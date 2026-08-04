@@ -27,7 +27,10 @@ public record FacilityInspectionOverviewResponse(
             long imageCount,
             List<GradeCount> defectGradeBreakdown,
             /** 이전 회차 대비 변화 메모 — 최신 회차에만 존재(null 아니면 표시) */
-            String changeNote
+            String changeNote,
+            /** 미리보기 썸네일 URL(최대 2장) — 최신 회차에만 채워짐(#1549, changeNote와 동일 관례).
+             * 이전 회차는 빈 리스트. */
+            List<String> thumbnailUrls
     ) {
     }
 

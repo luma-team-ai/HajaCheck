@@ -24,7 +24,15 @@ const DYNAMIC_SUB_ITEM_ID_BY_CODE: Record<string, string> = {
   REPORTS_EXPORT: 'report-export',
 };
 
+// router.tsx가 실제 :id와 무관하게 보고하는 정적 activeHref(#368)와 맞춘 고정값 — 백엔드
+// menus 시드의 activePathPattern이 비어 있어도(null) 이 값으로 폴백해 항상 하이라이트가 끊기지
+// 않게 한다. 이 세 코드가 없으면 activePathPattern이 null인 시드에서 matchHref가 undefined로
+// 빠지고, href(=activeInspectionId 기반 실제 id 경로)와 router의 정적 activeHref가 영영 일치하지
+// 않아 AI 분석/결과 뷰어/보고서 생성 세 메뉴만 선택 표시가 안 되는 버그가 생긴다.
 const DYNAMIC_MATCH_HREF_BY_ID: Record<string, string> = {
+  'ai-analysis': '/inspections/ai-analysis',
+  'result-viewer': '/inspections/1/viewer',
+  'report-entry': '/inspections/1/reports',
   'report-edit': '/reports/1',
   'report-export': '/reports/1?mode=export',
 };

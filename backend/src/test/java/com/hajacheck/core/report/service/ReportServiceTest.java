@@ -98,7 +98,11 @@ class ReportServiceTest {
     }
 
     private static FacilityResponse facility() {
-        return new FacilityResponse(10L, "테스트빌딩", "BUILDING", "서울시 강남구",
+        return facility("서울시 강남구");
+    }
+
+    private static FacilityResponse facility(String address) {
+        return new FacilityResponse(10L, "테스트빌딩", "BUILDING", address,
                 null, null, null, null, null, null, LocalDateTime.now(), LocalDateTime.now(),
                 null, null, null, null, null, null);
     }
@@ -300,6 +304,32 @@ class ReportServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
         verify(aiProxyService, never()).generateReport(anyLong(), any());
+    }
+
+    // #1479 — 시설물 주소가 비어 있으면 ai-server 호출(422) 전에 명확한 사유로 사전 차단해야 한다.
+    // "AI 서버가 요청을 거부했습니다"라는 애매한 AI_REQUEST_REJECTED 대신 FACILITY_ADDRESS_MISSING이어야 한다.
+    @Test
+    void generateDraft_시설물주소없음_FACILITY_ADDRESS_MISSING() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility(""));
+
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 200L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FACILITY_ADDRESS_MISSING));
+        verifyNoInteractions(aiProxyService);
+        verify(reportRepository, never()).save(any());
+    }
+
+    // 공백만 있는 주소도 blank로 취급해 동일하게 차단되는지 확인.
+    @Test
+    void generateDraft_시설물주소공백_FACILITY_ADDRESS_MISSING() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility("   "));
+
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 200L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FACILITY_ADDRESS_MISSING));
+        verifyNoInteractions(aiProxyService);
     }
 
     @Test
@@ -832,6 +862,9 @@ class ReportServiceTest {
         org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(inspectionService);
         inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
         inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REPORTED);
+        // #1497/HAJA-656 — REPORTED 전이 시 그 회차의 점검일(inspection(10L,..)이 세팅한 LocalDate.now())
+        // 기준으로 시설물의 다음 점검일을 재계산해야 한다.
+        verify(facilityService).recalculateNextInspectionDueAt(200L, 100L, 10L, LocalDate.now());
     }
 
     @Test
@@ -851,6 +884,8 @@ class ReportServiceTest {
 
         verify(inspectionService, never()).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
         verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REPORTED);
+        // #1497/HAJA-656
+        verify(facilityService).recalculateNextInspectionDueAt(200L, 100L, 10L, LocalDate.now());
     }
 
     @Test
@@ -871,6 +906,8 @@ class ReportServiceTest {
         reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        // #1497/HAJA-656 — REPORTED로 실제 전이되지 않으므로(이미 종단 상태) 재계산도 호출되면 안 된다.
+        verify(facilityService, never()).recalculateNextInspectionDueAt(any(), any(), any(), any());
     }
 
     @Test
@@ -900,6 +937,8 @@ class ReportServiceTest {
             assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
         }
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        // #1497/HAJA-656
+        verify(facilityService, never()).recalculateNextInspectionDueAt(any(), any(), any(), any());
     }
 
     @Test

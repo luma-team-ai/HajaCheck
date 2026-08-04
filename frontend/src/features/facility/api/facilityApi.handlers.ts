@@ -329,6 +329,7 @@ export const facilityHandlers = [
               { grade: 'C', count: 8 },
             ],
             changeNote: '이전 회차 대비 신규 하자 +4건 · 진행성 2건',
+            thumbnailUrls: ['/api/media/801/thumbnail', '/api/media/802/thumbnail'],
           },
           {
             id: 7,
@@ -342,6 +343,7 @@ export const facilityHandlers = [
               { grade: 'C', count: 6 },
             ],
             changeNote: null,
+            thumbnailUrls: [],
           },
           {
             id: 6,
@@ -352,6 +354,7 @@ export const facilityHandlers = [
             imageCount: 155,
             defectGradeBreakdown: [{ grade: 'C', count: 5 }],
             changeNote: null,
+            thumbnailUrls: [],
           },
         ],
       },

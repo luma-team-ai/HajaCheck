@@ -1,6 +1,6 @@
 # Chroma 컬렉션 메타데이터 & RAG 출처(sources) 응답 스키마 — HAJA-113
 
-> **문서 버전:** v0.1 · **최종 수정:** 2026-07-15 · 이전 버전 `archive/`
+> **문서 버전:** v0.2 · **최종 수정:** 2026-08-04 · 이전 버전 `archive/`
 
 > 에픽: HAJA-103 [AI 설계] · 담당: 유병현(챕터2 데이터·API 계약 오너) · 관련 요구: `PRD_hajaCheck_v0.43.md` §5 FR-6, §6.3 (v0.41 대비 RAG·데이터 모델 요구사항 변경 없음)
 > 구현 연계: `ai-server/ai/core/vectorstore.py`(Chroma 컬렉션 팩토리, RAG 코치 구현 예정) · `ai-server/ai/core/schemas.py`(`SourceCitation`/`RagAnswerData`) · DB: `docs/design/db/table_design.md` §5.5 (`rag_documents`, `chat_message_citations`)
@@ -76,6 +76,23 @@ FR-6 RAG 챗봇이 `regulations`(법규·지침)/`defect_kb`(하자 지식) 두 
 >
 > 객관적인 산정식이 없는 숫자형 신뢰도 점수는 만들지 않는다. 하자 지식의 신뢰 상태는 전문가 검토 여부인 `verification_status`를 SoT로 사용한다.
 
+## 5.1 컬렉션 `semantic_cache` — 응답 재사용 캐시 (v0.2 신설, #1462)
+
+RAG 문서 검색용이 아니라 **답변 캐시**다. `vectorstore.py` 화이트리스트에 등록된 **세 번째 컬렉션**이며(`regulations` · `defect_kb` · `semantic_cache`), `rag_documents` 테이블과 무관하다.
+
+| 항목 | 값 |
+|---|---|
+| `page_content` | **사용자 질문 원문**(검색 키) |
+| `metadata.answer_json` | `RagAnswerData` 직렬화 결과(answer + sources) |
+| 임베딩 | 본문과 동일한 `BAAI/bge-m3` |
+| 유사도 공간 | `hnsw:space=cosine` → `similarity_search_with_score`는 **distance**(작을수록 유사)를 반환. 히트 판정 = `distance ≤ 1 − threshold` |
+| threshold | 기본 **0.95** (`SEMANTIC_CACHE_THRESHOLD`) |
+| 저장 제외 | 근거 없음(`grounded=false`) 응답 |
+
+⚠️ **이 컬렉션만 TTL·무효화가 없다**(#1478) — `rag_ingest`의 delete/ingest 훅은 `regulations`만 정리하므로, 법규 개정 재색인 후에도 옛 답변이 유사도로 히트할 수 있다. 사용자 질문 원문이 무기한 남는 문제도 함께 있다.
+
+---
+
 ## 6. `sources` 응답 스키마 (`ai/core/schemas.py`, HAJA-145)
 
 ```python
@@ -111,3 +128,9 @@ RAG 체인이 **답변 생성 시점에 1회** `locator`를 렌더링한다 — 
 
 - **HAJA-143**: Jira 요구사항 원문은 "문서명, 조문/항 번호, 페이지, 발행처, **시행일/버전**"이나, 본 문서와 `table_design.md` §2.7/§2.8에는 시행일(`effective_date`)만 반영되고 **"버전"(법규 개정판 번호 등) 필드는 구현되지 않았다.** 의도적 제외인지, 누락인지 담당자(유병현) 확인 필요 — 확인 후 이 절을 제거하고 §2/§4에 결정 근거를 기록한다.
 - **HAJA-144**: Jira 요구사항 원문은 "하자 유형, 사례 출처, 작성일, **신뢰도/검증여부**"이나, 반영된 것은 `verification_status`(`UNVERIFIED`/`VERIFIED` 이진값) 하나뿐이다. "신뢰도"(점수/등급 등 연속값 개념일 가능성)를 검증여부로 대체하기로 확정한 것인지, 별도 필드가 추가로 필요한지 담당자 확인 필요 — 확인 후 이 절을 제거하고 §2/§5에 결정 근거를 기록한다.
+
+---
+
+## 변경 이력
+- **v0.2 (2026-08-04)**: §5.1 `semantic_cache` 컬렉션 신설(#1462) — 컬렉션이 2개로만 적혀 있던 것을 3개로 정정, TTL·무효화 부재(#1478) 명시. BM25 하이브리드 검색은 `rag_chatbot_design.md` §3.1 참조(2026-08-04 공개문서 stale 감사).
+- v0.1 (2026-07-15): 최초 작성 — HAJA-113.

@@ -6,7 +6,6 @@ import type {
   InspectionCreateRequest,
   InspectionCreateResponse,
 } from '../types';
-import type { DefectStatusUpdateRequest } from './inspectionApi';
 import type {
   DefectDetailItem,
   DefectCreateRequest,
@@ -87,34 +86,14 @@ export const inspectionHandlers = [
     return HttpResponse.json(body);
   }),
 
-  http.patch('/api/defects/:id/status', async ({ params, request }) => {
-    const defectId = Number(params.id);
-    const reqBody = (await request.json()) as DefectStatusUpdateRequest;
-
-    // Mock handler: allow all valid status transitions except for testing edge cases
-    // In tests, specific scenarios (e.g., already-reviewed defect) can override this handler
-    const data: DefectDetailItem = {
-      id: defectId,
-      status: reqBody.status,
-      // Return a minimal defect object to satisfy the type contract
-      inspectionId: 1,
-      type: 'CRACK',
-      grade: 'A',
-      confidence: 0.95,
-      isReviewed: true,
-      bboxX: 100,
-      bboxY: 100,
-      bboxW: 50,
-      bboxH: 50,
-      crackLengthMm: 150,
-      createdAt: new Date().toISOString(),
-    };
-    const result: ApiResponse<DefectDetailItem> = {
-      success: true,
-      data,
-    };
-    return HttpResponse.json(result);
-  }),
+  // PATCH /api/defects/:id/status — defectApi.handlers.ts가 유일하게 소유(HAJA-349/#630 재통합 중
+  // 발견: 이 자리에 별도로 얕은 중복 핸들러가 있어 handlers.ts 등록 순서상 defectApi.handlers.ts의
+  // reason 검증·mockDefects 반영 로직을 항상 가로채고 있었다 — 무조건 성공을 반환하지만 실제로는
+  // 아무 것도 저장하지 않아, MSW 목 모드에서 상태 변경이 "성공한 것처럼 보이지만 반영 안 됨"으로
+  // 재현됐다. inspectionApi.updateDefectStatus(ResultViewerPage.tsx "검수 확정")도 동일 실 엔드포인트를
+  // 호출하므로 별도 목이 필요 없다 — GET /api/inspections/:id/defects가 이미 defectApi.handlers.ts의
+  // mockInspectionDefectResponses(= mockDefects와 id 동기화)에서 defect를 공급하므로, 그 id로
+  // defectApi.handlers.ts의 /status 핸들러를 호출해도 항상 찾아진다.
 
   // 점검 생성 폼의 "같은 시설물에 이미 진행 중인 회차가 있는지" 확인용 — 기본값은 항상 빈 목록
   // (진행 중인 회차 없음)이라 기존 제출 플로우 테스트에 영향 없다. 중복 경고 시나리오는 개별

@@ -528,6 +528,12 @@
   font-weight: 800;
 }
 
+/* 등급 칩만 무채색 필 대신 DEFECT_GRADE_COLOR로 채운 실색 배지로 표시한다 — 헤더에서
+   등급(A~E)의 심각도가 다른 칩(하자유형/상태)과 즉시 구분되도록. */
+.defect-chip--grade {
+  color: #fff;
+}
+
 .defect-image-viewer-label {
   margin: 0;
   color: var(--color-text-muted);
@@ -623,8 +629,14 @@
   min-width: 240px;
 }
 
+/* max-height 없이 aspect-ratio만 있으면 image-col이 넓어질수록(와이드 모니터 등) 상자가
+   비율대로 한없이 커져 한 화면을 넘어간다(실측 1920폭에서 833px 컬럼 → 1111px 높이).
+   상한을 걸어도 실제 사진은 DefectImageViewer의 calculateImageCanvasSize가 이미 비율 유지
+   contain 방식으로 상자 안에 맞추므로 훼손되지 않는다 — 좁은 화면의 3:4 세로 배치 의도만
+   넓은 화면에서 상한으로 눌러준다. */
 .defect-detail-modal__image-col .defect-image-stage {
   height: auto;
+  max-height: 480px;
   aspect-ratio: 3 / 4;
 }
 
@@ -648,6 +660,9 @@
    나머지 가로폭을 전부 가져간다(.defect-detail-modal__image-col 참고). */
 .defect-detail-modal__diagnosis-col {
   display: flex;
+  /* image-col은 위에 photo-tab-row(탭 min-height 44px) + 12px gap이 있어 실제 사진 박스가
+     56px 아래에서 시작한다(#1553) — 같은 오프셋을 줘서 두 박스의 상단을 맞춘다. */
+  margin-top: 56px;
   flex: 0 1 360px;
   flex-direction: column;
   min-width: 300px;

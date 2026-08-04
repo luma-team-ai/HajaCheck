@@ -23,11 +23,10 @@ RapidOCR(`ai/core/ocr_client.py`, PP-OCRv5 한국어 인식모델)로 이미지�
 남기지 않는다 — 이 파일은 어떤 로그도 남기지 않는다(체인 자체는 로거를 두지 않음). 예외는
 삼키지 않고 그대로 호출부(라우터)로 전파하며, 라우터의 `logger.exception`에는 예외 타입/스택만
 남고 OCR 원문·LLM 응답 내용은 포함하지 않는다(`routers/ai_router.py` 참고).
-LangSmith 트레이싱(#1240): 프롬프트(=OCR 원문 전체)와 LLM 응답이 외부 LangSmith 서버로
-나가지 않도록 전역 입출력 마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)에 의존한다. 체인별
-코드 차단은 두지 않는다 — 위 #552 조항을 트레이싱 경로에 한해 해제하는 것으로, 2026-07-29
-정재봉 승인(충돌 인지 상태) 하에 결정됐다. 마스킹 env가 빠진 환경에서는 OCR 원문이 전송되므로,
-배포 시 해당 env 설정이 반드시 함께 들어가야 한다.
+LangSmith 트레이싱(#1534, P1 픽스): OCR 체인은 `tracing_context(enabled=False)`로 LangSmith 트레이싱
+자체에서 완전히 제외된다 — 사업자등록번호·대표자명·주소 등 개인정보의 국외 제3자(SaaS) 제공에 대한
+법적 근거가 불확실하다는 PR머신 지적을 반영(2026-08-04). 나머지 5개 체인(report/rag_chat/nl_search
+/defect_explain/briefing)은 원문이 그대로 LangSmith로 전송된다(재봉님 승인 유지).
 """
 import base64
 import binascii
@@ -36,6 +35,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+from langsmith.run_helpers import tracing_context
 from pydantic import BaseModel
 
 from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
@@ -170,32 +170,39 @@ def run_business_license_ocr_chain(image_base64: str) -> BusinessLicenseOcrResul
 
     OCR이 텍스트를 하나도 못 찾으면 LLM을 호출하지 않고 빈 결과를 반환한다(크레딧 절약 —
     LLM에 빈 컨텍스트를 줘봐야 null만 나온다).
+
+    ⚠️ 함수 **전체**를 `tracing_context(enabled=False)`로 감싼다(#1594 P3). 예전에는 LLM invoke
+    한 줄만 감싸고 있었는데, 전역 백스톱(LANGSMITH_HIDE_*)이 사라진 지금 그 구조에서는 누군가
+    이 체인에 LLM 호출을 한 줄 더 추가하거나 `with` 블록 **밖**에서 호출하면 사업자등록번호·
+    대표자명이 **경보 없이** LangSmith(국외 SaaS)로 전송된다. 함수 스코프로 올려두면 이후 추가되는
+    호출이 자동으로 억제 범위에 포함된다.
     """
-    image_bytes = _decode_image(image_base64)
-    lines_with_scores = _extract_text_lines(image_bytes)
+    with tracing_context(enabled=False):
+        image_bytes = _decode_image(image_base64)
+        lines_with_scores = _extract_text_lines(image_bytes)
 
-    if not lines_with_scores:
-        return BusinessLicenseOcrResult(line_count=0, avg_confidence=None)
+        if not lines_with_scores:
+            return BusinessLicenseOcrResult(line_count=0, avg_confidence=None)
 
-    texts = [text for text, _score in lines_with_scores]
-    avg_confidence = sum(score for _text, score in lines_with_scores) / len(lines_with_scores)
+        texts = [text for text, _score in lines_with_scores]
+        avg_confidence = sum(score for _text, score in lines_with_scores) / len(lines_with_scores)
 
-    prompt = _build_prompt("\n".join(texts))
-    llm_result = (
-        get_llm()
-        .with_structured_output(BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS)
-        .invoke(prompt)
-    )
+        prompt = _build_prompt("\n".join(texts))
+        llm_result = (
+            get_llm()
+            .with_structured_output(BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS)
+            .invoke(prompt)
+        )
 
-    business_registration_number = _find_business_reg_number(
-        texts
-    ) or _normalize_reg_number(llm_result.business_registration_number)
+        business_registration_number = _find_business_reg_number(
+            texts
+        ) or _normalize_reg_number(llm_result.business_registration_number)
 
-    return BusinessLicenseOcrResult(
-        business_registration_number=business_registration_number,
-        company_name=llm_result.company_name,
-        representative_name=llm_result.representative_name,
-        business_start_date=_normalize_start_date(llm_result.business_start_date),
-        line_count=len(texts),
-        avg_confidence=round(avg_confidence, 4),
-    )
+        return BusinessLicenseOcrResult(
+            business_registration_number=business_registration_number,
+            company_name=llm_result.company_name,
+            representative_name=llm_result.representative_name,
+            business_start_date=_normalize_start_date(llm_result.business_start_date),
+            line_count=len(texts),
+            avg_confidence=round(avg_confidence, 4),
+        )

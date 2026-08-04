@@ -402,8 +402,39 @@ class InspectionAnalysisWorkerTest {
         assertThat(captor.getAllValues().get(captor.getAllValues().size() - 1).stage()).isEqualTo("done");
     }
 
+    @Test
+    void runAsync_AI응답의widthMm이Defect_crackWidthMm으로저장된다() {
+        // #1487/#1547 후속(#1578) — ai-server가 카드 기준물로 환산한 width_mm을 응답에 실어도
+        // DetectedDefectItem에 필드가 없으면 @JsonIgnoreProperties(ignoreUnknown)에 의해 조용히
+        // 버려져 Defect.crackWidthMm이 항상 null로 남는 문제의 회귀 테스트.
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(
+                detection("CRACK", "E", 2.4),   // 카드 검출 성공 + 0.7mm 이상 — mm 값 전달됨
+                detection("CRACK", "A", null))); // 카드 미검출 또는 0.7mm 미만 — null 유지
+        // 첫 성공 저장은 softDeleteAllForInspectionThenSave를 거친다(saveAll 아님 — 클래스 상단
+        // "코드 리뷰 P2(잔여 창)" 주석 참고, InspectionAnalysisWorker.java:178-183).
+        when(defectWriter.softDeleteAllForInspectionThenSave(any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(2));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)),
+                InspectionStatus.UPLOADING, GENERATION, CHARGE);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Defect>> captor = ArgumentCaptor.forClass(List.class);
+        verify(defectWriter).softDeleteAllForInspectionThenSave(any(), eq(INSPECTION_ID), captor.capture());
+        List<Defect> saved = captor.getValue();
+
+        assertThat(saved)
+                .extracting(Defect::getCrackWidthMm)
+                .containsExactlyInAnyOrder(2.4, null);
+    }
+
     private DetectedDefectItem detection(String type, String grade) {
-        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null);
+        return detection(type, grade, null);
+    }
+
+    private DetectedDefectItem detection(String type, String grade, Double widthMm) {
+        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, widthMm);
     }
 
     @SuppressWarnings("unchecked")

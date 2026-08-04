@@ -467,7 +467,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     // 기본 선택 = 첫 미확정 하자(id=1, 균열 C등급, confidence 98%)
     expect(await screen.findByText('98%')).not.toBeNull();
-    expect(screen.getByText('예상 길이')).not.toBeNull();
+    expect(screen.getByText('예상 폭')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '이 하자 검수 확정' }));
 
@@ -674,14 +674,15 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
   });
 
-  it('균열(CRACK) 하자는 면적 비율이 아니라 예상 길이(mm)를 표시한다(#881)', async () => {
+  it('균열(CRACK) 하자는 면적 비율이 아니라 예상 폭(mm)을 표시한다(#881, #1588)', async () => {
     // 백엔드는 type을 영문 코드로 내려주므로(#881), 훅에서 한글로 번역돼야만
-    // '균열' 분기(예상 길이)를 탄다. id=1은 CRACK·crackLengthMm=45.
+    // '균열' 분기(예상 폭)를 탄다. id=1은 CRACK·crackWidthMm=3.2(#1588 — 길이가 아니라
+    // 폭을 표시해야 함, ai-server가 실제로 계산하는 값은 폭뿐이다).
     renderPage();
     await screen.findByText('DEF-0001');
 
-    expect(screen.getByText('예상 길이')).not.toBeNull();
-    expect(screen.getByText('45mm')).not.toBeNull();
+    expect(screen.getByText('예상 폭')).not.toBeNull();
+    expect(screen.getByText('3.2mm')).not.toBeNull();
     expect(screen.queryByText('면적 비율')).toBeNull();
   });
 
@@ -696,7 +697,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     expect(screen.getByText('면적 비율')).not.toBeNull();
     expect(screen.getByText('준비 중')).not.toBeNull();
-    expect(screen.queryByText('예상 길이')).toBeNull();
+    expect(screen.queryByText('예상 폭')).toBeNull();
   });
 
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {

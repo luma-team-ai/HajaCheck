@@ -133,6 +133,41 @@ describe('DefectPhoto', () => {
     expect(screen.queryByRole('status', { name: '사진 로딩 중' })).toBeNull();
     expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(1);
   });
+
+  it('이미지가 마운트 시점에 이미 캐시되어 complete=true, naturalWidth>0이면 onLoad 없이도 loaded 상태가 된다', () => {
+    const originalComplete = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'complete');
+    const originalNaturalWidth = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'naturalWidth');
+
+    Object.defineProperty(HTMLImageElement.prototype, 'complete', {
+      configurable: true,
+      get() {
+        return true;
+      },
+    });
+    Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', {
+      configurable: true,
+      get() {
+        return 800;
+      },
+    });
+
+    try {
+      const { container } = render(
+        <DefectPhoto
+          group={{ mediaId: 101, imageUrl: '/media/101/thumb', defects: [defect(1, 101, { x: 0.25, y: 0.5, width: 0.1, height: 0.2 })] }}
+          alt="사진"
+          fallback={<div>이미지 없음</div>}
+        />,
+      );
+
+      // fireEvent.load를 호출하지 않아도 이미지가 캐시되어 로딩 대지가 사라지고 bbox가 배치된다
+      expect(screen.queryByRole('status', { name: '사진 로딩 중' })).toBeNull();
+      expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(1);
+    } finally {
+      if (originalComplete) Object.defineProperty(HTMLImageElement.prototype, 'complete', originalComplete);
+      if (originalNaturalWidth) Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', originalNaturalWidth);
+    }
+  });
 });
 
 describe('PhotosSectionPreview', () => {
@@ -167,7 +202,7 @@ describe('PhotosSectionPreview', () => {
     expect(screen.getByText('하자 1건')).toBeTruthy();
   });
 
-  it('부위별 사진이 10장 이상이면 9장 단위로 페이지네이션한다', () => {
+  it('결함 사진이 10장 이상이면 9장 단위로 페이지네이션한다', () => {
     const groups = Array.from({ length: 10 }, (_, index) =>
       groupDefectsByMedia([
         defect(index + 1, index + 1, { x: 0.1, y: 0.1, width: 0.1, height: 0.1 }),
@@ -179,10 +214,10 @@ describe('PhotosSectionPreview', () => {
     expect(screen.getByText('1')).toBeTruthy();
     expect(screen.getByText('/ 2')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: '부위별 사진 다음 페이지' }));
+    fireEvent.click(screen.getByRole('button', { name: '결함 사진 다음 페이지' }));
 
     expect(screen.getAllByRole('img')).toHaveLength(1);
     expect(screen.getByText('2')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '부위별 사진 다음 페이지' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: '결함 사진 다음 페이지' }).hasAttribute('disabled')).toBe(true);
   });
 });

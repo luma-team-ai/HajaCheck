@@ -13,7 +13,7 @@ describe('insertSectionAtCanonicalPosition', () => {
     expect(result).toEqual(['manual-submission-1', 'overview', 'summary', 'detail', 'recommendation', 'photos']);
   });
 
-  it('참여 기술진 명단은 부위별 사진(photos) 앞, 고정 섹션들 뒤에 삽입된다', () => {
+  it('참여 기술진 명단은 결함 사진(photos) 앞, 고정 섹션들 뒤에 삽입된다', () => {
     const order = ['overview', 'summary', 'detail', 'recommendation', 'photos'];
     const result = insertSectionAtCanonicalPosition(order, 'manual-participants-1', 'participants', []);
     expect(result).toEqual(['overview', 'summary', 'detail', 'recommendation', 'manual-participants-1', 'photos']);

@@ -1,7 +1,5 @@
 import { useNavigate } from 'react-router-dom';
 import '../../../shared/styles/layout.css';
-import { AiBriefingCard } from '../components/AiBriefingCard';
-import { PendingPriorityCard } from '../components/PendingPriorityCard';
 import { UpcomingInspectionCard } from '../components/UpcomingInspectionCard';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { INSPECTION_NEW_PATH } from '../constants';
@@ -64,25 +62,22 @@ export function UpcomingInspectionsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
-        <div className="flex flex-col gap-4 min-w-0">
-          <h2 className="m-0 text-lg font-medium text-zinc-900">점검일 도래 시설물</h2>
+      <div className="flex flex-col gap-4 min-w-0">
+        {/* 백엔드 기본값(DashboardController#getUpcomingInspections days=30, limit=5)을 안내 —
+            InspectionCycleSettingsPage.tsx와 동일 문구(#1517)로 조회 기준을 명시한다(#1568). */}
+        <h2 className="m-0 text-lg font-medium text-zinc-900">
+          점검일 도래 시설물 <span className="text-sm font-normal text-neutral-500">(D-30일 이하, 최대 5건)</span>
+        </h2>
 
-          {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
-          {isError && <p className="dashboard-card-status">다음 점검일 목록을 불러오지 못했습니다.</p>}
-          {!isLoading && !isError && (!data || data.length === 0) && (
-            <p className="dashboard-card-status">다가오는 점검 일정이 없습니다.</p>
-          )}
-          {!isLoading &&
-            !isError &&
-            data &&
-            data.map((item) => <UpcomingInspectionCard key={item.facilityId} item={item} />)}
-        </div>
-
-        <div className="flex flex-col gap-4 min-w-0">
-          <PendingPriorityCard />
-          <AiBriefingCard />
-        </div>
+        {isLoading && <p className="dashboard-card-status">불러오는 중...</p>}
+        {isError && <p className="dashboard-card-status">다음 점검일 목록을 불러오지 못했습니다.</p>}
+        {!isLoading && !isError && (!data || data.length === 0) && (
+          <p className="dashboard-card-status">다가오는 점검 일정이 없습니다.</p>
+        )}
+        {!isLoading &&
+          !isError &&
+          data &&
+          data.map((item) => <UpcomingInspectionCard key={item.facilityId} item={item} />)}
       </div>
     </div>
   );

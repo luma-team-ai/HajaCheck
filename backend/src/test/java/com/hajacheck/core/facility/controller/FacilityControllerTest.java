@@ -262,16 +262,30 @@ class FacilityControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 시설물등록_경계값_준공년도1900_점검주기0_201() throws Exception {
-        // 제약이 과해 정상 입력을 막지 않는지 — 하한 1900 과 "주기 미설정"(0)은 통과해야 한다.
+    void 시설물등록_경계값_준공년도1900_점검주기1_201() throws Exception {
+        // 제약이 과해 정상 입력을 막지 않는지 — 하한 1900 과 점검주기 하한 1(#1518/UT-081)은 통과해야 한다.
         User owner = saveUser("owner9@haja.com");
-        FacilityCreateRequest request = createRequestWith(1900, 0);
+        FacilityCreateRequest request = createRequestWith(1900, 1);
 
         mockMvc.perform(post("/api/facilities")
                         .with(csrf()).with(authentication(authOf(owner)))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(request)))
                 .andExpect(status().isCreated());
+    }
+
+    @Test
+    void 시설물등록_유효성실패_점검주기0_400() throws Exception {
+        // #1518/UT-081 — 등록 폼은 유형 선택에서 점검주기를 자동 도출해 0을 보내는 UI 경로가 없지만,
+        // API를 직접 호출하는 경우까지 막아 FacilityScheduleRequest(설정 전용, @Min(1))와 기준을 통일한다.
+        User owner = saveUser("owner11@haja.com");
+        FacilityCreateRequest request = createRequestWith(2008, 0);
+
+        mockMvc.perform(post("/api/facilities")
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -290,9 +304,25 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void 시설물수정_유효성실패_점검주기0_400() throws Exception {
+        // #1518/UT-081 — PUT 도 등록과 동일 제약(@Min(1))이어야 한다(FacilityUpdateRequest 클래스 주석).
+        User owner = saveUser("owner12@haja.com");
+        Facility facility = saveFacility(owner.getId());
+        FacilityUpdateRequest request = new FacilityUpdateRequest(
+                "수정빌딩", "BUILDING", null, null, null, 2008, null, 0, null,
+                null, null, null);
+
+        mockMvc.perform(put("/api/facilities/{id}", facility.getId())
+                        .with(csrf()).with(authentication(authOf(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isBadRequest());
+    }
+
     private FacilityCreateRequest createRequestWith(Integer builtYear, Integer inspectionCycleMonths) {
         return new FacilityCreateRequest(
-                "검증빌딩", "BUILDING", null, null, null, builtYear, null, inspectionCycleMonths, null,
+                "검증빌딩", "BUILDING", "서울시 강남구", null, null, builtYear, null, inspectionCycleMonths, null,
                 null, null, null);
     }
 
@@ -314,7 +344,7 @@ class FacilityControllerTest extends PostgresTestSupport {
     void 시설물등록_초기등급메모포함_201_응답에반영() throws Exception {
         User owner = saveUser("owner11@haja.com");
         FacilityCreateRequest request = new FacilityCreateRequest(
-                "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
+                "테스트빌딩", "BUILDING", "서울시 강남구", null, null, null, null, null, null,
                 FacilityInitialGrade.C, null, "1층 로비 CCTV 점검 필요");
 
         mockMvc.perform(post("/api/facilities")
@@ -333,7 +363,7 @@ class FacilityControllerTest extends PostgresTestSupport {
         User owner = saveUser("owner13@haja.com");
         User notAssignable = saveUser("stranger2@haja.com");
         FacilityCreateRequest request = new FacilityCreateRequest(
-                "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
+                "테스트빌딩", "BUILDING", "서울시 강남구", null, null, null, null, null, null,
                 null, notAssignable.getId(), null);
 
         mockMvc.perform(post("/api/facilities")

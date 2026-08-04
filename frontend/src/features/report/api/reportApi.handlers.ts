@@ -157,6 +157,8 @@ startxref
       id: Number(params.id),
       content: newContent,
       groundingCheckPassed: null,
+      version: (currentReportState.version ?? 1) + 1,
+      editedBy: currentReportState.editedBy ?? 1,
     };
     const body: ApiResponse<ReportDetailResponse> = {
       success: true,
@@ -210,12 +212,14 @@ startxref
     const page = Number(url.searchParams.get('page') ?? '0');
     const size = Number(url.searchParams.get('size') ?? '10');
     const facilityIdParam = url.searchParams.get('facilityId');
+    const roundNoParam = url.searchParams.get('roundNo');
     const statusParam = url.searchParams.get('status') as ReportListStatus | null;
     const query = url.searchParams.get('query')?.trim().toLowerCase();
     const period = url.searchParams.get('period');
 
     const filtered = filterReportListItems(mockReportListItems, {
       facilityId: facilityIdParam ? Number(facilityIdParam) : undefined,
+      roundNo: roundNoParam ? Number(roundNoParam) : undefined,
       status: statusParam ?? undefined,
       query: query ?? undefined,
       period: period as 'ALL' | '1M' | '3M' | '6M' | undefined,

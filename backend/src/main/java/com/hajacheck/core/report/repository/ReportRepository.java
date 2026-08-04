@@ -17,16 +17,19 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
             + "where f.companyId = :companyId and r.status in :statuses "
             + "and r.deletedAt is null "
             + "and (:facilityId = -1 or f.id = :facilityId) "
+            + "and (:roundNo = -1 or i.roundNo = :roundNo) "
             + "and (:query = '' or lower(f.name) like lower(concat('%', :query, '%'))) "
             + "and r.updatedAt >= :updatedAtFrom",
             countQuery = "select count(r) from Report r join r.inspection i join i.facility f "
                     + "where f.companyId = :companyId and r.status in :statuses "
                     + "and r.deletedAt is null "
                     + "and (:facilityId = -1 or f.id = :facilityId) "
+                    + "and (:roundNo = -1 or i.roundNo = :roundNo) "
                     + "and (:query = '' or lower(f.name) like lower(concat('%', :query, '%'))) "
                     + "and r.updatedAt >= :updatedAtFrom")
     Page<Report> findCompanyPage(@Param("companyId") Long companyId,
             @Param("statuses") List<ReportStatus> statuses, @Param("facilityId") Long facilityId,
+            @Param("roundNo") Integer roundNo,
             @Param("query") String query, @Param("updatedAtFrom") LocalDateTime updatedAtFrom,
             Pageable pageable);
 

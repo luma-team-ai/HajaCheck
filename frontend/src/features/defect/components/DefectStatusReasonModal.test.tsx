@@ -75,4 +75,39 @@ describe('DefectStatusReasonModal', () => {
     const confirmButton = screen.getByRole('button', { name: '확인' }) as HTMLButtonElement;
     expect(confirmButton.disabled).toBe(true);
   });
+
+  it('isSubmitting이면 유효한 사유가 있어도 확인 버튼이 비활성화되고 라벨이 바뀐다', () => {
+    const onSubmit = vi.fn();
+    render(
+      <DefectStatusReasonModal
+        defect={mockDefects[0]}
+        targetStatus="DETECTED"
+        onCancel={vi.fn()}
+        onSubmit={onSubmit}
+        isSubmitting
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('사유'), { target: { value: '점검자 재확인 요청으로 되돌림' } });
+    const submitButton = screen.getByRole('button', { name: '처리 중...' }) as HTMLButtonElement;
+    expect(submitButton.disabled).toBe(true);
+
+    fireEvent.click(submitButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('submitError가 있으면 모달 내부에 role="alert"로 노출한다', () => {
+    render(
+      <DefectStatusReasonModal
+        defect={mockDefects[0]}
+        targetStatus="DETECTED"
+        onCancel={vi.fn()}
+        onSubmit={vi.fn()}
+        submitError="상태 변경에 실패했습니다. 잠시 후 다시 시도해 주세요."
+      />,
+    );
+
+    const alerts = screen.getAllByRole('alert').map((node) => node.textContent);
+    expect(alerts).toContain('상태 변경에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+  });
 });

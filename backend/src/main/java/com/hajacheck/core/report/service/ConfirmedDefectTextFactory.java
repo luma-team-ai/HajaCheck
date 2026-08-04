@@ -28,12 +28,17 @@ public final class ConfirmedDefectTextFactory {
         return new ReportRequest.ConfirmedDefect(defect.getId(), typeLabel, location, gradeLabel, description);
     }
 
+    // 원본 정밀안전진단 보고서 양식은 등급을 "등급 E"가 아니라 소문자 단일 글자(a~d)로만
+    // 표기한다(§가. 진단 외관조사결과 상태평가 컬럼과 동일 관례, #1499 후속) — 여기서는 표시용
+    // 문장에만 소문자를 쓰고, severity_grade 필드(gradeLabel 원본)는 그대로 둔다(AI 요청·등급
+    // 비교 로직이 참조하는 실값이라 케이스를 바꾸면 영향 범위가 커진다).
     private static String buildDescription(Defect defect, String typeLabel, String gradeLabel) {
+        String displayGrade = gradeLabel.toLowerCase();
         if (defect.getType() == DefectType.CRACK) {
-            return "%s(등급 %s) — 폭 %s, 길이 %s 균열이 관찰됨".formatted(
-                    typeLabel, gradeLabel, measurement(defect.getCrackWidthMm()), measurement(defect.getCrackLengthMm()));
+            return "%s(%s) — 폭 %s, 길이 %s 균열이 관찰됨".formatted(
+                    typeLabel, displayGrade, measurement(defect.getCrackWidthMm()), measurement(defect.getCrackLengthMm()));
         }
-        return "%s(등급 %s)로 판정됨".formatted(typeLabel, gradeLabel);
+        return "%s(%s)로 판정됨".formatted(typeLabel, displayGrade);
     }
 
     private static String measurement(Double valueMm) {

@@ -57,10 +57,15 @@ public record MyPlanResponse(PlanInfo plan, Limits limits, Usage usage) {
      *                      실제 초대는 1석에서 막히는(=한도 강제가 그렇게 동작하는) 불일치가 생긴다.
      *                      요금제 이름·가격은 여전히 {@code plan}(구독한 요금제)이다.
      * @param paymentPendingUntil 미결제 유예 마감(유예 중이 아니면 null) — {@link PlanInfo} javadoc 참고.
+     * @param measuredSeatCount <b>좌석 실측값</b>(#1473 / HAJA-652) —
+     *                          {@code QuotaService#measureSeats} 단일 소스. {@code usage_counters.seat_count}
+     *                          는 좌석 점유 시점에 갱신되지 않는 lazy 카운터라 표시에 그대로 쓰면 드리프트가
+     *                          난다({@code usage} 가 null 인 회사는 항상 0으로 보였던 게 이 버그). 좌석은
+     *                          "현재 상태"라 {@code usage} 존재 여부와 무관하게 항상 이 값을 쓴다.
      */
     public static MyPlanResponse from(UserPlan userPlan, Plan plan, UsageCounter usage, LocalDate period,
                                        Company company, ZoneId zoneId, Plan effectivePlan,
-                                       Instant paymentPendingUntil) {
+                                       Instant paymentPendingUntil, int measuredSeatCount) {
         // startedAt + 1개월 파생 계산을 실체화된 컬럼으로 교체한다(#1104) — NULL(FREE, 무기한)이면
         // nextBillingDate 도 null. plan.priceMonthly 조건은 더 이상 필요 없다(currentPeriodEnd 자체가
         // 유료 플랜만 채워지므로).
@@ -92,9 +97,12 @@ public record MyPlanResponse(PlanInfo plan, Limits limits, Usage usage) {
         Plan limitPlan = effectivePlan == null ? plan : effectivePlan;
         Limits limits = new Limits(
                 limitPlan.getMaxFacilities(), limitPlan.getMaxMonthlyAnalyses(), limitPlan.getMaxSeats());
+        // ⚠️ seatCount 는 usage(저장 카운터) 유무와 무관하게 항상 measuredSeatCount(실측)다(#1473) —
+        // facilityCount/analyzedImageCount 는 기간 누적이라 저장 카운터가 진실이지만, 좌석은 "현재 상태"라
+        // 실측만이 진실이다.
         Usage usageInfo = usage == null
-                ? new Usage(0, 0, 0, period)
-                : new Usage(usage.getFacilityCount(), usage.getAnalyzedImageCount(), usage.getSeatCount(), period);
+                ? new Usage(0, 0, measuredSeatCount, period)
+                : new Usage(usage.getFacilityCount(), usage.getAnalyzedImageCount(), measuredSeatCount, period);
         return new MyPlanResponse(planInfo, limits, usageInfo);
     }
 }

@@ -1,4 +1,5 @@
 import { api } from '../../../shared/api/axios';
+import { AI_TIMEOUT_MS, uploadTimeoutMs } from '../../../shared/api/timeouts';
 import type { PageResponse } from '../../../shared/api/types';
 import type { ReportFacilityOption, ReportListFilters, ReportListItem, ReportListSummary } from '../types';
 
@@ -101,6 +102,10 @@ export interface ReportDetailResponse {
   editedBy?: number | null;
   createdBy: number;
   createdAt: string;
+  // #1479 후속 — "저장됨" 경과 시간 표시를 createdAt(불변)이 아니라 마지막 편집 시각으로 보여주기 위해 추가.
+  // optional인 이유: 이미 캐시/테스트 픽스처에 남아있는 구 형태 응답(백엔드 배포 전)과의 호환 —
+  // 소비부(ReportGeneratePage)는 없으면 createdAt으로 폴백한다.
+  updatedAt?: string;
   context?: ReportContext | null;
 }
 
@@ -125,7 +130,13 @@ export const reportApi = {
     api.post<ReportDetailResponse>(
       `/inspections/${inspectionId}/reports`,
       options ?? {},
-      { signal },
+      {
+        signal,
+        // 이름만 봐서는 AI 호출인 줄 모르는 경로다 — 백엔드 ReportService.generateDraft가 ai-server의
+        // 보고서 생성 체인을 동기로 호출하므로 스프링 ai.server read-timeout 150초가 그대로 걸린다.
+        // 전역 30초면 정상 생성이 끊긴다(#1598, 근거는 timeouts.ts).
+        timeout: AI_TIMEOUT_MS,
+      },
     ),
 
   // 점검별 보고서 목록 조회 (최근 작업 내역용)
@@ -158,7 +169,12 @@ export const reportApi = {
   uploadPdf: (reportId: number, file: Blob, fileName: string, signal?: AbortSignal) => {
     const formData = new FormData();
     formData.append('file', file, fileName);
-    return api.post<{ pdfUrl: string }>(`/reports/${reportId}/pdf`, formData, { signal });
+    return api.post<{ pdfUrl: string }>(`/reports/${reportId}/pdf`, formData, {
+      signal,
+      // 클라이언트가 생성한 PDF 본문 전송 시간이 전역 30초를 잠식한다(사진이 많은 보고서일수록
+      // 커진다) — 크기에 비례한 상한을 준다(#1598, 근거는 timeouts.ts).
+      timeout: uploadTimeoutMs(file.size),
+    });
   },
 
   // 확정 — groundingCheckPassed !== true 면 서버가 거부한다.

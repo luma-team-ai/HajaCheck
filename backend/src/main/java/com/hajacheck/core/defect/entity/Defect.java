@@ -185,10 +185,14 @@ public class Defect {
     }
 
     /**
-     * 상태 전이(HAJA-26 2차: 역행/건너뛰기 허용). 정방향 한 단계 전이는 사유 없이 허용하고,
+     * 상태 전이(HAJA-26 3차: RESOLVED 역행 허용, #1556). 정방향 한 단계 전이는 사유 없이 허용하고,
      * 그 외(역행·건너뛰기) 전이는 {@code reason}이 있어야만 허용한다(PRD FR-4 "역행·건너뛰기는
-     * 사유 기록 필수"). 단, 조치완료(RESOLVED)는 사유 유무와 무관하게 이탈(다른 상태로 재전이)이
-     * 불가한 종료 상태로 유지한다 — 완료 처리 자체를 되돌리는 것은 별도 스코프.
+     * 사유 기록 필수"). 조치완료(RESOLVED)에서 다른 상태로 되돌리는 것도 이 일반 규칙을 그대로
+     * 따른다 — RESOLVED의 정방향 다음 단계는 없으므로({@code expectedNext == null}) RESOLVED를
+     * 벗어나는 모든 전이는 항상 역행/건너뛰기로 취급돼 사유가 필요하다.
+     *
+     * <p>과거(HAJA-26 2차)엔 RESOLVED를 사유 유무와 무관하게 이탈 불가한 종료 상태로 취급했으나,
+     * "조치완료로 잘못 넘어간 하자를 되돌릴 방법이 없다"는 현장 피드백(#1556)에 따라 완화했다.
      *
      * <p>신규(DETECTED) 이탈에는 등급이 필요하다(#1397) — PRD FR-4가 검수를 "오탐 수정·등급 확정"으로
      * 정의하므로, 등급이 없는 채로 DETECTED를 벗어나면 "검수는 끝났는데 등급은 없는" 상태가 된다.
@@ -207,23 +211,14 @@ public class Defect {
                     "changeStatus 불가: 등급이 없는 신규(DETECTED) 결함은 먼저 등급을 확정해야 한다 (요청 상태=%s)"
                             .formatted(status));
         }
-        if (this.status == DefectStatus.RESOLVED) {
-            throw new DomainStateTransitionException(
-                    "changeStatus 불가: 조치완료(RESOLVED)는 종료 상태라 다른 상태로 전이할 수 없다");
-        }
         if (status == this.status) {
             throw new DomainStateTransitionException(
                     "changeStatus 불가: 현재 상태와 동일한 상태로는 전이할 수 없다 (상태=%s)".formatted(status));
         }
 
-        DefectStatus expectedNext = switch (this.status) {
-            case DETECTED -> DefectStatus.CONFIRMED;
-            case CONFIRMED -> DefectStatus.IN_PROGRESS;
-            case IN_PROGRESS -> DefectStatus.RESOLVED;
-            case RESOLVED -> null;
-        };
-
-        boolean isForwardStep = status == expectedNext;
+        // 정방향 한 단계 판정은 DefectStatus#isForwardStepTo가 단일 기준이다(#1583) — 서비스 계층의
+        // 그룹 팬아웃도 같은 메서드를 쓰므로 두 곳의 규칙이 갈라질 수 없다.
+        boolean isForwardStep = this.status.isForwardStepTo(status);
         if (!isForwardStep && (reason == null || reason.isBlank())) {
             throw new DomainValidationException(
                     "changeStatus 불가: 역행/건너뛰기 전이는 사유가 필요하다 (현재 상태=%s, 요청 상태=%s)"
@@ -249,6 +244,13 @@ public class Defect {
      * "RESOLVED 이탈 금지" 검사(동일 상태 검사보다 우선)에 걸려 DomainStateTransitionException으로
      * 막힌다(회귀 방지). flat 필드(actionMediaId 등)는 두 경우 모두 "최신 스냅샷"으로 계속 덮어쓴다
      * (기존 계약 유지 — 이력 자체는 서비스 계층이 DefectActionLog로 별도 append한다).
+     *
+     * <p><b>⚠️ 위 "이미 RESOLVED인 하자는 막힌다"는 이 메서드를 직접 탈 때만 성립한다(#1591 P2).</b>
+     * 이미지 단위 보수 작업 그룹 팬아웃에서 건너뛰기로 판정된 멤버는 이 메서드가 아니라
+     * {@link #updateActionResultFields}로 들어와 상태 전이 없이 조치 필드만 갱신된다 — 즉 RESOLVED인
+     * 하자의 조치 필드가 <b>같은 사진의 다른 하자(anchor) 제출을 통해</b> 덮어써질 수 있다. 그렇게
+     * 하지 않으면 그룹에 RESOLVED 멤버가 하나만 있어도 그 사진의 조치 등록 자체가 영구 불가였기
+     * 때문에(#1591) 의도적으로 완화한 것이다. 상태 자체는 여전히 이 메서드를 통해서만 바뀐다.
      */
     public void registerActionResult(Long actionMediaId, String actionContent, LocalDate actionDate,
                                       Long actionAssigneeId, DefectStatus targetStatus) {
@@ -257,6 +259,28 @@ public class Defect {
         } else {
             changeStatus(targetStatus);
         }
+        applyActionResultFields(actionMediaId, actionContent, actionDate, actionAssigneeId);
+    }
+
+    /**
+     * 조치 결과의 <b>필드만</b> 반영한다 — 상태 전이는 하지 않는다(#1591 P2).
+     *
+     * <p>이미지 단위 보수 작업 그룹 팬아웃에서 {@code DefectService#shouldSkipGroupMember} 로 상태
+     * 전이를 건너뛰기로 판정된 멤버(이미 목표 상태이거나 목표보다 앞서 있거나, 목표까지 두 단계 이상
+     * 뒤처진 하자)에 쓴다. 그 멤버도 <b>같은 사진에 대한 조치 등록의 대상</b>이므로 조치 사진·내용·
+     * 조치일·담당자는 그대로 기록해야 한다 — 상태만 제자리에 둔다.
+     *
+     * <p>{@link #changeStatus}를 거치지 않으므로 {@code reviewed} 플래그도 건드리지 않는다(상태가
+     * 안 바뀌었으니 검수 여부도 그대로다).
+     */
+    public void updateActionResultFields(Long actionMediaId, String actionContent, LocalDate actionDate,
+                                          Long actionAssigneeId) {
+        requireNotDeleted("updateActionResultFields");
+        applyActionResultFields(actionMediaId, actionContent, actionDate, actionAssigneeId);
+    }
+
+    private void applyActionResultFields(Long actionMediaId, String actionContent, LocalDate actionDate,
+                                          Long actionAssigneeId) {
         this.actionMediaId = actionMediaId;
         this.actionContent = actionContent;
         this.actionDate = actionDate;
@@ -294,21 +318,30 @@ public class Defect {
         this.previousDefectId = previousDefectId;
     }
 
+    /**
+     * 오탐 삭제(soft delete). {@code reviewed}는 건드리지 않는다(실측 버그 수정) — AI 분석이
+     * 하자 생성 시점에 이미 {@code grade}를 채워 넣으므로({@link com.hajacheck.core.analysis.service.InspectionAnalysisWorker})
+     * "등급 유무"는 "사람이 검수했는가"의 신호가 될 수 없고, 유일한 소비처인
+     * {@link com.hajacheck.core.defect.repository.DefectRepository#existsByInspectionIdAndDeletedFalseAndReviewedFalse}와
+     * 프론트 reviewedCount(useInspectionResultReal.ts)는 둘 다 {@code deleted=false}만 보므로
+     * 삭제된 행의 {@code reviewed} 값은 삭제돼 있는 동안은 아무도 읽지 않는다 — 강제로 바꿀 이유가
+     * 없고, 바꾸면 {@link #restore()}가 원래 상태를 복원할 방법이 없어진다(과거 값을 덮어써 버림).
+     */
     public void softDelete() {
         if (this.deleted) {
             return;
         }
         this.deleted = true;
-        this.reviewed = true;
     }
 
     /**
      * 오탐 삭제 복구(#1399) — 잘못 지운 하자를 되돌린다. soft delete라 데이터는 그대로 살아 있고
      * 플래그만 되돌리면 되며, 삭제 사유 이력({@code defect_revisions})도 append-only라 보존된다.
      *
-     * <p>{@code reviewed}는 되돌리지 않는다 — 삭제·복구 모두 사람이 손댄 검수 행위이고,
-     * 복구 후 다시 등급 확정·검수 확정 단계를 밟게 된다. "되살릴 자격이 있는 삭제인지"(검수자
-     * 오탐 판정 vs 재분석 소프트삭제)는 이력을 아는 서비스 계층이 판정한다.
+     * <p>{@code reviewed}는 건드리지 않는다 — {@link #softDelete()}가 더 이상 그 값을 덮어쓰지
+     * 않으므로, 삭제 전 상태(사람이 실제로 검수했으면 true, 미확정이었으면 false)가 그대로
+     * 보존돼 있다. "되살릴 자격이 있는 삭제인지"(검수자 오탐 판정 vs 재분석 소프트삭제)는 이력을
+     * 아는 서비스 계층이 판정한다.
      */
     public void restore() {
         if (!this.deleted) {

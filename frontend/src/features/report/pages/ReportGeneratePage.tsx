@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useBlocker, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
@@ -19,12 +18,13 @@ import {
 import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
-import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { exportReportToPdf } from '../utils/exportReportToPdf';
 import {
   getEmptyManualSectionLabels,
   getMissingFinalReportRequiredLabels,
 } from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
+import { buildReportPdfFileName, normalizePdfPreviewUrl } from '../../../shared/utils/reportPdf';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
@@ -49,34 +49,16 @@ interface StepContext {
   isFinalized: boolean;
   hasContent: boolean;
   groundingCheckPassed: boolean | null | undefined;
-  dirty: boolean;
   hasPdf: boolean;
 }
 
 const REPORT_STEPS: ReadonlyArray<{ key: string; label: string; isActive: (ctx: StepContext) => boolean }> = [
   { key: 'A', label: 'AI 분류', isActive: (ctx) => ctx.hasContent },
-  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.groundingCheckPassed === true || ctx.dirty },
+  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.hasContent },
   { key: 'C', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
 ];
 
 const PDF_VIEWER_FRAGMENT = 'toolbar=0&navpanes=0&view=FitH';
-
-function normalizePdfPreviewUrl(pdfUrl: string): string {
-  const trimmed = pdfUrl.trim();
-  const candidate = /^localhost(?::\d+)?\//i.test(trimmed)
-    ? `${window.location.protocol}//${trimmed}`
-    : trimmed;
-
-  try {
-    const url = new URL(candidate, window.location.origin);
-    if (url.pathname.startsWith('/api/reports/')) {
-      return `${url.pathname}${url.search}`;
-    }
-    return url.href;
-  } catch {
-    return candidate;
-  }
-}
 
 function buildPdfPreviewSrc(pdfUrl: string, blobUrl?: string | null): string {
   const targetUrl = blobUrl || normalizePdfPreviewUrl(pdfUrl);
@@ -284,7 +266,6 @@ export function ReportGeneratePage() {
   const missingFinalRequiredLabels = useMemo(() => getMissingFinalReportRequiredLabels(content), [content]);
   const hasMissingFinalRequiredContent = missingFinalRequiredLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
-  const [isLeavingAfterSave, setIsLeavingAfterSave] = useState(false);
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
     if (!report || !dirty || isFinalized) return false;
     const isSameLocation =
@@ -367,15 +348,7 @@ export function ReportGeneratePage() {
     blocker.reset?.();
   };
 
-  const handleConfirmLeave = async () => {
-    if (isLeavingAfterSave) return;
-    setIsLeavingAfterSave(true);
-    const saved = await handleSave();
-    if (!saved) {
-      setIsLeavingAfterSave(false);
-      return;
-    }
-    flushSync(() => setIsLeavingAfterSave(false));
+  const handleConfirmLeave = () => {
     blocker.proceed?.();
   };
 
@@ -569,9 +542,8 @@ export function ReportGeneratePage() {
     active: step.isActive({
       isFinalized,
       hasContent: Boolean(content),
-      groundingCheckPassed: report.groundingCheckPassed,
-      dirty,
-      hasPdf: Boolean(report.pdfUrl),
+      groundingCheckPassed: report?.groundingCheckPassed,
+      hasPdf: Boolean(report?.pdfUrl),
     }),
   }));
   const alertModalElement = (
@@ -587,19 +559,19 @@ export function ReportGeneratePage() {
       <Modal
         open
         onClose={handleCancelLeave}
-        title="편집한 내용이 저장되지 않았습니다"
+        title="편집 중인 내용이 있습니다"
         closeOnOverlayClick={false}
       >
         <div className="flex w-80 flex-col gap-6">
-          <p className="m-0 text-sm text-text-muted">
-            이 페이지를 나가기 전에 변경 내용을 임시저장합니다.
+          <p className="m-0 whitespace-pre-line text-sm text-text-muted">
+            {'이 페이지를 나가시겠습니까?\n저장되지 않은 변경사항은 손실됩니다.'}
           </p>
           <div className="flex justify-end gap-3">
-            <Button type="button" variant="secondary" onClick={handleCancelLeave} disabled={isLeavingAfterSave}>
+            <Button type="button" variant="secondary" onClick={handleCancelLeave}>
               취소
             </Button>
-            <Button type="button" variant="primary" onClick={() => void handleConfirmLeave()} disabled={isLeavingAfterSave}>
-              {isLeavingAfterSave ? '저장 중...' : '임시저장 후 나가기'}
+            <Button type="button" variant="primary" onClick={handleConfirmLeave}>
+              나가기
             </Button>
           </div>
         </div>
@@ -615,7 +587,11 @@ export function ReportGeneratePage() {
               <path d="M6.5 16.5a4.5 4.5 0 0 1-.6-8.96A5.5 5.5 0 0 1 16.2 5.9 4.75 4.75 0 0 1 17.5 15h-.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M9 10.5l2.5 2.5 5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span>자동 저장됨 · {formatElapsedTime(report.createdAt)}</span>
+            {/* #1479 후속 — 이 보고서 편집기는 "임시저장" 버튼·이탈 시 저장 확인·최종 확정
+                흐름으로만 저장되고 주기적 자동 저장은 없다(handleSave 참고). "자동 저장됨"은
+                실제 저장 방식과 맞지 않아 "마지막 저장됨"으로 바꾸고, 항상 고정인 createdAt이
+                아니라 실제 마지막 저장 시각(updatedAt)의 경과 시간을 보여준다. */}
+            <span>마지막 저장됨 · {formatElapsedTime(report.updatedAt ?? report.createdAt)}</span>
           </div>
           <div className="flex items-center gap-3">
             <Button

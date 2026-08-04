@@ -127,21 +127,17 @@ services:
       LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
       LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
-      # 입출력 마스킹(#1240) — 프롬프트·응답 내용을 LangSmith로 보내지 않는다(호출 횟수·지연시간·
-      # 에러만 남음). 체인 6개 전부가 민감정보(개인정보·고객사 정보·사용자 자유입력)를 프롬프트에
-      # 담으므로 트레이싱을 켤 때 이 둘이 반드시 true여야 한다. 기본값 true — 설정 누락 시에도
-      # 새지 않도록 fail-safe 방향으로 둔다.
-      # ⚠️ false는 "마스킹 끄기" 토글이 아니다(9차 리뷰 P3): 트레이싱이 켜져 있거나 API 키가
-      # 있으면 false 설정 시 부팅 가드(langsmith_guard.py)가 기동을 거부하고, 그 외 조합에서도
-      # 무조건 설치되는 anonymizer 백스톱이 내용을 {}로 치환하므로 내용 마스킹은 항상 강제된다.
-      # 원문 가시성이 정말 필요하면 값 변경이 아니라 가드·마스킹 제거 PR로 진행할 것.
-      LANGSMITH_HIDE_INPUTS: ${LANGSMITH_HIDE_INPUTS:-true}
-      LANGSMITH_HIDE_OUTPUTS: ${LANGSMITH_HIDE_OUTPUTS:-true}
       # ultralytics(dev-05-04)가 기본으로 쓰려는 /app/.config는 non-root(fastapi, uid 999) 컨테이너에서
       # 쓰기 불가 — 미지정 시 매 요청마다 "not writeable, defaulting to /tmp" 경고가 반복된다.
       # 기존 hf_cache 볼륨(이미 fastapi 소유) 하위로 고정해 재기동해도 설정이 유지되게 한다.
       YOLO_CONFIG_DIR: /app/hf_cache/ultralytics
       MPLCONFIGDIR: /app/hf_cache/matplotlib
+      # RAG 시맨틱 캐시 보존 정책(#1594) — 근거·기본값 산출은 ai/core/semantic_cache.py 모듈
+      # docstring 참고. 미설정이면 코드 기본값과 동일하게 동작하며, 잘못된 값을 넣어도 경고 로그만
+      # 남기고 기본값으로 폴백한다(앱 기동은 막지 않음).
+      SEMANTIC_CACHE_THRESHOLD: ${SEMANTIC_CACHE_THRESHOLD:-0.95}
+      SEMANTIC_CACHE_TTL_SECONDS: ${SEMANTIC_CACHE_TTL_SECONDS:-86400}
+      SEMANTIC_CACHE_MAX_ENTRIES: ${SEMANTIC_CACHE_MAX_ENTRIES:-5000}
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache

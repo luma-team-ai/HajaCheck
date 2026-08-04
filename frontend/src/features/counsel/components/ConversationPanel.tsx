@@ -176,7 +176,9 @@ export function ConversationPanel({
         {loading && <LoadingSpinner className="flex items-center justify-center py-6" />}
         {error && <p className="text-sm text-red-600">{error}</p>}
         {!loading && !error && messages.length === 0 && (
-          <p className="text-sm text-text-muted">대화 내용이 없습니다.</p>
+          <p className="text-sm text-text-muted">
+            {ticket.status === 'WAITING' ? '아직 상담원이 배정되지 않았습니다.' : '대화 내용이 없습니다.'}
+          </p>
         )}
         {!loading &&
           !error &&

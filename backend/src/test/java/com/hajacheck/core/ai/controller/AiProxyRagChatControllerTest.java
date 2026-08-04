@@ -1,7 +1,11 @@
 package com.hajacheck.core.ai.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
@@ -9,9 +13,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.ai.dto.RagChatResponse;
@@ -21,6 +27,7 @@ import com.hajacheck.support.PostgresTestSupport;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -49,6 +56,8 @@ class AiProxyRagChatControllerTest extends PostgresTestSupport {
     private MockMvc mockMvc;
     @Autowired
     private UserRepository userRepository;
+    @Autowired
+    private CompanyRepository companyRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
 
@@ -94,7 +103,7 @@ class AiProxyRagChatControllerTest extends PostgresTestSupport {
                 List.of(new RagChatResponse.SourceCitation(
                         "42", "시설물의 안전 및 유지관리에 관한 특별법", "regulations",
                         "제12조", "관리주체는 시설물의 안전점검을 정기적으로 실시하여야 한다.", "42_3")));
-        when(aiProxyService.ragChat(anyLong(), any())).thenReturn(ApiResponse.ok(response));
+        when(aiProxyService.ragChat(anyLong(), any(), any())).thenReturn(ApiResponse.ok(response));
 
         mockMvc.perform(post("/api/ai/rag-chat").with(csrf()).with(authentication(auth))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -114,7 +123,7 @@ class AiProxyRagChatControllerTest extends PostgresTestSupport {
         // HTTP 200 envelope 그대로 내려간다(useRagChat.ts가 이를 "근거 없음" 안내로 표시).
         UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                 loginUser, null, loginUser.getAuthorities());
-        when(aiProxyService.ragChat(anyLong(), any()))
+        when(aiProxyService.ragChat(anyLong(), any(), any()))
                 .thenReturn(ApiResponse.fail("RAG_NO_RESULT", "관련 근거를 찾지 못했습니다"));
 
         mockMvc.perform(post("/api/ai/rag-chat").with(csrf()).with(authentication(auth))
@@ -139,5 +148,67 @@ class AiProxyRagChatControllerTest extends PostgresTestSupport {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
+    }
+
+    // ── 시맨틱 캐시 회사 스코프 (#1584) ──────────────────────────────────────
+
+    @Test
+    void RAG챗봇_companyId는principal에서만취득하고요청바디값은무시한다() throws Exception {
+        // 요청 바디의 companyId 를 신뢰하면 아무 사용자나 임의 회사의 시맨틱 캐시 답변을 읽어갈 수
+        // 있다(cross-tenant). 바디에 다른 회사 값을 실어 보내도 principal 값만 서비스로 넘어가야 한다.
+        User owner = userRepository.save(User.builder()
+                .email("owner@haja.com")
+                .name("대표")
+                .role(Role.ADMIN)
+                .passwordHash(passwordEncoder.encode("pw123456"))
+                .status(UserStatus.ACTIVE)
+                .build());
+        Company company = companyRepository.save(Company.createPendingReview(
+                owner.getId(), "하자체크 주식회사", "1234567890", "대표",
+                "서울시", null, "http://files/brn.png", "{}"));
+        User member = userRepository.save(User.builder()
+                .email("member@haja.com")
+                .name("회사 소속 사용자")
+                .role(Role.INSPECTOR)
+                .passwordHash(passwordEncoder.encode("pw123456"))
+                .status(UserStatus.ACTIVE)
+                .build());
+        member.assignToCompany(company.getId());
+        userRepository.saveAndFlush(member);
+        LoginUser companyUser = new LoginUser(member);
+
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                companyUser, null, companyUser.getAuthorities());
+        when(aiProxyService.ragChat(anyLong(), any(), any()))
+                .thenReturn(ApiResponse.ok(new RagChatResponse("답변", List.of())));
+
+        // 바디에 타 회사 식별자를 주입 시도 — 컨트롤러 DTO에 없는 필드라 바인딩조차 되지 않아야 한다.
+        mockMvc.perform(post("/api/ai/rag-chat").with(csrf()).with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"query":"균열 보수 기준은 무엇인가요?","companyId":999999,"company_id":999999}
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Long> companyIdCaptor = ArgumentCaptor.forClass(Long.class);
+        verify(aiProxyService).ragChat(eq(member.getId()), companyIdCaptor.capture(), any());
+        assertThat(companyIdCaptor.getValue()).isEqualTo(company.getId());
+        assertThat(companyIdCaptor.getValue()).isNotEqualTo(999999L);
+    }
+
+    @Test
+    void RAG챗봇_개인회원은companyId가null로전달된다() throws Exception {
+        // 회사 미소속 개인회원(#794 제품 결정)도 RAG 챗봇을 쓴다 — 프록시가 값을 지어내면 안 된다.
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                loginUser, null, loginUser.getAuthorities());
+        when(aiProxyService.ragChat(anyLong(), any(), any()))
+                .thenReturn(ApiResponse.ok(new RagChatResponse("답변", List.of())));
+
+        mockMvc.perform(post("/api/ai/rag-chat").with(csrf()).with(authentication(auth))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(REQUEST_BODY))
+                .andExpect(status().isOk());
+
+        verify(aiProxyService).ragChat(eq(loginUser.getUserId()), isNull(), any());
     }
 }

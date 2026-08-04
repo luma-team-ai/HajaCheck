@@ -4,15 +4,10 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { dashboardHandlers } from '../api/dashboardApi.handlers';
 import { mockUpcomingInspections } from '../mocks/dashboard.mock';
 import { UpcomingInspectionsPage } from './UpcomingInspectionsPage';
-
-// 이 페이지는 처리대기·AI브리핑 위젯을 그대로 재사용하는데, 그 위젯들의 내용 자체는
-// DashboardPage 쪽에서 이미 검증하므로 여기선 스텁으로 대체(DashboardPage.test.tsx와 동일 패턴).
-vi.mock('../components/PendingPriorityCard', () => ({ PendingPriorityCard: () => <div>처리 대기</div> }));
-vi.mock('../components/AiBriefingCard', () => ({ AiBriefingCard: () => <div>AI 주간 브리핑</div> }));
 
 const server = setupServer(...dashboardHandlers);
 
@@ -42,7 +37,7 @@ function renderPage() {
 }
 
 describe('UpcomingInspectionsPage', () => {
-  it('목록·알림배너·재사용 위젯을 렌더링한다', async () => {
+  it('목록·알림배너를 렌더링한다', async () => {
     renderPage();
 
     expect(await screen.findByText('한강대교 북단')).not.toBeNull();
@@ -51,8 +46,30 @@ describe('UpcomingInspectionsPage', () => {
     expect(
       screen.getByText(`다가오는 점검 일정이 ${mockUpcomingInspections.length}건 있습니다`),
     ).not.toBeNull();
-    expect(screen.getByText('처리 대기')).not.toBeNull();
-    expect(screen.getByText('AI 주간 브리핑')).not.toBeNull();
+  });
+
+  // #1568 — 목록 조회 기준(백엔드 기본값 DashboardController#getUpcomingInspections days=30,
+  // limit=5)을 화면에 안내한다. InspectionCycleSettingsPage.tsx와 동일 문구(#1517).
+  it('점검일 도래 시설물 제목에 조회 기준(D-30일 이하, 최대 5건)을 표시한다(#1568)', async () => {
+    renderPage();
+
+    expect(await screen.findByText('(D-30일 이하, 최대 5건)')).not.toBeNull();
+  });
+
+  // #1517 — 이 페이지 목적(점검일 도래 시설물 확인)과 무관한 "처리 대기" 위젯을 제거했다.
+  it('"처리 대기" 위젯을 렌더링하지 않는다(#1517)', async () => {
+    renderPage();
+
+    await screen.findByText('한강대교 북단');
+    expect(screen.queryByText('처리 대기')).toBeNull();
+  });
+
+  // #1568 — 이 페이지 목적(점검일 도래 시설물 확인)과 무관한 "AI 주간 브리핑" 위젯을 제거했다.
+  it('"AI 주간 브리핑" 위젯을 렌더링하지 않는다(#1568)', async () => {
+    renderPage();
+
+    await screen.findByText('한강대교 북단');
+    expect(screen.queryByText('AI 주간 브리핑')).toBeNull();
   });
 
   it('0건이면 알림배너 없이 빈 상태 문구를 표시한다', async () => {

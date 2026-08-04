@@ -66,7 +66,7 @@ describe("DefectFilterBar", () => {
       screen.getByRole("button", { name: "등급: D 이상 필터 제거" }),
     ).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: "상태: 확인됨 필터 제거" }),
+      screen.getByRole("button", { name: "상태: 검수확정 필터 제거" }),
     ).not.toBeNull();
     const typeSelect = screen.getByRole(
       "combobox",

@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useAuthStore } from '../../features/auth/store/authStore';
 import type { User } from '../../features/auth/types';
+import { COMPANY_DASHBOARD_ROLES } from '../constants/roles';
 import { ProtectedRoute } from './ProtectedRoute';
 
 const mockUser: User = {
@@ -27,14 +28,18 @@ function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
+        {/* router.tsx의 AppShell 부모와 동일하게 기업 대시보드 role만 통과시킨다(#1513) —
+            거부 대상을 대시보드로 되돌리면 여기서 무한 리다이렉트가 나므로 role 홈으로 보낸다. */}
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute allowedRoles={COMPANY_DASHBOARD_ROLES}>
               <div>대시보드 콘텐츠</div>
             </ProtectedRoute>
           }
         />
+        <Route path="/platform-admin" element={<div>플랫폼 관리자 콘솔</div>} />
+        <Route path="/counsel-console/queue" element={<div>상담원 대기열</div>} />
         {/* allowedRoles 자체의 동작은 여기서, 관리자 가드(AdminRoute)는 AdminRoute.test.tsx에서 검증 */}
         <Route
           path="/inspector-only"
@@ -119,5 +124,38 @@ describe('ProtectedRoute', () => {
     renderAt('/invite-code');
 
     expect(screen.getByText('초대 코드 입력 페이지')).not.toBeNull();
+  });
+
+  // #1513 — 대시보드(AppShell)에 allowedRoles가 걸리면서, 거부 이동지를 DASHBOARD_ROUTE로
+  // 고정해 두면 "대시보드 → 거부 → 대시보드 …" 무한 리다이렉트가 된다. role 홈으로 보내야
+  // 한 번에 정착한다. 아래 두 테스트가 그 루프 회귀를 잡는다(렌더가 끝나면 루프가 없다는 뜻).
+  it('PLATFORM_ADMIN이 기업 대시보드에 직접 접근하면 플랫폼 관리자 콘솔로 튕긴다(무한 리다이렉트 없음)', () => {
+    useAuthStore.setState({ user: { ...mockUser, role: 'PLATFORM_ADMIN', companyId: null } });
+
+    renderAt('/dashboard');
+
+    expect(screen.getByText('플랫폼 관리자 콘솔')).not.toBeNull();
+    expect(screen.queryByText('대시보드 콘텐츠')).toBeNull();
+    expect(screen.queryByText('로그인 페이지')).toBeNull();
+  });
+
+  it('COUNSELOR가 기업 대시보드에 직접 접근하면 상담원 대기열로 튕긴다(무한 리다이렉트 없음)', () => {
+    useAuthStore.setState({ user: { ...mockUser, role: 'COUNSELOR', companyId: null } });
+
+    renderAt('/dashboard');
+
+    expect(screen.getByText('상담원 대기열')).not.toBeNull();
+    expect(screen.queryByText('대시보드 콘텐츠')).toBeNull();
+  });
+
+  it('기업 대시보드 role(ADMIN/INSPECTOR/USER)은 그대로 통과한다', () => {
+    for (const role of COMPANY_DASHBOARD_ROLES) {
+      useAuthStore.setState({ user: { ...mockUser, role } });
+
+      const { unmount } = renderAt('/dashboard');
+
+      expect(screen.getByText('대시보드 콘텐츠')).not.toBeNull();
+      unmount();
+    }
   });
 });

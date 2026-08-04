@@ -175,6 +175,45 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     }
 
     @Test
+    void findMaxInspectionDateByFacilityIdAndStatus_확정회차만집계하고미확정최신회차는무시한다() {
+        // #1591 리뷰 P2 — 다음 점검일 재계산의 "이 회차가 최신인가" 판정 기준. status 조건이 빠지면
+        // 아직 분석 중인 3회차가 max를 끌어올려, 뒤늦게 확정된 2회차의 정당한 재계산이 스킵된다
+        // (FacilityService#isStaleInspectionDate 참고). 그래서 REPORTED만 집계하는지를 실 DB로 고정한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "A시설");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2025, 7, 10), InspectionStatus.REPORTED));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 1, 10), InspectionStatus.REPORTED));
+        // 3회차는 생성만 됐고 아직 확정 전 — 이 집계에 잡히면 안 된다.
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 10), InspectionStatus.ANALYZING));
+        em.flush();
+        em.clear();
+
+        assertThat(inspectionRepository.findMaxInspectionDateByFacilityIdAndStatus(
+                facilityId, InspectionStatus.REPORTED))
+                .contains(LocalDate.of(2026, 1, 10));
+        // 상태를 안 보는 기존 쿼리는 미확정 3회차까지 집계한다 — 두 쿼리가 실제로 다르다는 대조.
+        assertThat(inspectionRepository.findMaxInspectionDateByFacilityId(facilityId))
+                .contains(LocalDate.of(2026, 7, 10));
+    }
+
+    @Test
+    void findMaxInspectionDateByFacilityIdAndStatus_확정회차가없으면_empty() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "A시설");
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 10), InspectionStatus.ANALYZING));
+        em.flush();
+        em.clear();
+
+        assertThat(inspectionRepository.findMaxInspectionDateByFacilityIdAndStatus(
+                facilityId, InspectionStatus.REPORTED))
+                .isEmpty();
+    }
+
+    @Test
     void countByFacilityIdInAndStatusIn_대상시설물의상태건만집계() {
         Long ownerA = seedOwner("owner-a@haja.com");
         Long ownerB = seedOwner("owner-b@haja.com");

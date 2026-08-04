@@ -2,8 +2,8 @@
 
 AI_개발_컨벤션.md §8 예시 체인 절차를 따름.
 
-`location`이 자유 입력이라 "OO빌딩 3층 북벽"처럼 시설 식별 정보가 섞일 수 있지만, LangSmith
-전송은 전역 입출력 마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)으로 차단한다 — #1240.
+`location`이 자유 입력이라 "OO빌딩 3층 북벽"처럼 시설 식별 정보가 섞일 수 있지만, 트레이싱을 켜면
+원문이 그대로 LangSmith로 전송된다 — #1534, 재봉님 승인으로 마스킹 제거.
 """
 from pathlib import Path
 

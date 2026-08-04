@@ -32,6 +32,11 @@ public enum ErrorCode {
     AUTH_INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다."),
     // 정지 계정 명시 응답용(예약) — 로그인 경로는 위 통일 정책을 따른다.
     AUTH_ACCOUNT_SUSPENDED(HttpStatus.FORBIDDEN, "정지된 계정입니다."),
+    // 화면(포털)별 로그인 엔드포인트의 role 화이트리스트 불일치(#1514) — 자격증명은 맞지만 그 화면으로는
+    // 로그인할 수 없는 계정. 위 "로그인 실패 401 통일"의 의도된 예외다: 여기 도달하려면 이미 올바른
+    // 비밀번호를 알아야 하므로 계정 열거 단서로서의 실익이 없고, 잘못된 탭에 입력한 사용자에게
+    // "비밀번호가 올바르지 않습니다"로 오안내하지 않는 UX를 택했다(#1514 설계 결정).
+    AUTH_ROLE_NOT_ALLOWED(HttpStatus.FORBIDDEN, "이 화면으로는 로그인할 수 없는 계정입니다."),
 
     // 기업 인증(회원가입·아이디/비밀번호 찾기) — 검증 실패는 절대 401 금지(400/404/409만).
     AUTH_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
@@ -221,6 +226,13 @@ public enum ErrorCode {
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
     FACILITY_NOT_FOUND(HttpStatus.NOT_FOUND, "시설물을 찾을 수 없습니다."),
+    // 보고서 생성(#1479) — 시설물 주소가 비어 있으면 ConfirmedDefectTextFactory가 만드는 location이
+    // 빈 문자열이 되어 ai-server의 ConfirmedDefectInput.location(min_length=1)이 422를 던지고,
+    // 그 4xx가 AI_REQUEST_REJECTED(400, "AI 서버가 요청을 거부했습니다")로 뭉뚱그려져 원인을 알 수 없다.
+    // 근본 수정(주소 @NotBlank화)은 기존 무주소 시설물에 소급 영향을 주므로 채택하지 않고, 대신 보고서
+    // 생성 시점에 명확한 원인으로 사전 차단한다.
+    FACILITY_ADDRESS_MISSING(HttpStatus.BAD_REQUEST,
+            "시설물 주소가 없어 보고서를 생성할 수 없습니다. 시설물 정보에서 주소를 입력해주세요."),
 
     // 점검 회차(inspection) — dev-05-02
     INSPECTION_NOT_FOUND(HttpStatus.NOT_FOUND, "점검 회차를 찾을 수 없습니다."),
@@ -256,6 +268,11 @@ public enum ErrorCode {
     // Tomcat 워커를 점유해 전역 가용성 표면이 된다. tryAcquire(timeout) 초과 시 즉시 이 코드로 반환한다.
     MEDIA_DETAIL_GENERATION_BUSY(HttpStatus.SERVICE_UNAVAILABLE,
             "상세 이미지 생성 요청이 많아 잠시 후 다시 시도해 주세요."),
+
+    // 채팅 세션(chat_sessions) — RAG 챗봇 대화 맥락(#1467/HAJA-647)
+    // 미존재/타인 소유/세션 유형 불일치를 하나의 403으로 통일한다 — 세션 존재 여부를 흘리지 않기 위함
+    // (COUNSEL_TICKET_FORBIDDEN·PLAN_FORBIDDEN 관례와 정합, cross-user IDOR 방지).
+    CHAT_SESSION_FORBIDDEN(HttpStatus.FORBIDDEN, "채팅 세션에 대한 권한이 없습니다."),
 
     // 상담(counsel) — 시나리오 챗봇 + 상담원 연결(FR-7, #20/HAJA-33)
     COUNSEL_SESSION_ASSIGNMENT_CONFLICT(HttpStatus.CONFLICT, "이미 상담 세션이 배정된 티켓입니다."),

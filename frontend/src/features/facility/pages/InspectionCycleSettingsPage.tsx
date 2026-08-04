@@ -96,7 +96,8 @@ function InspectionCycleSettingsPageContent({ rows, initialFacilityId }: Content
         <div className="flex flex-col gap-1">
           <h1 className="m-0 text-xl font-bold text-heading">점검 주기 설정</h1>
           <p className="m-0 text-sm text-text-muted">
-            시설물별 점검 주기를 설정하면 다음 점검일을 자동 계산해 대시보드·알림에 표시합니다
+            시설물별 점검 주기를 설정하면 다음 점검일을 자동 계산해 대시보드 "다음 점검일 도래"
+            위젯(D-30일 이하, 최대 5건)과 알림에 표시합니다
           </p>
         </div>
         <Button

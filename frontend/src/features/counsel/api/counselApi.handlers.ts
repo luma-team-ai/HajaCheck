@@ -199,6 +199,9 @@ export const counselHandlers = [
     if (
       !mockTickets.some((t) => t.id === id) &&
       !mockQueueTickets.some((t) => t.id === id) &&
+      // 상담원 콘솔에서 바로 열 수 있는 진행 중 티켓도 대화 조회 대상이다(#1590 — 이 픽스처가
+      // 빠져 있어 콘솔에서 IN_PROGRESS 티켓을 클릭하면 목이 404를 주고 있었다).
+      id !== mockInProgressQueueTicket.id &&
       !mockAdminTickets.some((t) => t.id === id)
     ) {
       return HttpResponse.json(
@@ -308,6 +311,25 @@ export const counselHandlers = [
       success: true,
       data: { content, page: 0, totalElements: content.length },
     });
+  }),
+  // GET /api/counsel/tickets/{id} — 티켓 단건 상태(#1506 소켓 백필, #1590 상담원 콘솔 종료 판정).
+  // 반드시 '/mine'·'/admin' 리터럴 경로보다 뒤에 등록한다 — MSW는 등록 순서로 매칭하므로 앞에 두면
+  // 그 둘까지 이 :id 핸들러가 가로챈다.
+  http.get('/api/counsel/tickets/:id', ({ params }) => {
+    const id = Number(params.id);
+    const ticket = [
+      ...mockTickets,
+      ...mockQueueTickets,
+      mockInProgressQueueTicket,
+      ...mockAdminTickets,
+    ].find((t) => t.id === id);
+    if (!ticket) {
+      return HttpResponse.json(
+        { success: false, error: { code: 'COUNSEL_TICKET_NOT_FOUND', message: '상담 티켓을 찾을 수 없습니다.' } },
+        { status: 404 },
+      );
+    }
+    return HttpResponse.json({ success: true, data: ticket });
   }),
   http.post('/api/counsel/tickets/:id/resolve', ({ params }) => {
     const id = Number(params.id);

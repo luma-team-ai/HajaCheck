@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportContent } from "../types";
 import { mockReportDetailResponse } from "../mocks/reportDetail.mock";
-import { buildReportPdfFileName, exportReportToPdf } from "./exportReportToPdf";
+import { exportReportToPdf, normalizeGradeInText } from "./exportReportToPdf";
 
 const mockOutput = vi.fn().mockReturnValue(new Blob(["fake-pdf-bytes"]));
 const mockAddFileToVFS = vi.fn();
@@ -224,9 +224,8 @@ describe("exportReportToPdf", () => {
       JSON.stringify(candidate.body).includes("중대한 결함 등"),
     );
     expect(options?.body).toEqual([
-      // C등급뿐이라 중대한 결함은 없음, 공중이용부위는 판정 근거가 없어 빈칸.
+      // C등급뿐이라 중대한 결함은 없음, 공중이용부위는 미입력이라 행 자체를 생략한다.
       ["중대한 결함 등", "없음"],
-      ["공중이 이용하는\n부위의 결함", "-"],
       // 목록 표기는 문서 전체가 `ㆍ` 하나로 통일된다(`-`/`1)`/`//` 혼용 금지).
       [
         "점검 주요결과",
@@ -253,6 +252,35 @@ describe("exportReportToPdf", () => {
     );
   });
 
+  it("공중이 이용하는 부위의 결함이 미입력이면 해당 행을 렌더링하지 않는다", async () => {
+    const content = makeContent();
+
+    // undefined인 경우
+    await exportReportToPdf({
+      ...content,
+      overview: { ...content.overview, public_use_area_defect: undefined },
+    });
+
+    const optionsUndefined = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    const bodyUndefined = JSON.stringify(optionsUndefined?.body ?? []);
+    expect(bodyUndefined).not.toContain("공중이 이용하는");
+
+    // 공백만 있는 경우
+    await exportReportToPdf({
+      ...content,
+      overview: { ...content.overview, public_use_area_defect: "   " },
+    });
+
+    const optionsBlank = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    const bodyBlank = JSON.stringify(optionsBlank?.body ?? []);
+    expect(bodyBlank).not.toContain("공중이 이용하는");
+  });
+
+
   it("결과 요약은 소절 없이 `책임기술자 종합의견` 표 하나로 렌더링하고 하단에 서명란을 붙인다", async () => {
     await exportReportToPdf(makeContent(), {
       responsibleEngineerName: "김기준",
@@ -278,6 +306,37 @@ describe("exportReportToPdf", () => {
     );
     expect(summaryOptions?.didDrawCell).toBeUndefined();
     expect(mockAddImage).not.toHaveBeenCalled();
+  });
+
+  it("결과 요약 시작 지점이 페이지 하단에 걸리면 표 헤더가 고아로 남지 않도록 새 페이지로 넘긴다", async () => {
+    // 기본현황 블록의 표 3개 중 마지막(다. 참고사항) 표의 finalY만 220으로 만들어, 이어지는
+    // `2. 결과 요약`의 시작 지점(cursorY≈230)이 페이지 하단(BOTTOM_LIMIT=274) 근처에 걸리게
+    // 만든다. 이 값은 예전 MIN_BLOCK_SPACE(40)로는 "페이지에 더 들어간다"고 판단해 절 제목+표
+    // 헤더까지는 그리고 본문(책임기술자 종합의견 내용)만 다음 페이지로 넘어가버리는 고아 현상을
+    // 재현하는 지점이다 — renderSummaryBlock의 SUMMARY_BLOCK_MIN_HEIGHT 가드가 없으면 이 테스트는
+    // "2. 결과 요약" 제목이 y≈230(페이지 하단)에 그려져 실패한다.
+    mockAutoTable.mockImplementationOnce((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 120 };
+    });
+    mockAutoTable.mockImplementationOnce((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 120 };
+    });
+    mockAutoTable.mockImplementationOnce((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 220 };
+    });
+
+    await exportReportToPdf(makeContent());
+
+    const summaryTitleCall = mockText.mock.calls.find(
+      ([text]) => text === "2. 결과 요약",
+    ) as [string, number, number] | undefined;
+    expect(summaryTitleCall).toBeDefined();
+    const [, , summaryTitleY] = summaryTitleCall!;
+
+    // 표 헤더만 겨우 들어가는 하단(230mm)이 아니라, 새 페이지 상단(MARGIN_X=23mm)에서 시작해야
+    // 표 헤더와 본문이 분리되지 않는다.
+    expect(summaryTitleY).toBe(23);
+    expect(mockAddPage).toHaveBeenCalledTimes(1);
   });
 
   it("책임기술자 서명란 이름은 수동 입력값을 담당자 fallback보다 우선한다", async () => {
@@ -494,7 +553,7 @@ describe("exportReportToPdf", () => {
     expect(options?.body).toEqual([["추가된 이미지가 없습니다."]]);
   });
 
-  it("부위별 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다", async () => {
+  it("결함 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === "/api/media/1/thumbnail") {
         return Promise.resolve({
@@ -527,11 +586,11 @@ describe("exportReportToPdf", () => {
 
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     // 맨 앞으로 옮겼으니 1번, 기본현황은 그 다음(2번)이 된다 — 고정 마지막 자리가 아니다.
-    expect(renderedText).toContain("1. 부위별 사진");
+    expect(renderedText).toContain("1. 결함 사진");
     expect(renderedText).toContain("2. 기본현황");
   });
 
-  it("사진이 0장이면 sectionOrder에 있어도 부위별 사진 섹션과 번호를 만들지 않는다", async () => {
+  it("사진이 0장이면 sectionOrder에 있어도 결함 사진 섹션과 번호를 만들지 않는다", async () => {
     const content = makeContent({
       sectionOrder: [
         "photos",
@@ -547,7 +606,7 @@ describe("exportReportToPdf", () => {
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     expect(
       renderedText.some(
-        (text) => typeof text === "string" && text.includes("부위별 사진"),
+        (text) => typeof text === "string" && text.includes("결함 사진"),
       ),
     ).toBe(false);
     // 사진 섹션이 통째로 빠지므로 기본현황이 1번을 그대로 유지한다(번호에 구멍이 생기지 않음).
@@ -621,11 +680,12 @@ describe("exportReportToPdf", () => {
     const options = findTableOptions(
       (candidate) =>
         Array.isArray(candidate.head) &&
-        (candidate.head as string[][])[1]?.includes("결함발생 부재"),
+        (candidate.head as string[][])[1]?.includes("결함종류"),
     );
-    expect(options?.body).toEqual([
-      ["1", "1층 벽체", "c", "균열", "설명", "원인"],
-    ]);
+    // "연번"·"결함발생 부재"(구조부재명 데이터가 없어 시설물 주소를 대신 표시해왔던 컬럼)는
+    // 원본 양식에 없거나 채울 데이터가 없어 뺐다(#1499) — 상태평가·결함종류·조사 결과·추정
+    // 원인 4개 컬럼만 남는다.
+    expect(options?.body).toEqual([["c", "균열", "설명", "원인"]]);
   });
 
   it("등급별 건수에서 최악 등급을 상태평가 결과로 표기한다", async () => {
@@ -645,13 +705,13 @@ describe("exportReportToPdf", () => {
     const options = findTableOptions(
       (candidate) =>
         Array.isArray(candidate.head) &&
-        (candidate.head as string[][])[1]?.includes("결함발생 부재"),
+        (candidate.head as string[][])[1]?.includes("결함종류"),
     );
     const barRow = (options?.head as { content: string }[][])[0];
     expect(barRow[1].content).toBe("상태평가 결과 : d");
   });
 
-  it("점검 축소본을 부위별 사진 표 안에 안전하게 배치한다(자동 페이지분할되는 autoTable 셀)", async () => {
+  it("점검 축소본을 결함 사진 표 안에 안전하게 배치한다(자동 페이지분할되는 autoTable 셀)", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === "/api/media/1/thumbnail") {
         return Promise.resolve({
@@ -776,8 +836,9 @@ describe("exportReportToPdf", () => {
 
     const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
+    // 원본 양식 관례(소문자 단일 글자)를 따라 "등급 A"가 아니라 "a"로 표기한다(#1499 후속).
     expect(captionRow[0].content).toBe(
-      "< 균열(A등급) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >",
+      "< 균열 (a) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >",
     );
   });
 
@@ -835,7 +896,7 @@ describe("exportReportToPdf", () => {
 
     const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
-    expect(captionRow[0].content).toBe("< 균열(B등급) >");
+    expect(captionRow[0].content).toBe("< 균열 (b) >");
     expect(captionRow[0].content).not.toContain("외");
   });
 
@@ -845,7 +906,7 @@ describe("exportReportToPdf", () => {
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     expect(
       renderedText.some(
-        (text) => typeof text === "string" && text.startsWith("부위별 사진"),
+        (text) => typeof text === "string" && text.startsWith("결함 사진"),
       ),
     ).toBe(false);
     expect(mockAddImage).not.toHaveBeenCalled();
@@ -888,12 +949,43 @@ describe("exportReportToPdf", () => {
         Array.isArray(candidate.head) &&
         (candidate.head as string[][])[0]?.includes("적용 근거"),
     );
+    // "연번"은 레퍼런스 양식에 없어 뺐다(#1499 후속).
     expect(options?.body).toEqual([
-      ["1", "1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
+      ["1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
     ]);
   });
+});
 
-  it("buildReportPdfFileName은 inspectionId와 오늘 날짜로 파일명을 만든다", () => {
-    expect(buildReportPdfFileName(42)).toMatch(/^점검보고서_42_\d{8}\.pdf$/);
+// normalizeGradeInText 정규식 범위를 고정한다.
+// 이 테스트가 없으면 [A-E] 범위가 [A-Z]로 복귀하거나 [A-D]로 축소돼도 감지되지 않는다.
+describe("normalizeGradeInText", () => {
+  it("(등급 X) 표기를 소문자 단일 글자 (x) 로 정규화한다", () => {
+    expect(normalizeGradeInText("(등급 A)")).toBe(" (a)");
+    expect(normalizeGradeInText("(등급 C)")).toBe(" (c)");
+    expect(normalizeGradeInText("(등급 E)")).toBe(" (e)");
+  });
+
+  it("(X등급) 표기를 소문자 단일 글자 (x) 로 정규화한다", () => {
+    expect(normalizeGradeInText("(A등급)")).toBe(" (a)");
+    expect(normalizeGradeInText("(E등급)")).toBe(" (e)");
+  });
+
+  it("독립 (X) 표기를 소문자로 정규화한다 — 모든 하자 등급 A~E를 커버한다", () => {
+    for (const grade of ["A", "B", "C", "D", "E"]) {
+      expect(normalizeGradeInText(`(${grade})`)).toBe(` (${grade.toLowerCase()})`);
+    }
+  });
+
+  it("등급 범위 밖의 대문자 괄호 표기 (F), (X), (Z) 는 변환하지 않는다", () => {
+    expect(normalizeGradeInText("(F)")).toBe("(F)");
+    expect(normalizeGradeInText("(X)")).toBe("(X)");
+    expect(normalizeGradeInText("(Z)")).toBe("(Z)");
+  });
+
+  it("이미 소문자인 (a)~(e)는 그대로 유지한다", () => {
+    for (const grade of ["a", "b", "c", "d", "e"]) {
+      const input = ` (${grade})`;
+      expect(normalizeGradeInText(input)).toBe(input);
+    }
   });
 });

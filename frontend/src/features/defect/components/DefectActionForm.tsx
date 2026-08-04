@@ -9,16 +9,18 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import { Button } from '../../../shared/components/Button';
+import { REASON_REQUIRED_TARGETS } from '../constants/defectStatusWorkflow';
+import { useChangeDefectStatus } from '../hooks/useChangeDefectStatus';
 import { useDefectAssignableUsers } from '../hooks/useDefectAssignableUsers';
 import { useSubmitDefectAction } from '../hooks/useSubmitDefectAction';
 import { useUploadDefectActionPhoto } from '../hooks/useUploadDefectActionPhoto';
 import { validateActionPhoto } from '../utils/validateActionPhoto';
-import type { DefectActionResult, DefectStatus } from '../types';
+import { DEFECT_STATUS_LABEL } from '../types';
+import type { Defect, DefectActionResult, DefectStatus } from '../types';
+import { DefectStatusReasonModal } from './DefectStatusReasonModal';
 
 type Props = {
-  defectId: number;
-  inspectionId: number;
-  status: DefectStatus;
+  defect: Defect;
   actionResult: DefectActionResult | null | undefined;
   onSubmitted?: () => void;
 };
@@ -43,6 +45,21 @@ const ACTION_STATUS_LABEL: Record<'IN_PROGRESS' | 'RESOLVED', string> = {
   RESOLVED: '조치완료',
 };
 
+// "다른 상태로 변경"(DefectStatusChangeControl, HAJA-349/#630) 통합(#1556) — 역행/건너뛰기 대상은
+// 조치 내용·사진 없이 사유만으로 전이하므로, 이 select에서 골라도 아래 조치 필드는 건드리지 않고
+// 곧바로 사유 입력 모달을 띄운다. 실제 제출은 useChangeDefectStatus(PATCH /status)가 담당한다.
+type StatusSelectOption = { value: DefectStatus; mode: 'forward' | 'reason' };
+
+function buildStatusOptions(status: DefectStatus): StatusSelectOption[] {
+  const forward = (ACTION_STATUS_OPTIONS[status] ?? []).map(
+    (value): StatusSelectOption => ({ value, mode: 'forward' }),
+  );
+  const reason = (REASON_REQUIRED_TARGETS[status] ?? []).map(
+    (value): StatusSelectOption => ({ value, mode: 'reason' }),
+  );
+  return [...forward, ...reason];
+}
+
 function todayDateString(): string {
   const today = new Date();
   const year = today.getFullYear();
@@ -56,8 +73,10 @@ function todayDateString(): string {
 // PATCH /api/defects/{id}/action(DefectActionResultRequest)을 호출하며, targetStatus로 IN_PROGRESS
 // (조치중)/RESOLVED(조치완료) 중 실제 전이할 상태를 명시한다 — 과거엔 항상 RESOLVED 고정이었으나
 // 이제 CONFIRMED→IN_PROGRESS 등록도 이 폼으로 한다.
-export function DefectActionForm({ defectId, inspectionId, status, actionResult, onSubmitted }: Props) {
+export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
+  const { id: defectId, inspectionId, status } = defect;
   const statusOptions = ACTION_STATUS_OPTIONS[status];
+  const statusSelectOptions = buildStatusOptions(status);
   const maxActionDate = todayDateString();
   // 보수적 기본값(#1128 코드리뷰 P2-2 취지 계승) — IN_PROGRESS처럼 옵션이 2개면 "완료"가 아니라
   // "유지(IN_PROGRESS)"를 기본 선택해, select를 건드리지 않고 실수로 조치완료까지 가는 걸 막는다.
@@ -79,6 +98,9 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
   // 이미지의 다른 하자들도 함께 갱신됐다는 뜻이라, 사용자가 "왜 다른 카드도 같이 바뀌었지" 하고
   // 당황하지 않도록 성공 문구에 덧붙인다. groupSize<=1(단독 하자)이면 기존 문구 그대로 둔다.
   const [justSavedGroupSize, setJustSavedGroupSize] = useState<number | null>(null);
+  // "다른 상태로 변경" 통합(#1556) — 진행상태 select에서 역행/건너뛰기 대상을 고르면 조치 필드는
+  // 그대로 둔 채 사유 입력 모달만 띄운다. null이면 select는 정방향 값(targetStatus)을 보여준다.
+  const [pendingReasonTarget, setPendingReasonTarget] = useState<DefectStatus | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 업로드 드롭존 썸네일 미리보기(#969) — BusinessLicenseUpload.tsx:84-92와 동일한 단일 파일용
@@ -99,11 +121,44 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
     defectId,
     inspectionId,
   );
+  const {
+    changeStatus,
+    isPending: isChangingStatus,
+    error: changeStatusError,
+    resetError: resetChangeStatusError,
+  } = useChangeDefectStatus(defectId, inspectionId);
 
-  // RESOLVED(조치완료)는 종료 상태라 더 이상 전이가 없으므로, 등록된 조치 결과를 읽기 전용
-  // 요약으로 보여주고 폼을 닫는다(재등록 방지). CONFIRMED→IN_PROGRESS 단계에서도 actionResult가
-  // 채워지지만(같은 등록 필드를 공유), IN_PROGRESS는 아직 RESOLVED로 한 번 더 전이해야 하므로
-  // 이 시점엔 폼을 계속 보여준다(#1128).
+  async function handleReasonSubmit(reason: string) {
+    if (!pendingReasonTarget) return;
+    try {
+      await changeStatus({ status: pendingReasonTarget, reason });
+      setPendingReasonTarget(null);
+    } catch {
+      // 실패 메시지는 아래 인라인 alert로 노출 — 모달은 열어 둔 채 재시도할 수 있게 한다.
+    }
+  }
+
+  function handleCancelReason() {
+    resetChangeStatusError();
+    setPendingReasonTarget(null);
+  }
+
+  const reasonModal = pendingReasonTarget && (
+    <DefectStatusReasonModal
+      defect={defect}
+      targetStatus={pendingReasonTarget}
+      onCancel={handleCancelReason}
+      onSubmit={handleReasonSubmit}
+      isSubmitting={isChangingStatus}
+      submitError={changeStatusError ? '상태 변경에 실패했습니다. 잠시 후 다시 시도해 주세요.' : null}
+    />
+  );
+
+  // RESOLVED(조치완료)는 정방향 전이가 더 없으므로, 등록된 조치 결과를 읽기 전용 요약으로 보여주고
+  // 조치 등록 폼은 닫는다(재등록 방지). 다만 "다른 상태로 변경" 통합(#1556)으로 사유와 함께
+  // IN_PROGRESS로 되돌리는 것은 여기서도 진행상태 select로 계속 제공한다. CONFIRMED→IN_PROGRESS
+  // 단계에서도 actionResult가 채워지지만(같은 등록 필드를 공유), IN_PROGRESS는 아직 RESOLVED로
+  // 한 번 더 전이해야 하므로 이 시점엔 폼을 계속 보여준다(#1128).
   if (actionResult && status === 'RESOLVED') {
     return (
       <section className="defect-action-form defect-action-form--registered" aria-label="조치 결과">
@@ -119,6 +174,28 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
         {actionResult.afterPhotoUrl && (
           <img className="defect-action-form__after-photo" src={actionResult.afterPhotoUrl} alt="조치 후 사진" />
         )}
+
+        <div className="defect-action-form__field">
+          <label htmlFor="defect-action-target-status">진행상태 *</label>
+          <select
+            id="defect-action-target-status"
+            value={pendingReasonTarget ?? status}
+            disabled={isChangingStatus}
+            onChange={(event) => {
+              const value = event.target.value as DefectStatus;
+              setPendingReasonTarget(value === status ? null : value);
+            }}
+          >
+            <option value={status}>{DEFECT_STATUS_LABEL[status]}</option>
+            {statusSelectOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {DEFECT_STATUS_LABEL[option.value]}(으)로 되돌리기
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {reasonModal}
       </section>
     );
   }
@@ -368,13 +445,25 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
             <label htmlFor="defect-action-target-status">진행상태 *</label>
             <select
               id="defect-action-target-status"
-              value={targetStatus}
-              disabled={statusOptions.length < 2}
-              onChange={(event) => setTargetStatus(event.target.value as 'IN_PROGRESS' | 'RESOLVED')}
+              value={pendingReasonTarget ?? targetStatus}
+              disabled={statusSelectOptions.length < 2}
+              onChange={(event) => {
+                const value = event.target.value as DefectStatus;
+                const option = statusSelectOptions.find((candidate) => candidate.value === value);
+                if (!option) return;
+                if (option.mode === 'forward') {
+                  setPendingReasonTarget(null);
+                  setTargetStatus(value as 'IN_PROGRESS' | 'RESOLVED');
+                } else {
+                  setPendingReasonTarget(value);
+                }
+              }}
             >
-              {statusOptions.map((option) => (
-                <option key={option} value={option}>
-                  {ACTION_STATUS_LABEL[option]}
+              {statusSelectOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.mode === 'forward'
+                    ? ACTION_STATUS_LABEL[option.value as 'IN_PROGRESS' | 'RESOLVED']
+                    : `${DEFECT_STATUS_LABEL[option.value]}(으)로 되돌리기`}
                 </option>
               ))}
             </select>
@@ -425,6 +514,8 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
       <Button type="submit" variant="primary" size="lg" disabled={!canSubmit}>
         {isUploading || isSubmitting ? '저장하는 중...' : '상태 저장'}
       </Button>
+
+      {reasonModal}
     </form>
   );
 }

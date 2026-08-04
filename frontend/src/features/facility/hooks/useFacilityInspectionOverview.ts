@@ -20,8 +20,11 @@ function toOverview(response: FacilityInspectionOverviewApiResponse): FacilityIn
       status: item.status,
       imageCount: item.imageCount,
       defectGradeBreakdown: item.defectGradeBreakdown,
-      // changeNote/additionalImageCount는 최신 회차(index 0)에만 존재(#1359/HAJA-616 계약 그대로 유지)
+      // changeNote/additionalImageCount/thumbnailUrls는 최신 회차(index 0)에만 존재
+      // (#1359/HAJA-616 계약 그대로 유지) — 백엔드도 최신 회차에만 채워 보내지만, 이 매퍼가
+      // 이미 다른 필드에 쓰는 것과 같은 index===0 방어를 여기도 맞춰 둔다(code-reviewer 지적, #1549).
       changeNote: index === 0 && item.changeNote ? item.changeNote : undefined,
+      thumbnailUrls: index === 0 ? item.thumbnailUrls : [],
       additionalImageCount:
         index === 0 && item.imageCount > THUMBNAIL_PREVIEW_COUNT
           ? item.imageCount - THUMBNAIL_PREVIEW_COUNT

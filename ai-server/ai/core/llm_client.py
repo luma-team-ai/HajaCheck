@@ -14,18 +14,6 @@ import redis
 from langchain_core.output_parsers import PydanticOutputParser
 
 from ai.core.hf_chat_model import HFInferenceChatModel
-from ai.core.langsmith_guard import enforce_masked_tracing
-
-# 진입점 독립 방어(#1240 3차 리뷰 P2) — 이 모듈은 "유일한 LLM 호출 지점"이라 모든 체인이
-# 반드시 임포트한다. 여기서 가드를 실행하면 main.py를 거치지 않는 진입점(배치 스크립트·
-# 노트북·별도 워커)이 체인을 임포트해도 "트레이싱 ON + 마스킹 불완전"이면 임포트 자체가
-# 실패하고(fail-closed), 정상이면 error 스크럽이 첫 트레이스 전에 싱글턴에 선점된다.
-# main.py의 부팅 호출과 이중이지만 멱등이라 무해 — 그쪽은 조기·명확한 실패 UX용으로 유지.
-# ⚠️ 보조 진입점 주의(7차 리뷰 P3): load_dotenv()를 이 임포트보다 먼저 호출해야 가드가 실제
-# env로 판정한다 — 임포트가 먼저면 판정이 빈 env로 LRU 캐시에 고정되어 fail-closed 경보가
-# 발동하지 않는다(내용은 anonymizer 백스톱이 계속 차단 — langsmith_guard.py "보조 진입점
-# 부트 순서" 참고).
-enforce_masked_tracing()
 
 logger = logging.getLogger(__name__)
 
@@ -66,15 +54,15 @@ def _log_usage(tokens: int) -> None:
 def _log_retry_failure(path: str, attempt: int, error: Exception) -> None:
     """재시도 루프에서 삼킨 실패를 남긴다 — 이전에는 전부 조용히 흡수돼 마지막 예외만 보였다.
 
-    ⚠️ 프롬프트·응답 본문은 절대 로그에 넣지 않는다(시설명·위치·하자내용 등이 섞여 있고,
-    LangSmith 마스킹 정책과 같은 기준을 로그에도 적용). 남기는 건 경로·시도 횟수·예외 타입뿐.
+    ⚠️ 프롬프트·응답 본문은 절대 로그에 넣지 않는다(PRD §5 개인정보 로그 평문 금지 원칙).
+    남기는 건 경로·시도 횟수·예외 타입뿐.
 
     예외 객체를 exc_info/str로 넘기지 않는 이유(PR머신 P1): langchain_core의
     PydanticOutputParser는 파싱 실패 시 OutputParserException의 **메시지 안에 파싱 대상 LLM 응답
     원문을 통째로** 담는다("Failed to parse X from completion {원문}. Got: ..." — 실측 확인).
-    따라서 exc_info를 넘기면 마스킹 의도와 정반대로 응답 본문이 로그에 그대로 남는다. 예외 타입명만
-    남겨도 실패 성격(파싱 실패/타임아웃/HTTP 오류) 구분에는 충분하고, 마지막 시도 실패는 어차피
-    호출부로 raise되므로 상세는 그쪽에서 다룬다.
+    따라서 exc_info를 넘기면 로그에 응답 본문이 평문으로 남는다. 예외 타입명만 남겨도 실패 성격
+    (파싱 실패/타임아웃/HTTP 오류) 구분에는 충분하고, 마지막 시도 실패는 어차피 호출부로 raise되므로
+    상세는 그쪽에서 다룬다.
     """
     logger.warning(
         "LLM %s 호출 실패 — 재시도 %d/%d (%s)",

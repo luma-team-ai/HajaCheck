@@ -9,6 +9,8 @@ import {
   PLATFORM_ADMIN_PATH_PREFIX,
 } from '../constants/authPaths';
 import { useInspectionStore } from '../../features/inspection/store/inspectionStore';
+import { clearRagSessionId } from '../../features/support/utils/ragSessionId';
+import { API_TIMEOUT_MS } from './timeouts';
 import type { ApiError, ApiResponse } from './types';
 
 // 세션 탐지용 요청(getMe 등)은 401을 "미로그인"이라는 정상 신호로 받으므로 전역 하드 리다이렉트에서
@@ -23,6 +25,10 @@ declare module 'axios' {
 export const api = axios.create({
   baseURL: '/api',
   withCredentials: true, // 세션 쿠키
+  // 무한 대기 차단(#1598) — axios 기본값 0은 "상한 없음"이라, 응답이 삼켜지면 이 인스턴스를 쓰는
+  // 모든 호출부의 catch/finally가 영원히 실행되지 않고 로딩 상태가 고착된다. 값의 역산 근거는
+  // timeouts.ts 참고. 정상적으로 이보다 오래 걸리는 경로(AI·업로드)는 요청 단위로 override 한다.
+  timeout: API_TIMEOUT_MS,
 });
 
 api.interceptors.response.use(
@@ -67,8 +73,16 @@ api.interceptors.response.use(
       const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
       clearActiveInspectionId();
       clearActiveReportId();
+      // RAG 챗봇 session_id도 같은 이유로 함께 지운다(#1590) — 이 401 강제 로그아웃은 로그인
+      // 3진입점·useLogout과 동일한 "이전 사용자 잔여 상태 정리" 계약을 지키는 5번째 지점이다.
+      clearRagSessionId();
       window.location.href = redirectTarget; // 401 일괄 처리
     }
+    // timeout(#1598) 초과도 여기로 온다 — 응답 자체가 없어(error.response undefined) status는
+    // undefined이고 코드는 아래 NETWORK_ERROR로 떨어진다. 이는 의도된 선택이다: 전용 코드를 새로
+    // 만들면 NETWORK_ERROR를 "서버 미기동" 신호로 삼아 목 데이터로 폴백하는 dev 경로
+    // (shared/utils/hybridFetchFallback.ts, mypage/utils/fetchWithFallback.ts)가 timeout에서만
+    // 폴백하지 않게 되어 동작이 갈라진다. timeout은 실제로 응답 없는 네트워크 실패가 맞다.
     const apiError: ApiError = {
       ...(error.response?.data?.error ?? {
         code: 'NETWORK_ERROR',

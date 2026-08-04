@@ -29,6 +29,8 @@ function renderAt(path: string) {
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/dashboard" element={<div>대시보드 콘텐츠</div>} />
+        {/* 거부 이동지가 role 홈으로 바뀌었으므로(#1513) 플랫폼 관리자 착지점도 필요하다 */}
+        <Route path="/platform-admin" element={<div>플랫폼 관리자 콘솔</div>} />
         <Route
           path="/counsel-console/queue"
           element={
@@ -62,13 +64,16 @@ describe('CounselorRoute', () => {
     expect(screen.getByText('대시보드 콘텐츠')).not.toBeNull();
   });
 
-  it('플랫폼 관리자(PLATFORM_ADMIN)도 상담원 콘솔은 통과하지 못한다', () => {
+  // #1513 — 거부 이동지를 대시보드로 고정하면, 대시보드(AppShell)에 걸린 allowedRoles가 다시
+  // PLATFORM_ADMIN을 튕겨내 2홉을 돈다. role 홈(플랫폼 관리자 콘솔)으로 한 번에 정착해야 한다.
+  it('플랫폼 관리자(PLATFORM_ADMIN)는 통과하지 못하고 플랫폼 관리자 콘솔로 되돌아간다', () => {
     useAuthStore.setState({ user: { ...mockUser, role: 'PLATFORM_ADMIN' } });
 
     renderAt('/counsel-console/queue');
 
     expect(screen.queryByText('상담원 콘솔 콘텐츠')).toBeNull();
-    expect(screen.getByText('대시보드 콘텐츠')).not.toBeNull();
+    expect(screen.getByText('플랫폼 관리자 콘솔')).not.toBeNull();
+    expect(screen.queryByText('대시보드 콘텐츠')).toBeNull();
   });
 
   it('미인증이면 상담원 전용 로그인(/counsel-console/login)으로 보낸다(기업회원 /login 아님)', () => {

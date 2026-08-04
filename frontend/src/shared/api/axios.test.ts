@@ -157,6 +157,23 @@ describe('axios 401 인터셉터 — 로그인 경로 가드 (기본 base=/)', (
       restore();
     }
   });
+
+  // #1590 — RAG session_id도 localStorage 영속이라 같은 계약을 따른다. 이 401 강제 로그아웃은
+  // 로그인 3진입점·useLogout과 함께 "이전 사용자 잔여 상태 정리" 지점 5곳을 이룬다.
+  it('401 하드 리다이렉트 시 RAG session_id도 비운다', async () => {
+    const { api } = await importFreshApiWithInspectionStore();
+    const { setRagSessionId, getRagSessionId } = await import(
+      '../../features/support/utils/ragSessionId'
+    );
+    setRagSessionId(77);
+    const { restore } = mockLocation('/dashboard');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(getRagSessionId()).toBeNull();
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe('axios 401 인터셉터 — basename 배포(base=/app/)', () => {

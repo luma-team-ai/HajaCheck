@@ -309,17 +309,17 @@ export function CompanySignupPage() {
     verifiedSnapshot.name === representativeName.trim() &&
     verifiedSnapshot.startDate === businessStartDate;
 
-  // 사업자등록증 OCR 자동채움(#587) — jpeg/png만 백엔드 OCR이 지원하므로 그 외 타입(PDF 등)은
-  // OCR 호출 자체를 생략한다. 실패(400/429/5xx/네트워크)는 onError를 등록하지 않아 조용히
-  // 폴백되고(useBusinessLicenseOcr 참고), 성공 시에도 사용자가 직접 입력·수정한 값(=
-  // autoFilledFields에 없고 비어있지도 않은 필드)은 절대 덮어쓰지 않는다 — 자동채움은 초기값
-  // 제공일 뿐 이후 자유롭게 수정 가능해야 한다(요구사항 #587).
+  // 사업자등록증 OCR 자동채움(#587, 정책 전환 #1468) — jpeg/png만 백엔드 OCR이 지원하므로
+  // 그 외 타입(PDF 등)은 OCR 호출 자체를 생략한다. 실패(400/429/5xx/네트워크)는 onError를
+  // 등록하지 않아 조용히 폴백된다(useBusinessLicenseOcr 참고).
   //
-  // 이미지 교체 시 갱신(#879) — 각 필드의 채움 조건은 "값이 비어 있음" 또는 "그 필드가 여전히
-  // autoFilledFields에 있음(OCR이 채웠고 이후 사용자가 직접 수정하지 않음)"으로 판정한다.
-  // 즉 이미지를 다른 것으로 교체하면 이전 OCR이 채운 필드는 새 OCR 결과로 갱신되고, 사용자가
-  // 직접 수정한 필드는 그대로 유지된다(과거엔 "빈 필드만 채움"이라 재교체해도 갱신되지
-  // 않는 트레이드오프가 있었으나 이번 이슈로 해소). 자동채움 배지(#748, autoFilledFields)도
+  // 덮어쓰기 정책 전환(#1468) — 과거(#587)엔 "사용자가 직접 입력·수정한 값은 절대 덮어쓰지
+  // 않는다"였으나, 수기로 4필드를 먼저 채운 뒤 이미지를 업로드하면 OCR이 값을 정상 인식해도
+  // 필드가 갱신되지 않고 "인식된 정보가 없어요"로 표시돼 OCR이 실패한 것처럼 보이는 문제가
+  // 있었다. 사업자등록증은 원본 증빙이므로 인식 결과를 신뢰값으로 삼기로 정책을 뒤집었다 —
+  // OCR이 값을 준(non-null·non-empty) 필드는 수기 입력 여부와 무관하게 항상 갱신한다.
+  // OCR이 null/빈값으로 준 필드는 그대로 건드리지 않는다(기존 값 유지). 이미지 교체(#879)
+  // 시에도 동일하게 새 OCR 결과로 갱신된다. 자동채움 배지(#748, autoFilledFields)도
   // 새 파일 선택 시 초기화하지 않는다 — 갱신된 필드는 계속 배지가 붙어 있어야 하고, 값이 그대로
   // 유지된 필드도 이미 배지가 있는 상태 그대로 정합이 맞다.
   //
@@ -368,13 +368,11 @@ export function CompanySignupPage() {
           startDate: false,
         };
 
-        // 각 필드 채움 조건(#879) — "값이 비어 있음" 또는 "OCR이 채웠고 아직 사용자가 직접
-        // 수정하지 않음(autoFilledFieldsRef에 있음)"일 때만 새 OCR 값으로 쓴다. 값이 실제로
-        // 달라질 때만 write해 no-op 갱신(같은 값 재주입)을 filledCount·진위확인 무효화 판정에
-        // 잡히지 않게 한다.
+        // 각 필드 채움 조건(#1468 정책 전환) — 수기 입력 여부와 무관하게, OCR이 값을 준
+        // (non-null·non-empty) 필드는 항상 새 OCR 값으로 쓴다. OCR이 null/빈값이면 기존 값
+        // (수기·이전 자동채움)을 그대로 유지한다. 값이 실제로 달라질 때만 write해 no-op 갱신
+        // (같은 값 재주입)을 filledCount·진위확인 무효화 판정에 잡히지 않게 한다.
         if (
-          (!businessRegistrationNumberRef.current.trim() ||
-            autoFilledFieldsRef.current.has('brn')) &&
           data.businessRegistrationNumber &&
           data.businessRegistrationNumber !== businessRegistrationNumberRef.current
         ) {
@@ -382,18 +380,12 @@ export function CompanySignupPage() {
           businessRegistrationNumberRef.current = data.businessRegistrationNumber;
           setBusinessRegistrationNumber(data.businessRegistrationNumber);
         }
-        if (
-          (!companyNameRef.current.trim() || autoFilledFieldsRef.current.has('companyName')) &&
-          data.companyName &&
-          data.companyName !== companyNameRef.current
-        ) {
+        if (data.companyName && data.companyName !== companyNameRef.current) {
           filled.companyName = true;
           companyNameRef.current = data.companyName;
           setCompanyName(data.companyName);
         }
         if (
-          (!representativeNameRef.current.trim() ||
-            autoFilledFieldsRef.current.has('representativeName')) &&
           data.representativeName &&
           data.representativeName !== representativeNameRef.current
         ) {
@@ -401,14 +393,9 @@ export function CompanySignupPage() {
           representativeNameRef.current = data.representativeName;
           setRepresentativeName(data.representativeName);
         }
-        // 개업일자 자동채움(#598, #600) — 기존 3필드와 동일 규칙(#879로 갱신 조건 확장).
+        // 개업일자 자동채움(#598, #600) — 기존 3필드와 동일 규칙(#1468로 정책 전환).
         // OCR이 null이면 건드리지 않는다(수기 입력·기존 자동채움 값 유지).
-        if (
-          (!businessStartDateRef.current.trim() ||
-            autoFilledFieldsRef.current.has('startDate')) &&
-          data.businessStartDate &&
-          data.businessStartDate !== businessStartDateRef.current
-        ) {
+        if (data.businessStartDate && data.businessStartDate !== businessStartDateRef.current) {
           filled.startDate = true;
           businessStartDateRef.current = data.businessStartDate;
           setBusinessStartDate(data.businessStartDate);

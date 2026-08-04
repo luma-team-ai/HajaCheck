@@ -34,7 +34,7 @@ export function FacilityAddressField({
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor="facility-address" className={LABEL_CLASSES}>
-        주소
+        주소 <span className="text-danger">*</span>
       </label>
       <div className="flex gap-2">
         <input

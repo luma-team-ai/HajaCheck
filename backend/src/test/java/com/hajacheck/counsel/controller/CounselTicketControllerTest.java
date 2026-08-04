@@ -316,6 +316,56 @@ class CounselTicketControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.error.code").value("COUNSEL_TICKET_FORBIDDEN"));
     }
 
+    // ── 티켓 단건 조회(#1506) ──
+
+    @Test
+    void 티켓조회_티켓소유고객본인_200() throws Exception {
+        User owner = saveUser("get-owner@haja.com", Role.USER);
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(owner.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("WAITING"));
+    }
+
+    @Test
+    void 티켓조회_담당상담원본인_200() throws Exception {
+        User requester = saveUser("get-user@haja.com", Role.USER);
+        User counselor = saveUser("get-counselor@haja.com", Role.COUNSELOR);
+        CounselTicket ticket = saveInProgressTicketWithMessage(requester, counselor, "안녕하세요");
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId())
+                        .with(authentication(authOf(counselor))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.data.counselorId").value(counselor.getId()));
+    }
+
+    @Test
+    void 티켓조회_비당사자_404_TICKET_NOT_FOUND() throws Exception {
+        User owner = saveUser("get-owner2@haja.com", Role.USER);
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(owner.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        User intruder = saveUser("get-intruder@haja.com", Role.USER);
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId())
+                        .with(authentication(authOf(intruder))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("COUNSEL_TICKET_NOT_FOUND"));
+    }
+
+    @Test
+    void 티켓조회_PLATFORM_ADMIN은_비당사자여도_200() throws Exception {
+        User owner = saveUser("get-owner3@haja.com", Role.USER);
+        CounselTicket ticket = ticketRepository.save(CounselTicket.request(owner.getId(), CounselType.ANALYSIS_RESULT, 1, "INSPECTION_REPORT", "AI 분석 결과 등급 문의"));
+        User admin = saveUser("get-admin@haja.com", Role.PLATFORM_ADMIN);
+
+        mockMvc.perform(get("/api/counsel/tickets/" + ticket.getId())
+                        .with(authentication(authOf(admin))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("WAITING"));
+    }
+
     // ── 오프라인 이탈 소유권 ──
 
     @Test
