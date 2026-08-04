@@ -241,6 +241,8 @@ public class AiProxyService {
      * cross-user 접근(IDOR) 차단이 목적이라, 검증은 반드시 외부 호출·과금보다 앞서야 한다.
      * 세션이 있으면 최근 3턴 이력을 FastAPI에 함께 전달하고, 응답 성공 시 질의/답변/출처를 저장한다
      * (#1493/HAJA-657). 세션이 없으면(단발 질의) 이력 전달·저장 둘 다 생략 — 기존 무상태 호출과 회귀 없음.
+     * <p>이 저장은 <b>best-effort</b> 다(#1593) — 실패해도 답변은 정상 반환하고 로그만 남긴다. 이유와
+     * 트레이드오프(출처 칩 유실, 최악의 경우 그 턴 누락)는 아래 호출 지점 주석 참고.
      *
      * <p>이 메서드 자체에는 {@code @Transactional} 을 붙이지 않는다(PR #1510 P1 픽스) — FastAPI 호출
      * ({@code callAiServer}, 캐시 미스 시 수 초 소요 가능)까지 트랜잭션으로 묶으면 그 동안 DB 커넥션을
@@ -289,8 +291,38 @@ public class AiProxyService {
         }
 
         if (request.sessionId() != null) {
-            ragConversationPersistenceService.saveConversation(
-                    request.sessionId(), request.query(), envelope.data());
+            // 대화 저장은 best-effort(#1593) — 이 시점엔 이미 FastAPI LLM 파이프라인이 돌아 비용이 발생했고
+            // 답변도 손에 있다. 저장 실패로 답변까지 500으로 뒤집으면 사용자는 답을 못 받고 비용만 나간다.
+            // AuthController.login() 의 lastLoginAt 갱신과 같은 취지다.
+            //
+            // 실패 경로는 전부 citation 쪽이다 — chat_message_citations 는 document_id → rag_documents FK 와
+            // unique(message_id, document_id, chunk_ref), 그리고 NOT NULL·varchar(100) 제약을 갖는다:
+            //   ① FK 위반 — 검색 시점엔 존재하던 문서를 LLM 생성(수 초) 중에 관리자가 삭제하면 저장 시점엔
+            //      대상이 사라진 상태다(TOCTOU 레이스). RagDocumentService.delete() 가 Chroma → PG 순서를
+            //      고정해도(#1394) 이 레이스 자체는 닫히지 않는다.
+            //   ② unique 위반 — 같은 청크 중복 인용. RagCitationWriter 의 중복 제거로 선제 차단.
+            //   ③ NOT NULL·길이 위반 — RagCitationWriter 의 필드 가드로 선제 차단.
+            // 저장은 (메시지 트랜잭션) → (출처 트랜잭션) 두 단계로 쪼개져 있어, ①~③ 이 터져도 질문·답변
+            // 이력은 커밋된 채 남고 출처 칩만 사라진다(RagConversationPersistenceService 참고).
+            //
+            // ⚠️ try/catch 는 반드시 "호출부"인 여기 있어야 한다. 저장 빈들은 @Transactional 이 붙은 별도
+            // 빈이라(PR #1510) 예외가 프록시 경계를 넘는 순간 해당 저장 트랜잭션만 롤백되고 답변 반환은
+            // 살아남는다. 서비스 내부에서 잡으면 트랜잭션이 이미 rollback-only 로 마킹돼 커밋 시점에
+            // UnexpectedRollbackException 으로 다시 터진다.
+            //
+            // ⚠️ 트레이드오프: 여기까지 예외가 올라오는 경우(= 메시지 저장 자체가 실패)엔 답변은 정상
+            // 반환되지만 그 턴이 대화 이력에 남지 않는다 — 새로고침하면 사라지고 다음 질의의 history(최근
+            // 3턴)에서도 빠져 문맥이 한 턴 끊긴다. 답변을 통째로 잃는 것보다는 낫다는 판단이며, 조용히
+            // 삼키지 않고 아래 로그로 관측 가능하게 남긴다.
+            try {
+                ragConversationPersistenceService.saveConversation(
+                        request.sessionId(), request.query(), envelope.data());
+            } catch (Exception e) {
+                log.error("RAG 대화 저장 실패(답변 자체는 정상 반환) — 이 턴은 이력에 남지 않음 "
+                                + "userId={}, sessionId={}, docIds={}",
+                        userId, request.sessionId(),
+                        RagConversationPersistenceService.docIds(envelope.data()), e);
+            }
         }
         return ApiResponse.ok(envelope.data());
     }

@@ -16,6 +16,12 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
+import static org.mockito.ArgumentMatchers.any;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.hajacheck.auth.support.RateLimiter;
 import com.hajacheck.counsel.entity.ChatMessage;
 import com.hajacheck.counsel.entity.ChatSenderType;
@@ -36,6 +42,8 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -411,6 +419,73 @@ class AiProxyServiceRagChatTest {
         assertThat(dataCaptor.getValue().sources()).hasSize(1);
         assertThat(dataCaptor.getValue().sources().get(0).chunkRef()).isEqualTo("42_3");
         mockServer.verify();
+    }
+
+    // ── 대화 저장 best-effort (#1593) ─────────────────────────────────────────
+
+    @Test
+    void ragChat_대화저장이무결성위반으로실패해도_답변은정상반환되고500이아님() {
+        // citation 의 document_id → rag_documents FK 위반(Postgres 에서 삭제됐지만 Chroma 에 잔존하는
+        // 문서를 인용) 시나리오. 이 시점엔 이미 FastAPI LLM 호출로 비용이 발생하고 답변도 손에 있으므로,
+        // 저장 실패가 답변까지 500으로 뒤집으면 안 된다.
+        doThrow(new DataIntegrityViolationException(
+                "insert or update on table \"chat_message_citations\" violates foreign key constraint"))
+                .when(ragConversationPersistenceService)
+                .saveConversation(eq(SESSION_ID), eq("균열 보수 기준은?"), any(RagChatResponse.class));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"손상 정도에 따라 다릅니다.","sources":[
+                                    {"doc_id":"42","title":"t","collection":"regulations",
+                                     "locator":"제12조","snippet":"s","chunk_ref":"42_3"}
+                                ]}}
+                                """));
+
+        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(
+                USER_ID, COMPANY_ID, new RagChatRequest("균열 보수 기준은?", SESSION_ID));
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data().answer()).isEqualTo("손상 정도에 따라 다릅니다.");
+        assertThat(response.data().sources()).hasSize(1);
+        verify(ragConversationPersistenceService)
+                .saveConversation(eq(SESSION_ID), eq("균열 보수 기준은?"), any(RagChatResponse.class));
+        mockServer.verify();
+    }
+
+    @Test
+    void ragChat_대화저장실패는조용히삼키지않고에러로그로관측가능() {
+        doThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"))
+                .when(ragConversationPersistenceService)
+                .saveConversation(eq(SESSION_ID), eq("균열 보수 기준은?"), any(RagChatResponse.class));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"답변","sources":null}}
+                                """));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(AiProxyService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            aiProxyService.ragChat(USER_ID, COMPANY_ID, new RagChatRequest("균열 보수 기준은?", SESSION_ID));
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        // 저장 실패를 조용히 삼키면 "이력이 사라지는데 아무도 모르는" 상태가 된다 — 원인 예외까지 남겨야
+        // 반복 시 문서 삭제/청크 중복을 추적할 수 있다.
+        assertThat(appender.list)
+                .as("저장 실패는 ERROR 로그 + 원인 예외로 관측 가능해야 한다")
+                .anySatisfy(event -> {
+                    assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+                    assertThat(event.getFormattedMessage()).contains("RAG 대화 저장 실패");
+                    assertThat(event.getThrowableProxy()).isNotNull();
+                });
     }
 
     @Test
