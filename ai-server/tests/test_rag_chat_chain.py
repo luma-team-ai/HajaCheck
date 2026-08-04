@@ -16,6 +16,7 @@ from langchain_core.documents import Document
 from ai.chains.rag_chat_chain import (
     RAG_CHAT_CACHE_PREFIX,
     RAG_CHAT_TOP_K,
+    SEMANTIC_CACHE_SIMILARITY_THRESHOLD,
     _build_sources,
     _cache_key,
     _render_locator,
@@ -77,17 +78,22 @@ def test_build_sources_maps_metadata_deterministically():
 # ---------------------------------------------------------------------------
 
 
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
 @patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_endpoint_success_sources_ignore_llm_output(
-    mock_hybrid_search, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
 ):
     """LLM mock이 sources와 무관한 answer만 주더라도, 응답 sources는 검색 metadata에서만
     구성됨을 구조적으로 검증한다(_RagChatAnswer에 sources 필드 자체가 없음)."""
     mock_redis = MagicMock()
     mock_redis.get.return_value = None
     mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
 
     mock_hybrid_search.return_value = [
         _doc(doc_id="42", chunk_index=3, article="제12조")
@@ -119,15 +125,20 @@ def test_rag_chat_endpoint_success_sources_ignore_llm_output(
     mock_hybrid_search.assert_called_once_with("균열 보수 기준은?", k=RAG_CHAT_TOP_K)
 
 
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
 @patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_endpoint_no_result_returns_rag_no_result_and_skips_cache_write(
-    mock_hybrid_search, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
 ):
     mock_redis = MagicMock()
     mock_redis.get.return_value = None
     mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
 
     mock_hybrid_search.return_value = []
 
@@ -141,11 +152,12 @@ def test_rag_chat_endpoint_no_result_returns_rag_no_result_and_skips_cache_write
     mock_redis.setex.assert_not_called()
 
 
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
 @patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_endpoint_ungrounded_answer_returns_rag_no_result_without_sources(
-    mock_hybrid_search, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
 ):
     """검색은 top-k(관련성 무관)를 반환했지만 LLM이 grounded=false로 판정한 경우 —
     무관한 발췌를 sources로 붙이지 않고 RAG_NO_RESULT로 응답, 캐시도 저장하지 않는다.
@@ -153,6 +165,10 @@ def test_rag_chat_endpoint_ungrounded_answer_returns_rag_no_result_without_sourc
     mock_redis = MagicMock()
     mock_redis.get.return_value = None
     mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
 
     mock_hybrid_search.return_value = [
         _doc(doc_id="42", chunk_index=3, article="제59조")
@@ -208,17 +224,22 @@ def test_rag_chat_cache_hit_skips_vectorstore_and_llm(
     mock_get_llm.assert_not_called()
 
 
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
 @patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_rag_chat_success_writes_cache_with_expected_key_ttl_and_payload(
-    mock_hybrid_search, mock_get_llm, mock_get_redis_client
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
 ):
     question = "균열 보수 기준은?"
 
     mock_redis = MagicMock()
     mock_redis.get.return_value = None
     mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
 
     mock_hybrid_search.return_value = [
         _doc(doc_id="42", chunk_index=3, article="제12조")
@@ -256,6 +277,214 @@ def test_rag_chat_endpoint_llm_failure_returns_error_envelope(mock_get_redis_cli
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+
+
+# ---------------------------------------------------------------------------
+# 시맨틱 캐시 (#1462) — exact-match(Redis) 미스 시 2차로 Chroma semantic_cache 조회
+# ---------------------------------------------------------------------------
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_rag_chat_semantic_cache_hit_skips_retrieve_and_llm(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """exact-match는 미스지만 시맨틱 캐시가 히트하면 retrieve/LLM 호출 없이 캐시된 답변을 반환한다."""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+
+    cached_payload = {
+        "answer": "시맨틱 캐시된 답변",
+        "sources": [
+            {
+                "doc_id": "42",
+                "title": "시설물의 안전 및 유지관리에 관한 특별법",
+                "collection": "regulations",
+                "locator": "제12조",
+                "snippet": "관리주체는 시설물의 안전점검을 정기적으로 실시하여야 한다.",
+                "chunk_ref": "42_3",
+            }
+        ],
+    }
+    match_doc = Document(
+        page_content="균열 보수 기준이 뭐야?",
+        metadata={"answer_json": json.dumps(cached_payload)},
+    )
+    mock_semantic_store = MagicMock()
+    # distance 0.01 <= (1 - 0.95) = 0.05 → hit
+    mock_semantic_store.similarity_search_with_score.return_value = [(match_doc, 0.01)]
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    res = client.post("/ai/rag-chat", json={"question": "균열 보수 기준은 무엇인가요?"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"] == cached_payload
+    mock_hybrid_search.assert_not_called()
+    mock_get_llm.assert_not_called()
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_rag_chat_exact_and_semantic_miss_writes_both_caches(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """exact/시맨틱 캐시 둘 다 미스면 정상적으로 검색+LLM을 호출하고, 성공(grounded=true) 시
+    exact(Redis)와 semantic(Chroma) 캐시 양쪽에 저장한다."""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    mock_hybrid_search.return_value = [
+        _doc(doc_id="42", chunk_index=3, article="제12조")
+    ]
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+        answer="균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다.",
+        grounded=True,
+    )
+    mock_get_llm.return_value = mock_llm
+
+    question = "균열 보수 기준은?"
+    res = client.post("/ai/rag-chat", json={"question": question})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+
+    mock_redis.setex.assert_called_once()
+    mock_semantic_store.add_documents.assert_called_once()
+    added_docs = mock_semantic_store.add_documents.call_args[0][0]
+    assert len(added_docs) == 1
+    assert added_docs[0].page_content == question
+    stored = json.loads(added_docs[0].metadata["answer_json"])
+    assert stored["answer"] == "균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다."
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_rag_chat_no_result_skips_semantic_cache_write(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """grounded=false(no_result) 경로에서는 exact 캐시뿐 아니라 시맨틱 캐시에도 저장하지 않는다."""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    mock_hybrid_search.return_value = [
+        _doc(doc_id="42", chunk_index=3, article="제59조")
+    ]
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+        answer="관련 근거를 찾지 못했습니다", grounded=False
+    )
+    mock_get_llm.return_value = mock_llm
+
+    res = client.post("/ai/rag-chat", json={"question": "안녕"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "RAG_NO_RESULT"
+    mock_redis.setex.assert_not_called()
+    mock_semantic_store.add_documents.assert_not_called()
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_rag_chat_semantic_cache_below_threshold_is_treated_as_miss(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """유사도가 임계값 미만(distance가 (1-threshold)보다 큼)이면 miss로 처리하고 정상 검색 경로로 간다."""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+
+    match_doc = Document(
+        page_content="전혀 다른 질문",
+        metadata={"answer_json": json.dumps({"answer": "무관한 캐시", "sources": []})},
+    )
+    mock_semantic_store = MagicMock()
+    # distance 0.5 > (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD) → miss
+    assert 0.5 > (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD)
+    mock_semantic_store.similarity_search_with_score.return_value = [(match_doc, 0.5)]
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    mock_hybrid_search.return_value = [
+        _doc(doc_id="42", chunk_index=3, article="제12조")
+    ]
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+        answer="균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다.",
+        grounded=True,
+    )
+    mock_get_llm.return_value = mock_llm
+
+    res = client.post("/ai/rag-chat", json={"question": "균열 보수 기준은?"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["answer"].startswith("균열 보수는")
+    mock_hybrid_search.assert_called_once()
+    mock_get_llm.assert_called_once()
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_rag_chat_semantic_cache_empty_collection_is_miss(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """semantic_cache 컬렉션이 비어있어 빈 리스트가 반환돼도 예외 없이 miss로 처리하고
+    정상적으로 검색+LLM 경로를 탄다."""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    mock_hybrid_search.return_value = [
+        _doc(doc_id="42", chunk_index=3, article="제12조")
+    ]
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+        answer="균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다.",
+        grounded=True,
+    )
+    mock_get_llm.return_value = mock_llm
+
+    res = client.post("/ai/rag-chat", json={"question": "균열 보수 기준은?"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    mock_hybrid_search.assert_called_once()
 
 
 if __name__ == "__main__":
