@@ -44,6 +44,10 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
   - **G6** PASS — 운영 config·마이그레이션·docs 변경 0건, destructive 0건. 좌석 실측 단일 소스(#1476)는 `users` 기준이라 멤버십 행 추가가 이중 카운트를 만들지 않음(코드 실측 확인).
   - 후속(미등록): P2 실 PG 통합테스트로 인가 계약 고정 · P3 redeem이 회사 APPROVED·VERIFIED 미검증 · P3 동시 redeem 유니크 위반 500 · P3 랜딩 히어로 CTA WAITING 분기 누락.
 
+- **PR #1500 dev 머지 (2026-08-04)** — `DefectStatusReasonModal`(하자 상태 역행/건너뛰기 사유 입력)이 "보드 보기" 탭 롤백(#899/#726) 이후 오펀 상태로 남아있던 것(#900, 별도 라우트 vs 폐기 결정 대기 이슈)을 별도 라우트 대신 **하자 상세 모달로 재통합**. `DefectStatusChangeControl`+`useChangeDefectStatus` 신설, 백엔드 `Defect#changeStatus`는 무변경(프론트 `REASON_REQUIRED_TARGETS`를 그 판정 로직과 1:1 대조 확인). 2커밋(`feat` 재통합 + `fix`), 이슈 **#900** Closes, `awaiting-promotion` 라벨 부여. Jira 미연동.
+  - **버그 발견·수정(브라우저 수동 검증 중)**: `PATCH /api/defects/:id/status`가 `inspectionApi.handlers.ts`·`defectApi.handlers.ts` 두 곳에 중복 MSW 목 핸들러로 등록돼 있어 `mocks/handlers.ts` 등록 순서상 얕은 쪽(무조건 성공, 실제 미반영)이 항상 먼저 매치 — 재통합한 흐름이 로컬 MSW 목 모드에서 "성공한 것처럼 보이지만 반영 안 됨"으로 재현됐다(격리 핸들러로 도는 자동화 테스트는 이 충돌을 못 잡음). 중복 핸들러 제거로 해소, `ResultViewerPage.tsx`(동일 실엔드포인트) 영향 없음 확인.
+  - 검증: `defect`+`inspection` 피처 320/320 통과 · `tsc`/`eslint`/`build` 클린. 전체 스위트 중 무관한 기존 실패 8건(`facilityMediaApi.test.ts` 5·`FacilityListPage.test.tsx` 1·`ReportGeneratePage.test.tsx` 2) 발견 — stash 재현으로 이번 PR 무관 확인. `ReportGeneratePage` 2건은 기존 #1272로 트래킹 중, `facilityMediaApi`/`FacilityListPage` 5+1건은 **미트래킹 — 후속 이슈화 필요**.
+
 - **🧹 이슈 보드 정합 정리 (2026-08-04)** — GitHub·Jira 누적 드리프트 해소.
   - **GitHub**: 머지된 PR 본문의 `Closes` ↔ main 포함 여부를 전수 대조해, **main 배포 완료인데 열려 있던 43건 close**(258 → 215). 원인은 승격 PR 본문의 `Closes` 나열 누락. dev 머지분 8건은 `awaiting-promotion` 라벨 정합(누락 3건 보강: #1462·#1479·#1488).
   - **Jira**: `dev-pr-check` 적체 **136 → 4건**. 실제 승격 완료분 **134건을 `완료`로 전환**(완료 268 → 402). 남긴 4건 = 실제 승격 대기(HAJA-652/#1473 · HAJA-649/#1468 · HAJA-656/#1497 · HAJA-647/#1467).
