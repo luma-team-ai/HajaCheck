@@ -9,6 +9,7 @@ YOLO-World 제로샷 검출("card", "credit card", "sticker on wall" 프롬프�
 """
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import NamedTuple, TYPE_CHECKING
 
@@ -39,7 +40,12 @@ CARD_RATIO = CARD_LONG_MM / CARD_SHORT_MM  # 1.585
 RATIO_TOL = 0.12  # ±12% — 정면 촬영 ±10° 원근 왜곡 허용
 
 # YOLO-World 설정
-YOLO_WORLD_MODEL_NAME = "yolov8s-worldv2.pt"  # ultralytics 공식 릴리스에서 자동 다운로드
+# ultralytics 공식 릴리스에서 자동 다운로드. 단, 파일명만 주면 ultralytics가 **CWD**에 받는데
+# (utils/downloads.py attempt_download_asset → safe_download(file=<상대경로>)), 컨테이너의 CWD
+# `/app`은 root 소유이고 프로세스는 USER fastapi(999)라 Permission denied로 죽는다(#1547 검수,
+# 실제 이미지로 재현 확인). 그래서 컨테이너에서는 YOLO_WORLD_WEIGHTS로 쓰기 가능한 절대경로
+# (hf_cache 볼륨 하위)를 주입한다 — Dockerfile ENV 참고. 로컬 개발은 기존처럼 CWD 자동 다운로드.
+YOLO_WORLD_MODEL_NAME = os.getenv("YOLO_WORLD_WEIGHTS") or "yolov8s-worldv2.pt"
 YOLO_WORLD_PROMPTS = ["card", "credit card", "sticker on wall"]
 YOLO_WORLD_IMGSZ = 2048  # 고해상도 입력으로 소형 카드까지 처리 가능하게 함
 YOLO_WORLD_CONF_MIN = 0.02  # 제로샷이라 threshold 낮게 — 기하 검증으로 거름
