@@ -13,11 +13,12 @@ import { ReportListTable } from '../components/ReportListTable';
 import { ReportVersionHistoryPanel } from '../components/ReportVersionHistoryPanel';
 import { isReportContent } from '../types';
 import type { ReportListFilters, ReportListItem } from '../types';
-import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { exportReportToPdf } from '../utils/exportReportToPdf';
 import { getMissingFinalReportRequiredLabels } from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { formatReportListTitle } from '../utils/reportListFormat';
 import { getApiErrorMessage } from '../../../shared/api/types';
+import { buildReportPdfFileName } from '../../../shared/utils/reportPdf';
 
 const DEFAULT_PAGE_SIZE = 10;
 

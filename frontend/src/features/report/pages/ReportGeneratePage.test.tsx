@@ -11,7 +11,8 @@ import { isReportContent, type ReportContent } from '../types';
 import { AI_DRAFT_WARNING, AI_DRAFT_WARNING_TITLE } from '../constants';
 import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 import { ReportGeneratePage } from './ReportGeneratePage';
-import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { exportReportToPdf } from '../utils/exportReportToPdf';
+import { buildReportPdfFileName } from '../../../shared/utils/reportPdf';
 import type { Defect } from '../../inspection/types';
 import type { DefectPhotoGroup } from '../components/editor/DefectPhoto';
 import { DetailSection } from '../components/editor/DetailSection';
@@ -21,6 +22,14 @@ vi.mock('../utils/exportReportToPdf', async (importOriginal) => {
   return {
     ...actual,
     exportReportToPdf: vi.fn().mockResolvedValue(new Blob(['fake-pdf'])),
+  };
+});
+
+// buildReportPdfFileName은 shared/utils/reportPdf.ts로 승격됐다(#1472) — 해당 모듈을 목한다.
+vi.mock('../../../shared/utils/reportPdf', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../shared/utils/reportPdf')>();
+  return {
+    ...actual,
     buildReportPdfFileName: vi.fn().mockReturnValue('점검보고서_1_20260723.pdf'),
   };
 });

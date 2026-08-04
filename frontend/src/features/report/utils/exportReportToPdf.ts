@@ -58,6 +58,15 @@ const SECTION_TITLE_HEIGHT = 6;
 const PHOTO_CAPTION_HEIGHT = 9;
 /** 사진 1장 표(이미지 행 + 캡션 행)가 통째로 들어가야 하는 높이 — 이만큼 없으면 페이지를 넘긴다. */
 const PHOTO_BLOCK_HEIGHT = PHOTO_ROW_HEIGHT + 4 + PHOTO_CAPTION_HEIGHT;
+/**
+ * "책임기술자 종합의견" 표(renderSummaryBlock)가 절 제목 바로 다음에 최소한으로 필요로 하는
+ * 높이 — 표 헤더 행("책임기술자 종합의견", ~10mm) + 본문 셀 최소 높이(minCellHeight: 40)만
+ * 더한 값이다(서명 행까지는 다음 페이지로 넘어가도 무방). 범용 값 MIN_BLOCK_SPACE(40, "제목+한
+ * 줄 표" 가정)로는 이 표의 실제 필요 지면을 과소평가해, 섹션 제목+표 헤더 행까지만 현재
+ * 페이지에 들어간다고 판단되고 정작 본문 행은 autoTable이 다음 페이지로 넘겨버려 헤더만 고아로
+ * 남는 문제가 있었다(renderPhotosBlock가 PHOTO_BLOCK_HEIGHT로 같은 문제를 막은 선례를 따름).
+ */
+const SUMMARY_BLOCK_MIN_HEIGHT = SECTION_TITLE_HEIGHT + 10 + 40;
 
 const FONT_SIZE = {
   documentTitle: 25,
@@ -376,33 +385,9 @@ async function loadPdfImage(
   }
 }
 
-// 레거시 pdfUrl 정규화(#1186/#1235) — 과거 데이터에 "localhost:8080/api/reports/..."처럼
-// 프로토콜 없이 저장된 값이 섞여 있어, fetch 전에 절대/상대 URL로 정리한다. Report.pdfUrl 컬럼을
-// 읽는 화면(ReportGeneratePage, MyReportListItem 등) 어디서든 fetch 직전 이 함수를 거쳐야 한다.
-export function normalizePdfPreviewUrl(pdfUrl: string): string {
-  const trimmed = pdfUrl.trim();
-  const candidate = /^localhost(?::\d+)?\//i.test(trimmed)
-    ? `${window.location.protocol}//${trimmed}`
-    : trimmed;
-
-  try {
-    const url = new URL(candidate, window.location.origin);
-    if (url.pathname.startsWith("/api/reports/")) {
-      return `${url.pathname}${url.search}`;
-    }
-    return url.href;
-  } catch {
-    return candidate;
-  }
-}
-
-export function buildReportPdfFileName(inspectionId: number): string {
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  return `점검보고서_${inspectionId}_${yyyy}${mm}${dd}.pdf`;
-}
+// normalizePdfPreviewUrl / buildReportPdfFileName은 features/mypage(MyReportListItem)에서도
+// 필요해져 shared/utils/reportPdf.ts로 승격됐다(#1472, feature 간 직접 import 금지 컨벤션).
+// 소비처(ReportListPage, ReportGeneratePage 등)는 재수출 없이 shared에서 바로 import한다.
 
 // 표준서식의 구성(제출문 → 결과표 → 결과 요약 → 진단 외관조사결과 기본사항 → 보수ㆍ보강(안) → 참여 기술진 명단
 // → 부위별 사진)을 따르되, 실제 순서는 편집기에서 사용자가 정한 sectionOrder를 그대로 따른다.
@@ -613,7 +598,9 @@ export async function exportReportToPdf(
   // 기존 소절이 담던 등급별 건수·주요 발견사항은 표를 따로 만들지 않고 같은 불릿 흐름에 흡수한다
   // — 새 데이터를 붙이지 않고 표시 구조만 원본에 맞춘다(#1409).
   const renderSummaryBlock = (label: string, startY: number): number => {
-    const y = sectionTitle(label, startY);
+    // 표 헤더 행+본문 최소 한 줄이 함께 들어갈 지면이 없으면 제목 전체를 다음 페이지로
+    // 넘긴다 — 그래야 "제목+표 헤더만 이 페이지, 본문은 다음 페이지" 고아 현상이 사라진다.
+    const y = sectionTitle(label, ensureSpace(startY, SUMMARY_BLOCK_MIN_HEIGHT));
     autoTable(doc, {
       ...tableDefaults,
       startY: y,

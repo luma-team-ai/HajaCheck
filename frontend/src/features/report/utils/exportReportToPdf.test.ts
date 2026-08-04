@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportContent } from "../types";
 import { mockReportDetailResponse } from "../mocks/reportDetail.mock";
-import { buildReportPdfFileName, exportReportToPdf } from "./exportReportToPdf";
+import { exportReportToPdf } from "./exportReportToPdf";
 
 const mockOutput = vi.fn().mockReturnValue(new Blob(["fake-pdf-bytes"]));
 const mockAddFileToVFS = vi.fn();
@@ -278,6 +278,37 @@ describe("exportReportToPdf", () => {
     );
     expect(summaryOptions?.didDrawCell).toBeUndefined();
     expect(mockAddImage).not.toHaveBeenCalled();
+  });
+
+  it("결과 요약 시작 지점이 페이지 하단에 걸리면 표 헤더가 고아로 남지 않도록 새 페이지로 넘긴다", async () => {
+    // 기본현황 블록의 표 3개 중 마지막(다. 참고사항) 표의 finalY만 220으로 만들어, 이어지는
+    // `2. 결과 요약`의 시작 지점(cursorY≈230)이 페이지 하단(BOTTOM_LIMIT=274) 근처에 걸리게
+    // 만든다. 이 값은 예전 MIN_BLOCK_SPACE(40)로는 "페이지에 더 들어간다"고 판단해 절 제목+표
+    // 헤더까지는 그리고 본문(책임기술자 종합의견 내용)만 다음 페이지로 넘어가버리는 고아 현상을
+    // 재현하는 지점이다 — renderSummaryBlock의 SUMMARY_BLOCK_MIN_HEIGHT 가드가 없으면 이 테스트는
+    // "2. 결과 요약" 제목이 y≈230(페이지 하단)에 그려져 실패한다.
+    mockAutoTable.mockImplementationOnce((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 120 };
+    });
+    mockAutoTable.mockImplementationOnce((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 120 };
+    });
+    mockAutoTable.mockImplementationOnce((doc: MockJsPDF) => {
+      doc.lastAutoTable = { finalY: 220 };
+    });
+
+    await exportReportToPdf(makeContent());
+
+    const summaryTitleCall = mockText.mock.calls.find(
+      ([text]) => text === "2. 결과 요약",
+    ) as [string, number, number] | undefined;
+    expect(summaryTitleCall).toBeDefined();
+    const [, , summaryTitleY] = summaryTitleCall!;
+
+    // 표 헤더만 겨우 들어가는 하단(230mm)이 아니라, 새 페이지 상단(MARGIN_X=23mm)에서 시작해야
+    // 표 헤더와 본문이 분리되지 않는다.
+    expect(summaryTitleY).toBe(23);
+    expect(mockAddPage).toHaveBeenCalledTimes(1);
   });
 
   it("책임기술자 서명란 이름은 수동 입력값을 담당자 fallback보다 우선한다", async () => {
@@ -891,9 +922,5 @@ describe("exportReportToPdf", () => {
     expect(options?.body).toEqual([
       ["1", "1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
     ]);
-  });
-
-  it("buildReportPdfFileName은 inspectionId와 오늘 날짜로 파일명을 만든다", () => {
-    expect(buildReportPdfFileName(42)).toMatch(/^점검보고서_42_\d{8}\.pdf$/);
   });
 });

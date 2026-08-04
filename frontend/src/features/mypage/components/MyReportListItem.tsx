@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertModal } from '../../../shared/components/Modal';
-import { buildReportPdfFileName, normalizePdfPreviewUrl } from '../../report/utils/exportReportToPdf';
+import { buildReportPdfFileName, normalizePdfPreviewUrl } from '../../../shared/utils/reportPdf';
 import type { MyReportCard } from '../types';
 import { formatFileSize, formatIssuedDate, formatReportTitle } from '../utils/myInspectionsFormat';
 import { DownloadIcon } from './icons/DownloadIcon';
