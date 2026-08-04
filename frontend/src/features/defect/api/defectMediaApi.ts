@@ -1,4 +1,5 @@
 import { api } from '../../../shared/api/axios';
+import { uploadTimeoutMs } from '../../../shared/api/timeouts';
 
 // 하자 상세 모달 "조치 후 사진 업로드" 응답 — inspection feature의 Media 타입 중 카드/모달에
 // 필요한 최소 필드만 로컬로 재정의한다(feature 간 직접 import 금지, React_코드_컨벤션.md §1).
@@ -21,6 +22,8 @@ export const defectMediaApi = {
     formData.append('files', file);
 
     return api.post<DefectActionPhoto[]>(`/inspections/${inspectionId}/media`, formData, {
+      // 파일 크기에 비례한 업로드 상한(#1598) — mediaApi.upload와 동일 엔드포인트·동일 근거(timeouts.ts).
+      timeout: uploadTimeoutMs(file.size),
       onUploadProgress: (event) => {
         if (!onUploadProgress || !event.total) return;
         onUploadProgress(Math.round((event.loaded / event.total) * 100));
