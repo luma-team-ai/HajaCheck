@@ -36,4 +36,12 @@ class DefectStatusTest {
         assertThat(DefectStatus.IN_PROGRESS.isForwardStepTo(DefectStatus.CONFIRMED)).isFalse();
         assertThat(DefectStatus.RESOLVED.isForwardStepTo(DefectStatus.IN_PROGRESS)).isFalse();
     }
+
+    @Test
+    void isForwardStepTo_null이면항상false() {
+        // RESOLVED는 expectedNext가 null이라, null 가드가 없으면 "종료 상태에서 null로 전진 가능"이라는
+        // 오답을 낸다(#1583 리뷰 P3). public 단일 기준 메서드라 신규 호출처를 위해 계약으로 고정한다.
+        assertThat(DefectStatus.RESOLVED.isForwardStepTo(null)).isFalse();
+        assertThat(DefectStatus.DETECTED.isForwardStepTo(null)).isFalse();
+    }
 }

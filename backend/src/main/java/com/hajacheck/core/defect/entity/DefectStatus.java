@@ -32,8 +32,14 @@ public enum DefectStatus {
      *
      * <p>ordinal 산술이 아니라 exhaustive switch로 구현한 것은 의도적이다 — 상수가 추가되면 여기서
      * 컴파일 에러가 나 "다음 단계가 무엇인지"를 반드시 다시 정의하게 만든다(무신호 오동작 방지).
+     *
+     * <p>{@code next}가 null이면 항상 false다 — RESOLVED는 정방향 다음이 없어({@code expectedNext}가
+     * null) null 비교가 그대로 통과하면 "종료 상태에서 null로 전진 가능"이라는 오답이 된다.
      */
     public boolean isForwardStepTo(DefectStatus next) {
+        if (next == null) {
+            return false;
+        }
         DefectStatus expectedNext = switch (this) {
             case DETECTED -> CONFIRMED;
             case CONFIRMED -> IN_PROGRESS;
