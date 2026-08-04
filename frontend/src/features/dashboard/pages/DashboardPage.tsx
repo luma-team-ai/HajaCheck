@@ -48,7 +48,8 @@ export function DashboardPage() {
 
       <KpiSection />
 
-      {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=처리대기+AI 브리핑.
+      {/* 시안: KPI 아래는 2단 컬럼 — 좌(넓음)=등급분포+최근점검 / 우(좁음)=AI 브리핑+처리대기(사용자 요청으로
+          순서 변경, #1537).
           mt-6(24px): Figma 재대조(2026-07-24) 결과 mt-9(36px)가 시안보다 넓어 24px로 축소. */}
       <div className="mt-6 grid grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] gap-4 items-start max-[1100px]:grid-cols-1">
         <div className="flex flex-col gap-4 min-w-0">
@@ -56,10 +57,10 @@ export function DashboardPage() {
           <RecentInspectionsTable />
         </div>
         <div className="flex flex-col gap-4 min-w-0">
-          <PendingPriorityCard />
           <div id={AI_WEEKLY_BRIEFING_ANCHOR_ID}>
             <AiBriefingCard />
           </div>
+          <PendingPriorityCard />
         </div>
       </div>
     </div>
