@@ -78,7 +78,7 @@
 - prod와 공유 dev는 **다른 물리 postgres**다 → 로컬(터널) 재기동은 prod에 무영향이지만, 공유 dev DB(`hajacheck_dev`)는 실제로 건드린다.
 
 ### 규칙
-1. **한 기능 = 엔티티 변경 + `V{n}__*.sql` 을 같은 PR**에 담는다(둘이 따로 승격되면 validate로 터진다). 번호는 이어서 매긴다(현재 V3까지 존재 = 다음은 **V4**). 파일명 `V{번호}__{설명}.sql`.
+1. **한 기능 = 엔티티 변경 + `V{n}__*.sql` 을 같은 PR**에 담는다(둘이 따로 승격되면 validate로 터진다). 파일명 `V{번호}__{설명}.sql`. **번호는 반드시 실제 최댓값 + 1** — 문서에 적힌 숫자를 믿지 말고 매번 확인한다: `ls backend/src/main/resources/db/migration | sort -V | tail -1` (2026-08-04 기준 최신 = **V40**). 병렬 브랜치가 같은 번호를 잡으면 머지 순서가 꼬이므로, 브랜치 생성 시점이 아니라 **PR 올리기 직전에 재확인**한다.
 2. **기존 마이그레이션(V1~) 절대 수정 금지** — 이미 적용된 파일을 바꾸면 checksum 불일치로 기동 실패한다. 변경은 항상 새 번호로만.
 3. **마이그레이션 검증은 일회용 DB(testcontainer/로컬 컨테이너)에서** 한다. 파일이 확정(리뷰 통과)되기 전엔 **공유 dev DB(터널)에 찍지 않는다** — 미확정 `V{n}`을 공유 dev에 찍고 나중에 수정하면 checksum 충돌 + 팀원 간섭이 난다. (빈 DB·기존 DB 양쪽을 CI에서 자동 검증하는 testcontainer 통합테스트를 붙인다 — `FlywayBaselineOnExistingDbIntegrationTest` 참고.)
 4. **터널 프로파일(`docker-compose.oci-db.yml`)로 미확정 마이그레이션 spring 부팅 금지** — 부팅 순간 공유 dev DB에 그대로 적용된다.
