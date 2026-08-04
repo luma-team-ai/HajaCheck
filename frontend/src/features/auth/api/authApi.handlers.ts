@@ -54,6 +54,16 @@ const MOCK_ACCOUNTS: Record<string, UserResponse> = {
 // 로그인한 목 계정의 loginId를 담는다(과거엔 'true' 고정값이었다 — 이 파일 밖 사용처 없음).
 const MOCK_SESSION_KEY = 'msw_authenticated';
 
+// 계정 조회는 반드시 자체 키만 본다 — plain object 인덱싱은 'toString'·'constructor'·'__proto__'
+// 같은 입력에 프로토타입 체인의 값이 truthy로 잡혀, 401이어야 할 응답이 403으로 나가거나
+// (목이 실서버와 다른 계약을 흉내 낸다) /users/me가 role 없는 객체를 200으로 돌려주게 된다.
+function findMockAccount(loginId: string | null | undefined): UserResponse | undefined {
+  if (!loginId || !Object.hasOwn(MOCK_ACCOUNTS, loginId)) {
+    return undefined;
+  }
+  return MOCK_ACCOUNTS[loginId];
+}
+
 const INVALID_CREDENTIALS: ApiResponse<null> = {
   success: false,
   data: null,
@@ -78,7 +88,7 @@ const ROLE_NOT_ALLOWED: ApiResponse<null> = {
 function portalLoginHandler(path: string, allowedRoles: readonly UserResponse['role'][]) {
   return http.post(path, async ({ request }) => {
     const body = (await request.json()) as LoginRequest;
-    const account = MOCK_ACCOUNTS[body.loginId];
+    const account = findMockAccount(body.loginId);
 
     if (!account || body.password !== MOCK_PASSWORD) {
       return HttpResponse.json(INVALID_CREDENTIALS, { status: 401 });
@@ -107,7 +117,7 @@ export const authHandlers = [
   http.get('/api/users/me', () => {
     const loginId =
       typeof window !== 'undefined' ? window.sessionStorage.getItem(MOCK_SESSION_KEY) : null;
-    const authenticatedUser = loginId ? MOCK_ACCOUNTS[loginId] : undefined;
+    const authenticatedUser = findMockAccount(loginId);
 
     if (authenticatedUser) {
       const success: ApiResponse<UserResponse> = { success: true, data: authenticatedUser };

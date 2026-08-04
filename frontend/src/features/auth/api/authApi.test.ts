@@ -56,6 +56,19 @@ describe('authApi.login (기업회원 포털)', () => {
       status: 403,
     });
   });
+
+  // 목이 계정부를 plain object로 인덱싱하면 'toString'·'__proto__' 같은 loginId에 프로토타입
+  // 체인 값이 잡혀, 401이어야 할 응답이 403(계정은 있으나 role 불가)으로 나간다 — 목이 실서버와
+  // 다른 계약을 흉내 내면 그 위에서 검증한 화면 동작을 믿을 수 없다.
+  it.each(['toString', 'constructor', '__proto__', 'hasOwnProperty'])(
+    '프로토타입 체인 키(%s)를 아이디로 보내도 계정 없음(401)으로 처리한다',
+    async (loginId) => {
+      await expect(authApi.login({ loginId, password: 'password1234' })).rejects.toMatchObject({
+        code: 'AUTH_INVALID_CREDENTIALS',
+        status: 401,
+      });
+    },
+  );
 });
 
 describe('authApi.platformAdminLogin (플랫폼 관리자 포털)', () => {

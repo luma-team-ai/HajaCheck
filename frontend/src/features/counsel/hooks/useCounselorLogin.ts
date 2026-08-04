@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import type { LoginRequest, UserResponse } from '../../auth/types';
+import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import type { ApiError } from '../../../shared/api/types';
 import { COUNSELOR_QUEUE_ROUTE } from '../../../shared/constants/routes';
 
@@ -20,6 +21,12 @@ export function useCounselorLogin() {
   const mutation = useMutation<UserResponse, ApiError, LoginRequest>({
     mutationFn: (body) => authApi.counselorLogin(body).then((res) => res.data),
     onSuccess: (user) => {
+      // 로그인 진입점 3곳이 같은 계약을 지킨다(#1194 — useLogin·usePlatformAdminLogin과 동일).
+      // localStorage 영속 스토어라 공용 PC에서 계정이 바뀌면 이전 사용자의 회차 id가 남는다.
+      const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
+      clearActiveInspectionId();
+      clearActiveReportId();
+
       setUser(user);
       navigate(COUNSELOR_QUEUE_ROUTE);
     },

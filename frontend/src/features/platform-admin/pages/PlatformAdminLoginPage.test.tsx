@@ -12,6 +12,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { useAuthStore } from '../../auth/store/authStore';
+import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import type { EmailAvailabilityResponse, User } from '../../auth/types';
 import { PlatformAdminLoginPage } from './PlatformAdminLoginPage';
 
@@ -59,6 +60,8 @@ afterEach(() => {
   useAuthStore.setState({ user: null });
   logoutCallCount = 0;
   requestedPaths.length = 0;
+  useInspectionStore.getState().clearActiveInspectionId();
+  useInspectionStore.getState().clearActiveReportId();
 });
 afterAll(() => server.close());
 
@@ -139,6 +142,24 @@ describe('PlatformAdminLoginPage', () => {
     });
     expect(useAuthStore.getState().user).toEqual(platformAdminUser);
     expect(logoutCallCount).toBe(0);
+  });
+
+  // #1194 — localStorage 영속 스토어라 공용 PC에서 계정이 바뀌면 이전 사용자의 회차 id가 남는다.
+  // 로그인 진입점 3곳(useLogin·usePlatformAdminLogin·useCounselorLogin)이 같은 계약을 지켜야 하는데
+  // 이 훅에만 없었다.
+  it('로그인 성공 시 이전 세션의 activeInspectionId/activeReportId를 지운다(#1194)', async () => {
+    useInspectionStore.getState().setActiveInspectionId(42);
+    useInspectionStore.getState().setActiveReportId(7);
+    mockLoginSuccess(platformAdminUser);
+    renderPage();
+
+    fillAndSubmit();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/platform-admin');
+    });
+    expect(useInspectionStore.getState().activeInspectionId).toBeNull();
+    expect(useInspectionStore.getState().activeReportId).toBeNull();
   });
 
   // #1513 — 화면↔엔드포인트 대응이 이 PR의 핵심 계약이다. 기업 포털(/api/auth/login)로 새면

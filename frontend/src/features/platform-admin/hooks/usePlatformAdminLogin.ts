@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import type { LoginRequest, UserResponse } from '../../auth/types';
+import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import type { ApiError } from '../../../shared/api/types';
 import { PLATFORM_ADMIN_ROUTE } from '../../../shared/constants/routes';
 
@@ -19,6 +20,14 @@ export function usePlatformAdminLogin() {
   const mutation = useMutation<UserResponse, ApiError, LoginRequest>({
     mutationFn: (body) => authApi.platformAdminLogin(body).then((res) => res.data),
     onSuccess: (user) => {
+      // 로그인 성공 시점에 이전 세션의 activeInspectionId/activeReportId를 지운다 — 이 스토어는
+      // localStorage에 영속화되므로(#1194), 공용 PC에서 계정이 바뀌어도 지우지 않으면 이전
+      // 사용자의 회차 id가 남는다. 로그인 진입점 3곳(useLogin·이 훅·useCounselorLogin)이 같은
+      // 계약을 지켜야 한다 — 한 곳만 지키면 다음 회귀 때 어느 경로가 새는지 알 수 없다.
+      const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
+      clearActiveInspectionId();
+      clearActiveReportId();
+
       setUser(user);
       navigate(PLATFORM_ADMIN_ROUTE);
     },
