@@ -960,14 +960,14 @@ describe("exportReportToPdf", () => {
 // 이 테스트가 없으면 [A-E] 범위가 [A-Z]로 복귀하거나 [A-D]로 축소돼도 감지되지 않는다.
 describe("normalizeGradeInText", () => {
   it("(등급 X) 표기를 소문자 단일 글자 (x) 로 정규화한다", () => {
-    expect(normalizeGradeInText("(등급 A)")).toBe(" (A)");
-    expect(normalizeGradeInText("(등급 C)")).toBe(" (C)");
-    expect(normalizeGradeInText("(등급 E)")).toBe(" (E)");
+    expect(normalizeGradeInText("(등급 A)")).toBe(" (a)");
+    expect(normalizeGradeInText("(등급 C)")).toBe(" (c)");
+    expect(normalizeGradeInText("(등급 E)")).toBe(" (e)");
   });
 
   it("(X등급) 표기를 소문자 단일 글자 (x) 로 정규화한다", () => {
-    expect(normalizeGradeInText("(A등급)")).toBe(" (A)");
-    expect(normalizeGradeInText("(E등급)")).toBe(" (E)");
+    expect(normalizeGradeInText("(A등급)")).toBe(" (a)");
+    expect(normalizeGradeInText("(E등급)")).toBe(" (e)");
   });
 
   it("독립 (X) 표기를 소문자로 정규화한다 — 모든 하자 등급 A~E를 커버한다", () => {
