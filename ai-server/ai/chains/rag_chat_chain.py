@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
+import logging
 from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
@@ -27,17 +27,27 @@ from ai.core.hybrid_search import hybrid_search
 from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
 from ai.core.prompt_safety import wrap_untrusted
 from ai.core.schemas import AIErrorCode, AIResponse, RagAnswerData, SourceCitation
+from ai.core.semantic_cache import (
+    CREATED_AT_FIELD,
+    enforce_retention,
+    fresh_entry_filter,
+    now_epoch_seconds,
+    semantic_cache_threshold,
+)
 from ai.core.vectorstore import COLLECTION_REGULATIONS, COLLECTION_SEMANTIC_CACHE, get_vectorstore
+
+logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 RAG_CHAT_TOP_K = 4  # 설계 §4.1 초안값
 RAG_CHAT_CACHE_PREFIX = "ai:cache:rag-chat"
 
-# 시맨틱 캐시 유사도 임계값 — langchain_chroma.similarity_search_with_score는 distance(작을수록 유사)를
-# 반환하고, 컬렉션이 hnsw:space=cosine이므로 distance = 1 - cosine_similarity. 따라서
-# score <= (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD)일 때 hit으로 판정한다.
-SEMANTIC_CACHE_SIMILARITY_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.95"))
+# 시맨틱 캐시 유사도 임계값은 `ai.core.semantic_cache.semantic_cache_threshold()`가 **런타임에**
+# 읽는다(#1594 P3) — 예전에는 이 모듈 최상단에서 `float(os.getenv(...))`로 읽어 ①레포 컨벤션
+# (`vectorstore.py` `_client()` 주석: os.getenv는 반드시 함수 내부에서) 위반이었고 ②잘못된 값
+# 하나가 임포트 시점 ValueError로 앱 전체를 죽였다. TTL·용량 상한과 함께 그 모듈이 단일 정책
+# 지점이다.
 # TODO(#1462 후속 이슈): 실측 기반 threshold 튜닝 필요. 현재는 법규 QA 도메인 오탐 리스크 때문에 보수적으로 높게 설정한 초기값.
 
 
@@ -230,6 +240,10 @@ def _node_semantic_cache_check(state: RagChatState) -> RagChatState:
     전역 조회가 되살아나지 않도록 노드 자체에서도 방어적으로 miss 반환한다(Chroma는 filter 값에
     None을 허용하지 않아 `filter={"company_id": None}`은 ValueError로 터진다 — 실측 확인).
 
+    TTL(#1594): 필터에 `created_at >= ttl_cutoff()`를 함께 걸어 만료된 항목은 애초에 후보로
+    올라오지 않게 한다. 만료분의 실제 삭제는 저장 경로의 `enforce_retention()`이 맡지만, 조회에서
+    먼저 막아야 "삭제가 아직 안 돌았을 때 구 답변이 나가는" 창이 생기지 않는다.
+
     파싱 실패 시 miss로 안전하게 폴백한다(캐시 오염으로 전체 요청이 죽지 않도록).
     """
     company_id = state.get("company_id")
@@ -237,16 +251,17 @@ def _node_semantic_cache_check(state: RagChatState) -> RagChatState:
         return {**state, "cached_result": None, "final_response": None}
 
     vectorstore = get_vectorstore(COLLECTION_SEMANTIC_CACHE)
-    # filter로 회사 스코프를 강제한다. company_id metadata가 없는 과거(#1584 이전) 캐시 항목은
-    # 어떤 회사 필터에도 매칭되지 않으므로 자연히 조회 대상에서 빠진다(실측 확인).
+    # filter로 회사 스코프(#1584) + TTL 미경과(#1594)를 함께 강제한다. company_id/created_at
+    # metadata가 없는 과거 캐시 항목은 어떤 필터에도 매칭되지 않으므로 자연히 조회 대상에서
+    # 빠진다(실측 확인).
     results = vectorstore.similarity_search_with_score(
-        state["question"], k=1, filter={"company_id": company_id}
+        state["question"], k=1, filter=fresh_entry_filter(company_id)
     )
 
     cached_result = None
     if results:
         doc, score = results[0]
-        if score <= (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD):
+        if score <= (1 - semantic_cache_threshold()):
             try:
                 cached_result = json.loads(doc.metadata["answer_json"])
             except (KeyError, json.JSONDecodeError, TypeError):
@@ -338,8 +353,13 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     (no_result 경로는 그래프 구조상 이 노드를 거치지 않으므로 별도 분기 불필요).
 
     질문 원문을 page_content로, RagAnswerData 직렬화 결과를 metadata["answer_json"]으로,
-    요청자의 회사 식별자를 metadata["company_id"]로 저장한다(#1584) — 조회 시 이 필드로
-    회사 스코프를 필터링한다.
+    요청자의 회사 식별자를 metadata["company_id"]로, 생성 시각(epoch seconds)을
+    metadata["created_at"]으로 저장한다(#1584, #1594) — 조회 시 앞의 둘로 회사 스코프와 TTL을
+    필터링한다.
+
+    저장 직후 `enforce_retention()`으로 TTL 경과분 삭제 + 용량 상한 축출을 수행한다(#1594) —
+    캐시가 커지는 유일한 지점이 여기이므로 정리도 같은 지점에 붙이는 것이 가장 단순하다.
+    이 호출은 내부에서 예외를 삼키므로 정리 실패가 응답을 막지 않는다.
 
     company_id가 없으면(개인회원) 저장하지 않는다 — 조회를 건너뛰는 것과 대칭이며, Chroma가
     metadata 값에 None을 허용하지 않기도 한다(실측: "Expected metadata value to be a str, int,
@@ -366,9 +386,11 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
             metadata={
                 "answer_json": answer_data.model_dump_json(),
                 "company_id": company_id,
+                CREATED_AT_FIELD: now_epoch_seconds(),
             },
         )
     ])
+    enforce_retention()
     return state
 
 

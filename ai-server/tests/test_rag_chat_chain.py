@@ -7,6 +7,7 @@ get_redis_client만 모킹). test_defect_explain.py 패턴을 따른다.
 - Redis 캐시 히트/저장: 키·TTL·직렬화 값, 히트 시 벡터스토어/LLM 미호출
 - LLM 예외 시 /ai/rag-chat 이 서버를 죽이지 않고 AIResponse.fail 로 응답하는지
 """
+import contextlib
 import json
 import math
 from unittest.mock import MagicMock, patch
@@ -22,7 +23,6 @@ from langchain_core.embeddings import Embeddings
 from ai.chains.rag_chat_chain import (
     RAG_CHAT_CACHE_PREFIX,
     RAG_CHAT_TOP_K,
-    SEMANTIC_CACHE_SIMILARITY_THRESHOLD,
     _build_history_block,
     _build_prompt,
     _build_sources,
@@ -32,8 +32,14 @@ from ai.chains.rag_chat_chain import (
     _RagChatAnswer,
     run_rag_chat_chain,
 )
+from ai.core import semantic_cache
 from ai.core.llm_client import CACHE_TTL_SECONDS
 from ai.core.prompt_safety import wrap_untrusted
+from ai.core.semantic_cache import (
+    CREATED_AT_FIELD,
+    now_epoch_seconds,
+    semantic_cache_threshold,
+)
 from ai.core.vectorstore import COLLECTION_SEMANTIC_CACHE
 from main import app
 
@@ -338,10 +344,14 @@ def test_rag_chat_semantic_cache_hit_skips_retrieve_and_llm(
     assert body["data"] == cached_payload
     mock_hybrid_search.assert_not_called()
     mock_get_llm.assert_not_called()
-    # 조회는 반드시 요청자 회사로 스코프된다(#1584) — filter 없이 전역 조회하면 안 된다.
-    assert mock_semantic_store.similarity_search_with_score.call_args.kwargs["filter"] == {
-        "company_id": 7
-    }
+    # 조회는 반드시 요청자 회사로 스코프되고(#1584), TTL 미경과 조건이 함께 걸린다(#1594) —
+    # filter 없이 전역 조회하면 안 되고, TTL 조건이 빠지면 만료 항목이 그대로 히트한다.
+    used_filter = mock_semantic_store.similarity_search_with_score.call_args.kwargs["filter"]
+    assert {"company_id": 7} in used_filter["$and"]
+    created_at_clause = next(
+        clause for clause in used_filter["$and"] if CREATED_AT_FIELD in clause
+    )
+    assert created_at_clause[CREATED_AT_FIELD]["$gte"] <= now_epoch_seconds()
 
 
 @patch("ai.chains.rag_chat_chain.get_vectorstore")
@@ -443,8 +453,8 @@ def test_rag_chat_semantic_cache_below_threshold_is_treated_as_miss(
         metadata={"answer_json": json.dumps({"answer": "무관한 캐시", "sources": []})},
     )
     mock_semantic_store = MagicMock()
-    # distance 0.5 > (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD) → miss
-    assert 0.5 > (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD)
+    # distance 0.5 > (1 - semantic_cache_threshold()) → miss
+    assert 0.5 > (1 - semantic_cache_threshold())
     mock_semantic_store.similarity_search_with_score.return_value = [(match_doc, 0.5)]
     mock_get_vectorstore.return_value = mock_semantic_store
 
@@ -546,13 +556,18 @@ def real_semantic_store(tmp_path):
     노이즈가 되므로 명시적으로 끊는다.
     """
     client = chromadb.PersistentClient(path=str(tmp_path / "chroma"))
+    store = Chroma(
+        client=client,
+        collection_name=COLLECTION_SEMANTIC_CACHE,
+        embedding_function=_CharBagEmbeddings(),
+        collection_metadata={"hnsw:space": "cosine"},
+    )
     try:
-        yield Chroma(
-            client=client,
-            collection_name=COLLECTION_SEMANTIC_CACHE,
-            embedding_function=_CharBagEmbeddings(),
-            collection_metadata={"hnsw:space": "cosine"},
-        )
+        # 보존 정책(#1594 enforce_retention)은 체인이 아니라 semantic_cache 모듈이 직접 컬렉션
+        # 핸들을 얻는다 — 여기서 함께 갈아끼우지 않으면 저장 직후 정리가 운영 경로
+        # (/app/chroma_data)를 건드리려 하고, 그 실패가 try/except에 삼켜져 조용히 무력화된다.
+        with patch.object(semantic_cache, "_semantic_collection", return_value=store._collection):
+            yield store
     finally:
         SharedSystemClient.clear_system_cache()
 
@@ -605,7 +620,7 @@ def test_other_company_similar_question_is_semantic_cache_miss(
     # 대조군: 필터 없는 전역 조회라면 B사의 유사 질문이 A사 항목에 히트한다(distance <= 임계).
     global_hits = real_semantic_store.similarity_search_with_score(_QUESTION_SIMILAR, k=1)
     assert global_hits, "대조군 전제 실패: A사 항목이 저장되지 않았다"
-    assert global_hits[0][1] <= (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD), (
+    assert global_hits[0][1] <= (1 - semantic_cache_threshold()), (
         "대조군 전제 실패: 두 질문이 임계값 이하로 유사하지 않아 회귀를 검출할 수 없다"
     )
 
@@ -899,6 +914,117 @@ def test_rag_chat_without_history_keeps_existing_cache_behavior(
     mock_redis.setex.assert_called_once()
     mock_semantic_store.similarity_search_with_score.assert_called_once()
     mock_semantic_store.add_documents.assert_called_once()
+
+
+@contextlib.contextmanager
+def _frozen_epoch(value: int):
+    """`now_epoch_seconds`를 **두 네임스페이스 모두에서** 고정한다.
+
+    `rag_chat_chain`은 `from ai.core.semantic_cache import now_epoch_seconds`로 직접 바인딩을
+    갖고 있어, 원본 모듈 한쪽만 패치하면 저장 시각(체인)과 TTL 컷오프(semantic_cache)의 시계가
+    어긋난다 — 그러면 만료 항목이 항상 "방금 저장된 것"처럼 보여 이 테스트가 조용히 무의미해진다.
+    """
+    with patch.object(semantic_cache, "now_epoch_seconds", return_value=value), patch(
+        "ai.chains.rag_chat_chain.now_epoch_seconds", return_value=value
+    ):
+        yield
+
+
+# ---------------------------------------------------------------------------
+# 시맨틱 캐시 TTL (#1594 1번) — 만료된 항목은 히트하지 않는다
+#
+# #1584 회사 스코프 테스트와 같은 이유로 **실제 Chroma**를 쓴다. TTL은 조회 filter의 where 절로
+# 구현되므로, mock의 호출 인자만 확인하면 where 문법이 틀려도(= 운영에서 만료 항목이 그대로
+# 히트해도) 테스트는 통과해버린다.
+# ---------------------------------------------------------------------------
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_expired_semantic_cache_entry_is_not_served(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore,
+    real_semantic_store, monkeypatch,
+):
+    """법규 개정 후에도 구 답변이 영구 서빙되던 것이 #1594 1번의 핵심 피해다.
+
+    TTL을 넘긴 캐시 항목은 같은 회사의 같은 질문에도 히트하지 않고 LLM 경로로 새 답변을 만든다.
+    대조군(같은 조건, TTL 이내)을 함께 두어 "미스 원인이 TTL임"을 증명한다 — 대조군이 없으면
+    질문이 안 닮아서 미스인 것과 구분할 수 없다.
+    """
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None  # exact(Redis) 캐시는 항상 미스로 고정
+    mock_get_redis_client.return_value = mock_redis
+    mock_get_vectorstore.return_value = real_semantic_store
+
+    monkeypatch.setenv("SEMANTIC_CACHE_TTL_SECONDS", "3600")  # 1시간
+
+    # 1) T0에 A사가 질문 → 캐시 미스 → 답변 생성 + 시맨틱 캐시 저장
+    with _frozen_epoch(1_000_000):
+        res_first = _post_rag_chat(
+            mock_get_llm, mock_hybrid_search, _QUESTION_COMPANY_A, 1, _ANSWER_COMPANY_A
+        )
+    assert res_first.json()["data"]["answer"] == _ANSWER_COMPANY_A
+
+    # 대조군: TTL 이내(+10분)라면 같은 질문이 캐시 히트다.
+    mock_get_llm.reset_mock()
+    with _frozen_epoch(1_000_600):
+        res_within_ttl = _post_rag_chat(
+            mock_get_llm, mock_hybrid_search, _QUESTION_SIMILAR, 1, _ANSWER_FRESH
+        )
+    assert res_within_ttl.json()["data"]["answer"] == _ANSWER_COMPANY_A, (
+        "대조군 전제 실패: TTL 이내인데도 캐시 히트가 아니다 — TTL 검증이 성립하지 않는다"
+    )
+    mock_get_llm.assert_not_called()
+
+    # 2) TTL 경과(+2시간) 후 같은 질문 → 만료라 미스 → 새 LLM 답변을 받는다.
+    mock_get_llm.reset_mock()
+    with _frozen_epoch(1_007_200):
+        res_expired = _post_rag_chat(
+            mock_get_llm, mock_hybrid_search, _QUESTION_SIMILAR, 1, _ANSWER_FRESH
+        )
+
+    body = res_expired.json()
+    assert body["success"] is True
+    assert body["data"]["answer"] == _ANSWER_FRESH
+    assert _ANSWER_COMPANY_A not in body["data"]["answer"]
+    mock_get_llm.assert_called_once()  # 만료 항목이 히트했다면 LLM을 타지 않았을 것
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_semantic_cache_write_stores_created_at_and_enforces_retention(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """저장 시 created_at(epoch seconds)이 함께 기록되고, 보존 정책이 같은 지점에서 적용된다.
+
+    created_at이 빠지면 TTL 필터(`$gte`)에 아무것도 매칭되지 않아 캐시가 통째로 죽고, 반대로
+    보존 정책 호출이 빠지면 만료·초과분이 영원히 남는다(#1594 1번의 harm 3·4).
+    """
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    before = now_epoch_seconds()
+    with patch("ai.chains.rag_chat_chain.enforce_retention") as mock_retention:
+        res = _post_rag_chat(
+            mock_get_llm, mock_hybrid_search, "균열 보수 기준은?", 7, _ANSWER_FRESH
+        )
+    after = now_epoch_seconds()
+
+    assert res.status_code == 200
+    added_docs = mock_semantic_store.add_documents.call_args[0][0]
+    created_at = added_docs[0].metadata[CREATED_AT_FIELD]
+    assert isinstance(created_at, int)
+    assert before <= created_at <= after
+    mock_retention.assert_called_once()
 
 
 if __name__ == "__main__":

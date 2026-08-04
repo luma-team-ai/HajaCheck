@@ -175,6 +175,12 @@ services:
       LANGCHAIN_ENDPOINT: ${LANGCHAIN_ENDPOINT:-}
       LANGCHAIN_API_KEY: ${LANGCHAIN_API_KEY:-}
       LANGCHAIN_PROJECT: ${LANGCHAIN_PROJECT:-}
+      # RAG 시맨틱 캐시 보존 정책(#1594) — 근거·기본값 산출은 ai/core/semantic_cache.py 모듈
+      # docstring 참고. 미설정이면 코드 기본값과 동일하게 동작하며, 잘못된 값을 넣어도 경고 로그만
+      # 남기고 기본값으로 폴백한다(앱 기동은 막지 않음 — 운영에서 :? 강제로 두지 않는 이유).
+      SEMANTIC_CACHE_THRESHOLD: ${SEMANTIC_CACHE_THRESHOLD:-0.95}
+      SEMANTIC_CACHE_TTL_SECONDS: ${SEMANTIC_CACHE_TTL_SECONDS:-604800}
+      SEMANTIC_CACHE_MAX_ENTRIES: ${SEMANTIC_CACHE_MAX_ENTRIES:-5000}
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache
