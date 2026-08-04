@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('./loadKakaoMapSdk', () => ({
-  loadKakaoMapSdk: vi.fn().mockResolvedValue(undefined),
+// 에러 클래스(KakaoMapSdkTimeoutError 등)는 실제 구현을 그대로 쓰고 로더 함수만 대체한다 —
+// instanceof 판정(#1590 타임아웃 → GeocodeFailedError 변환)이 목 객체로 깨지지 않게 하기 위함.
+const { loadKakaoMapSdkMock } = vi.hoisted(() => ({
+  loadKakaoMapSdkMock: vi.fn().mockResolvedValue(undefined),
 }));
+
+vi.mock('./loadKakaoMapSdk', async () => {
+  const actual = await vi.importActual<typeof import('./loadKakaoMapSdk')>('./loadKakaoMapSdk');
+  return { ...actual, loadKakaoMapSdk: loadKakaoMapSdkMock };
+});
 
 const OK = 'OK' as unknown as string;
 const ZERO_RESULT = 'ZERO_RESULT' as unknown as string;
@@ -68,6 +75,29 @@ describe('geocodeAddress', () => {
 
     await expect(geocodeAddress('존재하지 않는 주소 xyz')).rejects.toBeInstanceOf(
       GeocodeNotFoundError,
+    );
+  });
+
+  // #1590 P2 — SDK 로드가 타임아웃되면 호출부의 best-effort 실패 경로(#629)를 그대로 타야 한다.
+  it('SDK 로드 타임아웃이면 GeocodeFailedError로 reject한다', async () => {
+    const { KakaoMapSdkTimeoutError } = await import('./loadKakaoMapSdk');
+    loadKakaoMapSdkMock.mockRejectedValueOnce(new KakaoMapSdkTimeoutError());
+
+    const { geocodeAddress, GeocodeFailedError } = await import('./geocodeAddress');
+
+    await expect(geocodeAddress('서울 강남구 테헤란로 123')).rejects.toBeInstanceOf(
+      GeocodeFailedError,
+    );
+  });
+
+  it('타임아웃이 아닌 SDK 로드 실패(키 미설정 등)는 원래 에러 그대로 전파한다', async () => {
+    const { KakaoMapKeyMissingError } = await import('./loadKakaoMapSdk');
+    loadKakaoMapSdkMock.mockRejectedValueOnce(new KakaoMapKeyMissingError());
+
+    const { geocodeAddress } = await import('./geocodeAddress');
+
+    await expect(geocodeAddress('서울 강남구 테헤란로 123')).rejects.toBeInstanceOf(
+      KakaoMapKeyMissingError,
     );
   });
 

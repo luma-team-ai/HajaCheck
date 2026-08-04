@@ -1,7 +1,7 @@
 // 주소 문자열 → 위경도 변환 (Kakao Maps Geocoder 래퍼, #618)
 // window.kakao.maps.services.Geocoder().addressSearch 콜백 API를 Promise화한다.
 // 실패/결과없음 케이스를 조용히 삼키지 않고 에러로 표면화한다(이 프로젝트 리뷰 기준 P2 대상 — CLAUDE.md).
-import { loadKakaoMapSdk } from './loadKakaoMapSdk';
+import { KakaoMapSdkTimeoutError, loadKakaoMapSdk } from './loadKakaoMapSdk';
 
 export interface GeocodeResult {
   latitude: number;
@@ -35,7 +35,18 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
     return Promise.reject(new GeocodeNotFoundError(address));
   }
 
-  await loadKakaoMapSdk();
+  try {
+    await loadKakaoMapSdk();
+  } catch (error) {
+    // SDK 스크립트가 응답 없이 매달린 경우(타임아웃)는 "좌표 변환 실패"로 표면화한다 —
+    // 주소 필수화(#1546) 이후 모든 시설물 등록이 이 경로를 타므로, 여기서 영구 pending되면
+    // 호출부(FacilityFormModal)의 best-effort catch(#629)가 실행되지 못해 등록 모달이
+    // "등록 중"에서 멈춘다(#1590 P2). GeocodeFailedError로 바꿔 기존 실패 경로로 흘려보낸다.
+    if (error instanceof KakaoMapSdkTimeoutError) {
+      throw new GeocodeFailedError(trimmed);
+    }
+    throw error;
+  }
 
   return new Promise<GeocodeResult>((resolve, reject) => {
     const geocoder = new window.kakao.maps.services.Geocoder();
