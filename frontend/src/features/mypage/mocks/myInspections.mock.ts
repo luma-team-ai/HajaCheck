@@ -99,6 +99,7 @@ export const mockMyReports: MyReportCard[] = [
     issuedAt: '2024-03-16T10:22:00',
     fileSizeBytes: 1258291,
     gradeDots: ['RED', 'ORANGE', 'GREEN'],
+    pdfUrl: '/api/reports/1/pdf/mock-1.pdf',
   },
   {
     id: 2,
@@ -108,6 +109,7 @@ export const mockMyReports: MyReportCard[] = [
     issuedAt: '2024-03-12T09:00:00',
     fileSizeBytes: 838861,
     gradeDots: ['ORANGE', 'GREEN'],
+    pdfUrl: '/api/reports/2/pdf/mock-2.pdf',
   },
   {
     id: 3,
@@ -117,5 +119,6 @@ export const mockMyReports: MyReportCard[] = [
     issuedAt: '2024-02-21T14:30:00',
     fileSizeBytes: 2516583,
     gradeDots: ['RED', 'GREEN'],
+    pdfUrl: null,
   },
 ];
