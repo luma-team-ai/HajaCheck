@@ -2,7 +2,9 @@ package com.hajacheck.invitecode.service;
 
 import com.hajacheck.auth.config.AuthProperties;
 import com.hajacheck.auth.dto.UserResponse;
+import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.AuthService;
@@ -39,6 +41,7 @@ public class InviteCodeService {
     private final InviteCodeStore inviteCodeStore;
     private final UserRepository userRepository;
     private final CompanyRepository companyRepository;
+    private final CompanyMembershipRepository companyMembershipRepository;
     private final AuthService authService;
     private final AuthProperties authProperties;
     private final RateLimiter rateLimiter;
@@ -137,6 +140,7 @@ public class InviteCodeService {
         quotaService.reserveSeat(companyId);
 
         user.activateWithInviteCode(companyId);
+        grantEffectiveMembership(companyId, userId);
         UserResponse response = authService.getMe(userId);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -147,6 +151,31 @@ public class InviteCodeService {
         });
 
         return response;
+    }
+
+    /**
+     * 회사 스코프 접근에 필요한 유효 멤버십을 발급한다(#1474).
+     *
+     * <p><b>왜 필요한가</b>: {@code activateWithInviteCode}가 채우는 {@code users.company_id}는 조회 편의
+     * 포인터일 뿐이고, 실제 인가 판정은 {@code CompanyScopeGuard.requireEffectiveMembership} →
+     * {@code CompanyMembershipRepository.existsEffectiveApprovedMembership}가 {@code company_memberships}
+     * 행을 기준으로 한다. 이 행이 없으면 나머지 3조건(user ACTIVE · company APPROVED · verification
+     * VERIFIED)을 모두 만족해도 <b>회사 스코프 API가 전부 403</b>이 된다 — 초대로 합류한 사용자가 가입
+     * 직후부터 아무 기능도 못 쓰던 실제 장애의 원인이었다.
+     *
+     * <p><b>같은 트랜잭션이어야 하는 이유</b>: 좌석 예약({@code reserveSeat})·ACTIVE 전환과 원자적으로
+     * 묶여야 한다. 분리하면 "좌석은 소모됐는데 멤버십이 없어 403" 또는 "멤버십은 있는데 좌석 미반영"
+     * 같은 부분 성공 상태가 남는다. 이 메서드는 {@code redeem}의 트랜잭션 안에서만 호출된다.
+     *
+     * <p><b>교훈(#1368과 동일 유형)</b>: 인가 조건은 "검사하는 코드"와 "충족시키는 코드"가 쌍으로
+     * 존재해야 한다. 조건을 추가할 때는 "누가 이 조건을 만들어 주는가"를 반드시 확인한다.
+     */
+    private void grantEffectiveMembership(Long companyId, Long userId) {
+        companyMembershipRepository.findByCompanyIdAndUserId(companyId, userId)
+                .ifPresentOrElse(
+                        CompanyMembership::approveAsInvitedMember,
+                        () -> companyMembershipRepository.save(
+                                CompanyMembership.approvedMember(companyId, userId)));
     }
 
     // 초대 코드는 기업 관리자 전용 기능이라 companyId 없는 관리자(개인 회원 등)는 발급/폐기 대상이 아니다

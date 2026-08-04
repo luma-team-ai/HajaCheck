@@ -25,9 +25,14 @@ export default function LandingPage() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
 
-  // 이미 로그인된 사용자는 랜딩 대신 대시보드로 이동
+  // 이미 로그인된 사용자는 랜딩 대신 대시보드로 이동.
+  // 단 status=WAITING(초대 코드 미입력, #794/#799)은 제외한다 — 이 사용자는 company_id가 없어
+  // 대시보드를 포함한 보호 리소스가 백엔드에서 403(AUTH_ACCOUNT_WAITING)으로 막히고,
+  // ProtectedRoute가 다시 /invite-code로 되돌린다. 여기서 대시보드로 보내면
+  // /(랜딩) → /dashboard → /invite-code 왕복이 되어 초대 코드 화면의 "홈으로"·로고·"취소"가
+  // 전부 제자리로 튕긴다. 랜딩은 WAITING이 볼 수 있는 공개 화면이므로 그대로 머무르게 둔다.
   useEffect(() => {
-    if (user) {
+    if (user && user.status !== 'WAITING') {
       navigate('/dashboard', { replace: true });
     }
   }, [user, navigate]);

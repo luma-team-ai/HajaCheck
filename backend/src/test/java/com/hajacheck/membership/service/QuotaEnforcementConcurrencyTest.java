@@ -136,6 +136,12 @@ class QuotaEnforcementConcurrencyTest extends PostgresTestSupport {
 
         // circular FK(companies.owner_user_id ↔ users.company_id) — company_id 를 먼저 끊는다.
         for (Long userId : extraUserIds) {
+            // #1474 이후 좌석 배정에 성공한 초대 사용자는 InviteCodeService.redeem()이
+            // company_memberships 행을 발급한다(회사 스코프 인가에 필요). 이 행을 지우지 않고
+            // companies 를 삭제하면 company_memberships_company_id_fkey 위반으로 테스트가 실패하고,
+            // 뒤이은 정리(사용자 삭제)도 진행되지 못해 다음 테스트에 남은 사용자 행이 새어 나간다.
+            companyMembershipRepository.findByCompanyIdAndUserId(companyId, userId)
+                    .ifPresent(companyMembershipRepository::delete);
             userRepository.findById(userId).ifPresent(u -> {
                 u.assignToCompany(null);
                 userRepository.save(u);
