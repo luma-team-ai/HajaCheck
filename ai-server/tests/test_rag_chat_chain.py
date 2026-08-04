@@ -1113,6 +1113,58 @@ def test_normal_grounded_answer_is_still_cached(
 
 @patch("ai.chains.rag_chat_chain.get_vectorstore")
 @patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_cacheable_is_evaluated_once_per_request(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """exact·semantic 두 저장 노드가 각자 판정하면 한 요청에 2회 돌고 거부 로그도 2줄씩 쌓인다 —
+    거부 조건은 외부 입력(질문)으로 유발 가능하므로 로그 증폭 벡터가 된다(코드리뷰 P3).
+    앞 노드가 판정 결과를 state에 실어 뒤 노드가 재사용해야 한다."""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    with patch(
+        "ai.chains.rag_chat_chain._is_cacheable", return_value=False
+    ) as mock_is_cacheable:
+        res = _post_rag_chat(mock_get_llm, mock_hybrid_search, "균열 보수 기준은?", 7, _ANSWER_FRESH)
+
+    assert res.status_code == 200
+    assert mock_is_cacheable.call_count == 1
+    # 판정 결과(거부)는 두 저장 노드 모두에 적용된다.
+    mock_redis.setex.assert_not_called()
+    mock_semantic_store.add_documents.assert_not_called()
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+def test_semantic_cache_write_evaluates_cacheable_when_state_lacks_it(
+    mock_get_redis_client, mock_get_vectorstore
+):
+    """그래프를 우회한 직접 호출(state에 판정 키 없음)은 "허용"으로 폴백하면 fail-open이 된다 —
+    그 자리에서 실제 판정으로 떨어져야 한다."""
+    mock_semantic_store = MagicMock()
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    state = {
+        "question": "균열 보수 기준은?",
+        "llm_answer": _RagChatAnswer(answer="네", grounded=True),  # 퇴화 길이 → 거부 대상
+        "sources": _build_sources([_doc()]),
+        "skip_cache": False,
+        "company_id": 7,
+    }
+
+    _node_semantic_cache_write(state)
+
+    mock_semantic_store.add_documents.assert_not_called()
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
 def test_cache_write_nodes_refuse_answer_without_sources(
     mock_get_redis_client, mock_get_vectorstore
 ):

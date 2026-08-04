@@ -76,6 +76,9 @@ class RagChatState(TypedDict):
     # 조회/저장 모두 우회한다(design §4 "이력이 있으면 캐시를 우회").
     history: list[dict]
     skip_cache: bool
+    # `_is_cacheable` 판정 결과(#1594) — cache_write가 채우고 semantic_cache_write가 재사용한다
+    # (요청당 1회 판정 + 거부 로그 1줄). 키가 없으면 _resolve_cacheable가 그 자리에서 판정한다.
+    cacheable: Optional[bool]
     # 요청자의 회사 식별자(#1584) — Spring이 @AuthenticationPrincipal에서만 취득해 넘긴다(요청 바디
     # 신뢰 금지). 시맨틱 캐시는 이 값으로 회사 스코프를 강제한다. 회사 미소속 개인회원은 None이며,
     # 이때는 시맨틱 캐시를 조회도 저장도 하지 않는다(fail-closed — 필터 없는 전역 조회 폴백 금지).
@@ -183,20 +186,32 @@ def _cache_key(question: str) -> str:
 def _is_cacheable(state: RagChatState) -> bool:
     """이 답변을 캐시(exact·semantic 양쪽)에 기록해도 되는지 판정한다(#1594 P2).
 
-    기존에는 기록 여부를 **LLM이 스스로 신고한 `grounded` 필드 단독**으로 결정했다. 방어는
-    `wrap_untrusted` 마커와 시스템 프롬프트 지시뿐이라, 인젝션으로 `grounded=true` + 왜곡 답변을
-    유도하면 그 답변이 캐시에 들어가고 이후 유사 질문은 **LLM 재검증 없이** 오염된 답변을 받는다
-    (#1584로 blast radius가 회사 1개로 줄었을 뿐 0은 아니다). 그래서 자기신고 외에 코드가
-    결정론적으로 확인할 수 있는 조건을 추가로 요구한다:
+    기록 여부를 **LLM이 스스로 신고한 `grounded` 필드 단독**으로 결정하던 것에 코드가 결정론적으로
+    확인 가능한 조건을 얹는다. 각 조건의 **실제 기여도**는 아래와 같다 — 과대평가를 남겨두면 이후
+    누군가 "인젝션 캐시 오염은 이미 막혀 있다"고 오판하므로 정확히 적는다(코드리뷰 P2 지적):
 
-    1. **`sources`가 비어 있지 않다** — sources는 LLM이 아니라 retriever metadata에서 코드가 만든다.
-       그래프상 `build_sources`를 거치면 항상 비어 있지 않지만(§_route_after_retrieve), 그래프 구조가
-       바뀌어도 "근거 없는 답변이 캐시에 들어가는" 경로가 되살아나지 않게 하는 이중 방어다
+    1. **`sources`가 비어 있지 않다** — 그래프상 `build_sources`를 거친 뒤에만 이 판정에 도달하므로
+       **현재 경로에서는 항상 참**이다. 즉 인젝션 차단 기여는 사실상 0이고, 목적은 그래프 구조가
+       바뀌어도 "근거 없는 답변이 캐시에 들어가는" 경로가 되살아나지 않게 하는 **구조적 이중 방어**다
        (company_id 노드 가드와 같은 원칙).
-    2. **답변 길이가 상식 범위** — 빈/공백 답변, 한두 글자 답변, 비정상적으로 긴 덤프는 정상적인
-       법규 QA 응답이 아니다. 오염·오작동 출력이 캐시에 눌러앉는 것을 막는 하한선이다.
-    3. **답변에 UNTRUSTED_DATA 마커가 없다** — 프롬프트 스캐폴딩이 답변에 그대로 실려 나왔다는 건
-       모델이 데이터 경계를 지키지 못했다는 신호다. 그런 턴의 출력은 재사용 대상이 아니다.
+    2. **답변 길이가 상식 범위** — 빈/공백·한두 글자 같은 **퇴화 출력**과 컨텍스트 덤프성 장문을
+       걷어낸다. 오염된 답변은 대개 정상 길이로 나오므로 인젝션 차단 기여는 거의 없다.
+    3. **답변에 UNTRUSTED_DATA 마커가 없다** — `wrap_untrusted()`가 이미 `sanitize_untrusted()`로
+       사용자 입력의 `-{3,}`를 전각으로 깨뜨리므로(`prompt_safety.py`), **사용자 입력에서 유래한**
+       마커는 애초에 답변에 실릴 수 없다. 따라서 이 조건이 잡는 것은 인젝션이 아니라 모델이 스스로
+       프롬프트 스캐폴딩을 복창한 **경계 붕괴 신호**다. 그런 턴의 출력은 재사용하지 않는다.
+
+    ## ⚠️ 잔여 위험 — 이 함수는 이슈 2번을 "부분 완화"할 뿐 해소하지 못한다
+
+    실제 위협인 "오염된 청크가 검색되었거나, 인젝션으로 `grounded=true` + **정상 길이의 왜곡 답변**이
+    생성된 경우"는 위 세 조건을 **전부 통과해 그대로 캐시된다.** 이 함수에는 답변과 근거의 정합성을
+    검증하는 수단이 없기 때문이다. #1584로 blast radius가 회사 1개로 줄어든 상태가 여전히 상한이다.
+
+    실질적 강화 방향(후속): 저장 시 `sources`의 `chunk_ref`/`chunk_hash`를 metadata에 함께 남기고,
+    **캐시 히트를 서빙하기 직전에** 그 청크가 아직 존재하며 내용이 동일한지 대조한다. 그러면
+    ①오염·삭제된 근거에 기반한 캐시 답변이 걸러지고 ②설계 판단 2의 write-after-purge 레이스도
+    같은 메커니즘으로 덮인다(`semantic_cache.py` 모듈 docstring 참고). 저장 포맷 변경이 필요해
+    이 이슈의 범위를 넘는다.
 
     캐시 기록만 막고 응답 자체는 그대로 반환한다 — 사용자에게 보이는 동작은 바뀌지 않는다.
     로그에는 답변 원문을 남기지 않는다(개인정보·인젝션 페이로드 잔존 방지 — 길이만 기록).
@@ -219,6 +234,22 @@ def _is_cacheable(state: RagChatState) -> bool:
         return False
 
     return True
+
+
+def _resolve_cacheable(state: RagChatState) -> bool:
+    """`_is_cacheable` 판정을 요청당 1회로 묶는다(#1594 P3).
+
+    exact·semantic 두 저장 노드가 각자 `_is_cacheable`를 부르면 한 요청에 판정이 2회 돌고, 거부 시
+    경고 로그도 2줄씩 쌓인다. 거부 조건은 외부 입력(질문)으로 유발 가능하므로 로그 증폭 벡터가 된다
+    — 앞 노드(`cache_write`)가 판정 결과를 state에 실어 뒤 노드가 재사용한다.
+
+    키가 없으면(그래프를 우회한 직접 호출 등) 그 자리에서 판정한다 — 캐시된 값이 없다고 해서
+    "기록 허용"으로 폴백하면 fail-open이 되므로 반드시 실제 판정으로 떨어뜨린다.
+    """
+    cached = state.get("cacheable")
+    if cached is not None:
+        return cached
+    return _is_cacheable(state)
 
 
 # ============================================================================
@@ -380,14 +411,16 @@ def _node_cache_write(state: RagChatState) -> RagChatState:
 
     RagAnswerData를 조립해서 Redis에 저장하고 final_response를 세팅.
 
-    `_is_cacheable`이 거부하면 저장만 건너뛰고 응답은 그대로 반환한다(#1594 P2).
+    `_is_cacheable`이 거부하면 저장만 건너뛰고 응답은 그대로 반환한다(#1594 P2). 판정 결과를
+    state에 실어 뒤따르는 semantic 저장 노드가 재사용한다(요청당 1회 — `_resolve_cacheable`).
     """
     answer_data = RagAnswerData(
         answer=state["llm_answer"].answer,
         sources=state["sources"]
     )
+    cacheable = _is_cacheable(state)
     # 이력이 있던 요청은 캐시 저장도 생략(design §4) — 캐시 조회를 우회한 요청과 대칭.
-    if not state.get("skip_cache") and _is_cacheable(state):
+    if not state.get("skip_cache") and cacheable:
         redis_client = get_redis_client()
         redis_client.setex(
             state["cache_key"],
@@ -396,6 +429,7 @@ def _node_cache_write(state: RagChatState) -> RagChatState:
         )
     return {
         **state,
+        "cacheable": cacheable,
         "final_response": AIResponse.ok(answer_data.model_dump())
     }
 
@@ -429,7 +463,7 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     if company_id is None:
         return state
 
-    if not _is_cacheable(state):
+    if not _resolve_cacheable(state):
         return state
 
     answer_data = RagAnswerData(
@@ -548,6 +582,7 @@ def run_rag_chat_chain(
         "llm_answer": None,
         "sources": None,
         "final_response": None,
+        "cacheable": None,
         "history": history,
         "skip_cache": bool(history),
         "company_id": company_id,
