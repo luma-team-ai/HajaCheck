@@ -1,12 +1,15 @@
 // @vitest-environment jsdom
 // 플랫폼 관리자 로그인(#535) — Figma node 973-2520. 개인/기업 탭 없는 단일 아이디/비밀번호 폼이며,
-// 로그인 자체는 성공해도 role이 PLATFORM_ADMIN이 아니면 세션을 무효화하고 에러만 노출해야 한다.
+// 전용 엔드포인트(POST /api/auth/platform-admin/login)로만 로그인한다(#1513). role 강제는 서버가
+// 하므로 PLATFORM_ADMIN이 아니면 세션 자체가 발급되지 않고 403 AUTH_ROLE_NOT_ALLOWED가 온다 —
+// 예전의 "로그인 성공 후 logout()으로 세션 되돌리기"는 되돌릴 세션이 없어져 삭제됐고, 이 테스트는
+// 그 롤백이 되살아나지 않는지(logout 미호출)까지 함께 고정한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { useAuthStore } from '../../auth/store/authStore';
 import type { EmailAvailabilityResponse, User } from '../../auth/types';
@@ -24,13 +27,10 @@ const platformAdminUser: User = {
   status: 'ACTIVE',
 };
 
-const nonPlatformAdminUser: User = {
-  ...platformAdminUser,
-  id: 2,
-  role: 'USER',
-  companyId: 1,
-};
+// role 불일치 계정으로 "로그인에 성공하는" 케이스는 더 이상 존재하지 않는다(#1513) — 서버가
+// 403으로 끊고 세션을 주지 않으므로, 거절 경로는 mockRoleNotAllowed()로 표현한다.
 
+// 롤백용 logout이 되살아나지 않는지 감시한다(#1513으로 삭제된 로직).
 let logoutCallCount = 0;
 
 const csrfPrimeHandler = http.get('/api/auth/email-availability', () => {
@@ -45,12 +45,20 @@ const logoutHandler = http.post('/api/auth/logout', () => {
 
 const server = setupServer(csrfPrimeHandler, logoutHandler);
 
+// 이 화면이 실제로 어느 경로로 POST 하는지 기록한다(#1513) — 기업 포털(/api/auth/login)로 새면
+// 서버가 다른 허용 role을 적용해 플랫폼 관리자가 로그인할 수 없게 된다(dev가 403으로 막히던 그 상태).
+const requestedPaths: string[] = [];
+server.events.on('request:start', ({ request }) => {
+  requestedPaths.push(new URL(request.url).pathname);
+});
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
   useAuthStore.setState({ user: null });
   logoutCallCount = 0;
+  requestedPaths.length = 0;
 });
 afterAll(() => server.close());
 
@@ -83,9 +91,23 @@ function renderPage() {
 
 function mockLoginSuccess(user: User) {
   server.use(
-    http.post('/api/auth/login', () => {
+    http.post('/api/auth/platform-admin/login', () => {
       const success: ApiResponse<User> = { success: true, data: user };
       return HttpResponse.json(success);
+    }),
+  );
+}
+
+/** 서버 role 게이트 거절(#1513) — 인증은 통과했지만 허용 role이 아니라 세션 미발급 + 403. */
+function mockRoleNotAllowed() {
+  server.use(
+    http.post('/api/auth/platform-admin/login', () => {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'AUTH_ROLE_NOT_ALLOWED', message: '이 화면으로는 로그인할 수 없는 계정입니다.' },
+      };
+      return HttpResponse.json(failure, { status: 403 });
     }),
   );
 }
@@ -119,52 +141,41 @@ describe('PlatformAdminLoginPage', () => {
     expect(logoutCallCount).toBe(0);
   });
 
-  it('로그인은 성공하지만 role이 PLATFORM_ADMIN이 아니면 세션을 무효화하고 에러만 표시한다', async () => {
-    mockLoginSuccess(nonPlatformAdminUser);
+  // #1513 — 화면↔엔드포인트 대응이 이 PR의 핵심 계약이다. 기업 포털(/api/auth/login)로 새면
+  // 서버가 ADMIN/INSPECTOR/USER 기준으로 판정해 플랫폼 관리자 로그인이 통째로 403이 된다.
+  it('플랫폼 관리자 전용 엔드포인트(POST /api/auth/platform-admin/login)로 요청한다(#1513)', async () => {
+    mockLoginSuccess(platformAdminUser);
     renderPage();
 
     fillAndSubmit();
 
     await waitFor(() => {
-      expect(screen.getByText('플랫폼 관리자 계정이 아닙니다.')).not.toBeNull();
+      expect(screen.getByTestId('location').textContent).toBe('/platform-admin');
     });
-    // 세션을 살려두지 않는다 — authStore에 커밋되지 않고, 서버 세션도 logout API로 무효화한다.
-    expect(useAuthStore.getState().user).toBeNull();
-    expect(logoutCallCount).toBe(1);
-    // 페이지 이동 없이 로그인 화면에 그대로 머문다.
-    expect(screen.getByTestId('location').textContent).toBe('/platform-admin/login');
+    expect(requestedPaths).toContain('/api/auth/platform-admin/login');
+    expect(requestedPaths).not.toContain('/api/auth/login');
   });
 
-  // PR머신 리뷰 P3(#558) — role 불일치 시 서버 세션 무효화(logout) 실패를 조용히 삼키면 안 된다.
-  // 클라이언트 상태(authStore)는 항상 정리하되, 실패는 별도 메시지+로깅으로 관측 가능해야 한다.
-  it('role 불일치 처리 중 logout API가 실패해도 authStore는 정리되고, 실패가 별도 메시지로 안내된다', async () => {
-    mockLoginSuccess(nonPlatformAdminUser);
-    server.use(
-      http.post('/api/auth/logout', () => HttpResponse.json({ success: false }, { status: 500 })),
-    );
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  // #1513 — role 판정은 서버가 한다. 허용 role이 아니면 세션이 발급되지 않은 채 403이 오므로,
+  // 프론트는 안내만 하고 setUser/이동을 하지 않는다. 되돌릴 세션이 없으니 logout도 호출하지 않는다
+  // (롤백 로직 부활 방지 — logoutCallCount 0 단언이 그 회귀를 잡는다).
+  it('403 AUTH_ROLE_NOT_ALLOWED면 안내만 하고 setUser·logout 없이 로그인 화면에 머문다', async () => {
+    mockRoleNotAllowed();
+    renderPage();
 
-    try {
-      renderPage();
-      fillAndSubmit();
+    fillAndSubmit();
 
-      await waitFor(() => {
-        expect(
-          screen.getByText(
-            '플랫폼 관리자 계정이 아닙니다. 세션 정리에 실패했으니 브라우저를 종료한 뒤 다시 시도해 주세요.',
-          ),
-        ).not.toBeNull();
-      });
-      expect(useAuthStore.getState().user).toBeNull();
-      expect(errorSpy).toHaveBeenCalled();
-    } finally {
-      errorSpy.mockRestore();
-    }
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toBe('플랫폼 관리자 계정이 아닙니다.');
+    });
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(logoutCallCount).toBe(0);
+    expect(screen.getByTestId('location').textContent).toBe('/platform-admin/login');
   });
 
   it('잘못된 자격증명(401)이면 안내 메시지를 표시한다', async () => {
     server.use(
-      http.post('/api/auth/login', () => {
+      http.post('/api/auth/platform-admin/login', () => {
         const failure: ApiResponse<null> = {
           success: false,
           data: null,
@@ -187,7 +198,7 @@ describe('PlatformAdminLoginPage', () => {
   // 기본 문구("로그인에 실패했습니다")가 떠서 자격 증명 오류로 오인됐다(CompanyLoginTab과 동일 경로).
   it('403 FORBIDDEN(CSRF)이면 재시도 안내 문구를 표시한다(#1200)', async () => {
     server.use(
-      http.post('/api/auth/login', () => {
+      http.post('/api/auth/platform-admin/login', () => {
         const failure: ApiResponse<null> = {
           success: false,
           data: null,

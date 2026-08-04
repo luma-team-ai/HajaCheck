@@ -48,7 +48,19 @@ export function toCompanySignupFormData(body: CompanySignupRequest): FormData {
 }
 
 export const authApi = {
+  // 로그인 엔드포인트는 화면(포털)마다 분리돼 있다(#1513, BE #1514/PR #1533) — 서버가 엔드포인트별로
+  // 허용 role을 강제하고, 허용되지 않은 role은 인증에 성공해도 세션을 발급하지 않고 403
+  // AUTH_ROLE_NOT_ALLOWED를 반환한다. 즉 role 판정은 서버 책임이며 프론트는 "어느 문으로 두드리는가"만
+  // 정확히 고르면 된다(예전처럼 로그인 후 role을 보고 logout()으로 되돌리는 사후 처리는 필요 없다).
+  // 화면 ↔ 엔드포인트 대응을 여기서 어기면 그 화면 로그인이 통째로 403이 되므로, 각 화면 테스트가
+  // "자기 경로로 POST 하는지"를 고정한다.
+  /** 기업회원 로그인(/login) — ADMIN·INSPECTOR·USER 허용 */
   login: (body: LoginRequest) => api.post<UserResponse>('/auth/login', body),
+  /** 플랫폼 관리자 로그인(/platform-admin/login) — PLATFORM_ADMIN 허용 */
+  platformAdminLogin: (body: LoginRequest) =>
+    api.post<UserResponse>('/auth/platform-admin/login', body),
+  /** 상담원 로그인(/counsel-console/login) — COUNSELOR 허용 */
+  counselorLogin: (body: LoginRequest) => api.post<UserResponse>('/auth/counselor/login', body),
   logout: () => api.post('/auth/logout'),
   // 세션 확인(부트스트랩 AuthGate·로그인 화면 마운트 시 CSRF 프리밍) — 401은 미로그인으로 간주(호출부에서 무시).
   // skipAuthRedirect: 401이어도 전역 /login 하드 리다이렉트를 하지 않는다 — 공개 랜딩('/')이 안 뜨던 회귀 방지(#276).
