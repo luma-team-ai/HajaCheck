@@ -724,11 +724,14 @@ class DefectServiceTest {
     void updateStatus_같은mediaId그룹전체에동일상태팬아웃() {
         // registerActionResult_같은mediaId그룹전체에동일값팬아웃과 동일한 그룹 구성 — "다른 상태로
         // 변경"도 같은 이미지의 나머지 하자에 함께 반영돼야 한다(#1556).
-        Defect anchor = existingDefect(5L, DefectStatus.DETECTED); // id=10L, inspectionId=100L
+        // 그룹 멤버는 반드시 CONFIRMED 이상이어야 한다(#1583) — 프로덕션 쿼리가
+        // GROUP_ELIGIBLE_STATUSES(CONFIRMED/IN_PROGRESS/RESOLVED)로 조회하므로 DETECTED 멤버는
+        // 애초에 반환될 수 없다. 과거 스텁은 DETECTED 3건이라 실제로 불가능한 상황을 검증하고 있었다.
+        Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L, inspectionId=100L
         ReflectionTestUtils.setField(anchor, "mediaId", 77L);
-        Defect groupMemberBefore = existingDefect(9L, 100L, 5L, DefectStatus.DETECTED, 1, null);
+        Defect groupMemberBefore = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
         ReflectionTestUtils.setField(groupMemberBefore, "mediaId", 77L);
-        Defect groupMemberAfter = existingDefect(15L, 100L, 5L, DefectStatus.DETECTED, 1, null);
+        Defect groupMemberAfter = existingDefect(15L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
         ReflectionTestUtils.setField(groupMemberAfter, "mediaId", 77L);
 
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
@@ -737,17 +740,116 @@ class DefectServiceTest {
                 .thenReturn(List.of(groupMemberBefore, anchor, groupMemberAfter));
 
         DefectResponse response =
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, null);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(groupMemberBefore.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(groupMemberAfter.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(response.groupSize()).isEqualTo(3);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        verify(defectRevisionRepository, org.mockito.Mockito.times(3)).save(argThat(revision ->
+                revision.getFieldChanged().equals("status")
+                        && revision.getOldValue().equals("CONFIRMED")
+                        && revision.getNewValue().equals("IN_PROGRESS")));
+    }
+
+    @Test
+    void updateStatus_앞서간RESOLVED멤버는건너뛰고anchor만정방향전이_사유없음() {
+        // #1583 회귀 — 사진 1장에 A(RESOLVED, 조치완료)와 B(DETECTED)가 있고 검수자가 B만 CONFIRMED로
+        // 바꾸는 상황. 그룹 조회는 GROUP_ELIGIBLE_STATUSES에 걸린 A를 반환하고, anchor B는
+        // resolveActionGroup이 끼워 넣는다. 과거엔 "정확히 같은 상태"만 걸러 A까지 changeStatus를
+        // 태웠고, 사유가 없으면 RESOLVED→CONFIRMED 역행이 거부돼 요청 전체(=B 확정까지)가 실패했다.
+        Defect anchor = existingDefect(5L, DefectStatus.DETECTED); // id=10L, inspectionId=100L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect resolvedMember = existingDefect(9L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
+        ReflectionTestUtils.setField(resolvedMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(resolvedMember));
+
+        DefectResponse response =
                 defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.CONFIRMED, null);
 
         assertThat(anchor.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
-        assertThat(groupMemberBefore.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
-        assertThat(groupMemberAfter.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
-        assertThat(response.groupSize()).isEqualTo(3);
-        assertThat(response.groupStatus()).isEqualTo(DefectStatus.CONFIRMED);
-        verify(defectRevisionRepository, org.mockito.Mockito.times(3)).save(argThat(revision ->
-                revision.getFieldChanged().equals("status")
+        assertThat(resolvedMember.getStatus()).isEqualTo(DefectStatus.RESOLVED); // 역행 없이 유지(건너뜀)
+        // 건너뛴 멤버는 이력도 남기지 않는다 — 실제 변경이 없었으므로 anchor 1건만 기록된다.
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(argThat(revision ->
+                revision.getDefectId().equals(10L)
                         && revision.getOldValue().equals("DETECTED")
                         && revision.getNewValue().equals("CONFIRMED")));
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+        // 집계는 건너뛴 멤버까지 포함한다 — RESOLVED 멤버가 있으므로 그룹 상태는 IN_PROGRESS.
+        assertThat(response.groupSize()).isEqualTo(2);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void updateStatus_앞서간RESOLVED멤버는사유가있어도역행하지않는다() {
+        // #1583 회귀(사유 있는 경우) — 사유가 있으면 역행이 허용되므로 과거엔 A(RESOLVED)가 조용히
+        // CONFIRMED로 되돌아갔다. actionContent/actionDate는 그대로 남아 "조치 기록은 있는데 상태는
+        // 미조치"인 모순 데이터가 됐다. 앞서간 멤버는 사유 유무와 무관하게 건너뛰어야 한다.
+        Defect anchor = existingDefect(5L, DefectStatus.DETECTED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect resolvedMember = existingDefect(9L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
+        ReflectionTestUtils.setField(resolvedMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(resolvedMember));
+
+        defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.CONFIRMED, "오탐 재확인 필요");
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(resolvedMember.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    void updateStatus_anchor를뒤로되돌릴때는앞선멤버도함께되돌린다() {
+        // #1583 — "앞선 멤버 건너뛰기"는 anchor가 정방향으로 밀 때만 적용된다. anchor를 뒤로
+        // 되돌리는 요청은 "이 사진의 보수 작업 전체를 다시 연다"는 뜻이라 #1556의 그룹 되돌리기가
+        // 그대로 유지돼야 한다(목표보다 앞선 IN_PROGRESS 멤버도 함께 CONFIRMED로).
+        Defect anchor = existingDefect(5L, DefectStatus.RESOLVED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect aheadMember = existingDefect(9L, 100L, 5L, DefectStatus.IN_PROGRESS, 1, null);
+        ReflectionTestUtils.setField(aheadMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(aheadMember, anchor));
+
+        defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.CONFIRMED, "오시공 확인, 재조치 필요");
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        assertThat(aheadMember.getStatus()).isEqualTo(DefectStatus.CONFIRMED);
+        verify(defectRevisionRepository, org.mockito.Mockito.times(2)).save(any());
+    }
+
+    @Test
+    void updateStatus_anchor가RESOLVED멤버보다뒤에있어도anchor전이는영향받지않는다() {
+        // #1583 — id 오름차순 처리 순서상 앞서간 멤버(id=9)가 anchor(id=10)보다 먼저 처리된다.
+        // 앞선 멤버에서 예외가 나지 않고 건너뛰어야 뒤의 anchor가 정상 전이된다.
+        Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect aheadMember = existingDefect(9L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
+        ReflectionTestUtils.setField(aheadMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(aheadMember, anchor));
+
+        DefectResponse response =
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, null);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(aheadMember.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(response.groupSize()).isEqualTo(2);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
     }
 
     @Test
