@@ -920,8 +920,9 @@ describe("exportReportToPdf", () => {
         Array.isArray(candidate.head) &&
         (candidate.head as string[][])[0]?.includes("적용 근거"),
     );
+    // "연번"은 레퍼런스 양식에 없어 뺐다(#1499 후속).
     expect(options?.body).toEqual([
-      ["1", "1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
+      ["1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
     ]);
   });
 });

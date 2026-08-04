@@ -690,28 +690,31 @@ export async function exportReportToPdf(
     // 보수ㆍ보강(안) 표는 소절 제목을 따로 달지 않는다 — 블록 제목이 이미 `보수ㆍ보강(안)`이라
     // 소절까지 같은 이름을 붙이면 같은 문구가 연달아 두 번 나온다.
     let y = blockTitle(label, startY, nested);
+    // "연번"은 레퍼런스 양식에 없는 장식용 번호라 뺐다(#1499 후속) — 나머지(대상 부위·
+    // 보수ㆍ보강(안)·조치 우선순위·적용 근거)는 이 섹션 자체가 레퍼런스와 완전히 같은 표
+    // 구조는 아니지만("주요 보수·보강"은 우선순위별 불릿 목록, 상세 표의 보수ㆍ보강(안)은
+    // 부재별 인라인 컬럼), "적용 근거"(법률 환각 방지 검증)는 사용자 확인 결과 레퍼런스에
+    // 없어도 HajaCheck 고유 기능으로 유지하기로 함.
     autoTable(doc, {
       ...tableDefaults,
       startY: y,
       head: [
-        ["연번", "대상 부위", "보수ㆍ보강(안)", "조치\n우선순위", "적용 근거"],
+        ["대상 부위", "보수ㆍ보강(안)", "조치\n우선순위", "적용 근거"],
       ],
       body:
         content.recommendation.items.length > 0
-          ? content.recommendation.items.map((item, index) => [
-              String(index + 1),
+          ? content.recommendation.items.map((item) => [
               item.target || "-",
               item.method || "-",
               item.priority || "-",
               legalBasisLabel(item.legal_basis, item.legal_basis_verified),
             ])
-          : [["-", "-", "권고 조치가 없습니다.", "-", "-"]],
+          : [["-", "권고 조치가 없습니다.", "-", "-"]],
       columnStyles: {
-        0: { cellWidth: 11, halign: "center", fontSize: FONT_SIZE.tableNarrow },
-        1: { cellWidth: 30 },
-        2: { cellWidth: "auto" },
-        3: { cellWidth: 18, halign: "center", fontSize: FONT_SIZE.tableNarrow },
-        4: { cellWidth: 44 },
+        0: { cellWidth: 30 },
+        1: { cellWidth: "auto" },
+        2: { cellWidth: 18, halign: "center", fontSize: FONT_SIZE.tableNarrow },
+        3: { cellWidth: 44 },
       },
     });
 
