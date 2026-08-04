@@ -12,19 +12,32 @@ interface Props {
   targetStatus: DefectStatus;
   onCancel: () => void;
   onSubmit: (reason: string) => void;
+  /** 제출 중에는 확인 버튼을 비활성화해 중복 제출을 막는다. */
+  isSubmitting?: boolean;
+  /** 제출 실패 메시지 — Modal이 createPortal로 document.body에 풀스크린 오버레이를 씌우므로,
+   * 호출부(DefectStatusChangeControl)가 모달 바깥에 에러를 렌더링하면 오버레이에 가려 사용자에게
+   * 보이지 않는다(#726 롤백 이후 재통합 과정에서 발견). 반드시 모달 안에서 보여준다. */
+  submitError?: string | null;
 }
 
 // 조치 보드 역행·건너뛰기 드롭(HAJA-349/#630) — 사유 입력을 요구하는 모달. 별도 Toast 시스템을 도입하지
-// 않는 컨벤션에 맞춰 성공/실패 알림은 이 모달을 닫은 뒤 보드 쪽 인라인 role="alert"로 처리한다
-// (DefectActionBoard의 인라인 오류 표시 패턴 참조).
-export function DefectStatusReasonModal({ defect, targetStatus, onCancel, onSubmit }: Props) {
+// 않는 컨벤션에 맞춰 성공/실패 알림은 모달 내부 인라인 role="alert"로 처리한다(모달이 닫히기 전까지는
+// 호출부의 인라인 알림이 오버레이에 가려 보이지 않으므로 — submitError 참고).
+export function DefectStatusReasonModal({
+  defect,
+  targetStatus,
+  onCancel,
+  onSubmit,
+  isSubmitting = false,
+  submitError = null,
+}: Props) {
   const [reason, setReason] = useState('');
   const trimmed = reason.trim();
   const isValid = trimmed.length > 0 && trimmed.length <= MAX_REASON_LENGTH;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!isValid) {
+    if (!isValid || isSubmitting) {
       return;
     }
     onSubmit(trimmed);
@@ -56,12 +69,18 @@ export function DefectStatusReasonModal({ defect, targetStatus, onCancel, onSubm
           </p>
         )}
 
+        {submitError && (
+          <p className="m-0 text-sm text-danger" role="alert">
+            {submitError}
+          </p>
+        )}
+
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onCancel}>
             취소
           </Button>
-          <Button type="submit" variant="primary" disabled={!isValid}>
-            확인
+          <Button type="submit" variant="primary" disabled={!isValid || isSubmitting}>
+            {isSubmitting ? '처리 중...' : '확인'}
           </Button>
         </div>
       </form>
