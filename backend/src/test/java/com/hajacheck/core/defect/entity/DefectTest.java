@@ -111,6 +111,35 @@ class DefectTest {
     }
 
     @Test
+    void restore_등급없이삭제됐던하자는복구후미확정으로돌아간다() {
+        // 등급 확정(review) 없이 미확정 상태에서 오탐 삭제된 경우 — softDelete가 세운
+        // reviewed=true를 그대로 두면 실제로는 한 번도 검수하지 않은 하자가 검수완료로
+        // 부활해 진행률·confirmReview 가드를 속인다(실측 버그, restore() 참고).
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.9).build();
+
+        defect.softDelete();
+        defect.restore();
+
+        assertThat(defect.isDeleted()).isFalse();
+        assertThat(defect.isReviewed()).isFalse();
+    }
+
+    @Test
+    void restore_등급확정후삭제됐던하자는복구후검수완료를유지한다() {
+        Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.9).build();
+        defect.review(DefectGrade.C);
+
+        defect.softDelete();
+        defect.restore();
+
+        assertThat(defect.isDeleted()).isFalse();
+        assertThat(defect.isReviewed()).isTrue();
+        assertThat(defect.getGrade()).isEqualTo(DefectGrade.C);
+    }
+
+    @Test
     void updateCrackMeasurement_진행중결함의측정값을갱신() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).build();
