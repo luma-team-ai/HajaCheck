@@ -1,215 +1,127 @@
 package com.hajacheck.core.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.hajacheck.core.ai.dto.RagChatResponse;
-import com.hajacheck.counsel.entity.ChatMessage;
-import com.hajacheck.counsel.entity.ChatSenderType;
-import com.hajacheck.counsel.repository.ChatMessageRepository;
-import com.hajacheck.core.rag.entity.ChatMessageCitation;
-import com.hajacheck.core.rag.repository.ChatMessageCitationRepository;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 
+/**
+ * 대화 저장 오케스트레이터 단위테스트 — 메시지/출처 두 writer 로의 위임과, 출처 저장 실패를 여기서
+ * 흡수해 대화 이력을 지키는 계약(#1593)을 고정한다. 실제 트랜잭션 경계 검증은
+ * {@link RagConversationBestEffortIntegrationTest} 참고.
+ */
 class RagConversationPersistenceServiceTest {
 
-    private ChatMessageRepository chatMessageRepository;
-    private ChatMessageCitationRepository chatMessageCitationRepository;
-    private RagConversationPersistenceService service;
-
     private static final Long SESSION_ID = 100L;
+    private static final Long BOT_MESSAGE_ID = 200L;
     private static final String QUERY = "균열 보수 기준은 무엇인가요?";
     private static final String ANSWER = "균열 폭이 0.3mm 이상인 경우 보수해야 합니다.";
 
+    private RagChatMessageWriter ragChatMessageWriter;
+    private RagCitationWriter ragCitationWriter;
+    private RagConversationPersistenceService service;
+
     @BeforeEach
     void setUp() {
-        chatMessageRepository = mock(ChatMessageRepository.class);
-        chatMessageCitationRepository = mock(ChatMessageCitationRepository.class);
-        service = new RagConversationPersistenceService(chatMessageRepository, chatMessageCitationRepository);
-    }
-
-    /** BOT 메시지에 id가 채워진 상태로 저장되도록 스텁 — citation 저장에 messageId가 필요하다. */
-    private void stubChatMessageSave() {
-        ChatMessage userMessageMock = ChatMessage.createText(SESSION_ID, ChatSenderType.USER, QUERY);
-        ChatMessage botMessageMock = ChatMessage.createText(SESSION_ID, ChatSenderType.BOT, ANSWER);
-        ReflectionTestUtils.setField(botMessageMock, "id", 200L);
-        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> {
-            ChatMessage msg = invocation.getArgument(0);
-            return msg.getSender() == ChatSenderType.BOT ? botMessageMock : userMessageMock;
-        });
+        ragChatMessageWriter = mock(RagChatMessageWriter.class);
+        ragCitationWriter = mock(RagCitationWriter.class);
+        when(ragChatMessageWriter.saveMessages(anyLong(), anyString(), anyString()))
+                .thenReturn(BOT_MESSAGE_ID);
+        service = new RagConversationPersistenceService(ragChatMessageWriter, ragCitationWriter);
     }
 
     @Test
-    void saveConversation_정상sources_ChatMessage2건과CitationN건저장() {
-        // given
+    void saveConversation_메시지저장후_봇메시지id로출처저장을위임() {
         List<RagChatResponse.SourceCitation> sources = List.of(
                 new RagChatResponse.SourceCitation("12", "균열관리기준", "regulations", "3페이지", "0.3mm 이상 보수", "chunk-abc-123"),
                 new RagChatResponse.SourceCitation("34", "하자판정기준", "regulations", "5페이지", "허용 폭 기준", "chunk-def-456")
         );
-        RagChatResponse data = new RagChatResponse(ANSWER, sources);
 
-        ChatMessage userMessageMock = ChatMessage.createText(SESSION_ID, ChatSenderType.USER, QUERY);
-        ChatMessage botMessageMock = ChatMessage.createText(SESSION_ID, ChatSenderType.BOT, ANSWER);
-        ReflectionTestUtils.setField(botMessageMock, "id", 200L);
+        service.saveConversation(SESSION_ID, QUERY, new RagChatResponse(ANSWER, sources));
 
-        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> {
-            ChatMessage msg = invocation.getArgument(0);
-            if (msg.getSender() == ChatSenderType.BOT) {
-                return botMessageMock;
-            }
-            return userMessageMock;
+        verify(ragChatMessageWriter).saveMessages(SESSION_ID, QUERY, ANSWER);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<RagChatResponse.SourceCitation>> captor = ArgumentCaptor.forClass(List.class);
+        verify(ragCitationWriter).saveCitations(eq(BOT_MESSAGE_ID), captor.capture());
+        assertThat(captor.getValue()).hasSize(2);
+    }
+
+    @Test
+    void saveConversation_sources가null이면출처저장호출없이메시지만저장() {
+        service.saveConversation(SESSION_ID, QUERY, new RagChatResponse(ANSWER, null));
+
+        verify(ragChatMessageWriter).saveMessages(SESSION_ID, QUERY, ANSWER);
+        verifyNoInteractions(ragCitationWriter);
+    }
+
+    @Test
+    void saveConversation_sources가빈리스트여도출처저장호출없음() {
+        service.saveConversation(SESSION_ID, QUERY, new RagChatResponse(ANSWER, List.of()));
+
+        verify(ragChatMessageWriter).saveMessages(SESSION_ID, QUERY, ANSWER);
+        verifyNoInteractions(ragCitationWriter);
+    }
+
+    @Test
+    @DisplayName("출처 저장이 실패해도 예외를 삼켜 대화 이력을 지키고, 원인은 docIds 와 함께 ERROR 로 남긴다")
+    void saveConversation_출처저장실패_예외전파없이에러로그만남긴다() {
+        doThrow(new DataIntegrityViolationException("violates foreign key constraint"))
+                .when(ragCitationWriter).saveCitations(eq(BOT_MESSAGE_ID), any());
+        RagChatResponse data = new RagChatResponse(ANSWER, List.of(
+                new RagChatResponse.SourceCitation("12", "t", "regulations", "3페이지", "s", "chunk-1"),
+                new RagChatResponse.SourceCitation("34", "t", "regulations", "5페이지", "s", "chunk-2")));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(RagConversationPersistenceService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            // 메시지 트랜잭션은 이미 커밋된 뒤다 — 여기서 던지면 "이력은 남았는데 500" 이 된다.
+            service.saveConversation(SESSION_ID, QUERY, data);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(appender.list).anySatisfy(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(event.getFormattedMessage()).contains("RAG 출처(citation) 저장 실패");
+            // 어떤 문서가 문제였는지가 없으면 FK 위반 추적이 불가능하다.
+            assertThat(event.getFormattedMessage()).contains("[12,34]");
+            assertThat(event.getThrowableProxy()).isNotNull();
         });
-
-        // when
-        service.saveConversation(SESSION_ID, QUERY, data);
-
-        // then
-        // 1. ChatMessage USER/BOT 2건 저장 검증
-        ArgumentCaptor<ChatMessage> messageCaptor = ArgumentCaptor.forClass(ChatMessage.class);
-        verify(chatMessageRepository, times(2)).save(messageCaptor.capture());
-
-        List<ChatMessage> savedMessages = messageCaptor.getAllValues();
-        assertThat(savedMessages.get(0).getSender()).isEqualTo(ChatSenderType.USER);
-        assertThat(savedMessages.get(0).getContent()).isEqualTo(QUERY);
-        assertThat(savedMessages.get(1).getSender()).isEqualTo(ChatSenderType.BOT);
-        assertThat(savedMessages.get(1).getContent()).isEqualTo(ANSWER);
-
-        // 2. ChatMessageCitation 2건 저장 검증
-        ArgumentCaptor<ChatMessageCitation> citationCaptor = ArgumentCaptor.forClass(ChatMessageCitation.class);
-        verify(chatMessageCitationRepository, times(2)).save(citationCaptor.capture());
-
-        List<ChatMessageCitation> savedCitations = citationCaptor.getAllValues();
-        assertThat(savedCitations.get(0).getMessageId()).isEqualTo(200L);
-        assertThat(savedCitations.get(0).getDocumentId()).isEqualTo(12L);
-        assertThat(savedCitations.get(0).getChunkRef()).isEqualTo("chunk-abc-123");
-        assertThat(savedCitations.get(0).getLocator()).isEqualTo("3페이지");
-        assertThat(savedCitations.get(0).getSnippet()).isEqualTo("0.3mm 이상 보수");
-
-        assertThat(savedCitations.get(1).getMessageId()).isEqualTo(200L);
-        assertThat(savedCitations.get(1).getDocumentId()).isEqualTo(34L);
-        assertThat(savedCitations.get(1).getChunkRef()).isEqualTo("chunk-def-456");
-        assertThat(savedCitations.get(1).getLocator()).isEqualTo("5페이지");
-        assertThat(savedCitations.get(1).getSnippet()).isEqualTo("허용 폭 기준");
     }
 
     @Test
-    void saveConversation_숫자파싱불가능한docId가있으면citation저장건너뜀() {
-        // given
-        List<RagChatResponse.SourceCitation> sources = List.of(
-                new RagChatResponse.SourceCitation("invalid-doc-id", "균열관리기준", "regulations", "3페이지", "0.3mm 이상 보수", "chunk-abc-123"),
-                new RagChatResponse.SourceCitation("34", "하자판정기준", "regulations", "5페이지", "허용 폭 기준", "chunk-def-456")
-        );
-        RagChatResponse data = new RagChatResponse(ANSWER, sources);
+    @DisplayName("메시지 저장 실패는 삼키지 않고 호출부(AiProxyService)로 그대로 던진다")
+    void saveConversation_메시지저장실패_예외를그대로전파한다() {
+        // 이 클래스에는 @Transactional 이 없어 여기서 잡을 이유가 없고, best-effort 흡수 지점은
+        // 호출부 한 곳이어야 한다(흩어지면 어느 실패가 어디서 먹히는지 추적 불가).
+        doThrow(new DataIntegrityViolationException("chat_messages 저장 실패"))
+                .when(ragChatMessageWriter).saveMessages(anyLong(), anyString(), anyString());
 
-        ChatMessage userMessageMock = ChatMessage.createText(SESSION_ID, ChatSenderType.USER, QUERY);
-        ChatMessage botMessageMock = ChatMessage.createText(SESSION_ID, ChatSenderType.BOT, ANSWER);
-        ReflectionTestUtils.setField(botMessageMock, "id", 200L);
-
-        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> {
-            ChatMessage msg = invocation.getArgument(0);
-            if (msg.getSender() == ChatSenderType.BOT) {
-                return botMessageMock;
-            }
-            return userMessageMock;
-        });
-
-        // when
-        service.saveConversation(SESSION_ID, QUERY, data);
-
-        // then
-        // 1. ChatMessage USER/BOT 2건은 저장됨
-        verify(chatMessageRepository, times(2)).save(any(ChatMessage.class));
-
-        // 2. 파싱 불가능한 "invalid-doc-id"는 건너뛰고 "34"만 1건 저장됨
-        ArgumentCaptor<ChatMessageCitation> citationCaptor = ArgumentCaptor.forClass(ChatMessageCitation.class);
-        verify(chatMessageCitationRepository, times(1)).save(citationCaptor.capture());
-
-        ChatMessageCitation savedCitation = citationCaptor.getValue();
-        assertThat(savedCitation.getMessageId()).isEqualTo(200L);
-        assertThat(savedCitation.getDocumentId()).isEqualTo(34L);
-        assertThat(savedCitation.getChunkRef()).isEqualTo("chunk-def-456");
-        assertThat(savedCitation.getLocator()).isEqualTo("5페이지");
-        assertThat(savedCitation.getSnippet()).isEqualTo("허용 폭 기준");
-    }
-
-    @Test
-    void saveConversation_동일documentId와chunkRef가중복인용되면한건만저장() {
-        // given: 리랭킹 결과에 같은 청크가 두 번 등장한 상황(#1593). 그대로 저장하면
-        // unique(message_id, document_id, chunk_ref) 위반 → DataIntegrityViolationException 으로
-        // 대화 전체가 롤백된다.
-        List<RagChatResponse.SourceCitation> sources = List.of(
-                new RagChatResponse.SourceCitation("12", "균열관리기준", "regulations", "3페이지", "0.3mm 이상 보수", "chunk-abc-123"),
-                new RagChatResponse.SourceCitation("12", "균열관리기준", "regulations", "3페이지(중복)", "다른 발췌", "chunk-abc-123"),
-                new RagChatResponse.SourceCitation("34", "하자판정기준", "regulations", "5페이지", "허용 폭 기준", "chunk-def-456")
-        );
-        RagChatResponse data = new RagChatResponse(ANSWER, sources);
-        stubChatMessageSave();
-
-        // when
-        service.saveConversation(SESSION_ID, QUERY, data);
-
-        // then: 중복된 (12, chunk-abc-123) 은 첫 건만 저장되고 두 번째는 생략 → 총 2건
-        ArgumentCaptor<ChatMessageCitation> citationCaptor = ArgumentCaptor.forClass(ChatMessageCitation.class);
-        verify(chatMessageCitationRepository, times(2)).save(citationCaptor.capture());
-
-        List<ChatMessageCitation> saved = citationCaptor.getAllValues();
-        assertThat(saved.get(0).getDocumentId()).isEqualTo(12L);
-        assertThat(saved.get(0).getChunkRef()).isEqualTo("chunk-abc-123");
-        // 먼저 등장한 인용의 locator/snippet 이 남는다.
-        assertThat(saved.get(0).getLocator()).isEqualTo("3페이지");
-        assertThat(saved.get(1).getDocumentId()).isEqualTo(34L);
-        assertThat(saved.get(1).getChunkRef()).isEqualTo("chunk-def-456");
-    }
-
-    @Test
-    void saveConversation_documentId가같아도chunkRef가다르면모두저장() {
-        // 중복 제거 키는 (documentId, chunkRef) 쌍이다 — 같은 문서의 서로 다른 청크를 인용하는 것은
-        // 정상 경로이므로 하나로 합쳐버리면 안 된다(과잉 제거 회귀 방지).
-        List<RagChatResponse.SourceCitation> sources = List.of(
-                new RagChatResponse.SourceCitation("12", "균열관리기준", "regulations", "3페이지", "발췌1", "chunk-1"),
-                new RagChatResponse.SourceCitation("12", "균열관리기준", "regulations", "4페이지", "발췌2", "chunk-2")
-        );
-        RagChatResponse data = new RagChatResponse(ANSWER, sources);
-        stubChatMessageSave();
-
-        service.saveConversation(SESSION_ID, QUERY, data);
-
-        verify(chatMessageCitationRepository, times(2)).save(any(ChatMessageCitation.class));
-    }
-
-    @Test
-    void saveConversation_sources가null이면citation저장없이메시지만저장() {
-        // given
-        RagChatResponse data = new RagChatResponse(ANSWER, null);
-
-        ChatMessage userMessageMock = ChatMessage.createText(SESSION_ID, ChatSenderType.USER, QUERY);
-        ChatMessage botMessageMock = ChatMessage.createText(SESSION_ID, ChatSenderType.BOT, ANSWER);
-        ReflectionTestUtils.setField(botMessageMock, "id", 200L);
-
-        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> {
-            ChatMessage msg = invocation.getArgument(0);
-            if (msg.getSender() == ChatSenderType.BOT) {
-                return botMessageMock;
-            }
-            return userMessageMock;
-        });
-
-        // when
-        service.saveConversation(SESSION_ID, QUERY, data);
-
-        // then
-        // ChatMessage 2건 저장
-        verify(chatMessageRepository, times(2)).save(any(ChatMessage.class));
-        // Citation은 저장 시도조차 하지 않음
-        verifyNoInteractions(chatMessageCitationRepository);
+        assertThatThrownBy(() -> service.saveConversation(
+                SESSION_ID, QUERY, new RagChatResponse(ANSWER, List.of())))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        verifyNoInteractions(ragCitationWriter);
     }
 }
