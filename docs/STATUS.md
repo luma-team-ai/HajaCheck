@@ -36,6 +36,18 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **PR #1485 dev 머지 (2026-08-04)** — 초대 코드 redeem 시 `company_memberships` 미생성으로 회사 스코프 API 전면 403이던 결함(#1474) + 랜딩↔초대코드 리다이렉트 루프(#1484). squash `15499b94`, `ai:needs-human`(민감영역 `CompanyMembership.java` 자동머지 가드) → 사람 수동 머지.
+  - 검수: 워크트리 재실행 backend **2119건 0 failures** · frontend landing **11건 PASS** · CI backend/frontend pass. code-reviewer(opus) **P1 1 / P2 1 / P3 4**.
+  - **G3.5** — P1(기존 초대 사용자 멤버십 백필 부재)은 **prod 실측으로 해소**: arm1 전용 postgres `hajacheck`에서 "ACTIVE + company_id 보유인데 멤버십 행 없음" **0건**(ACTIVE 13명 = 멤버십 13건 전부 APPROVED). 등급 임의 격하 아님 — 리뷰어가 제시한 해소 조건 충족. 승격 프리플라이트에 재실측 항목으로 남김.
+  - **G6** PASS — 운영 config·마이그레이션·docs 변경 0건, destructive 0건. 좌석 실측 단일 소스(#1476)는 `users` 기준이라 멤버십 행 추가가 이중 카운트를 만들지 않음(코드 실측 확인).
+  - 후속(미등록): P2 실 PG 통합테스트로 인가 계약 고정 · P3 redeem이 회사 APPROVED·VERIFIED 미검증 · P3 동시 redeem 유니크 위반 500 · P3 랜딩 히어로 CTA WAITING 분기 누락.
+
+- **🧹 이슈 보드 정합 정리 (2026-08-04)** — GitHub·Jira 누적 드리프트 해소.
+  - **GitHub**: 머지된 PR 본문의 `Closes` ↔ main 포함 여부를 전수 대조해, **main 배포 완료인데 열려 있던 43건 close**(258 → 215). 원인은 승격 PR 본문의 `Closes` 나열 누락. dev 머지분 8건은 `awaiting-promotion` 라벨 정합(누락 3건 보강: #1462·#1479·#1488).
+  - **Jira**: `dev-pr-check` 적체 **136 → 4건**. 실제 승격 완료분 **134건을 `완료`로 전환**(완료 268 → 402). 남긴 4건 = 실제 승격 대기(HAJA-652/#1473 · HAJA-649/#1468 · HAJA-656/#1497 · HAJA-647/#1467).
+  - ⚠️ Jira 설명의 GitHub 링크는 **JQL 텍스트 검색으로 매칭 불가**(URL 토크나이즈). 매핑이 필요하면 상태별로 목록을 뽑아 로컬에서 대조할 것.
+  - 남은 열린 이슈 **219건 중 211건은 머지 PR에 연결된 적 없는 실백로그**: 기능 미착수 91 · PR머신 P2 후속 51 · 버그 미착수 37 · 라벨없음 28 · 문서 2. 정리 여부는 미결정.
+
 - **🚀 dev → main 승격 (2026-08-04)** — **PR #1465**(merge 커밋 `6e2eeda8`, **48커밋 / 306파일 / PR 46건 / 이슈 38건 종료**). 선행 역머지 **PR #1466** + merge 커밋 `cc449f38`. CD success, arm1 자동배포 완료.
   - **승격 전 전체검수 — 전 게이트 PASS**: backend `./gradlew test` **2111건 0 failures** · ai-server `pytest` **421 passed** · frontend `npm run build` ✓ · dev CI 최근 5커밋 전부 success.
   - **스키마 드리프트 프리플라이트 CLEAN** — 일회용 PG16에 **V1~V40 전량 적용 성공** 후 prod(`hajacheck` 전용 컨테이너, 30테이블/315컬럼)와 **양방향 전수 diff** → 차이는 V39/V40이 추가할 3컬럼뿐, **prod-only 드리프트 0건**(#531·baseline 스탬프 사각지대 재점검 포함).
