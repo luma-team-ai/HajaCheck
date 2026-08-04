@@ -179,7 +179,7 @@ services:
       # docstring 참고. 미설정이면 코드 기본값과 동일하게 동작하며, 잘못된 값을 넣어도 경고 로그만
       # 남기고 기본값으로 폴백한다(앱 기동은 막지 않음 — 운영에서 :? 강제로 두지 않는 이유).
       SEMANTIC_CACHE_THRESHOLD: ${SEMANTIC_CACHE_THRESHOLD:-0.95}
-      SEMANTIC_CACHE_TTL_SECONDS: ${SEMANTIC_CACHE_TTL_SECONDS:-604800}
+      SEMANTIC_CACHE_TTL_SECONDS: ${SEMANTIC_CACHE_TTL_SECONDS:-86400}
       SEMANTIC_CACHE_MAX_ENTRIES: ${SEMANTIC_CACHE_MAX_ENTRIES:-5000}
     volumes:
       - chroma_data:/app/chroma_data

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 
 from ai.core import bm25_index
 from ai.core.chunking import extract_article_metadata, split_general_text, split_regulation_text
-from ai.core.semantic_cache import purge_semantic_cache
+from ai.core.semantic_cache import invalidate_on_corpus_change
 from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS, get_vectorstore
 
 # get_embeddings() 기본 모델(ai/core/embeddings.py)과 동일 문자열을 메타데이터에 그대로 기록한다.
@@ -120,7 +120,7 @@ def ingest_document(
     bm25_index.invalidate(target_collection)
     # #1594 — 법규 코퍼스가 바뀌면(신규 적재·개정 재임베딩) 시맨틱 캐시의 답변이 전부 stale 후보다.
     # 재임베딩 후에도 구 답변이 영구 서빙되던 것이 이 이슈의 1번 항목. bm25와 같은 no-op 규약.
-    purge_semantic_cache(target_collection)
+    invalidate_on_corpus_change(target_collection)
     return len(chunks)
 
 
@@ -139,7 +139,7 @@ def delete_document(doc_id: str, collection: str) -> None:
     bm25_index.invalidate(collection)  # #1410 — regulations 외에는 no-op
     # #1594 — 삭제된 문서를 인용한 citation이 캐시에서 계속 나가는 것을 막는다. 인용 기준 선택
     # 삭제가 아니라 전체 무효화인 이유는 semantic_cache.py 모듈 docstring "설계 판단 2" 참고.
-    purge_semantic_cache(collection)
+    invalidate_on_corpus_change(collection)
 
 
 def delete_stale_chunks(doc_id: str, collection: str, keep_chunk_count: int) -> None:
@@ -156,4 +156,4 @@ def delete_stale_chunks(doc_id: str, collection: str, keep_chunk_count: int) -> 
     bm25_index.invalidate(collection)  # #1410 — regulations 외에는 no-op
     # #1594 — 재임베딩 경로의 마지막 단계. ingest_document()가 이미 무효화했지만, 초과 청크 정리로
     # 코퍼스가 한 번 더 바뀌므로 그 사이에 들어온 요청이 만든 캐시까지 확실히 걷어낸다(멱등).
-    purge_semantic_cache(collection)
+    invalidate_on_corpus_change(collection)
