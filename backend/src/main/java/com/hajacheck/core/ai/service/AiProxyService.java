@@ -1,5 +1,7 @@
 package com.hajacheck.core.ai.service;
 
+import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.service.ChatSessionService;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.BriefingAiEnvelope;
 import com.hajacheck.core.ai.dto.BriefingResponse;
@@ -70,6 +72,9 @@ public class AiProxyService {
     private final BriefingStatsService briefingStatsService;
     private final AiProxyRateLimiter aiProxyRateLimiter;
     private final RestClient aiServerEmbeddingStatusRestClient;
+    // 세션 소유 검증 전용(#1467/HAJA-647). 인가 로직을 여기서 재구현하지 않고 counsel 도메인 서비스에
+    // 위임해 /api/chat-sessions 와 동일한 규칙·동일한 403을 쓴다.
+    private final ChatSessionService chatSessionService;
 
     /**
      * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
@@ -213,10 +218,17 @@ public class AiProxyService {
      *
      * <p>프론트 요청({@code query})을 FastAPI 계약({@code question})으로 변환해 전달한다 — 필드명이 달라
      * {@link RagChatRequest} 를 그대로 재사용할 수 없다({@link RagChatAiRequest} javadoc 참고).
-     * {@code session_id} 는 세션 소유·{@code session_type='RAG'} 검증이 후속 이슈로 분리돼 있어
-     * (contract.md §"내부 호출 계약", {@code /api/chat-sessions} 미구현) 이번 범위에서는 보내지 않는다.
+     * <p>{@code sessionId}(#1467/HAJA-647)는 선택 값이다. 값이 있으면 <b>FastAPI를 호출하기 전에</b>
+     * 세션 소유자({@code userId} 일치)와 {@code sessionType=RAG} 를 검증하고, 불일치·미존재면
+     * {@link ErrorCode#CHAT_SESSION_FORBIDDEN}(403)으로 중단한다 — 타인 세션 식별자를 실어 보내는
+     * cross-user 접근(IDOR) 차단이 목적이라, 검증은 반드시 외부 호출·과금보다 앞서야 한다.
+     * 세션 이력을 FastAPI로 전달하거나 질의/답변을 저장하는 것은 후속 이슈 범위다(이번엔 검증까지만).
      */
     public ApiResponse<RagChatResponse> ragChat(Long userId, RagChatRequest request) {
+        // 인가 먼저: rate-limit 소모나 AI 서버 호출보다 앞서 타인 세션 접근을 차단한다.
+        if (request.sessionId() != null) {
+            chatSessionService.getOwnedSession(userId, request.sessionId(), ChatSessionType.RAG);
+        }
         // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
         aiProxyRateLimiter.checkUser(userId);
         aiProxyRateLimiter.checkGlobal();
