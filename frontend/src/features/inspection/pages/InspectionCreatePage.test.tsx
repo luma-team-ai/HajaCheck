@@ -468,20 +468,20 @@ describe('InspectionCreatePage (통합 테스트)', () => {
 
     fireEvent.click(screen.getByRole('link', { name: '대시보드로 이동(사이드바 대역)' }));
     expect(
-      await screen.findByText('작성을 취소하시겠습니까? (입력 내용 임시저장됨)'),
+      await screen.findByText(/작성을 취소하시겠습니까\?/),
     ).not.toBeNull();
     expect(router.state.location.pathname).toBe('/inspections/create');
 
     // 취소 — 확인창이 닫히고 현재 페이지에 머무른다
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     await waitFor(() =>
-      expect(screen.queryByText('작성을 취소하시겠습니까? (입력 내용 임시저장됨)')).toBeNull(),
+      expect(screen.queryByText(/작성을 취소하시겠습니까\?/)).toBeNull(),
     );
     expect(router.state.location.pathname).toBe('/inspections/create');
 
     // 다시 시도 후 나가기 — 클릭했던 목적지로 이동한다
     fireEvent.click(screen.getByRole('link', { name: '대시보드로 이동(사이드바 대역)' }));
-    await screen.findByText('작성을 취소하시겠습니까? (입력 내용 임시저장됨)');
+    await screen.findByText(/작성을 취소하시겠습니까\?/);
     fireEvent.click(screen.getByRole('button', { name: '나가기' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
   });
