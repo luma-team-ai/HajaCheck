@@ -3,7 +3,7 @@
 // 실제 useRagChat 훅 + MSW supportHandlers를 통해 클릭 시 실제 전송까지 검증한다.
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { supportHandlers } from '../api/supportApi.handlers';
 import { mockRagAnswer } from '../mocks/support.mock';
 import { AiAssistantPage } from './AiAssistantPage';
@@ -15,6 +15,10 @@ const server = setupServer(...supportHandlers);
 Element.prototype.scrollIntoView = () => {};
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeEach(() => {
+  // RAG 세션 localStorage는 useRagChat의 SoT(HAJA-668) — 테스트 간 오염 방지를 위해 매번 비운다.
+  localStorage.clear();
+});
 afterEach(() => {
   server.resetHandlers();
   cleanup();
@@ -56,5 +60,23 @@ describe('AiAssistantPage (통합 테스트)', () => {
     expect(
       screen.getByText(`${mockRagAnswer.sources[0].title} ${mockRagAnswer.sources[0].locator}`),
     ).toBeTruthy();
+  });
+
+  // HAJA-668(#1548): "새 대화 시작" 버튼 — 대화가 없으면 비활성, 대화 후 클릭하면 초기화된다.
+  it('새 대화 시작 버튼: 대화가 없으면 비활성이고, 대화 후 클릭하면 메시지가 비워지고 예시 질문이 다시 보인다', async () => {
+    render(<AiAssistantPage />);
+
+    const newChatButton = screen.getByRole('button', { name: '새 대화 시작' });
+    expect(newChatButton.hasAttribute('disabled')).toBe(true);
+
+    fireEvent.click(screen.getByText('안전점검의 종류에는 어떤 것들이 있나요?'));
+    await screen.findByText(mockRagAnswer.answer);
+
+    expect(newChatButton.hasAttribute('disabled')).toBe(false);
+
+    fireEvent.click(newChatButton);
+
+    expect(screen.queryByText(mockRagAnswer.answer)).toBeNull();
+    expect(screen.getByText('안전점검의 종류에는 어떤 것들이 있나요?')).toBeTruthy();
   });
 });

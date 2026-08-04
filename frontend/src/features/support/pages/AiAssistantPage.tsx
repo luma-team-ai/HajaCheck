@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback/AIErrorFallback';
+import { Button } from '../../../shared/components/Button/Button';
 import { useRagChat } from '../hooks/useRagChat';
 import type { SourceCitation } from '../types';
 
@@ -100,7 +101,7 @@ const EXAMPLE_QUESTIONS = [
 // 고객지원 > AI 어시스턴트(RAG 법규 Q&A) — dev-08-01 / HAJA-32 / FR-6.
 // 앱 셸(AppLayout: SideNavBar+Header+FAB)은 AppShellRoute가 감싸므로 여기서는 카드 본문만 렌더한다.
 export function AiAssistantPage() {
-  const { messages, loading, error, send, retry } = useRagChat();
+  const { messages, loading, error, send, retry, startNewChat } = useRagChat();
   const [input, setInput] = useState('');
   // 로그 맨 끝의 빈 sentinel로 스크롤한다 — 컨테이너의 scrollHeight를 직접 계산하면 새 콘텐츠가
   // 마운트되는 타이밍과 어긋나 끝까지 안 내려가는 경우가 있었다. scrollIntoView는 그 시점의
@@ -124,12 +125,17 @@ export function AiAssistantPage() {
   return (
     <div className="flex h-full flex-col bg-surface-muted p-5">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] border border-border bg-white shadow-[0px_1px_2px_0px_rgba(0,0,0,0.05)]">
-        {/* 카드 헤더 */}
-        <div className="flex flex-col border-b border-border px-6 py-4">
-          <h1 className="m-0 text-xl font-medium text-primary">AI 어시스턴트</h1>
-          <p className="m-0 text-sm font-medium text-text-default">
-            점검 기준·법규 Q&amp;A · 답변에 출처가 표시됩니다
-          </p>
+        {/* 카드 헤더 — 새 대화 시작(HAJA-668, #1548): 로컬 세션·대화 초기화 버튼을 우측에 배치 */}
+        <div className="flex items-center justify-between gap-3 border-b border-border px-6 py-4">
+          <div className="flex flex-col">
+            <h1 className="m-0 text-xl font-medium text-primary">AI 어시스턴트</h1>
+            <p className="m-0 text-sm font-medium text-text-default">
+              점검 기준·법규 Q&amp;A · 답변에 출처가 표시됩니다
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={startNewChat} disabled={messages.length === 0}>
+            새 대화 시작
+          </Button>
         </div>
 
         {/* 대화 영역: 로그(스크롤) + 에러 상태를 분리해 live region 중첩을 피한다 */}
