@@ -56,6 +56,8 @@ export function FacilityDetailPage() {
           ? () => navigate(`/facilities/${facilityId}/defects/${facility.latestDefectId}`)
           : undefined
       }
+      // "+N"(추가 사진) 클릭 → 분석 결과 뷰어(#1549, mypage/MyInspectionsTable "결과 보기"와 동일 경로).
+      onViewInspectionPhotos={(inspectionId) => navigate(`/inspections/${inspectionId}/viewer`)}
     />
   );
 }

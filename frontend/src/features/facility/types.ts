@@ -155,6 +155,8 @@ export interface FacilityInspectionHistoryItem {
   changeNote?: string;
   /** 썸네일 미리보기 외 나머지 이미지 수 — 최신 회차에만 존재 */
   additionalImageCount?: number;
+  /** 미리보기 썸네일 URL(최대 2장) — 최신 회차에만 존재(#1549) */
+  thumbnailUrls?: string[];
 }
 
 export interface FacilityInspectionOverview {
@@ -168,6 +170,7 @@ export interface FacilityInspectionOverview {
 
 // 실 API 원본 응답(#1359/HAJA-616, backend FacilityInspectionOverviewResponse와 1:1) — additionalImageCount는
 // 백엔드에 없다(썸네일 미리보기 고정 2장 제외분은 순수 프론트 표시 계산, useFacilityInspectionOverview 참고).
+// thumbnailUrls는 최신 회차만 채워지고 나머지는 빈 배열(#1549, changeNote와 동일 관례).
 export interface FacilityInspectionOverviewApiResponse {
   overallGrade: DefectGradeLetter | null;
   totalRounds: number;
@@ -182,6 +185,7 @@ export interface FacilityInspectionOverviewApiResponse {
     imageCount: number;
     defectGradeBreakdown: { grade: DefectGradeLetter; count: number }[];
     changeNote: string | null;
+    thumbnailUrls: string[];
   }[];
 }
 

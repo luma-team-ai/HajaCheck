@@ -97,6 +97,12 @@ public class FacilityInspectionOverviewService {
         String latestChangeNote = inspections.size() < 2
                 ? null
                 : buildChangeNote(userId, companyId, facilityId, inspections.get(1), latest);
+        // #1549 — 프론트는 최신 회차(index 0)만 미리보기 2장을 보여준다(changeNote와 동일 관례) —
+        // 나머지 회차까지 조회하면 회차 수만큼 불필요한 쿼리가 늘어난다.
+        List<String> latestThumbnailUrls = mediaRepository.findTop2ByInspectionIdOrderByIdAsc(latest.getId())
+                .stream()
+                .map(media -> "/api/media/" + media.getId() + "/thumbnail")
+                .toList();
 
         List<HistoryItem> history = inspections.stream()
                 .map(inspection -> new HistoryItem(
@@ -107,7 +113,8 @@ public class FacilityInspectionOverviewService {
                         mapStatusLabel(inspection.getStatus()),
                         imageCountByInspectionId.getOrDefault(inspection.getId(), 0L),
                         toGradeCounts(gradeBreakdownByInspectionId.getOrDefault(inspection.getId(), List.of())),
-                        inspection.getId().equals(latest.getId()) ? latestChangeNote : null))
+                        inspection.getId().equals(latest.getId()) ? latestChangeNote : null,
+                        inspection.getId().equals(latest.getId()) ? latestThumbnailUrls : List.of()))
                 .toList();
 
         return new FacilityInspectionOverviewResponse(
