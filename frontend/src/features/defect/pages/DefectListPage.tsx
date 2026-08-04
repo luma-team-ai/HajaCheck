@@ -29,7 +29,9 @@ const DEFAULT_SIZE = 10;
 export function DefectListPage() {
   // 필터·페이지는 URL 쿼리파라미터가 단일 진실이다(#1508) — 컴포넌트 로컬 state로 두면 점검 상세로
   // 이동했다가 뒤로가기할 때 페이지가 재마운트되며 기본값으로 리셋되던 문제가 있었다. URL을 쓰면
-  // 브라우저가 뒤로가기 시 URL을 복원해줘서 필터·페이지·조회 결과가 함께 복원된다.
+  // 브라우저가 뒤로가기 시 URL을 복원해줘서 필터·페이지·조회 결과가 함께 복원된다. facilityId/
+  // roundNoMin/roundNoMax도 이미 이 파싱 대상이라, 시설물 상세 "점검 이력"의 "결과 보기" 딥링크
+  // (#1359 후속)는 별도 초기화 로직 없이 그대로 반영된다.
   const [searchParams, setSearchParams] = useSearchParams();
   const inspectionFilters = useMemo(() => parseInspectionListFilters(searchParams), [searchParams]);
   const [isExporting, setIsExporting] = useState(false);

@@ -97,6 +97,22 @@ describe('ReportListPage', () => {
     expect(within(row).getByText('v3')).toBeTruthy();
   });
 
+  // 시설물 상세 "점검 이력"의 "보고서" 딥링크(#1359 후속) — facilityId/roundNo 쿼리로 진입하면
+  // 그 값이 초기 필터로 반영되어 같은 시설물의 다른 회차 보고서(id=105, 2회차)는 제외돼야 한다.
+  it('URL 쿼리(facilityId/roundNo)로 진입하면 해당 회차 보고서만 필터링해 보여준다', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/reports?facilityId=1&roundNo=3']}>
+          <ReportListPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(REPORT_101_TITLE)).toBeTruthy();
+    expect(screen.queryByText(/2회차/)).toBeNull();
+  });
+
   it('실 API가 200 빈 페이지를 반환하면 목 목록으로 바꾸지 않는다', async () => {
     server.use(
       http.get('/api/reports', () =>

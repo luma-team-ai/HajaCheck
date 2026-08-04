@@ -8,8 +8,8 @@ docs/design/ai/rag_chatbot_design.md §3·§4, docs/design/ai/rag_chroma_schema.
 
 LangGraph StateGraph 기반 구현 — 캐시·검색·LLM·출처 빌드 노드 + 조건부 엣지로 분기.
 
-고객 질의(`question`)가 프롬프트에 그대로 들어가지만, LangSmith 전송은 전역 입출력
-마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)으로 차단한다 — #1240.
+고객 질의(`question`)가 프롬프트에 그대로 들어가지만, 트레이싱을 켜면 원문이 그대로 LangSmith로
+전송된다 — #1534, 재봉님 승인으로 마스킹 제거.
 """
 from __future__ import annotations
 

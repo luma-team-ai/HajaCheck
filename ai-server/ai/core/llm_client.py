@@ -14,18 +14,6 @@ import redis
 from langchain_core.output_parsers import PydanticOutputParser
 
 from ai.core.hf_chat_model import HFInferenceChatModel
-from ai.core.langsmith_guard import enforce_masked_tracing
-
-# 진입점 독립 방어(#1240 3차 리뷰 P2) — 이 모듈은 "유일한 LLM 호출 지점"이라 모든 체인이
-# 반드시 임포트한다. 여기서 가드를 실행하면 main.py를 거치지 않는 진입점(배치 스크립트·
-# 노트북·별도 워커)이 체인을 임포트해도 "트레이싱 ON + 마스킹 불완전"이면 임포트 자체가
-# 실패하고(fail-closed), 정상이면 error 스크럽이 첫 트레이스 전에 싱글턴에 선점된다.
-# main.py의 부팅 호출과 이중이지만 멱등이라 무해 — 그쪽은 조기·명확한 실패 UX용으로 유지.
-# ⚠️ 보조 진입점 주의(7차 리뷰 P3): load_dotenv()를 이 임포트보다 먼저 호출해야 가드가 실제
-# env로 판정한다 — 임포트가 먼저면 판정이 빈 env로 LRU 캐시에 고정되어 fail-closed 경보가
-# 발동하지 않는다(내용은 anonymizer 백스톱이 계속 차단 — langsmith_guard.py "보조 진입점
-# 부트 순서" 참고).
-enforce_masked_tracing()
 
 logger = logging.getLogger(__name__)
 

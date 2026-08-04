@@ -8,13 +8,6 @@ from fastapi import FastAPI
 
 load_dotenv()
 
-from ai.core.langsmith_guard import enforce_masked_tracing  # noqa: E402 — load_dotenv() 이후 임포트 필요
-
-# 라우터(→체인) 임포트 전에 실행해야 한다 — "트레이싱 ON + 마스킹 불완전"이면 여기서 기동을
-# 중단하고(fail-closed, #1240 P2), 정상이면 첫 트레이스 전에 error 스크럽을 싱글턴 Client에
-# 선점 설치한다(#1240 P1). 상세는 ai/core/langsmith_guard.py 모듈 docstring.
-enforce_masked_tracing()
-
 from routers.ai_router import router as ai_router  # noqa: E402 — load_dotenv() 이후 임포트 필요
 from routers.nl_search_router import router as nl_search_router  # noqa: E402
 

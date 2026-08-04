@@ -32,6 +32,7 @@ export function filterReportListItems(
 
   return items.filter((item) => {
     if (filters.facilityId && item.facilityId !== filters.facilityId) return false;
+    if (filters.roundNo && item.roundNo !== filters.roundNo) return false;
     if (filters.status && item.status !== filters.status) return false;
     if (query && !item.facilityName.toLowerCase().includes(query)) return false;
     if (periodFromDate && new Date(item.updatedAt) < periodFromDate) return false;

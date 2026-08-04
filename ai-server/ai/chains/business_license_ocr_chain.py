@@ -23,11 +23,10 @@ RapidOCR(`ai/core/ocr_client.py`, PP-OCRv5 한국어 인식모델)로 이미지�
 남기지 않는다 — 이 파일은 어떤 로그도 남기지 않는다(체인 자체는 로거를 두지 않음). 예외는
 삼키지 않고 그대로 호출부(라우터)로 전파하며, 라우터의 `logger.exception`에는 예외 타입/스택만
 남고 OCR 원문·LLM 응답 내용은 포함하지 않는다(`routers/ai_router.py` 참고).
-LangSmith 트레이싱(#1240): 프롬프트(=OCR 원문 전체)와 LLM 응답이 외부 LangSmith 서버로
-나가지 않도록 전역 입출력 마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)에 의존한다. 체인별
-코드 차단은 두지 않는다 — 위 #552 조항을 트레이싱 경로에 한해 해제하는 것으로, 2026-07-29
-정재봉 승인(충돌 인지 상태) 하에 결정됐다. 마스킹 env가 빠진 환경에서는 OCR 원문이 전송되므로,
-배포 시 해당 env 설정이 반드시 함께 들어가야 한다.
+LangSmith 트레이싱(#1534, P1 픽스): OCR 체인은 `tracing_context(enabled=False)`로 LangSmith 트레이싱
+자체에서 완전히 제외된다 — 사업자등록번호·대표자명·주소 등 개인정보의 국외 제3자(SaaS) 제공에 대한
+법적 근거가 불확실하다는 PR머신 지적을 반영(2026-08-04). 나머지 5개 체인(report/rag_chat/nl_search
+/defect_explain/briefing)은 원문이 그대로 LangSmith로 전송된다(재봉님 승인 유지).
 """
 import base64
 import binascii
@@ -36,6 +35,7 @@ from datetime import date
 from pathlib import Path
 from typing import Optional
 
+from langsmith.run_helpers import tracing_context
 from pydantic import BaseModel
 
 from ai.core.llm_client import SHORT_CACHE_TTL_SECONDS, get_llm
@@ -181,11 +181,12 @@ def run_business_license_ocr_chain(image_base64: str) -> BusinessLicenseOcrResul
     avg_confidence = sum(score for _text, score in lines_with_scores) / len(lines_with_scores)
 
     prompt = _build_prompt("\n".join(texts))
-    llm_result = (
-        get_llm()
-        .with_structured_output(BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS)
-        .invoke(prompt)
-    )
+    with tracing_context(enabled=False):
+        llm_result = (
+            get_llm()
+            .with_structured_output(BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS)
+            .invoke(prompt)
+        )
 
     business_registration_number = _find_business_reg_number(
         texts

@@ -37,7 +37,6 @@ ai-server/
 │  │  ├─ grading.py         # 하자 심각도 등급 산정 (★임계값 캘리브레이션 정본)
 │  │  ├─ grounding.py       # 답변 근거 검증
 │  │  ├─ prompt_safety.py   # 프롬프트 인젝션 방어
-│  │  ├─ langsmith_guard.py # 트레이싱 PII 마스킹 가드
 │  │  └─ schemas.py         # 공통 요청/응답 Pydantic 모델
 │  ├─ chains/               # 메뉴별 체인 (담당자별 파일)
 │  │  ├─ report_chain.py    # 보고서 생성 (로그인/보고서 담당)

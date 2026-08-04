@@ -114,6 +114,44 @@ describe('FacilityDetailPage (통합 테스트)', () => {
     expect(await screen.findByText('하자 상세 오버레이')).not.toBeNull();
   });
 
+  it('"결과 보기" 클릭 시 같은 시설물·같은 회차로 좁힌 하자 관리 목록으로 이동한다(#1359 후속)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/facilities/1']}>
+          <Routes>
+            <Route path="/facilities/:id" element={<FacilityDetailPage />} />
+            <Route path="/defects/list" element={<div>하자 관리 목록</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByText('8회차 점검');
+
+    fireEvent.click(screen.getByText('결과 보기'));
+
+    expect(await screen.findByText('하자 관리 목록')).not.toBeNull();
+  });
+
+  it('"보고서" 클릭 시 같은 시설물·같은 회차로 좁힌 보고서 목록으로 이동한다(#1359 후속)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/facilities/1']}>
+          <Routes>
+            <Route path="/facilities/:id" element={<FacilityDetailPage />} />
+            <Route path="/reports" element={<div>보고서 목록</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByText('8회차 점검');
+
+    fireEvent.click(screen.getByText('보고서'));
+
+    expect(await screen.findByText('보고서 목록')).not.toBeNull();
+  });
+
   it('존재하지 않는 시설물이면 에러 메시지를 표시한다', async () => {
     renderPage('/facilities/999');
 

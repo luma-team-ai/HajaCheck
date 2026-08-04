@@ -58,6 +58,9 @@ export function FacilityDetailPage() {
       }
       // "+N"(추가 사진) 클릭 → 분석 결과 뷰어(#1549, mypage/MyInspectionsTable "결과 보기"와 동일 경로).
       onViewInspectionPhotos={(inspectionId) => navigate(`/inspections/${inspectionId}/viewer`)}
+      // "결과 보기"/"보고서"(#1359 후속) — 같은 시설물·같은 회차로 좁힌 하자 관리/보고서 목록으로 이동한다.
+      onViewResult={(item) => navigate(`/defects/list?facilityId=${facilityId}&roundNoMin=${item.roundNo}&roundNoMax=${item.roundNo}`)}
+      onViewReport={(item) => navigate(`/reports?facilityId=${facilityId}&roundNo=${item.roundNo}`)}
     />
   );
 }
