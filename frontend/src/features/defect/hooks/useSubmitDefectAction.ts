@@ -4,6 +4,7 @@ import { defectApi } from '../api/defectApi';
 import { inspectionDefectsKeys } from './useInspectionDefects';
 import { defectKeys } from './useDefects';
 import { defectActionLogsKeys } from './useDefectActionLogs';
+import { defectRevisionsKeys } from './useDefectRevisions';
 import type { Defect, DefectActionSubmitRequest } from '../types';
 
 // 하자 상세 모달 "조치 완료 등록" 제출(HAJA-394/#726) — PATCH /api/defects/{id}/action(확정,
@@ -21,6 +22,9 @@ export function useSubmitDefectAction(defectId: number | undefined, inspectionId
         queryClient.setQueryData(defectKeys.detail(defectId), updated);
         queryClient.invalidateQueries({ queryKey: defectActionLogsKeys.byPhase(defectId, 'IN_PROGRESS') });
         queryClient.invalidateQueries({ queryKey: defectActionLogsKeys.byPhase(defectId, 'RESOLVED') });
+        // 상태가 바뀐 제출은 defect_revisions에도 기록되므로(#1193/HAJA-569), 활동 기록 패널이
+        // 재조회 없이도 즉시 최신 내역을 보여주도록 함께 무효화한다(#1553).
+        queryClient.invalidateQueries({ queryKey: defectRevisionsKeys.byDefect(defectId) });
       }
       if (inspectionId != null) {
         queryClient.invalidateQueries({ queryKey: inspectionDefectsKeys.byInspection(inspectionId) });

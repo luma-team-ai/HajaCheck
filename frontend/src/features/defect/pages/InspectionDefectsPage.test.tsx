@@ -272,7 +272,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     // 조치 필드는 1세트뿐이라 2차 등록 내용이 최종 요약에 남는다(1차 내용은 감사기록으로만 보존,
     // #1128 코드리뷰 P2-1).
     expect(within(modal).getByText('보수 완료 확인 — 재발 없음')).not.toBeNull();
-    expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('해결됨');
+    expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치완료');
     expect(uploadSpy).toHaveBeenCalledTimes(2);
 
     uploadSpy.mockRestore();
@@ -285,7 +285,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     const activityPanel = screen.getByLabelText('점검 활동 기록');
     // mockDefectRevisions[1]: 과거 CONFIRMED→ACTION_PENDING 변경 이력이 존재(defect.mock.ts).
     expect(
-      await within(activityPanel).findByText("상태를 '확인됨'에서 '조치대기'(으)로 변경했습니다."),
+      await within(activityPanel).findByText("상태를 '검수확정'에서 '조치대기'(으)로 변경했습니다."),
     ).not.toBeNull();
   });
 });

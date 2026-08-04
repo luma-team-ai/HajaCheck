@@ -51,7 +51,7 @@ describe('ActivityHistoryPanel', () => {
 
     renderPanel(1);
 
-    expect(await screen.findByText("상태를 '확인됨'에서 '조치대기'(으)로 변경했습니다.")).not.toBeNull();
+    expect(await screen.findByText("상태를 '검수확정'에서 '조치대기'(으)로 변경했습니다.")).not.toBeNull();
     expect(screen.getByText('조치대기')).not.toBeNull();
   });
 
@@ -172,7 +172,7 @@ describe('ActivityHistoryPanel', () => {
     const nextButton = await screen.findByRole('button', { name: '다음 페이지' });
     fireEvent.click(nextButton);
 
-    expect(await screen.findByText("상태를 '확인됨'에서 '조치중'(으)로 변경했습니다.")).not.toBeNull();
+    expect(await screen.findByText("상태를 '검수확정'에서 '조치중'(으)로 변경했습니다.")).not.toBeNull();
   });
 
   it('이력이 20건 이하면 페이지네이션을 표시하지 않는다', async () => {

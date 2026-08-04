@@ -3,6 +3,7 @@ import type { ApiError } from '../../../shared/api/types';
 import { defectApi } from '../api/defectApi';
 import { inspectionDefectsKeys } from './useInspectionDefects';
 import { defectKeys } from './useDefects';
+import { defectRevisionsKeys } from './useDefectRevisions';
 import type { Defect, DefectStatus } from '../types';
 
 interface ChangeDefectStatusVariables {
@@ -23,6 +24,9 @@ export function useChangeDefectStatus(defectId: number | undefined, inspectionId
     onSuccess: (updated) => {
       if (defectId != null) {
         queryClient.setQueryData(defectKeys.detail(defectId), updated);
+        // 상태 전이는 항상 defect_revisions에 이력이 남으므로(updateStatus), 활동 기록 패널이
+        // 재조회 없이도 즉시 최신 내역을 보여주도록 함께 무효화한다(#1553).
+        queryClient.invalidateQueries({ queryKey: defectRevisionsKeys.byDefect(defectId) });
       }
       if (inspectionId != null) {
         queryClient.invalidateQueries({ queryKey: inspectionDefectsKeys.byInspection(inspectionId) });
