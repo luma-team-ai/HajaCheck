@@ -269,6 +269,46 @@ class TestCrackDetectionsIntegration:
         )
 
 
+    @patch("ai.core.card_client.detect_card")
+    @patch("ai.chains.defect_detection_chain.predict_crack_probability")
+    @patch("ai.chains.defect_detection_chain.get_crack_model")
+    def test_card_detection_failure_does_not_break_crack_detection(
+        self, mock_get_model, mock_predict, mock_detect_card
+    ):
+        """detect_card가 예외를 던져도 균열 탐지 자체는 살아있어야 함(#1547 정재봉 P1 리뷰).
+
+        card_result = detect_card(image)에 가드가 없으면, _crack_detections 전체가 예외를
+        내며 상위 detect_defects의 유형별 try/except에 걸려 균열 결과가 통째로 사라진다
+        (failed_types=["CRACK"]) — mm 환산은 부가기능인데 그 실패가 핵심기능을 죽이는 구조였다.
+        """
+        from ai.chains.defect_detection_chain import _crack_detections
+        from ai.core.unet_client import CrackPrediction
+
+        w_orig, h_orig = 2296, 4080
+        image = Image.new("RGB", (w_orig, h_orig), color="white")
+
+        content_height, content_width = 640, 360
+        top, left = 0, (640 - content_width) // 2
+        probability = np.zeros((640, 640), dtype=np.float32)
+        probability[300:330, left + 100:left + 130] = 0.9  # 균열 마스크 블록
+
+        mock_get_model.return_value = MagicMock()
+        mock_predict.return_value = CrackPrediction(
+            probability=probability,
+            content_top=top, content_left=left,
+            content_height=content_height, content_width=content_width,
+        )
+        mock_detect_card.side_effect = RuntimeError("카드 검출 모델 로드 실패(예: 네트워크)")
+
+        detections = _crack_detections(image)  # 예외 없이 반환돼야 함
+
+        crack_detections = [d for d in detections if d.type == "CRACK"]
+        assert crack_detections, "카드 검출 실패로 균열 탐지 결과 자체가 사라짐 — 가드 미작동"
+        assert all(d.width_mm is None for d in crack_detections), (
+            "카드 검출 실패 시에도 width_mm이 채워짐 — None 유지돼야 함"
+        )
+
+
 class TestThresholdGuard:
     """0.7mm 가드 로직."""
 

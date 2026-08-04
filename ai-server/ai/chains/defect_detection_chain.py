@@ -316,8 +316,15 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
 
     detections = _crack_mask_to_detections(content_mask, content_probability, dark_ratio, scale=scale)
 
-    # 카드 검출 및 mm 환산 시도
-    card_result = detect_card(image)
+    # 카드 검출 및 mm 환산 시도 — width_mm은 부가 정보(설계상 미검출 시 None)라, 이 호출이
+    # 던지는 예외가 균열 탐지 자체를 무너뜨리면 안 된다. _crack_detections는 상위 detect_defects의
+    # 유형별 try/except(카드 예외 없이도 존재)로 감싸여 있어, 여기서 예외가 새면 이미 구한 균열
+    # detections까지 통째로 failed_types["CRACK"]로 사라진다(#1547 정재봉 P1 리뷰).
+    try:
+        card_result = detect_card(image)
+    except Exception:
+        logger.exception("카드 검출 실패 — width_mm 없이 균열 탐지는 계속 진행한다 (#1547)")
+        card_result = None
     if card_result:
         # mm/px(카드 실제 크기 ÷ 카드 픽셀 길이) — px/mm과 방향 반대이니 헷갈리지 말 것(#1547 P1).
         card_scale_mm_per_px = CARD_LONG_MM / card_result.long_px
