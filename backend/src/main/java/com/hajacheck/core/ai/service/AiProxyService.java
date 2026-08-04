@@ -33,8 +33,6 @@ import com.hajacheck.core.ai.dto.ReportAiEnvelope;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.support.AiProxyRateLimiter;
-import com.hajacheck.core.rag.entity.ChatMessageCitation;
-import com.hajacheck.core.rag.repository.ChatMessageCitationRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -48,7 +46,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.http.HttpStatusCode;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -85,10 +82,15 @@ public class AiProxyService {
     // 세션 소유 검증 전용(#1467/HAJA-647). 인가 로직을 여기서 재구현하지 않고 counsel 도메인 서비스에
     // 위임해 /api/chat-sessions 와 동일한 규칙·동일한 403을 쓴다.
     private final ChatSessionService chatSessionService;
-    // 세션 이력 조회·질문/답변 저장 전용(#1493/HAJA-657). ChatSessionService.findMessages()가 쓰는
-    // 것과 동일한 리포지토리를 재사용한다(조회 로직 중복 금지).
+    // 세션 이력 조회 전용(#1493/HAJA-657). ChatSessionService.findMessages()가 쓰는 것과 동일한
+    // 리포지토리를 재사용한다(조회 로직 중복 금지). 조회는 단건 repository 호출이라 별도
+    // @Transactional 불필요 — 쓰기(저장)만 RagConversationPersistenceService로 분리한 이유는
+    // 그 클래스 javadoc 참고.
     private final ChatMessageRepository chatMessageRepository;
-    private final ChatMessageCitationRepository chatMessageCitationRepository;
+    // 대화 저장(질문/답변/citation)은 별도 빈에 위임 — ragChat()이 FastAPI 호출까지 트랜잭션으로
+    // 묶어 DB 커넥션을 오래 점유하는 것을 막기 위함(PR #1510 P1 픽스, RagConversationPersistenceService
+    // javadoc 참고).
+    private final RagConversationPersistenceService ragConversationPersistenceService;
 
     /**
      * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
@@ -238,10 +240,14 @@ public class AiProxyService {
      * cross-user 접근(IDOR) 차단이 목적이라, 검증은 반드시 외부 호출·과금보다 앞서야 한다.
      * 세션이 있으면 최근 3턴 이력을 FastAPI에 함께 전달하고, 응답 성공 시 질의/답변/출처를 저장한다
      * (#1493/HAJA-657). 세션이 없으면(단발 질의) 이력 전달·저장 둘 다 생략 — 기존 무상태 호출과 회귀 없음.
-     * DB 쓰기(메시지·인용 저장)가 생겨 메서드 레벨 {@code @Transactional} 을 붙인다(클래스 상단 주석은
-     * "이 서비스는 DB 접근이 없어 @Transactional 미부착"이었으나 이 메서드부터 예외).
+     *
+     * <p>이 메서드 자체에는 {@code @Transactional} 을 붙이지 않는다(PR #1510 P1 픽스) — FastAPI 호출
+     * ({@code callAiServer}, 캐시 미스 시 수 초 소요 가능)까지 트랜잭션으로 묶으면 그 동안 DB 커넥션을
+     * 계속 점유해 동시 요청이 몰릴 때 커넥션 풀 고갈로 이어질 수 있다. 저장(DB 쓰기)만
+     * {@link RagConversationPersistenceService} 로 분리해 그 빈에만 {@code @Transactional} 을 붙인다
+     * (클래스 상단 주석 "이 서비스는 DB 접근이 없어 @Transactional 미부착" 그대로 유지 — ragChat()도
+     * 자체적으로는 DB에 직접 쓰지 않는다, 조회는 read-only 단건 호출이라 별도 트랜잭션 불필요).
      */
-    @Transactional
     public ApiResponse<RagChatResponse> ragChat(Long userId, RagChatRequest request) {
         // 인가 먼저: rate-limit 소모나 AI 서버 호출보다 앞서 타인 세션 접근을 차단한다.
         if (request.sessionId() != null) {
@@ -275,7 +281,8 @@ public class AiProxyService {
         }
 
         if (request.sessionId() != null) {
-            saveConversation(request.sessionId(), request.query(), envelope.data());
+            ragConversationPersistenceService.saveConversation(
+                    request.sessionId(), request.query(), envelope.data());
         }
         return ApiResponse.ok(envelope.data());
     }
@@ -298,34 +305,6 @@ public class AiProxyService {
         }
         int fromIndex = Math.max(0, turns.size() - RECENT_HISTORY_TURN_LIMIT);
         return turns.subList(fromIndex, turns.size());
-    }
-
-    /** 사용자 질문 + 봇 답변을 저장하고, 답변의 출처를 봇 메시지에 인용으로 매핑해 저장한다. */
-    private void saveConversation(Long sessionId, String query, RagChatResponse data) {
-        chatMessageRepository.save(ChatMessage.createText(sessionId, ChatSenderType.USER, query));
-        ChatMessage botMessage = chatMessageRepository.save(
-                ChatMessage.createText(sessionId, ChatSenderType.BOT, data.answer()));
-
-        if (data.sources() == null) {
-            return;
-        }
-        for (RagChatResponse.SourceCitation source : data.sources()) {
-            Long documentId = parseDocumentId(source.docId());
-            if (documentId == null) {
-                continue;
-            }
-            chatMessageCitationRepository.save(ChatMessageCitation.create(
-                    botMessage.getId(), documentId, source.chunkRef(), source.locator(), source.snippet()));
-        }
-    }
-
-    private Long parseDocumentId(String docId) {
-        try {
-            return Long.parseLong(docId);
-        } catch (NumberFormatException e) {
-            log.warn("RAG 출처 doc_id 파싱 실패 — citation 저장 생략: {}", docId);
-            return null;
-        }
     }
 
     private RagChatAiEnvelope callAiServer(RagChatAiRequest request) {

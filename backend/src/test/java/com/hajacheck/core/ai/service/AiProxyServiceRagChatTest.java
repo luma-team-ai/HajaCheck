@@ -13,7 +13,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.support.RateLimiter;
@@ -26,7 +26,6 @@ import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.RagChatRequest;
 import com.hajacheck.core.ai.dto.RagChatResponse;
 import com.hajacheck.core.ai.support.AiProxyRateLimiter;
-import com.hajacheck.core.rag.repository.ChatMessageCitationRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -36,6 +35,7 @@ import java.net.ConnectException;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -62,19 +62,14 @@ class AiProxyServiceRagChatTest {
     private AiProxyService aiProxyService;
     private ChatSessionService chatSessionService;
     private ChatMessageRepository chatMessageRepository;
-    private ChatMessageCitationRepository chatMessageCitationRepository;
+    private RagConversationPersistenceService ragConversationPersistenceService;
 
     @BeforeEach
     void setUp() {
         chatSessionService = mock(ChatSessionService.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
-        chatMessageCitationRepository = mock(ChatMessageCitationRepository.class);
+        ragConversationPersistenceService = mock(RagConversationPersistenceService.class);
         when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(SESSION_ID)).thenReturn(List.of());
-        when(chatMessageRepository.save(any(ChatMessage.class))).thenAnswer(invocation -> {
-            ChatMessage saved = invocation.getArgument(0);
-            ReflectionTestUtils.setField(saved, "id", 999L);
-            return saved;
-        });
         properties = new AiServerProperties();
         properties.setBaseUrl("http://ai-server-test");
         properties.setInternalKey("test-internal-key");
@@ -88,7 +83,7 @@ class AiProxyServiceRagChatTest {
 
     private AiProxyService newService(RateLimiter rateLimiter) {
         return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter),
-                builder.build(), chatSessionService, chatMessageRepository, chatMessageCitationRepository);
+                builder.build(), chatSessionService, chatMessageRepository, ragConversationPersistenceService);
     }
 
     @Test
@@ -382,12 +377,12 @@ class AiProxyServiceRagChatTest {
         aiProxyService.ragChat(USER_ID, REQUEST);
 
         verifyNoInteractions(chatMessageRepository);
-        verifyNoInteractions(chatMessageCitationRepository);
+        verifyNoInteractions(ragConversationPersistenceService);
         mockServer.verify();
     }
 
     @Test
-    void ragChat_sessionId있음_응답성공시질문답변저장및출처citation저장() {
+    void ragChat_sessionId있음_응답성공시대화저장서비스에위임() {
         when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(SESSION_ID)).thenReturn(List.of());
 
         mockServer.expect(requestTo(AI_SERVER_URL))
@@ -402,18 +397,19 @@ class AiProxyServiceRagChatTest {
 
         aiProxyService.ragChat(USER_ID, new RagChatRequest("균열 보수 기준은?", SESSION_ID));
 
-        verify(chatMessageRepository).save(org.mockito.ArgumentMatchers.argThat(
-                m -> m.getSender() == ChatSenderType.USER && m.getContent().equals("균열 보수 기준은?")));
-        verify(chatMessageRepository).save(org.mockito.ArgumentMatchers.argThat(
-                m -> m.getSender() == ChatSenderType.BOT && m.getContent().equals("손상 정도에 따라 다릅니다.")));
-        verify(chatMessageCitationRepository).save(org.mockito.ArgumentMatchers.argThat(
-                c -> c.getDocumentId().equals(42L) && c.getChunkRef().equals("42_3")
-                        && c.getMessageId() != null));
+        // 저장 자체(DB 쓰기)는 RagConversationPersistenceService 책임 — ragChat()은 위임만 검증한다
+        // (PR #1510 P1 픽스: ragChat() 트랜잭션 범위에서 저장 로직을 분리).
+        ArgumentCaptor<RagChatResponse> dataCaptor = ArgumentCaptor.forClass(RagChatResponse.class);
+        verify(ragConversationPersistenceService)
+                .saveConversation(eq(SESSION_ID), eq("균열 보수 기준은?"), dataCaptor.capture());
+        assertThat(dataCaptor.getValue().answer()).isEqualTo("손상 정도에 따라 다릅니다.");
+        assertThat(dataCaptor.getValue().sources()).hasSize(1);
+        assertThat(dataCaptor.getValue().sources().get(0).chunkRef()).isEqualTo("42_3");
         mockServer.verify();
     }
 
     @Test
-    void ragChat_sessionId있음_세션소유검증실패시메시지저장안함() {
+    void ragChat_sessionId있음_세션소유검증실패시대화저장호출안함() {
         doThrow(new BusinessException(ErrorCode.CHAT_SESSION_FORBIDDEN))
                 .when(chatSessionService).getOwnedSession(USER_ID, OTHER_USER_SESSION_ID, ChatSessionType.RAG);
 
@@ -422,6 +418,6 @@ class AiProxyServiceRagChatTest {
                 .isInstanceOf(BusinessException.class);
 
         verifyNoInteractions(chatMessageRepository);
-        verifyNoInteractions(chatMessageCitationRepository);
+        verifyNoInteractions(ragConversationPersistenceService);
     }
 }
