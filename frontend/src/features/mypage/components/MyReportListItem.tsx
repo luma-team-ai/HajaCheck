@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { buildReportPdfFileName } from '../../report/utils/exportReportToPdf';
+import { AlertModal } from '../../../shared/components/Modal';
+import { buildReportPdfFileName, normalizePdfPreviewUrl } from '../../report/utils/exportReportToPdf';
 import type { MyReportCard } from '../types';
 import { formatFileSize, formatIssuedDate, formatReportTitle } from '../utils/myInspectionsFormat';
 import { DownloadIcon } from './icons/DownloadIcon';
@@ -13,19 +14,21 @@ type Props = {
 
 // 보고서 카드 한 줄 — "최근 발급된 보고서" 목록의 개별 항목(HAJA-366/#668, BE 연동 #844/HAJA-442).
 // 미리보기는 회사 보고서 목록(ReportListTable)과 동일하게 /reports/:reportId(ReportGeneratePage)로
-// 연결한다(#1236). 다운로드는 목록 API(GET /api/me/reports) 응답의 pdfUrl(#1464)을 그대로
+// 연결한다(#1236). 다운로드는 목록 API(GET /api/me/reports) 응답의 pdfUrl(#1464)을
+// normalizePdfPreviewUrl(레거시 "localhost:8080/..." 포맷 정규화, #1186/#1235)을 거쳐
 // fetch → blob → objectURL 방식으로 내려받는다(ReportGeneratePage#handleDownloadStoredPdf와 동일 패턴).
 export function MyReportListItem({ report }: Props) {
   const title = formatReportTitle(report.facilityName, report.issuedAt, report.roundNo);
   const fileSizeLabel = formatFileSize(report.fileSizeBytes);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const canDownload = report.pdfUrl != null;
 
   const handleDownload = async () => {
     if (!report.pdfUrl || isDownloading) return;
     setIsDownloading(true);
     try {
-      const response = await fetch(report.pdfUrl, { credentials: 'include' });
+      const response = await fetch(normalizePdfPreviewUrl(report.pdfUrl), { credentials: 'include' });
       if (!response.ok) throw new Error(`PDF ${response.status}`);
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -37,7 +40,7 @@ export function MyReportListItem({ report }: Props) {
       anchor.remove();
       URL.revokeObjectURL(objectUrl);
     } catch {
-      // 다운로드 실패는 조용히 무시 — 목록 화면 전체를 깨뜨리지 않는다. 재시도는 버튼 재클릭으로.
+      setDownloadError('PDF 다운로드에 실패했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setIsDownloading(false);
     }
@@ -79,6 +82,13 @@ export function MyReportListItem({ report }: Props) {
           다운로드
         </button>
       </div>
+
+      <AlertModal
+        open={downloadError != null}
+        title="다운로드 실패"
+        message={downloadError ?? ''}
+        onClose={() => setDownloadError(null)}
+      />
     </li>
   );
 }
