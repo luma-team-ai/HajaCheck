@@ -16,10 +16,16 @@ const PLACEHOLDER = '—';
 export function FacilityDefectInfoPanel({ defect, onTransitionClick }: Props) {
   // widthMm/lengthM은 균열이 아닌 유형이면 backend가 null로 내려준다(DefectResponse.crackWidthMm/
   // crackLengthMm) — 실 연동 전환(#970 갭3)으로 nullable이 되어 placeholder 처리가 필요해졌다.
+  // ai-server는 현재 폭(width)만 계산하고 길이(length)는 계산하지 않아(#1487/#1547) lengthM은
+  // 항상 null이다 — 둘 다 있어야만 보여주는 AND 조건이면 폭이 있어도 통째로 숨겨진다(#1588 후속).
+  // 각각 독립적으로 null-safe 처리해 있는 값만 보여준다.
   const sizeLabel =
-    defect.widthMm != null && defect.lengthM != null
-      ? `폭 ${defect.widthMm}mm · 길이 ${defect.lengthM}m`
-      : PLACEHOLDER;
+    [
+      defect.widthMm != null ? `폭 ${defect.widthMm}mm` : null,
+      defect.lengthM != null ? `길이 ${defect.lengthM}m` : null,
+    ]
+      .filter((part): part is string => part != null)
+      .join(' · ') || PLACEHOLDER;
 
   return (
     <section className="flex flex-col gap-5">
