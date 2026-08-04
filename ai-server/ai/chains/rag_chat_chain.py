@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from ai.core.hybrid_search import hybrid_search
 from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
-from ai.core.prompt_safety import wrap_untrusted
+from ai.core.prompt_safety import UNTRUSTED_DATA_BEGIN, UNTRUSTED_DATA_END, wrap_untrusted
 from ai.core.schemas import AIErrorCode, AIResponse, RagAnswerData, SourceCitation
 from ai.core.semantic_cache import (
     CREATED_AT_FIELD,
@@ -49,6 +49,15 @@ RAG_CHAT_CACHE_PREFIX = "ai:cache:rag-chat"
 # 하나가 임포트 시점 ValueError로 앱 전체를 죽였다. TTL·용량 상한과 함께 그 모듈이 단일 정책
 # 지점이다.
 # TODO(#1462 후속 이슈): 실측 기반 threshold 튜닝 필요. 현재는 법규 QA 도메인 오탐 리스크 때문에 보수적으로 높게 설정한 초기값.
+
+# 캐시 기록 허용 답변 길이 경계(#1594 P2) — 아래 `_is_cacheable` 참고.
+# 하한은 "정상 답변을 떨어뜨리지 않으면서 퇴화 출력만 걸러내는" 선으로 잡는다: 한국어 법규 QA
+# 답변은 짧아도 "관리주체입니다."(8자) 수준이라 하한을 크게 잡으면 멀쩡한 답변이 캐시에서 빠진다.
+# 5자 미만은 어떤 근거 기반 답변으로도 성립하지 않는다.
+MIN_CACHEABLE_ANSWER_LENGTH = 5
+# 상한은 프롬프트/컨텍스트 덤프 유출 같은 비정상 장문 출력 차단용 — 정상 답변은 RAG_CHAT_TOP_K(4)
+# 청크 기반 요약이라 이 근처에도 가지 않는다.
+MAX_CACHEABLE_ANSWER_LENGTH = 8000
 
 
 class RagChatState(TypedDict):
@@ -169,6 +178,47 @@ def _build_prompt(question: str, context: str, history: Optional[list[dict]] = N
 
 def _cache_key(question: str) -> str:
     return f"{RAG_CHAT_CACHE_PREFIX}:{hashlib.sha256(question.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _is_cacheable(state: RagChatState) -> bool:
+    """이 답변을 캐시(exact·semantic 양쪽)에 기록해도 되는지 판정한다(#1594 P2).
+
+    기존에는 기록 여부를 **LLM이 스스로 신고한 `grounded` 필드 단독**으로 결정했다. 방어는
+    `wrap_untrusted` 마커와 시스템 프롬프트 지시뿐이라, 인젝션으로 `grounded=true` + 왜곡 답변을
+    유도하면 그 답변이 캐시에 들어가고 이후 유사 질문은 **LLM 재검증 없이** 오염된 답변을 받는다
+    (#1584로 blast radius가 회사 1개로 줄었을 뿐 0은 아니다). 그래서 자기신고 외에 코드가
+    결정론적으로 확인할 수 있는 조건을 추가로 요구한다:
+
+    1. **`sources`가 비어 있지 않다** — sources는 LLM이 아니라 retriever metadata에서 코드가 만든다.
+       그래프상 `build_sources`를 거치면 항상 비어 있지 않지만(§_route_after_retrieve), 그래프 구조가
+       바뀌어도 "근거 없는 답변이 캐시에 들어가는" 경로가 되살아나지 않게 하는 이중 방어다
+       (company_id 노드 가드와 같은 원칙).
+    2. **답변 길이가 상식 범위** — 빈/공백 답변, 한두 글자 답변, 비정상적으로 긴 덤프는 정상적인
+       법규 QA 응답이 아니다. 오염·오작동 출력이 캐시에 눌러앉는 것을 막는 하한선이다.
+    3. **답변에 UNTRUSTED_DATA 마커가 없다** — 프롬프트 스캐폴딩이 답변에 그대로 실려 나왔다는 건
+       모델이 데이터 경계를 지키지 못했다는 신호다. 그런 턴의 출력은 재사용 대상이 아니다.
+
+    캐시 기록만 막고 응답 자체는 그대로 반환한다 — 사용자에게 보이는 동작은 바뀌지 않는다.
+    로그에는 답변 원문을 남기지 않는다(개인정보·인젝션 페이로드 잔존 방지 — 길이만 기록).
+    """
+    sources = state.get("sources")
+    if not sources:
+        logger.warning("캐시 기록 거부 — sources가 비어 있다(근거 없는 답변)")
+        return False
+
+    answer = (state["llm_answer"].answer or "").strip()
+    if not (MIN_CACHEABLE_ANSWER_LENGTH <= len(answer) <= MAX_CACHEABLE_ANSWER_LENGTH):
+        logger.warning(
+            "캐시 기록 거부 — 답변 길이 %d자가 허용 범위(%d~%d)를 벗어났다",
+            len(answer), MIN_CACHEABLE_ANSWER_LENGTH, MAX_CACHEABLE_ANSWER_LENGTH,
+        )
+        return False
+
+    if UNTRUSTED_DATA_BEGIN in answer or UNTRUSTED_DATA_END in answer:
+        logger.warning("캐시 기록 거부 — 답변에 UNTRUSTED_DATA 마커가 섞였다(프롬프트 경계 붕괴 신호)")
+        return False
+
+    return True
 
 
 # ============================================================================
@@ -329,13 +379,15 @@ def _node_cache_write(state: RagChatState) -> RagChatState:
     """캐시 저장 노드.
 
     RagAnswerData를 조립해서 Redis에 저장하고 final_response를 세팅.
+
+    `_is_cacheable`이 거부하면 저장만 건너뛰고 응답은 그대로 반환한다(#1594 P2).
     """
     answer_data = RagAnswerData(
         answer=state["llm_answer"].answer,
         sources=state["sources"]
     )
     # 이력이 있던 요청은 캐시 저장도 생략(design §4) — 캐시 조회를 우회한 요청과 대칭.
-    if not state.get("skip_cache"):
+    if not state.get("skip_cache") and _is_cacheable(state):
         redis_client = get_redis_client()
         redis_client.setex(
             state["cache_key"],
@@ -361,6 +413,8 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     캐시가 커지는 유일한 지점이 여기이므로 정리도 같은 지점에 붙이는 것이 가장 단순하다.
     이 호출은 내부에서 예외를 삼키므로 정리 실패가 응답을 막지 않는다.
 
+    `_is_cacheable`이 거부한 답변은 저장하지 않는다(#1594 P2) — exact 캐시와 동일 기준.
+
     company_id가 없으면(개인회원) 저장하지 않는다 — 조회를 건너뛰는 것과 대칭이며, Chroma가
     metadata 값에 None을 허용하지 않기도 한다(실측: "Expected metadata value to be a str, int,
     float or bool, got None"). 스코프 필드 없이 저장하면 이후 어떤 회사도 읽지 못하는 쓰레기
@@ -373,6 +427,9 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
 
     company_id = state.get("company_id")
     if company_id is None:
+        return state
+
+    if not _is_cacheable(state):
         return state
 
     answer_data = RagAnswerData(
