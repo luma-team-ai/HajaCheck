@@ -42,6 +42,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.multipart.MultipartFile;
+import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
+import com.hajacheck.core.ai.service.AiProxyService;
+import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.support.InMemoryRateLimiter;
+import com.hajacheck.support.PngTestFixtures;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -480,15 +486,40 @@ class CompanySignupServiceTest {
     }
 
     @Test
-    void signup_등록증대조_RATE_LIMITED_failopen_가입성공_판정이_감사기록에_남는다() {
-        // 캡 소진은 "게이트가 조용히 꺼진 상태"라 DB에 흔적이 남아야 사후 재구성이 가능하다.
-        stubHappyPathStorage();
+    void signup_등록증대조_RATE_LIMITED_429차단_파일저장안함() {
+        // ⚠️ 계약 변경(2026-08-04 리뷰 P1): 예전엔 fail-open 통과였다. 캡 소진은 "대조를 아예 수행하지
+        // 못했다"는 뜻이라, 통과시키면 공격자가 캡을 태우는 것만으로 게이트를 끌 수 있다 → 429 재시도 유도.
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
         when(businessLicenseCrossCheckService.crossCheck(any(), anyString()))
                 .thenReturn(BusinessLicenseCrossCheckOutcome.RATE_LIMITED);
 
-        service.signup(request());
+        assertThatThrownBy(() -> service.signup(request()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE));
+        assertThat(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE.getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
 
-        assertThat(capturedOcrRaw()).contains("\"licenseOcrOutcome\":\"RATE_LIMITED\"");
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
+        verify(fileStorage, never()).delete(anyString());
+    }
+
+    @Test
+    void signup_등록증대조_시도한도초과_MISMATCH와_같은코드로_차단_파일저장안함() {
+        // 같은 사업자번호로 반복 실패해 시도 한도를 넘긴 경우(자기소진 봉쇄, 리뷰 P1) —
+        // 공격자에게 어느 방어에 걸렸는지 알려주지 않기 위해 MISMATCH 와 동일 코드로 응답한다.
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+        when(businessLicenseCrossCheckService.crossCheck(any(), anyString()))
+                .thenReturn(BusinessLicenseCrossCheckOutcome.BRN_ATTEMPT_EXCEEDED);
+
+        assertThatThrownBy(() -> service.signup(request()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_BUSINESS_LICENSE_MISMATCH));
+
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
+        verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -504,6 +535,53 @@ class CompanySignupServiceTest {
                         .isEqualTo(ErrorCode.AUTH_BUSINESS_VERIFICATION_FAILED));
 
         verify(businessLicenseCrossCheckService, never()).crossCheck(any(), anyString());
+    }
+
+    /**
+     * 재읽기 회귀 가드(리뷰 P3) — 위 테스트들은 대조 서비스가 mock 이라 {@code getBytes()} 가 아예 호출되지
+     * 않아, "OCR 이 파일을 읽은 뒤에도 저장이 정상 동작하는가"를 실제로는 검증하지 못한다. 여기서는
+     * <b>진짜 BusinessLicenseCrossCheckService</b>(AI 만 stub)를 끼워 실제 PNG 를 OCR 경로에 태운 뒤,
+     * 저장 단계에 <b>실제로 도달한 바이트 길이</b>를 확인한다.
+     */
+    @Test
+    void signup_대조가_파일을_읽은_뒤에도_저장단계에_바이트가_그대로_전달된다() throws Exception {
+        byte[] pngBytes = PngTestFixtures.realPng();
+        MultipartFile realPng = new MockMultipartFile(
+                "businessRegistrationFile", "brn.png", "image/png", pngBytes);
+
+        AiProxyService aiProxyService = org.mockito.Mockito.mock(AiProxyService.class);
+        when(aiProxyService.ocrBusinessLicenseForCrossCheck(anyString())).thenReturn(ApiResponse.ok(
+                new BusinessLicenseOcrResponse("123-45-67890", "(주)하자체크", "김민수", "2020-01-01")));
+        BusinessLicenseCrossCheckService realCrossCheck = new BusinessLicenseCrossCheckService(
+                aiProxyService, new InMemoryRateLimiter(), new AuthProperties(), new FileStorageProperties());
+        CompanySignupService serviceWithRealCrossCheck = new CompanySignupService(
+                userRepository, companyRepository, accountWriter, ntsBusinessVerifyClient, realCrossCheck,
+                fileStorage, fileStorageProperties, tokenStore, passwordEncoder, policyProperties, authProperties);
+
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+        when(fileStorageProperties.getMaxSizeBytes()).thenReturn(10_485_760L);
+        AtomicInteger storedLength = new AtomicInteger(-1);
+        when(fileStorage.store(any(), eq("business-registration"), any(), anyLong())).thenAnswer(invocation -> {
+            // 저장 시점에 실제로 읽히는 바이트를 센다(대조가 스트림을 소진했다면 0이 된다).
+            storedLength.set(((MultipartFile) invocation.getArgument(0)).getBytes().length);
+            return new StoredFile("/files/business-registration/x.png", "business-registration/x.png");
+        });
+        Company company = companyStub(12L, CompanyStatus.APPROVED);
+        when(accountWriter.createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(company);
+        when(tokenStore.issue(eq(TokenNamespaces.SIGNUP_STATUS), eq("12"), any(Duration.class)))
+                .thenReturn("signup-tok");
+
+        CompanySignupRequest request = new CompanySignupRequest(
+                "haja@check.com", "pass1234", "(주)하자체크", "123-45-67890",
+                "김민수", LocalDate.of(2020, 1, 1), "서울시 강남구", "101호", true, true, realPng);
+        serviceWithRealCrossCheck.signup(request);
+
+        // 실제로 OCR 이 호출됐고(=파일을 읽었고), 그 뒤 저장에도 온전한 바이트가 전달됐다.
+        verify(aiProxyService).ocrBusinessLicenseForCrossCheck(anyString());
+        assertThat(storedLength.get()).isPositive().isEqualTo(pngBytes.length);
+        assertThat(capturedOcrRaw()).contains("\"licenseOcrOutcome\":\"MATCH\"");
     }
 
     @Test

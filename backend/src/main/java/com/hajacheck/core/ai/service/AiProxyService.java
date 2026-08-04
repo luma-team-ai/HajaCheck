@@ -70,6 +70,8 @@ public class AiProxyService {
     private final BriefingStatsService briefingStatsService;
     private final AiProxyRateLimiter aiProxyRateLimiter;
     private final RestClient aiServerEmbeddingStatusRestClient;
+    /** 사업자등록증 대조 게이트(#1469) 전용 — 무인증 가입 제출 경로라 짧은 read timeout 이 필수다. */
+    private final RestClient aiServerBusinessLicenseCrossCheckRestClient;
 
     /**
      * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
@@ -266,7 +268,27 @@ public class AiProxyService {
      * 문자열만 여기로 넘긴다 — 이 메서드는 순수 프록시 역할만 한다(다른 ocr/explain/report와 동일 스켈레톤).
      */
     public ApiResponse<BusinessLicenseOcrResponse> ocrBusinessLicense(String imageBase64) {
-        BusinessLicenseOcrAiEnvelope envelope = callAiServer(new BusinessLicenseOcrAiRequest(imageBase64));
+        return ocrBusinessLicense(aiServerRestClient, imageBase64);
+    }
+
+    /**
+     * 사업자등록증 OCR — <b>가입 심사 대조 게이트 전용</b>(#1469 / HAJA-650). 위 공개 프리필과 요청 본문·
+     * 응답 처리는 완전히 같고 <b>타는 RestClient 빈만 다르다</b>: 이 호출은 무인증 회원가입 제출
+     * ({@code POST /api/auth/companies}) 요청 안에서 동기로 일어나므로 LLM용 150s 타임아웃을 쓰면
+     * Tomcat 워커 스레드가 고갈된다(#889 P1 결정과 충돌). 짧은 타임아웃 전용 빈
+     * ({@code aiServerBusinessLicenseCrossCheckRestClient})을 쓴다 — 근거는 {@code AiConfig} javadoc.
+     *
+     * <p>타임아웃 발화는 {@code ResourceAccessException} → {@link ErrorCode#AI_SERVER_UNREACHABLE}
+     * {@code BusinessException} 으로 매핑되고, 호출부가 이를 삼켜 {@code OCR_FAILED}(fail-open)로
+     * 흡수한다 — 즉 타임아웃이 회원가입을 막지 않는다.
+     */
+    public ApiResponse<BusinessLicenseOcrResponse> ocrBusinessLicenseForCrossCheck(String imageBase64) {
+        return ocrBusinessLicense(aiServerBusinessLicenseCrossCheckRestClient, imageBase64);
+    }
+
+    private ApiResponse<BusinessLicenseOcrResponse> ocrBusinessLicense(RestClient restClient, String imageBase64) {
+        BusinessLicenseOcrAiEnvelope envelope =
+                callAiServer(restClient, new BusinessLicenseOcrAiRequest(imageBase64));
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
@@ -285,9 +307,9 @@ public class AiProxyService {
         return ApiResponse.ok(BusinessLicenseOcrResponse.from(envelope.data()));
     }
 
-    private BusinessLicenseOcrAiEnvelope callAiServer(BusinessLicenseOcrAiRequest request) {
+    private BusinessLicenseOcrAiEnvelope callAiServer(RestClient restClient, BusinessLicenseOcrAiRequest request) {
         try {
-            return aiServerRestClient.post()
+            return restClient.post()
                     .uri(BUSINESS_LICENSE_OCR_PATH)
                     .headers(this::attachInternalKeyIfPresent)
                     .body(request)

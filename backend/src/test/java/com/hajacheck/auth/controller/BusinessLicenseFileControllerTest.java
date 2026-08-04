@@ -25,6 +25,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
+import com.hajacheck.support.PngTestFixtures;
 
 /** 사업자등록증 보호 파일 엔드포인트가 시큐리티 필터체인에서 인증을 요구하는지 검증한다. */
 @SpringBootTest
@@ -80,7 +81,7 @@ class BusinessLicenseFileControllerTest extends PostgresTestSupport {
                 .status(UserStatus.ACTIVE)
                 .build());
         FileStorageService.StoredFile stored = fileStorage.storeBytes(
-                "license-bytes".getBytes(), "image/png", "business-registration",
+                PngTestFixtures.realPng(), "image/png", "business-registration",
                 java.util.List.of("image/png"), 1024);
         storedStorageKey = stored.storageKey();
         Company company = companyRepository.saveAndFlush(Company.createPendingReview(
@@ -103,7 +104,7 @@ class BusinessLicenseFileControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Content-Type-Options", "nosniff"))
                 .andExpect(content().contentType("image/png"))
-                .andExpect(content().bytes("license-bytes".getBytes()));
+                .andExpect(content().bytes(PngTestFixtures.realPng()));
     }
 
     @Test
@@ -116,7 +117,7 @@ class BusinessLicenseFileControllerTest extends PostgresTestSupport {
                 .status(UserStatus.ACTIVE)
                 .build());
         FileStorageService.StoredFile stored = fileStorage.storeBytes(
-                "license-bytes".getBytes(), "image/png", "business-registration",
+                PngTestFixtures.realPng(), "image/png", "business-registration",
                 java.util.List.of("image/png"), 1024);
         storedStorageKey = stored.storageKey();
         Company company = companyRepository.saveAndFlush(Company.createPendingReview(
@@ -144,7 +145,8 @@ class BusinessLicenseFileControllerTest extends PostgresTestSupport {
                         + "/business-license/" + stored.storageKey())
                         .with(authentication(auth)))
                 .andExpect(status().isForbidden())
+                // 파일 바이트(진짜 PNG의 IHDR 청크 표식)가 응답에 절대 섞이면 안 된다.
                 .andExpect(content().string(org.hamcrest.Matchers.not(
-                        org.hamcrest.Matchers.containsString("license-bytes"))));
+                        org.hamcrest.Matchers.containsString("IHDR"))));
     }
 }

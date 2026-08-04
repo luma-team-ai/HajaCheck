@@ -61,7 +61,7 @@ class AiProxyServiceTest {
 
     private AiProxyService newService(RateLimiter rateLimiter) {
         return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter),
-                builder.build());
+                builder.build(), builder.build());
     }
 
     @Test

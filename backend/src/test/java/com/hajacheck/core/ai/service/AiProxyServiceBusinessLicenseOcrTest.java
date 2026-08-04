@@ -34,6 +34,8 @@ class AiProxyServiceBusinessLicenseOcrTest {
     private static final String AI_SERVER_URL = "http://ai-server-test/ai/business-license-ocr";
 
     private MockRestServiceServer mockServer;
+    /** 대조 게이트 전용(짧은 타임아웃) RestClient 에 바인딩된 서버 — 프리필과 <b>다른 클라이언트</b>임을 고정. */
+    private MockRestServiceServer crossCheckMockServer;
     private AiProxyService aiProxyService;
 
     @BeforeEach
@@ -46,11 +48,48 @@ class AiProxyServiceBusinessLicenseOcrTest {
 
         RestClient.Builder builder = RestClient.builder().baseUrl(properties.getBaseUrl());
         mockServer = MockRestServiceServer.bindTo(builder).build();
+        RestClient.Builder crossCheckBuilder = RestClient.builder().baseUrl(properties.getBaseUrl());
+        crossCheckMockServer = MockRestServiceServer.bindTo(crossCheckBuilder).build();
         // briefingStatsService 는 OCR 프록시 테스트에서 사용하지 않아 null(AiProxyServiceTest 와 동일).
         // OCR 프록시는 AiProxyRateLimiter 대상이 아니지만(자체 rate-limit 은 BusinessLicenseOcrService),
         // 생성자 의존성이라 in-memory fake 를 주입한다.
         aiProxyService = new AiProxyService(builder.build(), properties, null,
-                new AiProxyRateLimiter(new InMemoryRateLimiter()), builder.build());
+                new AiProxyRateLimiter(new InMemoryRateLimiter()), builder.build(), crossCheckBuilder.build());
+    }
+
+    /**
+     * 대조 게이트(#1469)는 <b>전용 RestClient</b>를 타야 한다 — 프리필용 빈(LLM 150s)을 그대로 쓰면
+     * 무인증 가입 제출 경로의 요청당 대기가 161s 로 늘어 Tomcat 워커가 고갈된다(#889 P1 결정과 충돌).
+     * 여기서는 "다른 클라이언트를 쓴다"는 사실을 두 MockRestServiceServer 로 고정한다(타임아웃 값 자체는
+     * AiConfig 빈 정의의 책임).
+     */
+    @Test
+    void ocrBusinessLicenseForCrossCheck_대조전용_RestClient를_탄다() {
+        crossCheckMockServer.expect(requestTo(AI_SERVER_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(header("X-Internal-Key", "test-internal-key"))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {
+                                  "success": true,
+                                  "data": {
+                                    "businessRegistrationNumber": "123-45-67890",
+                                    "companyName": "하자체크",
+                                    "representativeName": "김대표",
+                                    "businessStartDate": "2020-01-15"
+                                  }
+                                }
+                                """));
+
+        ApiResponse<BusinessLicenseOcrResponse> response =
+                aiProxyService.ocrBusinessLicenseForCrossCheck("ZmFrZS1pbWFnZS1ieXRlcw==");
+
+        assertThat(response.success()).isTrue();
+        assertThat(response.data().businessRegistrationNumber()).isEqualTo("123-45-67890");
+        crossCheckMockServer.verify();
+        // 프리필 클라이언트로는 아무 요청도 나가지 않았어야 한다(expect 를 걸지 않았으므로 verify 로 확인).
+        mockServer.verify();
     }
 
     @Test

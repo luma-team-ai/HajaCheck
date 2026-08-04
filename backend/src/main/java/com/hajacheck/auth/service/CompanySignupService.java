@@ -110,13 +110,12 @@ public class CompanySignupService {
         //    업로드 파일과 입력값의 연결을 여기서 검사한다.
         //    ⚠️ 파일 저장(아래 ④)보다 반드시 먼저다: 차단 시 파일을 저장하지 않아 보상삭제 경로를 타지
         //    않고 고아 파일도 남지 않는다.
-        //    fail-open — MISMATCH(확정 불일치)만 차단이고 OCR 실패·인식 불가·미지원 형식·rate-limit
-        //    소진은 모두 통과다(BusinessLicenseCrossCheckService 는 예외를 위로 던지지 않는다).
+        //    fail-open 은 "대조를 해봤는데 판정할 수 없었다"에만 적용한다(2026-08-04 리뷰 P1) —
+        //    대조를 아예 수행하지 못한 경우(캡 소진)까지 통과시키면 캡을 태우는 것만으로 게이트가 꺼진다.
+        //    (BusinessLicenseCrossCheckService 는 예외를 위로 던지지 않는다 — 판정은 반환값으로만 온다.)
         BusinessLicenseCrossCheckOutcome licenseCrossCheck = businessLicenseCrossCheckService.crossCheck(
                 request.businessRegistrationFile(), normalizedBrn);
-        if (licenseCrossCheck == BusinessLicenseCrossCheckOutcome.MISMATCH) {
-            throw new BusinessException(ErrorCode.AUTH_BUSINESS_LICENSE_MISMATCH);
-        }
+        blockIfLicenseCrossCheckFailed(licenseCrossCheck);
 
         // ④ 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
         //    ⚠️ 대조 단계에서 같은 MultipartFile 을 이미 한 번 읽었다(getBytes/getInputStream) —
@@ -253,6 +252,30 @@ public class CompanySignupService {
      */
     static String normalizeBrn(String raw) {
         return raw == null ? null : raw.replaceAll("-", "").trim();
+    }
+
+    /**
+     * 사업자등록증 대조 판정이 차단 사유면 예외로 변환한다(#1469).
+     *
+     * <ul>
+     *   <li>{@code MISMATCH}·{@code BRN_ATTEMPT_EXCEEDED} → 400 {@code AUTH_BUSINESS_LICENSE_MISMATCH}.
+     *       시도 한도 초과를 같은 코드로 응답하는 건 의도적이다 — 공격자에게 어느 방어에 걸렸는지
+     *       알려줄 이유가 없고, 사용자에게도 "등록증과 입력값이 맞지 않는다"는 안내가 그대로 옳다.</li>
+     *   <li>{@code RATE_LIMITED} → 429 {@code AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE}. "대조를 하지
+     *       못했다"를 통과로 처리하면 캡을 태우는 것만으로 게이트가 꺼지므로 재시도를 유도한다.</li>
+     *   <li>나머지(판정 불가)는 fail-open 통과.</li>
+     * </ul>
+     */
+    private static void blockIfLicenseCrossCheckFailed(BusinessLicenseCrossCheckOutcome outcome) {
+        switch (outcome) {
+            case MISMATCH, BRN_ATTEMPT_EXCEEDED ->
+                    throw new BusinessException(ErrorCode.AUTH_BUSINESS_LICENSE_MISMATCH);
+            case RATE_LIMITED ->
+                    throw new BusinessException(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE);
+            default -> {
+                // MATCH·OCR_NO_BRN·OCR_FAILED·SKIPPED_UNSUPPORTED_TYPE — 판정 불가는 가입을 막지 않는다.
+            }
+        }
     }
 
     /**

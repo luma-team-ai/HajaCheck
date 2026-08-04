@@ -20,6 +20,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
+import com.hajacheck.support.PngTestFixtures;
 
 /**
  * 기업 회원가입·아이디/비번 찾기 MVC 통합 테스트(실 PG Testcontainers + 시큐리티 필터체인).
@@ -39,7 +40,7 @@ class CompanyAuthIntegrationTest extends PostgresTestSupport {
 
     private MockMultipartFile brnFile() {
         return new MockMultipartFile(
-                "businessRegistrationFile", "brn.png", MediaType.IMAGE_PNG_VALUE, "PNGDATA".getBytes());
+                "businessRegistrationFile", "brn.png", MediaType.IMAGE_PNG_VALUE, PngTestFixtures.realPng());
     }
 
     private MvcResult signup(String email, String brn, String companyName, String repName) throws Exception {

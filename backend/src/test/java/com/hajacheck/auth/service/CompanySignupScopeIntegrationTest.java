@@ -38,6 +38,7 @@ import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import com.hajacheck.support.PngTestFixtures;
 
 /**
  * 가입 직후 <b>회사 스코프가 실제로 열리는지</b>를 실 PostgreSQL(Testcontainers)에서 검증한다(#1324).
@@ -77,7 +78,7 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
 
     private CompanySignupResponse signup(String email, String brn, String companyName) {
         MockMultipartFile file = new MockMultipartFile(
-                "businessRegistrationFile", "brn.png", MediaType.IMAGE_PNG_VALUE, "PNGDATA".getBytes());
+                "businessRegistrationFile", "brn.png", MediaType.IMAGE_PNG_VALUE, PngTestFixtures.realPng());
         return companySignupService.signup(new CompanySignupRequest(
                 email, "pass1234", companyName, brn, "김민수",
                 LocalDate.of(2020, 1, 1), "서울시 강남구 테헤란로 1", "10층", true, true, file));
@@ -163,10 +164,11 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
         assertThat(raw.get("source").asText()).isEqualTo("MANUAL_INPUT");
         assertThat(raw.get("ntsCheckedAt").asText()).isNotBlank();
 
-        // 사업자등록증 대조 판정(#1469)도 같은 이유로 영속된다 — 이 대조 역시 fail-open 이라 MATCH 가
-        // 아니어도 승인되므로, 라벨이 없으면 "대조를 실제로 해본 회사"를 사후에 구분할 수 없다.
-        // 이 테스트의 업로드 픽스처는 매직바이트가 PNG 가 아니라 OCR 대상에서 제외된다(AI 서버 미호출).
-        assertThat(raw.get("licenseOcrOutcome").asText()).isEqualTo("SKIPPED_UNSUPPORTED_TYPE");
+        // 사업자등록증 대조 판정(#1469)도 같은 이유로 영속된다 — 이 대조 역시 판정 불가일 때는
+        // fail-open 으로 승인되므로, 라벨이 없으면 "대조를 실제로 해본 회사"를 사후에 구분할 수 없다.
+        // 테스트 프로파일에는 AI 서버가 없어 호출이 즉시 실패 → OCR_FAILED(fail-open) 가 나온다
+        // (국세청 키가 없어 ntsOutcome=SKIPPED 가 나오는 것과 같은 구조의 조건).
+        assertThat(raw.get("licenseOcrOutcome").asText()).isEqualTo("OCR_FAILED");
 
         // 개인정보(사업자번호·대표자명·이메일)는 절대 남기지 않는다. 부분 문자열 검사 대신 **키 집합을
         // 고정**한다 — 값에 담긴 숫자가 우연히 겹쳐 깨지지 않고(ntsCheckedAt 의 나노초가 사업자번호와

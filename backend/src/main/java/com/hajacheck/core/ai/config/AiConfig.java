@@ -49,6 +49,28 @@ public class AiConfig {
     }
 
     /**
+     * 사업자등록증 대조 게이트(#1469, {@code BusinessLicenseCrossCheckService}) 전용 RestClient —
+     * {@link #aiServerRestClient}(LLM용 150s)를 그대로 쓰면 <b>무인증 회원가입 제출 경로</b>
+     * ({@code POST /api/auth/companies}, permitAll + rate-limit 미적용)의 요청당 최악 대기가 약 161s로
+     * 늘어 Tomcat 워커 스레드가 고갈된다 — 같은 경로의 국세청 호출을 read 5s 로 <b>동결</b>해 둔 결정
+     * ({@code BizVerifyProperties#readTimeoutMs}, #889 P1)을 정면으로 되돌리는 셈이다. #728(헬스체크)·
+     * #1393(임베딩 상태)에서 확립된 "짧은 타임아웃 전용 빈" 패턴을 그대로 따른다.
+     * 값 산정 근거는 {@link AiServerProperties#getBusinessLicenseCrossCheckTimeoutMs} javadoc 참조.
+     */
+    @Bean
+    public RestClient aiServerBusinessLicenseCrossCheckRestClient(AiServerProperties properties) {
+        ClientHttpRequestFactorySettings settings = ClientHttpRequestFactorySettings.DEFAULTS
+                .withConnectTimeout(Duration.ofMillis(properties.getConnectTimeoutMs()))
+                .withReadTimeout(Duration.ofMillis(properties.getBusinessLicenseCrossCheckTimeoutMs()));
+        ClientHttpRequestFactory requestFactory = ClientHttpRequestFactories.get(settings);
+
+        return RestClient.builder()
+                .baseUrl(properties.getBaseUrl())
+                .requestFactory(requestFactory)
+                .build();
+    }
+
+    /**
      * RAG 임베딩 완료 확인(#1393, RagEmbeddingCompletionPoller/RagEmbeddingStaleReconciler) 전용
      * RestClient — {@link #aiServerRestClient}(LLM용 150s)를 그대로 쓰면 폴러가 시도당 최대 150s씩
      * 붙잡히고(총 최대 25분), 리컨사일러는 다른 {@code @Scheduled} 배치와 공유하는 스레드를 오래

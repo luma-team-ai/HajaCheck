@@ -28,6 +28,14 @@ public class BizVerifyProperties {
      * 가입은 그대로 통과(verificationStatus=PENDING)하고 후속 #888 스케줄러가 나중에 재검증하므로,
      * 제출 시점 재시도로 얻는 이득(즉시 VERIFIED 확정 확률)보다 무인증 엔드포인트의 스레드 점유 비용이 더
      * 크다고 판단했다. {@link #realtimeReadTimeoutMs}·{@link #retryMaxAttempts}와 반드시 구분할 것.
+     *
+     * <p><b>제출 경로 예산 갱신(#1469)</b>: 이 경로에 사업자등록증 OCR 대조 게이트가 추가되면서
+     * 외부 호출이 2개가 됐다 — 국세청(connect 3s + read 5s = 최악 8s) + AI OCR(connect 3s + read 15s =
+     * 최악 18s) 로 <b>제출 1건의 최악 대기는 약 26s</b>다(이전 8s). 대조는 LLM용 150s RestClient 가 아니라
+     * 짧은 타임아웃 전용 빈을 쓰도록 강제해 이 예산을 지킨다
+     * ({@code AiServerProperties#businessLicenseCrossCheckTimeoutMs}). 이 경로에 외부 호출을 더
+     * 추가하거나 타임아웃을 올릴 때는 <b>반드시 이 총합을 다시 계산</b>할 것 — 무인증 엔드포인트의
+     * 워커 스레드 점유는 여전히 이 결정의 핵심 제약이다.
      */
     private long readTimeoutMs = 5000;
 
