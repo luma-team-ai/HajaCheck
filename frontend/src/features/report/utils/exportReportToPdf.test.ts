@@ -808,8 +808,9 @@ describe("exportReportToPdf", () => {
 
     const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
+    // 원본 양식 관례(소문자 단일 글자)를 따라 "등급 A"가 아니라 "a"로 표기한다(#1499 후속).
     expect(captionRow[0].content).toBe(
-      "< 균열(A등급) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >",
+      "< 균열 (a) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >",
     );
   });
 
@@ -867,7 +868,7 @@ describe("exportReportToPdf", () => {
 
     const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
-    expect(captionRow[0].content).toBe("< 균열(B등급) >");
+    expect(captionRow[0].content).toBe("< 균열 (b) >");
     expect(captionRow[0].content).not.toContain("외");
   });
 

@@ -168,7 +168,9 @@ const SUMMARY_SUBSECTION_TYPES = new Set<string>([
  */
 function formatPhotoCaption(image: ReportPdfImage): string {
   const type = image.defectType || "부위";
-  const gradeSuffix = image.grade ? `(${image.grade}등급)` : "";
+  // 원본 양식은 등급을 "등급 E"가 아니라 소문자 단일 글자(a~d)로만 표기한다(§가. 진단
+  // 외관조사결과 상태평가 컬럼과 동일 관례, #1499 후속) — 사진 캡션도 그 표기를 따른다.
+  const gradeSuffix = image.grade ? ` (${image.grade.toLowerCase()})` : "";
   const summary = (image.summary ?? "").trim();
   if (!summary) return `${type}${gradeSuffix}`;
   const truncated =
