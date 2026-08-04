@@ -668,10 +668,12 @@ export async function exportReportToPdf(
               item.cause || "-",
             ])
           : [["-", "-", "확인된 결함이 없습니다.", "-"]],
-      // 좁은 열은 원본처럼 9pt로 강등한다.
+      // 좁은 열은 원본처럼 9pt로 강등한다. 앞 2컬럼 합(0+1)은 병합 헤더 "상태평가 결과 및
+      // 보수ㆍ보강"(13자)이 한 줄에 들어가야 하는 최소 폭 — 컬럼 제거 전 3컬럼 합(11+26+12=49)에서
+      // 줄바꿈 없이 표시되던 걸 실측 확인했으므로 그 폭(49)을 그대로 유지한다(#1499 후속).
       columnStyles: {
-        0: { cellWidth: 14, halign: "center", fontSize: FONT_SIZE.tableNarrow },
-        1: { cellWidth: 30 },
+        0: { cellWidth: 15, halign: "center", fontSize: FONT_SIZE.tableNarrow },
+        1: { cellWidth: 34 },
         2: { cellWidth: "auto" },
         3: { cellWidth: 44 },
       },
