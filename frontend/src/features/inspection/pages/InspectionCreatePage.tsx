@@ -606,8 +606,8 @@ export function InspectionCreatePage() {
           closeOnOverlayClick={false}
         >
           <div className="flex w-80 flex-col gap-6">
-            <p className="m-0 text-sm text-text-muted">
-              작성을 취소하시겠습니까? (입력 내용 임시저장됨)
+            <p className="m-0 whitespace-pre-line text-sm text-text-muted">
+              {'작성을 취소하시겠습니까?\n(입력 내용 임시저장됨)'}
             </p>
             <div className="flex justify-end gap-3">
               <Button type="button" variant="secondary" onClick={() => blocker.reset()}>
