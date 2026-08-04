@@ -124,6 +124,55 @@ public class CompanyMembership extends BaseTimeEntity {
                 .build();
     }
 
+    /**
+     * 초대 코드 redeem(#1474) — 코드를 소비한 사용자를 해당 기업의 유효 멤버로 확정한다.
+     *
+     * <p>{@link #approvedOwner}와 별도 팩토리인 이유: 오너 팩토리를 재사용하면 <b>초대받은 사람이 회사
+     * 오너로 취급</b>된다. 두 경로는 만들어내는 행의 의미가 다르므로 합치지 않는다.
+     *
+     * <p>{@link #invite}(PENDING) → {@link #approve} 2단계를 거치지 않고 곧바로 APPROVED 로 만드는 이유:
+     * 초대 코드 방식은 승인 주체가 <b>코드를 발급한 관리자</b>이고 그 승인이 <b>코드 발급 시점에 이미
+     * 일어났다</b>(발급 = 좌석 1석을 내주겠다는 의사표시, {@code QuotaService.hasAvailableSeat} 선검사).
+     * redeem 은 그 승인을 수령하는 행위라 별도 승인 대기 단계가 존재하지 않는다.
+     *
+     * <p>{@code invitedBy} 는 null 이다 — 코드는 Redis 에 {@code companyId} 만 담고 발급자 식별자를
+     * 보관하지 않아, 실제로 누가 발급했는지 알 수 없다. 모르는 값을 오너 id 등으로 임의로 채우지 않는다.
+     *
+     * <p>{@code expiresAt} 은 null(무기한) — {@link #approvedOwner}와 동일하다. 좌석 회수는 멤버십 만료가
+     * 아니라 별도 경로({@link #revoke})의 책임이다.
+     */
+    public static CompanyMembership approvedMember(Long companyId, Long userId) {
+        return CompanyMembership.builder()
+                .companyId(companyId)
+                .userId(userId)
+                .status(CompanyMembershipStatus.APPROVED)
+                .approvedAt(Instant.now())
+                .build();
+    }
+
+    /**
+     * 초대 코드 redeem 시 <b>이미 같은 (기업, 사용자) 행이 존재</b>할 때 그 행을 유효 멤버십으로 되돌린다
+     * (#1474). 복합 유니크 제약 {@code uk_company_memberships_company_user} 때문에 새 행을 넣을 수 없어
+     * 기존 행을 재사용한다 — {@link #reinvite}의 "재초대는 새 행을 추가하지 않는다" 원칙과 동일하다.
+     *
+     * <p>⚠️ 다른 전이 메서드와 달리 <b>이전 상태를 검사하지 않는다</b>. 근거: 이 메서드는
+     * {@code InviteCodeService.redeem} 에서만 호출되고, 그 경로는 {@code User.requireWaiting()} 으로
+     * <b>WAITING 사용자만</b> 통과시킨다. WAITING 은 정의상 어떤 회사 스코프도 갖지 않는 상태라
+     * (소셜 가입 직후 또는 소속이 끊긴 상태), 이전 멤버십 상태가 무엇이든 "지금 이 코드로 이 회사에
+     * 합류한다"가 최신 사실이다. 상태 검사를 넣으면 REVOKED·EXPIRED 이력이 있는 사용자가 정당한 새 초대를
+     * 받고도 영구히 합류하지 못한다.
+     *
+     * <p>현재 {@link #revoke}·{@link #reinvite} 는 프로덕션 호출부가 0건이라 이 분기는 실질적으로
+     * 도달하지 않는다. 그럼에도 두는 이유는 도달했을 때 유니크 제약 위반이 <b>500</b>으로 튀는 것을 막기
+     * 위해서다(사용자에겐 원인을 알 수 없는 실패가 된다).
+     */
+    public void approveAsInvitedMember() {
+        this.status = CompanyMembershipStatus.APPROVED;
+        this.approvedAt = Instant.now();
+        this.revokedAt = null;
+        this.expiresAt = null;
+    }
+
     public void approve() {
         requireStatus("approve", CompanyMembershipStatus.PENDING);
         Instant approvedAt = Instant.now();
