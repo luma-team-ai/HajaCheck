@@ -24,8 +24,8 @@ public record FacilityUpdateRequest(
         // 1900 ~ 현재연도+1. 상한이 동적이라 @Max 로 표현 불가 → 커스텀 제약(#351).
         @ValidBuiltYear Integer builtYear,
         @Size(max = 100) String scale,
-        // @Max(120): 상한(10년) — FacilityScheduleRequest 와 동일 기준(#351).
-        @Min(0) @Max(120) Integer inspectionCycleMonths,
+        // @Min(1) @Max(120): FacilityScheduleRequest·FacilityCreateRequest와 동일 범위(#1518/UT-081).
+        @Min(1) @Max(120) Integer inspectionCycleMonths,
         LocalDate nextInspectionDueAt,
         FacilityInitialGrade initialGrade,
         Long assigneeUserId,
