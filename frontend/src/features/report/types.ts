@@ -178,6 +178,8 @@ export interface ReportListFilters {
   page?: number;
   size?: number;
   facilityId?: number;
+  /** 시설물 상세 "점검 이력" → 보고서 딥링크(#1359 후속) — 특정 회차로만 좁힐 때 사용 */
+  roundNo?: number;
   status?: ReportListStatus;
   query?: string;
   period?: ReportListPeriod;

@@ -47,6 +47,10 @@ export interface FacilityOverviewPanelProps {
   /** "하자 현황" 탭 클릭 시 로컬 탭 전환 대신 호출된다(예: 하자 상세 오버레이로 이동).
    * 넘기지 않으면 다른 탭과 동일하게 로컬 탭 전환만 한다. */
   onDefectsTabClick?: () => void;
+  /** 점검 이력의 "결과 보기" 클릭(#1359 후속) — 넘기지 않으면 버튼이 비활성 처리된다 */
+  onViewResult?: (item: FacilityOverviewHistoryItem) => void;
+  /** 점검 이력의 "보고서" 클릭(#1359 후속) — 넘기지 않으면 버튼이 비활성 처리된다 */
+  onViewReport?: (item: FacilityOverviewHistoryItem) => void;
 }
 
 // 시설물 상세 / 점검(회차) 생성 화면이 공유하는 패널(shared) — Figma
@@ -64,6 +68,8 @@ export function FacilityOverviewPanel({
   onNewInspection,
   newInspectionLabel = '+ 새 점검',
   onDefectsTabClick,
+  onViewResult,
+  onViewReport,
 }: FacilityOverviewPanelProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('history');
 
@@ -143,7 +149,13 @@ export function FacilityOverviewPanel({
               <div className="relative flex w-full flex-col gap-10 pl-6">
                 <div className="absolute top-2 bottom-2 left-[11px] w-px bg-neutral-300/40" aria-hidden="true" />
                 {history.map((item, index) => (
-                  <FacilityInspectionHistoryItem key={item.id} item={item} expanded={index === 0} />
+                  <FacilityInspectionHistoryItem
+                    key={item.id}
+                    item={item}
+                    expanded={index === 0}
+                    onViewResult={onViewResult}
+                    onViewReport={onViewReport}
+                  />
                 ))}
               </div>
             ) : (

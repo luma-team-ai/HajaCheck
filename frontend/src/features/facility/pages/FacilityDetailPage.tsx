@@ -56,6 +56,9 @@ export function FacilityDetailPage() {
           ? () => navigate(`/facilities/${facilityId}/defects/${facility.latestDefectId}`)
           : undefined
       }
+      // "결과 보기"/"보고서"(#1359 후속) — 같은 시설물·같은 회차로 좁힌 하자 관리/보고서 목록으로 이동한다.
+      onViewResult={(item) => navigate(`/defects/list?facilityId=${facilityId}&roundNoMin=${item.roundNo}&roundNoMax=${item.roundNo}`)}
+      onViewReport={(item) => navigate(`/reports?facilityId=${facilityId}&roundNo=${item.roundNo}`)}
     />
   );
 }
