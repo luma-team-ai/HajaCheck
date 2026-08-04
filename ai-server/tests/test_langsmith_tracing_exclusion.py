@@ -185,8 +185,9 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch)
             "애초에 호출을 안 해서인지 구분할 수 없어 검증이 무효화된다"
         )
 
-        # 억제(no-op) 검증이라 데이터가 영영 안 온다 — settle 대기(0.4s)만 짧게 주면 충분하고,
-        # 나머지 케이스(대조군 등)처럼 8s 풀타임을 소진할 필요가 없다(PR #1557 P3).
+        # 억제(no-op) 검증이라 데이터가 영영 안 온다 — captured가 비어있으면 settle 조건
+        # (elif captured and ...)이 성립하지 않아 항상 timeout 전체를 대기한다. 그래도
+        # 나머지 케이스(대조군 등)처럼 8s를 다 쓸 필요는 없어 1.5s로만 줄인다(PR #1557 P3).
         _wait_for_flush(captured_ocr, timeout=1.5)
 
     # OCR 체인은 tracing_context(enabled=False)로 감싸져 있으므로 페이로드가 **완전히 비어있어야 한다**
