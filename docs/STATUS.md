@@ -36,6 +36,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **PR #1509 dev 머지 (2026-08-04)** — 하자 상세 모달 이미지 상자가 와이드 화면(1920폭)에서 aspect-ratio(3:4)만으로 1110px까지 커지던 문제에 `max-height:480px` 캡핑 추가 + 등급 칩(A~E) 색상 코드 적용(`features/map` GRADE_COLOR와 동일 값 로컬 재정의). 이슈/Jira 미연동(ad-hoc UI 폴리싱, 별도 이슈 없음). Self-review(직접, 서브에이전트 미사용) P1/P2 없음 — P3 2건: C등급 칩 흰 텍스트 WCAG 대비 미달(기존 `GradeBadge` 패턴 재사용분, 이번 PR 신규 유발 아님) · 등급 색상 렌더링 테스트 부재. `npm run build` PASS, 라이브 프로덕션에서 실측 버그 케이스로 max-height 동작 확인.
+
 - **PR #1485 dev 머지 (2026-08-04)** — 초대 코드 redeem 시 `company_memberships` 미생성으로 회사 스코프 API 전면 403이던 결함(#1474) + 랜딩↔초대코드 리다이렉트 루프(#1484). squash `15499b94`, `ai:needs-human`(민감영역 `CompanyMembership.java` 자동머지 가드) → 사람 수동 머지.
   - 검수: 워크트리 재실행 backend **2119건 0 failures** · frontend landing **11건 PASS** · CI backend/frontend pass. code-reviewer(opus) **P1 1 / P2 1 / P3 4**.
   - **G3.5** — P1(기존 초대 사용자 멤버십 백필 부재)은 **prod 실측으로 해소**: arm1 전용 postgres `hajacheck`에서 "ACTIVE + company_id 보유인데 멤버십 행 없음" **0건**(ACTIVE 13명 = 멤버십 13건 전부 APPROVED). 등급 임의 격하 아님 — 리뷰어가 제시한 해소 조건 충족. 승격 프리플라이트에 재실측 항목으로 남김.
