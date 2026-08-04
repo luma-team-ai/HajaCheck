@@ -2,7 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
 import { useCounselSocket } from './useCounselSocket';
-import type { ChatMessageResponse, ChatMessageSender, CounselTicketSummaryResponse } from '../types';
+import type {
+  ChatMessageResponse,
+  ChatMessageSender,
+  CounselTicketStatus,
+  CounselTicketSummaryResponse,
+} from '../types';
+
+/** 종료된 티켓 상태 — 상담원이 더 이상 메시지를 보낼 수 없는 상태 집합 */
+function isEndedStatus(status: CounselTicketStatus | undefined): boolean {
+  return status === 'RESOLVED' || status === 'OFFLINE_LEFT';
+}
 
 // 상담원 콘솔 마스터-디테일(#1001, HAJA-495) — 선택된 티켓의 대화(메시지+소켓+종료)를 캡슐화한다.
 // 기존 CounselorChatPage 내부 로직을 그대로 훅으로 분리한 것 — 대화 조회(GET .../messages)는
@@ -19,6 +29,11 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
   // 누른 경우(resolve() 성공)와 달리 화면을 즉시 이동시키지 않는다. 대신 이 상태를 채워
   // 소비자(CounselorChatWindow)가 그 자리에서 종료 안내 UI로 전환하게 한다.
   const [remoteEndedTicket, setRemoteEndedTicket] = useState<CounselTicketSummaryResponse | null>(null);
+  // #1590 — 소비자(CounselorChatWindow)가 넘겨주는 ticket은 목록/navigate state 스냅샷이라 원격
+  // 종료 후에도 갱신되지 않는다(종료된 티켓은 WAITING/IN_PROGRESS 조회에서 빠져 큐 reload로도
+  // 최신화되지 않는다). 그래서 티켓을 열 때마다 서버에서 최신 상태를 1회 조회해 종료 판정의
+  // 소스로 쓴다(#1506이 useChatBot에 넣은 REST 백필과 동일 패턴).
+  const [latestTicket, setLatestTicket] = useState<CounselTicketSummaryResponse | null>(null);
 
   useEffect(() => {
     if (ticketId === null) {
@@ -65,6 +80,27 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
     setRemoteEndedTicket(null);
   }, [ticketId]);
 
+  // #1590 — 티켓 전환 시마다 서버 최신 상태를 백필한다. 이 조회가 없으면 원격 종료 후 다른 티켓을
+  // 거쳐 되돌아왔을 때 remoteEndedTicket이 리셋되고 stale한 ticket prop만 남아 종료 표시가 사라지고
+  // 입력창이 다시 열린다(전송하면 서버가 거부).
+  useEffect(() => {
+    setLatestTicket(null);
+    if (ticketId === null) return;
+
+    let cancelled = false;
+    counselApi
+      .getTicket(ticketId)
+      .then((res) => {
+        if (!cancelled) setLatestTicket(res.data);
+      })
+      .catch(() => {
+        // 조회 실패는 조용히 무시 — 종료 판정은 소켓(onEnded)과 호출부의 ticket 스냅샷으로 폴백된다.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticketId]);
+
   const { connected, sendMessage, sendTyping } = useCounselSocket(ticketId, {
     onMessage: (message) => setMessages((prev) => [...prev, message]),
     // 다른 경로(예: 고객 종료, 이용자 오프라인 이탈, PLATFORM_ADMIN 강제 종료)로 티켓이 끝나도 화면이
@@ -89,6 +125,11 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
     }
   }
 
+  // 종료 판정 소스(#1590): 소켓으로 받은 원격 종료 > 서버 최신 상태 순. 둘 다 없으면 호출부가
+  // 자신의 ticket 스냅샷으로 보조 판정한다(이미 종료된 티켓을 목록에서 눌러 들어온 경우).
+  const endedTicket =
+    remoteEndedTicket ?? (isEndedStatus(latestTicket?.status) ? latestTicket : null);
+
   return {
     messages,
     messagesLoading,
@@ -100,6 +141,7 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
     resolving,
     resolveError,
     resolve,
-    remoteEndedTicket,
+    endedTicket,
+    isEnded: endedTicket !== null,
   };
 }
