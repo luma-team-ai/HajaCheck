@@ -241,6 +241,8 @@ public class AiProxyService {
      * cross-user 접근(IDOR) 차단이 목적이라, 검증은 반드시 외부 호출·과금보다 앞서야 한다.
      * 세션이 있으면 최근 3턴 이력을 FastAPI에 함께 전달하고, 응답 성공 시 질의/답변/출처를 저장한다
      * (#1493/HAJA-657). 세션이 없으면(단발 질의) 이력 전달·저장 둘 다 생략 — 기존 무상태 호출과 회귀 없음.
+     * <p>이 저장은 <b>best-effort</b> 다(#1593) — 실패해도 답변은 정상 반환하고 로그만 남긴다. 이유와
+     * 트레이드오프(그 턴이 이력에서 누락됨)는 아래 호출 지점 주석 참고.
      *
      * <p>이 메서드 자체에는 {@code @Transactional} 을 붙이지 않는다(PR #1510 P1 픽스) — FastAPI 호출
      * ({@code callAiServer}, 캐시 미스 시 수 초 소요 가능)까지 트랜잭션으로 묶으면 그 동안 DB 커넥션을
@@ -289,8 +291,30 @@ public class AiProxyService {
         }
 
         if (request.sessionId() != null) {
-            ragConversationPersistenceService.saveConversation(
-                    request.sessionId(), request.query(), envelope.data());
+            // 대화 저장은 best-effort(#1593) — 이 시점엔 이미 FastAPI LLM 파이프라인이 돌아 비용이 발생했고
+            // 답변도 손에 있다. 저장 실패로 답변까지 500으로 뒤집으면 사용자는 답을 못 받고 비용만 나간다.
+            // citation 저장에는 실재하는 실패 경로가 있다: chat_message_citations 는 document_id →
+            // rag_documents FK 와 unique(message_id, document_id, chunk_ref) 를 갖는데,
+            // ① Postgres 에서 삭제됐지만 Chroma 에 잔존하는 문서를 인용하면 FK 위반,
+            // ② 같은 청크가 두 번 인용되면 unique 위반(②는 saveConversation 내부 중복 제거로 선제 차단).
+            // AuthController.login() 의 lastLoginAt 갱신과 같은 취지다.
+            //
+            // ⚠️ try/catch 는 반드시 "호출부"인 여기 있어야 한다. saveConversation 은 @Transactional 이
+            // 붙은 별도 빈이라(PR #1510) 예외가 프록시 경계를 넘는 순간 그 트랜잭션만 롤백되고 답변 반환은
+            // 살아남는다. 서비스 내부에서 잡으면 트랜잭션이 이미 rollback-only 로 마킹돼 커밋 시점에
+            // UnexpectedRollbackException 으로 다시 터진다.
+            //
+            // ⚠️ 트레이드오프: 저장이 실패하면 답변은 정상 반환되지만 그 턴은 대화 이력에 남지 않는다.
+            // 사용자가 화면을 새로고침하면 해당 질문·답변이 사라지고, 다음 질의의 history(최근 3턴)에도
+            // 빠져 문맥이 한 턴 끊긴다. 답변을 통째로 잃는 것보다는 낫다는 판단이며, 조용히 삼키지 않고
+            // 아래 로그로 관측 가능하게 남긴다(반복되면 문서 삭제/청크 중복을 의심할 것).
+            try {
+                ragConversationPersistenceService.saveConversation(
+                        request.sessionId(), request.query(), envelope.data());
+            } catch (Exception e) {
+                log.error("RAG 대화 저장 실패(답변 자체는 정상 반환) — 이 턴은 이력에 남지 않음 "
+                        + "userId={}, sessionId={}", userId, request.sessionId(), e);
+            }
         }
         return ApiResponse.ok(envelope.data());
     }

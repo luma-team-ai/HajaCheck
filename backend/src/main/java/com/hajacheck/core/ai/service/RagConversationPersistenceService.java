@@ -6,6 +6,8 @@ import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.core.ai.dto.RagChatResponse;
 import com.hajacheck.core.rag.entity.ChatMessageCitation;
 import com.hajacheck.core.rag.repository.ChatMessageCitationRepository;
+import java.util.HashSet;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -29,7 +31,14 @@ public class RagConversationPersistenceService {
     private final ChatMessageRepository chatMessageRepository;
     private final ChatMessageCitationRepository chatMessageCitationRepository;
 
-    /** 사용자 질문 + 봇 답변을 저장하고, 답변의 출처를 봇 메시지에 인용으로 매핑해 저장한다. */
+    /**
+     * 사용자 질문 + 봇 답변을 저장하고, 답변의 출처를 봇 메시지에 인용으로 매핑해 저장한다.
+     *
+     * <p>이 메서드는 예외를 삼키지 않는다 — 저장 실패를 best-effort 로 흡수하는 책임은
+     * <b>호출부</b>({@link AiProxyService#ragChat})에 있다(#1593). 여기서 잡으면 이 {@code @Transactional}
+     * 이 이미 rollback-only 로 마킹된 뒤라 커밋 시점에 {@code UnexpectedRollbackException} 으로 다시
+     * 터진다. 예외를 프록시 경계 밖으로 그대로 던져야 저장 트랜잭션만 롤백되고 답변 반환이 살아남는다.
+     */
     @Transactional
     public void saveConversation(Long sessionId, String query, RagChatResponse data) {
         chatMessageRepository.save(ChatMessage.createText(sessionId, ChatSenderType.USER, query));
@@ -39,9 +48,21 @@ public class RagConversationPersistenceService {
         if (data.sources() == null) {
             return;
         }
+        // chat_message_citations 의 unique(message_id, document_id, chunk_ref) 위반 선제 차단(#1593) —
+        // 같은 봇 메시지 안에서 동일 (documentId, chunkRef) 가 두 번 인용되면(리랭킹 결과에 같은 청크가
+        // 중복 등장) DataIntegrityViolationException 이 난다. message_id 는 이 루프 안에서 고정이므로
+        // (documentId, chunkRef) 만으로 중복을 판정한다. locator/snippet 이 달라도 같은 청크면 한 건만
+        // 남긴다 — 어차피 DB 제약이 두 번째 행을 받아주지 않는다.
+        Set<String> seenChunks = new HashSet<>();
         for (RagChatResponse.SourceCitation source : data.sources()) {
             Long documentId = parseDocumentId(source.docId());
             if (documentId == null) {
+                continue;
+            }
+            // documentId 는 숫자라 ':' 앞뒤 값이 섞일 여지가 없다(키 모호성 없음).
+            if (!seenChunks.add(documentId + ":" + source.chunkRef())) {
+                log.warn("RAG 출처 중복 인용 — citation 저장 생략: documentId={}, chunkRef={}",
+                        documentId, source.chunkRef());
                 continue;
             }
             chatMessageCitationRepository.save(ChatMessageCitation.create(
