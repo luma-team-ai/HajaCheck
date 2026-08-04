@@ -33,6 +33,7 @@ import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.service.PaymentGraceService;
 import com.hajacheck.membership.service.PlanDowngradeService;
 import com.hajacheck.membership.service.PlanTransitionService;
+import com.hajacheck.membership.service.QuotaService;
 import com.hajacheck.membership.service.ScheduledPlanChangeCanceller;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -94,6 +95,9 @@ public class AdminPlanService {
     private final ScheduledPlanChangeCanceller scheduledPlanChangeCanceller;
     // 미결제 유예(#1177) 판정 단일 소스 — 예약 생성 차단·미리보기 한도 기준을 실행 경로와 일치시킨다.
     private final PaymentGraceService paymentGraceService;
+    // 좌석 실측 단일 소스(#1473) — QuotaService#measureSeats 를 재사용해 MembershipService 와 같은
+    // 값이 나오도록 한다(usage_counters.seat_count 저장 카운터와의 드리프트 차단).
+    private final QuotaService quotaService;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
     public AdminPlanCatalogResponse getPlanCatalog() {
@@ -107,15 +111,7 @@ public class AdminPlanService {
         Long companyId = resolveInheritedCompanyId(adminUserId);
         UserPlan userPlan = resolveCurrentCompanyPlan(companyId);
         Plan plan = findPlan(userPlan.getPlanId());
-        LocalDate period = currentPeriod();
-        UsageCounter usage = usageCounterRepository
-                .findByUserPlanIdAndPeriod(userPlan.getId(), period)
-                .orElse(null);
-        // ⚠️ 한도·기능은 "실제로 적용 중인" 요금제 기준이다(#1177) — 유예 중이면 FREE. 하향을 신청한
-        // 바로 그 화면이라, 구독 요금제 기준으로 내보내면 owner 가 좌석이 정지된 화면에서 "좌석 5"를 본다.
-        return AdminPlanResponse.from(userPlan, plan, usage, period,
-                findPendingScheduledChange(userPlan.getId()),
-                paymentGraceService.resolveEffectivePlan(userPlan, plan));
+        return buildResponseWithUsage(userPlan, plan);
     }
 
     /**
@@ -473,9 +469,16 @@ public class AdminPlanService {
                 .orElse(null);
         // ⚠️ 한도·기능은 "실제로 적용 중인" 요금제 기준이다(#1177) — 유예 중이면 FREE. 하향을 신청한
         // 바로 그 화면이라, 구독 요금제 기준으로 내보내면 owner 가 좌석이 정지된 화면에서 "좌석 5"를 본다.
+        //
+        // 좌석은 저장 카운터(usage.getSeatCount())가 아니라 실측이다(#1473) — MembershipService 와 동일한
+        // QuotaService#measureSeats 단일 소스를 재사용해 마이페이지·관리자 콘솔 숫자가 항상 일치하게 한다.
+        // AdminPlanService 는 항상 회사 스코프(resolveInheritedCompanyId 가 companyId null 을 이미
+        // 걸러낸다)이므로 userPlan.getCompanyId() 는 non-null 이다.
+        int measuredSeatCount = quotaService.measureSeats(userPlan.getCompanyId());
         return AdminPlanResponse.from(userPlan, plan, usage, period,
                 findPendingScheduledChange(userPlan.getId()),
-                paymentGraceService.resolveEffectivePlan(userPlan, plan));
+                paymentGraceService.resolveEffectivePlan(userPlan, plan),
+                measuredSeatCount);
     }
 
     /**

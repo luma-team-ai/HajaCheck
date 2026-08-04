@@ -61,6 +61,9 @@ class MembershipServiceTest {
     private UsageCounterRepository usageCounterRepository;
     @Mock
     private PaymentGraceService paymentGraceService;
+    // 좌석 실측 단일 소스(#1473) — QuotaService#measureSeats 재사용 확인용.
+    @Mock
+    private QuotaService quotaService;
     @InjectMocks
     private MembershipService service;
 
@@ -122,7 +125,53 @@ class MembershipServiceTest {
     }
 
     @Test
-    void 내플랜조회_당월사용량행없음_0으로반환() {
+    void 내플랜조회_당월사용량행없음_시설물분석은0_좌석은실측() {
+        // #1473 회귀 방지 — usage_counters 행이 없을 때 facilityCount/analyzedImageCount 는 여전히 0(실측
+        // 원천이 없는 기간 누적)이지만, seatCount 는 "현재 상태"라 카운터 행 존재 여부와 무관하게 항상
+        // QuotaService#measureSeats 실측값이어야 한다(이전에는 0으로 떨어져 버그가 났다).
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(501L, period)).thenReturn(Optional.empty());
+        when(quotaService.measureSeats(COMPANY_ID)).thenReturn(1);
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.usage().facilityCount()).isZero();
+        assertThat(response.usage().analyzedImageCount()).isZero();
+        assertThat(response.usage().seatCount()).isEqualTo(1);
+        assertThat(response.usage().period()).isEqualTo(period);
+    }
+
+    @Test
+    void 내플랜조회_저장카운터의seatCount가실측과어긋나도_실측값이이긴다() {
+        // #1473 — usage_counters.seat_count(저장 카운터)가 드리프트로 실제와 달라도(예: 5로 저장돼 있는데
+        // 실제 활성 인원은 1명), 응답은 항상 실측값을 반환해야 한다.
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
+        UsageCounter usage = UsageCounter.create(501L, period, 10, 2, 3, 5, 0, 0); // seatCount=5(오염된 저장값)
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(501L, period)).thenReturn(Optional.of(usage));
+        when(quotaService.measureSeats(COMPANY_ID)).thenReturn(1);
+
+        MyPlanResponse response = service.getMyPlan(USER_ID);
+
+        assertThat(response.usage().seatCount()).isEqualTo(1);
+        // 시설물·분석 카운트는 여전히 저장 카운터 값 그대로(회귀 없음).
+        assertThat(response.usage().facilityCount()).isEqualTo(2);
+        assertThat(response.usage().analyzedImageCount()).isEqualTo(10);
+    }
+
+    @Test
+    void 내플랜조회_개인구독은_좌석실측1() {
         UserPlan userPlan = withId(UserPlan.forUser(USER_ID, PLAN_ID), 500L);
         LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
 
@@ -131,13 +180,11 @@ class MembershipServiceTest {
                 .thenReturn(Optional.of(userPlan));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
         when(usageCounterRepository.findByUserPlanIdAndPeriod(500L, period)).thenReturn(Optional.empty());
+        when(quotaService.measureSeats(null)).thenReturn(1);
 
         MyPlanResponse response = service.getMyPlan(USER_ID);
 
-        assertThat(response.usage().facilityCount()).isZero();
-        assertThat(response.usage().analyzedImageCount()).isZero();
-        assertThat(response.usage().seatCount()).isZero();
-        assertThat(response.usage().period()).isEqualTo(period);
+        assertThat(response.usage().seatCount()).isEqualTo(1);
     }
 
     @Test
@@ -347,7 +394,7 @@ class MembershipServiceTest {
         when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
                 .thenReturn(Optional.of(userPlan));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
-        when(userRepository.countByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE)).thenReturn(2L);
+        when(quotaService.measureSeats(COMPANY_ID)).thenReturn(2);
         when(userRepository.findByCompanyIdAndStatusOrderByIdAsc(eq(COMPANY_ID), eq(UserStatus.ACTIVE), any()))
                 .thenReturn(List.of(companyUser, member2));
 
@@ -368,7 +415,7 @@ class MembershipServiceTest {
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
         // findByCompanyIdAndStatusOrderByIdAsc(..., ACTIVE, ...) 자체가 정지 구성원을 제외한 결과를 반환한다는
         // 전제 — 리포지토리가 활성 사용자만 돌려주므로 서비스가 이를 그대로 신뢰함을 검증.
-        when(userRepository.countByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE)).thenReturn(1L);
+        when(quotaService.measureSeats(COMPANY_ID)).thenReturn(1);
         when(userRepository.findByCompanyIdAndStatusOrderByIdAsc(eq(COMPANY_ID), eq(UserStatus.ACTIVE), any()))
                 .thenReturn(List.of(companyUser));
 
@@ -389,7 +436,7 @@ class MembershipServiceTest {
         when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
                 .thenReturn(Optional.of(userPlan));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
-        when(userRepository.countByCompanyIdAndStatus(COMPANY_ID, UserStatus.ACTIVE)).thenReturn(250L);
+        when(quotaService.measureSeats(COMPANY_ID)).thenReturn(250);
         when(userRepository.findByCompanyIdAndStatusOrderByIdAsc(eq(COMPANY_ID), eq(UserStatus.ACTIVE), any()))
                 .thenReturn(List.of(companyUser, member2));
 
@@ -407,6 +454,7 @@ class MembershipServiceTest {
         when(userPlanRepository.findFirstByUserIdAndStatusOrderByStartedAtDesc(USER_ID, UserPlanStatus.ACTIVE))
                 .thenReturn(Optional.of(userPlan));
         when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(quotaService.measureSeats(null)).thenReturn(1);
 
         SeatsResponse response = service.getSeats(USER_ID);
 
@@ -425,6 +473,30 @@ class MembershipServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.PLAN_NOT_FOUND);
+    }
+
+    @Test
+    void 좌석_getMyPlan과getSeats는_항상같은실측소스를쓴다() {
+        // #1473 — 두 엔드포인트가 QuotaService#measureSeats 라는 같은 단일 소스를 거치므로 결과가 항상
+        // 일치해야 한다(같은 companyId 로 호출되는지까지 검증해 "두 곳에서 따로 계산" 회귀를 잡는다).
+        UserPlan userPlan = withId(UserPlan.forCompany(COMPANY_ID, PLAN_ID), 501L);
+        LocalDate period = YearMonth.now(ZoneId.of("Asia/Seoul")).atDay(1);
+
+        when(userRepository.findById(USER_ID)).thenReturn(Optional.of(companyUser));
+        when(userPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDesc(COMPANY_ID, UserPlanStatus.ACTIVE))
+                .thenReturn(Optional.of(userPlan));
+        when(planRepository.findById(PLAN_ID)).thenReturn(Optional.of(standardPlan));
+        when(usageCounterRepository.findByUserPlanIdAndPeriod(501L, period)).thenReturn(Optional.empty());
+        when(quotaService.measureSeats(COMPANY_ID)).thenReturn(1);
+        when(userRepository.findByCompanyIdAndStatusOrderByIdAsc(eq(COMPANY_ID), eq(UserStatus.ACTIVE), any()))
+                .thenReturn(List.of(companyUser));
+
+        MyPlanResponse planResponse = service.getMyPlan(USER_ID);
+        SeatsResponse seatsResponse = service.getSeats(USER_ID);
+
+        assertThat(planResponse.usage().seatCount()).isEqualTo(seatsResponse.used());
+        assertThat(planResponse.usage().seatCount()).isEqualTo(1);
+        verify(quotaService, org.mockito.Mockito.times(2)).measureSeats(COMPANY_ID);
     }
 
     // ── requestUpgrade ──

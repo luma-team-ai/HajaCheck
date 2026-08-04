@@ -45,16 +45,20 @@ public record AdminPlanResponse(
     /**
      * @param effectivePlan 실제 적용 중인 요금제(#1177) — 유예 중이면 FREE, 아니면 {@code plan} 과 같다.
      *                      한도·기능은 반드시 이쪽을 봐야 화면 숫자와 서버의 실제 차단 기준이 일치한다.
+     * @param measuredSeatCount <b>좌석 실측값</b>(#1473 / HAJA-652) — {@code QuotaService#measureSeats}
+     *                          단일 소스. {@code usage_counters.seat_count}(저장 카운터)는 좌석 점유 시점에
+     *                          갱신되지 않아 표시에 그대로 쓰면 드리프트가 난다. {@code MyPlanResponse} 와
+     *                          동일 규칙 — {@code usage} 존재 여부와 무관하게 항상 이 값을 쓴다.
      */
     public static AdminPlanResponse from(UserPlan userPlan, Plan plan, UsageCounter usage, LocalDate period,
-            AdminScheduledPlanChangeResponse scheduledChange, Plan effectivePlan) {
+            AdminScheduledPlanChangeResponse scheduledChange, Plan effectivePlan, int measuredSeatCount) {
         Usage usageInfo = usage == null
-                ? new Usage(0, 0, 0, 0, period)
+                ? new Usage(0, 0, 0, measuredSeatCount, period)
                 : new Usage(
                         usage.getAnalyzedImageCount(),
                         usage.getAnalysisRequestCount(),
                         usage.getFacilityCount(),
-                        usage.getSeatCount(),
+                        measuredSeatCount,
                         period);
         return new AdminPlanResponse(
                 userPlan.getId(),
