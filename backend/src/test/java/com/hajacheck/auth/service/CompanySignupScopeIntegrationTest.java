@@ -163,11 +163,16 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
         assertThat(raw.get("source").asText()).isEqualTo("MANUAL_INPUT");
         assertThat(raw.get("ntsCheckedAt").asText()).isNotBlank();
 
+        // 사업자등록증 대조 판정(#1469)도 같은 이유로 영속된다 — 이 대조 역시 fail-open 이라 MATCH 가
+        // 아니어도 승인되므로, 라벨이 없으면 "대조를 실제로 해본 회사"를 사후에 구분할 수 없다.
+        // 이 테스트의 업로드 픽스처는 매직바이트가 PNG 가 아니라 OCR 대상에서 제외된다(AI 서버 미호출).
+        assertThat(raw.get("licenseOcrOutcome").asText()).isEqualTo("SKIPPED_UNSUPPORTED_TYPE");
+
         // 개인정보(사업자번호·대표자명·이메일)는 절대 남기지 않는다. 부분 문자열 검사 대신 **키 집합을
         // 고정**한다 — 값에 담긴 숫자가 우연히 겹쳐 깨지지 않고(ntsCheckedAt 의 나노초가 사업자번호와
         // 겹쳐 실패한 전례), PII 가 새 키로 추가되면 그 자체로 실패하므로 감지력이 더 강하다.
         assertThat(raw.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("source", "ntsOutcome", "ntsCheckedAt");
+                .containsExactlyInAnyOrder("source", "ntsOutcome", "ntsCheckedAt", "licenseOcrOutcome");
     }
 
     @Test
