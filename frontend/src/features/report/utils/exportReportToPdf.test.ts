@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportContent } from "../types";
 import { mockReportDetailResponse } from "../mocks/reportDetail.mock";
-import { exportReportToPdf } from "./exportReportToPdf";
+import { exportReportToPdf, normalizeGradeInText } from "./exportReportToPdf";
 
 const mockOutput = vi.fn().mockReturnValue(new Blob(["fake-pdf-bytes"]));
 const mockAddFileToVFS = vi.fn();
@@ -953,5 +953,39 @@ describe("exportReportToPdf", () => {
     expect(options?.body).toEqual([
       ["1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
     ]);
+  });
+});
+
+// normalizeGradeInText 정규식 범위를 고정한다.
+// 이 테스트가 없으면 [A-E] 범위가 [A-Z]로 복귀하거나 [A-D]로 축소돼도 감지되지 않는다.
+describe("normalizeGradeInText", () => {
+  it("(등급 X) 표기를 소문자 단일 글자 (x) 로 정규화한다", () => {
+    expect(normalizeGradeInText("(등급 A)")).toBe(" (A)");
+    expect(normalizeGradeInText("(등급 C)")).toBe(" (C)");
+    expect(normalizeGradeInText("(등급 E)")).toBe(" (E)");
+  });
+
+  it("(X등급) 표기를 소문자 단일 글자 (x) 로 정규화한다", () => {
+    expect(normalizeGradeInText("(A등급)")).toBe(" (A)");
+    expect(normalizeGradeInText("(E등급)")).toBe(" (E)");
+  });
+
+  it("독립 (X) 표기를 소문자로 정규화한다 — 모든 하자 등급 A~E를 커버한다", () => {
+    for (const grade of ["A", "B", "C", "D", "E"]) {
+      expect(normalizeGradeInText(`(${grade})`)).toBe(` (${grade.toLowerCase()})`);
+    }
+  });
+
+  it("등급 범위 밖의 대문자 괄호 표기 (F), (X), (Z) 는 변환하지 않는다", () => {
+    expect(normalizeGradeInText("(F)")).toBe("(F)");
+    expect(normalizeGradeInText("(X)")).toBe("(X)");
+    expect(normalizeGradeInText("(Z)")).toBe("(Z)");
+  });
+
+  it("이미 소문자인 (a)~(e)는 그대로 유지한다", () => {
+    for (const grade of ["a", "b", "c", "d", "e"]) {
+      const input = ` (${grade})`;
+      expect(normalizeGradeInText(input)).toBe(input);
+    }
   });
 });

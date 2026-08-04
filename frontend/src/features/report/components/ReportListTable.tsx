@@ -164,7 +164,12 @@ export function ReportListTable({
             onClick={(event) => {
               event.stopPropagation();
               const rect = event.currentTarget.getBoundingClientRect();
-              const ESTIMATED_MENU_HEIGHT = 175;
+              // actionError 메시지가 표시될 경우 메뉴 높이가 늘어나므로 추정치에 가산한다
+              // (에러 텍스트 1줄 ≈ 28px). 에러 유무는 클릭 시점에 이미 결정돼 있으므로
+              // 여기서 읽어도 정확하다.
+              const hasError = !!(actionErrors[row.id]);
+              const ESTIMATED_MENU_HEIGHT = 175 + (hasError ? 28 : 0);
+
               const openUpward = rect.bottom + ESTIMATED_MENU_HEIGHT > window.innerHeight;
               setOpenMenu((current) =>
                 current?.id === row.id
