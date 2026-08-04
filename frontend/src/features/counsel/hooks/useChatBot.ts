@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
 import { SCENARIO_ACTION_OVERRIDES } from '../constants';
@@ -22,6 +22,11 @@ export type ChatBotLogEntry =
   | { id: string; kind: 'bot-buttons'; buttons: BotScenarioButtonResponse[] }
   | { id: string; kind: 'user-choice'; label: string }
   | { id: string; kind: 'ticket-created'; ticket: CounselTicketSummaryResponse };
+
+// #1506 — activeTicket.status 전이를 대화 로그 안에서 알리는 시스템 메시지. WAITING→IN_PROGRESS는
+// "연결됨", (WAITING|IN_PROGRESS)→(RESOLVED|OFFLINE_LEFT)는 "종료됨"으로 구분해 렌더 위치를 다르게 쓴다
+// (ChatBotPage에서 kind로 실시간 대화 시작 직전/메시지 목록 다음 위치를 나눔).
+export type ChatSystemNotice = { id: string; kind: 'assigned' | 'ended'; text: string };
 
 // 노드 응답 문구를 만들 때 #1434 오버라이드(있으면 문구 교체 + 바로가기 버튼 정보)를 적용한다.
 function resolveNodeText(node: BotScenarioNodeResponse, fallbackText: string) {
@@ -53,6 +58,7 @@ export function useChatBot(initialCategory?: string) {
   const [counselorTyping, setCounselorTyping] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
+  const [systemNotices, setSystemNotices] = useState<ChatSystemNotice[]>([]);
 
   const isSocketActive =
     activeTicket !== null && (activeTicket.status === 'WAITING' || activeTicket.status === 'IN_PROGRESS');
@@ -104,6 +110,32 @@ export function useChatBot(initialCategory?: string) {
     // 갱신하므로, 객체 전체를 넣으면 매 갱신마다 재요청이 도는 루프가 생긴다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected, activeTicket?.id]);
+
+  // #1506 — activeTicket.status가 바뀌는 모든 경로(WS onAssigned/onEnded, 위 REST 백필)에 공통으로
+  // 걸리도록 activeTicket?.status 하나만 watch한다. 최초 마운트(prevStatusRef.current===undefined)에는
+  // 알림을 띄우지 않는다 — 이미 IN_PROGRESS/RESOLVED로 시작한 케이스까지 "지금 막 전이됐다"고 오인시키지
+  // 않기 위함(이 훅은 챗봇 화면 진입 시 매번 새로 생성되므로 activeTicket은 항상 null에서 시작한다).
+  const prevStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prevStatus = prevStatusRef.current;
+    const nextStatus = activeTicket?.status;
+    prevStatusRef.current = nextStatus;
+    if (prevStatus === undefined || nextStatus === undefined || prevStatus === nextStatus) return;
+
+    if (prevStatus === 'WAITING' && nextStatus === 'IN_PROGRESS') {
+      setSystemNotices((prev) => [
+        ...prev,
+        { id: nextId(), kind: 'assigned', text: '상담원과 연결되었습니다.' },
+      ]);
+      return;
+    }
+    if (
+      (prevStatus === 'WAITING' || prevStatus === 'IN_PROGRESS') &&
+      (nextStatus === 'RESOLVED' || nextStatus === 'OFFLINE_LEFT')
+    ) {
+      setSystemNotices((prev) => [...prev, { id: nextId(), kind: 'ended', text: '상담이 종료되었습니다.' }]);
+    }
+  }, [activeTicket?.status]);
 
   const endCounsel = useCallback(async () => {
     if (activeTicket === null) return;
@@ -206,6 +238,7 @@ export function useChatBot(initialCategory?: string) {
     retry: loadRoots,
     activeTicket,
     messages,
+    systemNotices,
     socketConnected: connected,
     sendMessage,
     sendTyping,
