@@ -13,6 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { useAuthStore } from '../../auth/store/authStore';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
+import { getRagSessionId, setRagSessionId } from '../../support/utils/ragSessionId';
 import type { EmailAvailabilityResponse, User } from '../../auth/types';
 import { PlatformAdminLoginPage } from './PlatformAdminLoginPage';
 
@@ -160,6 +161,20 @@ describe('PlatformAdminLoginPage', () => {
     });
     expect(useInspectionStore.getState().activeInspectionId).toBeNull();
     expect(useInspectionStore.getState().activeReportId).toBeNull();
+  });
+
+  // #1590 — 같은 이유(공용 PC 계정 전환)로 RAG 챗봇 session_id(localStorage 영속)도 함께 지운다.
+  it('로그인 성공 시 이전 사용자의 RAG session_id를 지운다(#1590)', async () => {
+    setRagSessionId(77);
+    mockLoginSuccess(platformAdminUser);
+    renderPage();
+
+    fillAndSubmit();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/platform-admin');
+    });
+    expect(getRagSessionId()).toBeNull();
   });
 
   // #1513 — 화면↔엔드포인트 대응이 이 PR의 핵심 계약이다. 기업 포털(/api/auth/login)로 새면

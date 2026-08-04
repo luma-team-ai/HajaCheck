@@ -12,8 +12,9 @@ import { facilityHandlers, resetFacilityMockStore } from '../api/facilityApi.han
 import { facilityMediaHandlers, resetFacilityMediaMockStore } from '../api/facilityMediaApi.handlers';
 import { FacilityListPage } from './FacilityListPage';
 
-const { openPostcodeSearchMock } = vi.hoisted(() => ({
+const { openPostcodeSearchMock, geocodeAddressMock } = vi.hoisted(() => ({
   openPostcodeSearchMock: vi.fn(),
+  geocodeAddressMock: vi.fn(),
 }));
 
 // 다음(카카오) 우편번호 팝업은 실제 외부 스크립트를 로드하므로(#1546 — 주소 필수화로 이 흐름을
@@ -21,6 +22,17 @@ const { openPostcodeSearchMock } = vi.hoisted(() => ({
 vi.mock('../hooks/useFacilityPostcodeSearch', () => ({
   useFacilityPostcodeSearch: () => ({ openPostcodeSearch: openPostcodeSearchMock }),
 }));
+
+// 좌표 변환도 Kakao SDK 스크립트를 실제로 로드한다 — 주소 필수화(#1546) 이후 모든 등록 흐름이
+// 이 경로를 타므로, 모킹하지 않으면 VITE_KAKAO_MAP_APP_KEY 유무에 따라 이 파일의 결과가
+// 갈린다(키 있으면 jsdom이 스크립트를 못 받아 hang → 다수 실패, 키 없으면 즉시 reject).
+// 환경과 무관하게 결정적이도록 geocodeAddress 자체를 모킹한다(#1590 P2).
+vi.mock('../../../shared/lib/kakaoMap/geocodeAddress', async () => {
+  const actual = await vi.importActual<
+    typeof import('../../../shared/lib/kakaoMap/geocodeAddress')
+  >('../../../shared/lib/kakaoMap/geocodeAddress');
+  return { ...actual, geocodeAddress: geocodeAddressMock };
+});
 
 const server = setupServer(...facilityHandlers, ...facilityMediaHandlers);
 
@@ -30,6 +42,9 @@ beforeEach(() => {
   let counter = 0;
   URL.createObjectURL = vi.fn(() => `blob:mock-${counter++}`) as unknown as typeof URL.createObjectURL;
   URL.revokeObjectURL = vi.fn() as unknown as typeof URL.revokeObjectURL;
+  // 기본은 좌표 변환 성공 — 이 파일의 관심사는 등록/목록 갱신 흐름이라 geocode는 항상 성공으로 고정한다.
+  geocodeAddressMock.mockReset();
+  geocodeAddressMock.mockResolvedValue({ latitude: 37.5006, longitude: 127.0364 });
 });
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));

@@ -3,7 +3,7 @@
 // counselHandlers. useCounselSocket은 별도 단위 테스트(useCounselSocket.test.ts)에서 이미 검증돼
 // 여기서는 목으로 대체해 STOMP 프레임 시뮬레이션 없이 페이지 동작(목록→배정→채팅→종료)에 집중한다.
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -162,10 +162,89 @@ describe('CounselorConsolePage', () => {
     });
 
     // 화면 이동 없이 같은 채팅창에서 종료 상태로 전환된다 — 대기열 화면(선택 안내 문구)으로 돌아가지 않는다.
-    await waitFor(() => expect(screen.getByText('고객이 상담을 종료했습니다.')).not.toBeNull());
+    // 문구는 종료 주체를 단정하지 않는 중립형이다(#1590 P3 — 관리자 강제 종료·오프라인 이탈 포함).
+    await waitFor(() => expect(screen.getByText('상담이 종료되었습니다.')).not.toBeNull());
     expect(screen.getByText('상담종료')).not.toBeNull();
     expect(screen.queryByText('왼쪽 목록에서 상담을 선택하세요.')).toBeNull();
     expect(screen.queryByRole('button', { name: '상담 종료' })).toBeNull();
+  });
+
+  // #1590 리뷰 P3 — 서버 상태 조회가 끝나기 전(미확정 창)에는 "상담 종료" 버튼·입력창을 열어두지
+  // 않는다. 열어두면 이미 종료된 티켓에서도 잠깐 조작 가능해 보이고, 그 사이 전송은 서버가 거부한다.
+  it('티켓 상태 조회가 끝나기 전에는 종료 버튼·입력창을 잠갔다가 확정 후 연다(#1590)', async () => {
+    server.use(
+      http.get('/api/counsel/tickets/:id', async ({ params }) => {
+        if (Number(params.id) !== mockInProgressQueueTicket.id) return;
+        await delay(500);
+        return HttpResponse.json({ success: true, data: mockInProgressQueueTicket });
+      }),
+    );
+
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockInProgressQueueTicket.title));
+    await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
+
+    // 조회 in-flight — 아직 종료 여부를 모르므로 잠겨 있어야 한다.
+    expect(screen.queryByRole('button', { name: '상담 종료' })).toBeNull();
+    expect(
+      (screen.getByPlaceholderText('메시지를 입력하세요') as HTMLInputElement).disabled,
+    ).toBe(true);
+
+    // 진행 중(IN_PROGRESS)으로 확정되면 다시 열린다.
+    expect(await screen.findByRole('button', { name: '상담 종료' })).not.toBeNull();
+    await waitFor(() =>
+      expect(
+        (screen.getByPlaceholderText('메시지를 입력하세요') as HTMLInputElement).disabled,
+      ).toBe(false),
+    );
+  });
+
+  // #1590 P2 — selectedTicket은 목록/navigate state 스냅샷이라 원격 종료 후에도 IN_PROGRESS로 남는다.
+  // 예전에는 티켓을 바꿨다 돌아오면 remoteEndedTicket이 리셋되면서 종료 표시가 사라지고 입력창이
+  // 다시 열렸다(전송하면 서버가 거부). 이제 훅이 서버에서 최신 상태를 다시 확인해 종료를 유지한다.
+  it('원격 종료 후 다른 티켓을 거쳐 돌아와도 종료 상태가 유지된다(#1590)', async () => {
+    renderPage();
+
+    // 이미 배정된(IN_PROGRESS) 티켓은 클릭 즉시 대화창이 열린다.
+    fireEvent.click(await screen.findByText(mockInProgressQueueTicket.title));
+    await screen.findByText('안녕하세요, 문의 주신 내용에 대해 안내드리겠습니다.');
+
+    capturedHandlers?.onEnded?.({
+      ...mockInProgressQueueTicket,
+      status: 'OFFLINE_LEFT',
+    });
+    await waitFor(() =>
+      expect(screen.getByText('고객이 연결을 종료해 상담이 종료되었습니다.')).not.toBeNull(),
+    );
+
+    // 서버는 이제 이 티켓을 종료 상태로 응답한다(대기열 조회에서는 빠지므로 목록으로는 알 수 없다).
+    server.use(
+      http.get('/api/counsel/tickets/:id', ({ params }) => {
+        // 대상 티켓이 아니면 아무것도 반환하지 않아 기본 핸들러로 위임한다 — 그러지 않으면 이
+        // 오버라이드가 기본 핸들러 앞에 붙어 리터럴 경로(/mine·/admin)까지 가로챈다(#1590 리뷰 P3).
+        if (Number(params.id) !== mockInProgressQueueTicket.id) return;
+        return HttpResponse.json({
+          success: true,
+          data: { ...mockInProgressQueueTicket, status: 'OFFLINE_LEFT' },
+        });
+      }),
+    );
+
+    // 다른 티켓(대기 중)으로 갔다가 되돌아온다.
+    fireEvent.click(screen.getByText(mockQueueTickets[0].title));
+    await screen.findByRole('button', { name: '상담 배정받기' });
+    fireEvent.click(screen.getByText(mockInProgressQueueTicket.title));
+
+    await waitFor(() =>
+      expect(screen.getByText('고객이 연결을 종료해 상담이 종료되었습니다.')).not.toBeNull(),
+    );
+    expect(screen.getByText('상담종료')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: '상담 종료' })).toBeNull();
+    // 입력창도 비활성 상태여야 한다(전송해도 서버가 거부하는 상태).
+    expect(
+      (screen.getByPlaceholderText('메시지를 입력하세요') as HTMLInputElement).disabled,
+    ).toBe(true);
   });
 
   it('정보 패널 "정보/메모" 탭에서 기존 비공개 메모를 불러와 보여준다(#1022)', async () => {

@@ -39,13 +39,31 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
     resolving,
     resolveError,
     resolve,
-    remoteEndedTicket,
+    endedTicket,
+    isEnded: threadEnded,
+    endedPending,
   } = useCounselorTicketThread(threadTicketId, onResolved);
 
-  // #1506 — 고객이 원격으로 종료했거나(remoteEndedTicket), 이미 종료된 티켓을 목록에서 클릭해 들어온
-  // 경우(ticket.status가 RESOLVED/OFFLINE_LEFT) 둘 다 같은 "종료" UI로 묶는다.
+  // #1506 — 고객이 원격으로 종료했거나, 이미 종료된 티켓을 목록에서 클릭해 들어온 경우
+  // (ticket.status가 RESOLVED/OFFLINE_LEFT) 둘 다 같은 "종료" UI로 묶는다.
+  // #1590 — ticket prop은 목록/navigate state 스냅샷이라 원격 종료 후 갱신되지 않으므로, 훅이
+  // 서버에서 확인한 종료 상태(threadEnded)를 1순위로 본다.
   const isEnded =
-    remoteEndedTicket !== null || ticket?.status === 'RESOLVED' || ticket?.status === 'OFFLINE_LEFT';
+    threadEnded || ticket?.status === 'RESOLVED' || ticket?.status === 'OFFLINE_LEFT';
+
+  // #1590 P3 — 종료 문구가 항상 "고객이 상담을 종료했습니다."라 PLATFORM_ADMIN 강제 종료나
+  // 오프라인 이탈, 이미 종료된 티켓 열람 시 사실과 달랐다. 구분 가능한 것(OFFLINE_LEFT)만 따로
+  // 안내하고, 종료 주체를 알 수 없는 RESOLVED는 중립 문구로 표시한다.
+  // 서버 상태 조회가 끝나기 전까지는 종료 여부가 미확정이다(#1590 리뷰 P3) — 그 창에서 종료 버튼과
+  // 입력창을 열어두면 종료된 티켓인데도 잠깐 조작 가능해 보이고, 전송하면 서버가 거부한다.
+  // 이미 종료로 확정됐으면(isEnded) 잠글 필요가 없다.
+  const endedUndetermined = endedPending && !isEnded;
+
+  const endedStatus = endedTicket?.status ?? ticket?.status;
+  const endedText =
+    endedStatus === 'OFFLINE_LEFT'
+      ? '고객이 연결을 종료해 상담이 종료되었습니다.'
+      : '상담이 종료되었습니다.';
 
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -123,7 +141,9 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
             </span>
           </div>
         </div>
-        {!isEnded && (
+        {/* 종료 여부 확정 전(endedUndetermined)에는 버튼을 아예 내보내지 않는다 — 종료된 티켓에
+            "상담 종료"가 잠깐 보였다 사라지는 깜빡임과 그 사이의 헛클릭을 막는다(#1590 리뷰 P3). */}
+        {!isEnded && !endedUndetermined && (
           <button
             type="button"
             onClick={() => void resolve()}
@@ -180,7 +200,7 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
             );
           })}
         {customerTyping && <TypingIndicatorBubble />}
-        {isEnded && <ChatSystemMessage text="고객이 상담을 종료했습니다." tone="ended" />}
+        {isEnded && <ChatSystemMessage text={endedText} tone="ended" />}
         <div ref={scrollRef} />
       </div>
 
@@ -189,7 +209,7 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
           value={draft}
           onChange={handleDraftChange}
           onSubmit={handleSend}
-          disabled={!connected || isEnded}
+          disabled={!connected || isEnded || endedUndetermined}
           placeholder="메시지를 입력하세요"
         />
       </div>
