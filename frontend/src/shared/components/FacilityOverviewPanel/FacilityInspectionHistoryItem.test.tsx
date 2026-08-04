@@ -64,10 +64,27 @@ describe('FacilityInspectionHistoryItem', () => {
     expect(handleViewMore).toHaveBeenCalledWith(8);
   });
 
-  it('additionalImageCount가 없으면 썸네일 행 자체를 렌더링하지 않는다', () => {
-    render(<FacilityInspectionHistoryItem item={baseItem} expanded />);
+  it('imageCount가 0이면 썸네일 행 자체를 렌더링하지 않는다', () => {
+    render(<FacilityInspectionHistoryItem item={{ ...baseItem, imageCount: 0 }} expanded />);
 
     expect(screen.queryByRole('img', { name: /점검 사진/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^\+/ })).toBeNull();
+  });
+
+  // 회귀고정(#1575) — 미리보기 2장(THUMBNAIL_PREVIEW_COUNT) 이하인 회차는 useFacilityInspectionOverview.ts
+  // 매퍼가 additionalImageCount를 undefined로 둔다. 과거엔 이게 사진 행 전체를 가리는 조건과
+  // 하나로 묶여 있어, 이미지가 1~2장뿐인 회차는 실제 사진이 있어도 안 보이는 버그가 있었다
+  // ("서초 브릿지" 이미지 1장 사례로 발견).
+  it('이미지가 1장뿐이라 additionalImageCount가 없어도 그 1장은 렌더링한다(#1575)', () => {
+    render(
+      <FacilityInspectionHistoryItem
+        item={{ ...baseItem, imageCount: 1, thumbnailUrls: ['/api/media/901/thumbnail'] }}
+        expanded
+      />,
+    );
+
+    const photo = screen.getByRole('img', { name: '8회차 점검 사진 1' }) as HTMLImageElement;
+    expect(photo.src).toContain('/api/media/901/thumbnail');
     expect(screen.queryByRole('button', { name: /^\+/ })).toBeNull();
   });
 });

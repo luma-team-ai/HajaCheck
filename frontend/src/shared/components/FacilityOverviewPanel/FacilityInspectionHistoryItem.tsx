@@ -81,7 +81,11 @@ export function FacilityInspectionHistoryItem({
 
       {expanded && (
         <>
-          {item.additionalImageCount !== undefined && (
+          {/* 사진 미리보기 2칸은 "이미지가 있는지"로만 게이팅한다 — "+N" 버튼 노출 여부
+              (additionalImageCount, 미리보기 2장 초과분이 있을 때만 존재)와는 별개 조건이다.
+              과거엔 이 둘을 하나로 묶어서, 이미지가 1~2장뿐인 회차는 사진이 있어도 행 자체가
+              렌더링되지 않는 버그가 있었다(#1575, "서초 브릿지" 이미지 1장 사례로 발견). */}
+          {item.imageCount > 0 && (
             <div className="flex items-center gap-3">
               {[0, 1].map((slotIndex) => {
                 const url = item.thumbnailUrls?.[slotIndex];
@@ -99,13 +103,15 @@ export function FacilityInspectionHistoryItem({
                   <div key={slotIndex} className={placeholderClass} />
                 );
               })}
-              <button
-                type="button"
-                onClick={() => onViewMoreClick?.(item.id)}
-                className="flex size-24 cursor-pointer items-center justify-center rounded-xl border-none bg-zinc-200/30 text-base font-medium text-neutral-600 outline outline-1 outline-offset-[-1px] outline-neutral-300/30"
-              >
-                +{item.additionalImageCount}
-              </button>
+              {item.additionalImageCount !== undefined && (
+                <button
+                  type="button"
+                  onClick={() => onViewMoreClick?.(item.id)}
+                  className="flex size-24 cursor-pointer items-center justify-center rounded-xl border-none bg-zinc-200/30 text-base font-medium text-neutral-600 outline outline-1 outline-offset-[-1px] outline-neutral-300/30"
+                >
+                  +{item.additionalImageCount}
+                </button>
+              )}
             </div>
           )}
 
