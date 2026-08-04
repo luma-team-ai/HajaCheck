@@ -378,6 +378,6 @@ describe("ReportContentEditor", () => {
       />,
     );
 
-    expect(screen.getAllByText("부위별 사진")).toHaveLength(1);
+    expect(screen.getAllByText("결함 사진")).toHaveLength(1);
   });
 });

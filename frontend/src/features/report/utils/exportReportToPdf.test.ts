@@ -525,7 +525,7 @@ describe("exportReportToPdf", () => {
     expect(options?.body).toEqual([["추가된 이미지가 없습니다."]]);
   });
 
-  it("부위별 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다", async () => {
+  it("결함 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === "/api/media/1/thumbnail") {
         return Promise.resolve({
@@ -558,11 +558,11 @@ describe("exportReportToPdf", () => {
 
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     // 맨 앞으로 옮겼으니 1번, 기본현황은 그 다음(2번)이 된다 — 고정 마지막 자리가 아니다.
-    expect(renderedText).toContain("1. 부위별 사진");
+    expect(renderedText).toContain("1. 결함 사진");
     expect(renderedText).toContain("2. 기본현황");
   });
 
-  it("사진이 0장이면 sectionOrder에 있어도 부위별 사진 섹션과 번호를 만들지 않는다", async () => {
+  it("사진이 0장이면 sectionOrder에 있어도 결함 사진 섹션과 번호를 만들지 않는다", async () => {
     const content = makeContent({
       sectionOrder: [
         "photos",
@@ -578,7 +578,7 @@ describe("exportReportToPdf", () => {
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     expect(
       renderedText.some(
-        (text) => typeof text === "string" && text.includes("부위별 사진"),
+        (text) => typeof text === "string" && text.includes("결함 사진"),
       ),
     ).toBe(false);
     // 사진 섹션이 통째로 빠지므로 기본현황이 1번을 그대로 유지한다(번호에 구멍이 생기지 않음).
@@ -682,7 +682,7 @@ describe("exportReportToPdf", () => {
     expect(barRow[1].content).toBe("상태평가 결과 : d");
   });
 
-  it("점검 축소본을 부위별 사진 표 안에 안전하게 배치한다(자동 페이지분할되는 autoTable 셀)", async () => {
+  it("점검 축소본을 결함 사진 표 안에 안전하게 배치한다(자동 페이지분할되는 autoTable 셀)", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === "/api/media/1/thumbnail") {
         return Promise.resolve({
@@ -876,7 +876,7 @@ describe("exportReportToPdf", () => {
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     expect(
       renderedText.some(
-        (text) => typeof text === "string" && text.startsWith("부위별 사진"),
+        (text) => typeof text === "string" && text.startsWith("결함 사진"),
       ),
     ).toBe(false);
     expect(mockAddImage).not.toHaveBeenCalled();

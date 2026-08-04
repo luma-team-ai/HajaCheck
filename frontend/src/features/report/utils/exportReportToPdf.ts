@@ -1066,7 +1066,7 @@ export async function exportReportToPdf(
           cursorY,
           nested,
         );
-      else cursorY = renderPhotosBlock(`${marker} 부위별 사진`, cursorY);
+      else cursorY = renderPhotosBlock(`${marker} 결함 사진`, cursorY);
       return;
     }
 

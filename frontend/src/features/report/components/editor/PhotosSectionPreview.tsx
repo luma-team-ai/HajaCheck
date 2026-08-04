@@ -37,7 +37,7 @@ export function PhotosSectionPreview({ photoGroups }: PhotosSectionPreviewProps)
       ) : (
         <>
           <p className="text-xs text-text-muted">
-            확정 하자의 촬영 축소본이 PDF의 "부위별 사진" 섹션에 자동 포함됩니다({validGroups.length}장 · 하자{' '}
+            확정 하자의 촬영 축소본이 PDF의 "결함 사진" 섹션에 자동 포함됩니다({validGroups.length}장 · 하자{' '}
             {defectCount}건).
           </p>
           {validGroups.length > PAGE_SIZE && (
@@ -47,7 +47,7 @@ export function PhotosSectionPreview({ photoGroups }: PhotosSectionPreviewProps)
                   type="button"
                   onClick={() => setPage((current) => Math.max(0, current - 1))}
                   disabled={safePage === 0}
-                  aria-label="부위별 사진 이전 페이지"
+                  aria-label="결함 사진 이전 페이지"
                   className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-zinc-200 text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-35"
                 >
                   <svg
@@ -70,7 +70,7 @@ export function PhotosSectionPreview({ photoGroups }: PhotosSectionPreviewProps)
                   type="button"
                   onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
                   disabled={safePage === totalPages - 1}
-                  aria-label="부위별 사진 다음 페이지"
+                  aria-label="결함 사진 다음 페이지"
                   className="flex size-8 cursor-pointer items-center justify-center rounded-full border border-zinc-200 text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-35"
                 >
                   <svg
