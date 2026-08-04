@@ -62,6 +62,18 @@ class ImageSignatureValidatorTest {
     }
 
     @Test
+    void validate_동영상MP4_FILE_INVALID_TYPE() {
+        // UT-082 — 이미지 전용 정책(JPEG/PNG만 허용). 매직바이트와 무관하게 허용 목록 밖의
+        // Content-Type이면 거부된다(validate_허용되지않는contentType과 동일 메커니즘, 시나리오만 다름).
+        MultipartFile file = new MockMultipartFile("files", "a.mp4", "video/mp4",
+                new byte[] {0, 0, 0, 0x18, 'f', 't', 'y', 'p'});
+
+        assertThatThrownBy(() -> ImageSignatureValidator.validate(file))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FILE_INVALID_TYPE));
+    }
+
+    @Test
     void validate_시그니처보다짧은바이트_FILE_INVALID_TYPE() {
         MultipartFile file = new MockMultipartFile("files", "a.png", "image/png", new byte[] {1, 2, 3});
 
