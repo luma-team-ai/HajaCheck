@@ -17,5 +17,7 @@ public record DetectedDefectItem(
         @JsonProperty("bbox_h") Double bboxH,
         Double confidence,
         String grade,
-        @JsonProperty("area_ratio") Double areaRatio) {
+        @JsonProperty("area_ratio") Double areaRatio,
+        // 균열만 — 카드 기준물로 환산한 폭(mm). 카드 미검출 또는 폭 0.7mm 미만이면 null(#1487/#1547).
+        @JsonProperty("width_mm") Double widthMm) {
 }
