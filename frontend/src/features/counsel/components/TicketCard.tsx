@@ -1,4 +1,4 @@
-import { STATUS_BADGE } from '../constants';
+import { CATEGORY_LABEL, STATUS_BADGE } from '../constants';
 import type { CounselTicketSummaryResponse } from '../types';
 
 // 오늘 티켓은 시각(HH:mm), 그 외는 날짜(YYYY.MM.DD) — Figma: 최신 티켓만 시각 표시.
@@ -35,7 +35,7 @@ export function TicketCard({ ticket, selected, onSelect }: Props) {
     >
       <div className="flex items-center justify-between gap-2">
         <span className="rounded-full bg-surface-sunken px-2.5 py-0.5 text-xs font-medium text-text-muted">
-          {ticket.category}
+          {CATEGORY_LABEL[ticket.category] ?? ticket.category}
         </span>
         <span className={`flex items-center gap-1 text-xs font-medium ${badge.textClassName}`}>
           <span className={`size-1.5 rounded-full ${badge.dotClassName}`} aria-hidden="true" />

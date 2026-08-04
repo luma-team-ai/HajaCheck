@@ -1,9 +1,43 @@
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { ConversationPanel } from '../components/ConversationPanel';
 import { TicketCard } from '../components/TicketCard';
 import { CHAT_BOT_PATH, STATUS_FILTER_TABS } from '../constants';
 import { useCounselHistory } from '../hooks/useCounselHistory';
+import type { CounselTicketSummaryResponse } from '../types';
+
+// 상담원 콘솔 대기열(useCounselorQueue)의 "상담 중"/"배정 가능" 2-섹션 구성과 결을 맞춘다 —
+// 고객 쪽은 "상담 중"/"배정 대기중"으로 명명(#1506 후속 피드백: 배정 전/후를 목록에서부터 구분해
+// 달라는 요청). RESOLVED/OFFLINE_LEFT(종료)는 기존처럼 섹션 헤더 없이 flat하게 아래에 둔다 —
+// '전체' 탭에서만 섞여 나타나고 '진행중'/'종료' 탭은 어차피 단일 상태군만 보여준다.
+function TicketSection({
+  label,
+  tickets,
+  selectedId,
+  onSelect,
+}: {
+  label: string;
+  tickets: CounselTicketSummaryResponse[];
+  selectedId: number | null;
+  onSelect: (id: number) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="px-1 text-xs font-semibold text-text-muted">
+        {label} ({tickets.length})
+      </span>
+      {tickets.map((ticket) => (
+        <TicketCard
+          key={ticket.id}
+          ticket={ticket}
+          selected={ticket.id === selectedId}
+          onSelect={() => onSelect(ticket.id)}
+        />
+      ))}
+    </div>
+  );
+}
 
 // 고객지원 > 내 상담 이력(#20, HAJA-33) — 좌측 목록(상태 필터) + 우측 선택 티켓 대화.
 // 앱 셸(AppLayout: SideNavBar+Header+FAB)은 AppShellRoute가 감싸므로 여기서는 카드 본문만 렌더한다.
@@ -28,6 +62,13 @@ export function CounselHistoryPage() {
     ending,
     endError,
   } = useCounselHistory();
+
+  const inProgressTickets = useMemo(() => tickets.filter((t) => t.status === 'IN_PROGRESS'), [tickets]);
+  const waitingTickets = useMemo(() => tickets.filter((t) => t.status === 'WAITING'), [tickets]);
+  const endedTickets = useMemo(
+    () => tickets.filter((t) => t.status === 'RESOLVED' || t.status === 'OFFLINE_LEFT'),
+    [tickets],
+  );
 
   function goToNewCounsel() {
     navigate(CHAT_BOT_PATH);
@@ -71,16 +112,25 @@ export function CounselHistoryPage() {
             {!ticketsLoading && !ticketsError && tickets.length === 0 && (
               <p className="px-2 text-sm text-text-muted">상담 이력이 없습니다.</p>
             )}
-            {!ticketsLoading &&
-              !ticketsError &&
-              tickets.map((ticket) => (
-                <TicketCard
-                  key={ticket.id}
-                  ticket={ticket}
-                  selected={ticket.id === selectedId}
-                  onSelect={() => selectTicket(ticket.id)}
-                />
-              ))}
+            {!ticketsLoading && !ticketsError && (
+              <>
+                {inProgressTickets.length > 0 && (
+                  <TicketSection label="상담 중" tickets={inProgressTickets} selectedId={selectedId} onSelect={selectTicket} />
+                )}
+                {waitingTickets.length > 0 && (
+                  <TicketSection label="배정 대기중" tickets={waitingTickets} selectedId={selectedId} onSelect={selectTicket} />
+                )}
+                {endedTickets.length > 0 &&
+                  endedTickets.map((ticket) => (
+                    <TicketCard
+                      key={ticket.id}
+                      ticket={ticket}
+                      selected={ticket.id === selectedId}
+                      onSelect={() => selectTicket(ticket.id)}
+                    />
+                  ))}
+              </>
+            )}
           </div>
         </div>
 

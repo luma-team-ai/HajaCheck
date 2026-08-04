@@ -497,8 +497,14 @@ class CounselTicketServiceTest {
         CounselTicketService.Transcript transcript = service.exportTranscript(TICKET_ID, COUNSELOR_ID);
 
         assertThat(transcript.fileName()).isEqualTo("CS-20260725-050.txt");
+        // #1506 — 내보내기 텍스트는 raw enum(COUNSELOR/INSPECTION_REPORT/IN_PROGRESS) 대신 한글 라벨을
+        // 쓴다. 담당 상담원 실명이 없으면(이 테스트는 userRepository에 COUNSELOR_ID를 스텁하지 않음)
+        // "상담원"만 표기한다(CounselTicketService#exportSenderLabel 참고).
         assertThat(new String(transcript.content(), java.nio.charset.StandardCharsets.UTF_8))
-                .contains("CS-20260725-050").contains("COUNSELOR: 안내드립니다");
+                .contains("CS-20260725-050")
+                .contains("카테고리: 점검 결과서 관련")
+                .contains("상태: 상담중")
+                .contains("상담원: 안내드립니다");
     }
 
     @Test
