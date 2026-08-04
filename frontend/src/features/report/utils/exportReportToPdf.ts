@@ -661,7 +661,9 @@ export async function exportReportToPdf(
         content.detail.items.length > 0
           ? content.detail.items.map((item, index) => [
               String(index + 1),
-              item.location || "-",
+              // "결함발생 부재"(구조부재명) 데이터가 없어 시설물 주소(item.location)가 대신
+              // 흘러들어왔었다 — 원본 양식에 없는 정보라 화면엔 빈 값으로 표시한다(#1499).
+              "-",
               toMemberGrade(item.severity_grade),
               item.defect_type || "-",
               item.description || "-",

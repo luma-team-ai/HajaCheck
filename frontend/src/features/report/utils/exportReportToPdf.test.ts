@@ -654,9 +654,9 @@ describe("exportReportToPdf", () => {
         Array.isArray(candidate.head) &&
         (candidate.head as string[][])[1]?.includes("결함발생 부재"),
     );
-    expect(options?.body).toEqual([
-      ["1", "1층 벽체", "c", "균열", "설명", "원인"],
-    ]);
+    // "결함발생 부재" 컬럼은 구조부재명 데이터가 없어 시설물 주소(item.location)를 대신
+    // 표시해왔으나, 원본 양식에 없는 정보라 항상 빈 값("-")으로 표시한다(#1499).
+    expect(options?.body).toEqual([["1", "-", "c", "균열", "설명", "원인"]]);
   });
 
   it("등급별 건수에서 최악 등급을 상태평가 결과로 표기한다", async () => {
