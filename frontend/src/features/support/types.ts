@@ -15,10 +15,12 @@ export interface RagAnswerData {
   sources: SourceCitation[];
 }
 
-// 요청 스키마 — session_id는 HAJA-668(#1548, 설계 §2/§5.1)로 확정. 없으면 기존처럼 단발 질의.
+// 요청 스키마 — sessionId는 HAJA-668(#1548, 설계 §2/§5.1)로 확정. 없으면 기존처럼 단발 질의.
+// 백엔드 RagChatRequest(record)는 Jackson 기본 camelCase 매핑이라 sessionId로 보내야 한다
+// (snake_case로 보내면 백엔드가 null로 받아 세션이 전혀 연결되지 않는다 — #1548 로컬 검증 중 발견).
 export interface RagChatRequest {
   query: string;
-  session_id?: number;
+  sessionId?: number;
 }
 
 // 세션 라이프사이클(설계 §2/§5.1, HAJA-668) — Spring `ChatSessionController` 응답을 그대로 미러.

@@ -93,7 +93,7 @@ export function useRagChat() {
         setRagSessionId(sessionId);
       }
 
-      const res = await supportApi.ragChat({ query, session_id: sessionId });
+      const res = await supportApi.ragChat({ query, sessionId: sessionId ?? undefined });
       setMessages((prev) => [
         ...prev,
         { id: nextId(), role: 'assistant', text: res.data.answer, sources: res.data.sources },
