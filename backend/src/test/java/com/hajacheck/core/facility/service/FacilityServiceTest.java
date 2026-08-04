@@ -947,6 +947,74 @@ class FacilityServiceTest {
     }
 
     @Test
+    void recalculateNextInspectionDueAt_회차순서대로확정_매번최신점검일기준으로갱신된다() {
+        // #1591 P2 — 정상 순서(2회차 → 3회차). 뒤에 확정한 회차가 항상 더 최신 점검일이므로
+        // 두 번 모두 반영되어 다음 점검일이 앞으로 나아간다.
+        Facility facility = facilityWithCycle(6);
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        LocalDate round2Date = LocalDate.of(2026, 1, 10);
+        LocalDate round3Date = LocalDate.of(2026, 7, 10);
+
+        // 2회차 확정 시점 — 이 시설물의 최신 점검일은 아직 2회차 자신이다.
+        when(inspectionRepository.findMaxInspectionDateByFacilityId(10L)).thenReturn(Optional.of(round2Date));
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round2Date);
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(round2Date.plusMonths(6));
+
+        // 3회차 확정 시점 — 최신 점검일이 3회차로 올라갔다.
+        when(inspectionRepository.findMaxInspectionDateByFacilityId(10L)).thenReturn(Optional.of(round3Date));
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round3Date);
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(round3Date.plusMonths(6));
+    }
+
+    @Test
+    void recalculateNextInspectionDueAt_역순확정_낡은회차는다음점검일을과거로되돌리지못한다() {
+        // #1591 P2 회귀 고정 — 3회차를 먼저 확정한 뒤 밀려 있던 2회차를 확정하는 역순 시나리오.
+        // 회차 완료 순서와 보고서 확정 순서는 강제되지 않아 실제로 발생한다. 무조건 덮어쓰던 과거엔
+        // next_inspection_due_at 이 2026-07-10 으로 되돌아가(이미 지난 날짜) 알림·대시보드가 깨졌다.
+        Facility facility = facilityWithCycle(6);
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        LocalDate round2Date = LocalDate.of(2026, 1, 10);
+        LocalDate round3Date = LocalDate.of(2026, 7, 10);
+        // 두 회차 모두 이미 저장돼 있으므로 최신 점검일은 언제나 3회차의 것이다.
+        when(inspectionRepository.findMaxInspectionDateByFacilityId(10L)).thenReturn(Optional.of(round3Date));
+
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round3Date);
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(round3Date.plusMonths(6));
+
+        // 뒤늦게 확정된 2회차는 최신 점검일이 아니므로 아무것도 바꾸지 않는다.
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round2Date);
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(round3Date.plusMonths(6));
+    }
+
+    @Test
+    void recalculateNextInspectionDueAt_최신회차재확정_주기단축이즉시반영된다() {
+        // #1591 P2 설계 근거 고정 — max(기존값, baseDate+cycle) 대신 "최신 점검일일 때만 반영"을 택한 이유.
+        // 주기를 12→3개월로 줄인 뒤 최신 회차를 재확정하면 다음 점검일은 반드시 앞당겨져야 한다
+        // (max() 였다면 옛 값 2027-07-10 에 눌러앉아 단축이 무시됐다).
+        Facility facility = facilityWithCycle(12);
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        LocalDate latestDate = LocalDate.of(2026, 7, 10);
+        when(inspectionRepository.findMaxInspectionDateByFacilityId(10L)).thenReturn(Optional.of(latestDate));
+
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, latestDate);
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(LocalDate.of(2027, 7, 10));
+
+        facility.updateSchedule(3, LocalDate.of(2026, 7, 10)); // 사용자가 주기를 3개월로 단축
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, latestDate);
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(LocalDate.of(2026, 10, 10));
+    }
+
+    private Facility facilityWithCycle(int cycleMonths) {
+        return Facility.builder()
+                .companyId(OWNER_ID)
+                .name("기존시설")
+                .type("BUILDING")
+                .address("서울시 강남구")
+                .inspectionCycleMonths(cycleMonths)
+                .build();
+    }
+
+    @Test
     void recalculateNextInspectionDueAt_주기미설정_아무것도하지않는다() {
         Facility facility = existingFacility(); // inspectionCycleMonths 미설정(null)
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));

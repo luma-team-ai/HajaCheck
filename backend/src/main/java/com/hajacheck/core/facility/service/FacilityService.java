@@ -417,6 +417,12 @@ public class FacilityService {
      * updateSchedule() 의 "최종 점검일 기준 정교화"(위 javadoc 참고) 후속 조치 —
      * baseDate 로 그 회차의 실제 점검일(inspection.inspectionDate())을 받는다.
      * 점검주기가 설정돼 있지 않으면(null/0) 재계산할 기준이 없으므로 아무것도 하지 않는다.
+     *
+     * <p><b>낡은 회차의 덮어쓰기 차단(#1591 P2)</b> — 회차 완료 순서와 보고서 확정 순서는 어디에서도
+     * 강제되지 않는다(ReportService#markInspectionReported 는 그 회차의 상태만 본다). 그래서 3회차를
+     * 먼저 확정한 뒤 밀려 있던 2회차를 확정하면, 무조건 덮어쓰기가 next_inspection_due_at 을
+     * <b>과거로 되돌려</b> 점검 일정 알림·대시보드가 이미 지난 날짜를 "다음 점검일"로 표시했다.
+     * 이 회차가 시설물의 <b>최신 점검일</b>일 때만 반영해서 그 역행을 막는다.
      */
     @Transactional
     public void recalculateNextInspectionDueAt(
@@ -427,7 +433,36 @@ public class FacilityService {
         if (cycleMonths == null || cycleMonths <= 0) {
             return;
         }
+        if (isStaleInspectionDate(facilityId, baseDate)) {
+            return;
+        }
         facility.updateSchedule(cycleMonths, baseDate);
+    }
+
+    /**
+     * 이 회차의 점검일이 시설물의 최신 점검일보다 뒤처져 있는지(= 이미 더 최신 회차가 존재하는지)
+     * 판정한다(#1591 P2). 판정 기준은 이미 있는
+     * {@link InspectionRepository#findMaxInspectionDateByFacilityId}(#1291 회차 생성 검증용)를 재사용한다 —
+     * 이 메서드가 불리는 시점엔 확정 중인 회차도 이미 저장돼 있으므로 {@code baseDate == max} 면 최신이다.
+     * 회차가 하나도 조회되지 않으면(empty) 비교 기준이 없으므로 baseDate 를 최신으로 본다.
+     *
+     * <p><b>대안이던 {@code max(기존값, baseDate + cycle)} 대신 "최신 점검일일 때만 반영"을 택한 이유</b>:
+     * <ul>
+     *   <li>max() 는 next_inspection_due_at 을 <b>단조증가</b>로 고정해 버린다. 그러면 최신 회차의
+     *       점검일이 뒤늦게 정정되거나(입력 오류 수정) 점검 주기를 <b>짧게</b> 바꾼 뒤 그 회차를 다시
+     *       확정해도 날짜가 앞당겨지지 않고 옛 값에 눌러앉는다 — "주기를 단축했는데 일정이 안 당겨진다"는
+     *       새 버그를 만든다.</li>
+     *   <li>여기서 막아야 하는 건 "값이 작아지는 것"이 아니라 "<b>낡은 회차</b>가 최신 회차의 산출을
+     *       덮어쓰는 것"이다. 기준을 점검일 자체에 두면 원인을 직접 차단하면서, 최신 회차의 재계산은
+     *       언제나 현재 주기 기준으로 정확히 다시 나온다.</li>
+     * </ul>
+     * 주기 설정 화면({@link #setSchedule})은 이 가드와 무관하게 오늘 기준으로 항상 덮어쓰므로,
+     * 주기 단축이 즉시 일정에 반영되는 경로도 그대로 남는다.
+     */
+    private boolean isStaleInspectionDate(Long facilityId, LocalDate baseDate) {
+        return inspectionRepository.findMaxInspectionDateByFacilityId(facilityId)
+                .map(baseDate::isBefore)
+                .orElse(false);
     }
 
     private Facility findCompanyFacility(Long companyId, Long facilityId) {
