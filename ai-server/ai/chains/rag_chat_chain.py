@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
+import logging
 from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
@@ -25,20 +25,39 @@ from pydantic import BaseModel, Field
 
 from ai.core.hybrid_search import hybrid_search
 from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
-from ai.core.prompt_safety import wrap_untrusted
+from ai.core.prompt_safety import UNTRUSTED_DATA_BEGIN, UNTRUSTED_DATA_END, wrap_untrusted
 from ai.core.schemas import AIErrorCode, AIResponse, RagAnswerData, SourceCitation
+from ai.core.semantic_cache import (
+    CREATED_AT_FIELD,
+    enforce_retention,
+    fresh_entry_filter,
+    now_epoch_seconds,
+    semantic_cache_threshold,
+)
 from ai.core.vectorstore import COLLECTION_REGULATIONS, COLLECTION_SEMANTIC_CACHE, get_vectorstore
+
+logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 RAG_CHAT_TOP_K = 4  # 설계 §4.1 초안값
 RAG_CHAT_CACHE_PREFIX = "ai:cache:rag-chat"
 
-# 시맨틱 캐시 유사도 임계값 — langchain_chroma.similarity_search_with_score는 distance(작을수록 유사)를
-# 반환하고, 컬렉션이 hnsw:space=cosine이므로 distance = 1 - cosine_similarity. 따라서
-# score <= (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD)일 때 hit으로 판정한다.
-SEMANTIC_CACHE_SIMILARITY_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.95"))
+# 시맨틱 캐시 유사도 임계값은 `ai.core.semantic_cache.semantic_cache_threshold()`가 **런타임에**
+# 읽는다(#1594 P3) — 예전에는 이 모듈 최상단에서 `float(os.getenv(...))`로 읽어 ①레포 컨벤션
+# (`vectorstore.py` `_client()` 주석: os.getenv는 반드시 함수 내부에서) 위반이었고 ②잘못된 값
+# 하나가 임포트 시점 ValueError로 앱 전체를 죽였다. TTL·용량 상한과 함께 그 모듈이 단일 정책
+# 지점이다.
 # TODO(#1462 후속 이슈): 실측 기반 threshold 튜닝 필요. 현재는 법규 QA 도메인 오탐 리스크 때문에 보수적으로 높게 설정한 초기값.
+
+# 캐시 기록 허용 답변 길이 경계(#1594 P2) — 아래 `_is_cacheable` 참고.
+# 하한은 "정상 답변을 떨어뜨리지 않으면서 퇴화 출력만 걸러내는" 선으로 잡는다: 한국어 법규 QA
+# 답변은 짧아도 "관리주체입니다."(8자) 수준이라 하한을 크게 잡으면 멀쩡한 답변이 캐시에서 빠진다.
+# 5자 미만은 어떤 근거 기반 답변으로도 성립하지 않는다.
+MIN_CACHEABLE_ANSWER_LENGTH = 5
+# 상한은 프롬프트/컨텍스트 덤프 유출 같은 비정상 장문 출력 차단용 — 정상 답변은 RAG_CHAT_TOP_K(4)
+# 청크 기반 요약이라 이 근처에도 가지 않는다.
+MAX_CACHEABLE_ANSWER_LENGTH = 8000
 
 
 class RagChatState(TypedDict):
@@ -57,6 +76,9 @@ class RagChatState(TypedDict):
     # 조회/저장 모두 우회한다(design §4 "이력이 있으면 캐시를 우회").
     history: list[dict]
     skip_cache: bool
+    # `_is_cacheable` 판정 결과(#1594) — cache_write가 채우고 semantic_cache_write가 재사용한다
+    # (요청당 1회 판정 + 거부 로그 1줄). 키가 없으면 _resolve_cacheable가 그 자리에서 판정한다.
+    cacheable: Optional[bool]
     # 요청자의 회사 식별자(#1584) — Spring이 @AuthenticationPrincipal에서만 취득해 넘긴다(요청 바디
     # 신뢰 금지). 시맨틱 캐시는 이 값으로 회사 스코프를 강제한다. 회사 미소속 개인회원은 None이며,
     # 이때는 시맨틱 캐시를 조회도 저장도 하지 않는다(fail-closed — 필터 없는 전역 조회 폴백 금지).
@@ -161,6 +183,75 @@ def _cache_key(question: str) -> str:
     return f"{RAG_CHAT_CACHE_PREFIX}:{hashlib.sha256(question.encode('utf-8')).hexdigest()[:16]}"
 
 
+def _is_cacheable(state: RagChatState) -> bool:
+    """이 답변을 캐시(exact·semantic 양쪽)에 기록해도 되는지 판정한다(#1594 P2).
+
+    기록 여부를 **LLM이 스스로 신고한 `grounded` 필드 단독**으로 결정하던 것에 코드가 결정론적으로
+    확인 가능한 조건을 얹는다. 각 조건의 **실제 기여도**는 아래와 같다 — 과대평가를 남겨두면 이후
+    누군가 "인젝션 캐시 오염은 이미 막혀 있다"고 오판하므로 정확히 적는다(코드리뷰 P2 지적):
+
+    1. **`sources`가 비어 있지 않다** — 그래프상 `build_sources`를 거친 뒤에만 이 판정에 도달하므로
+       **현재 경로에서는 항상 참**이다. 즉 인젝션 차단 기여는 사실상 0이고, 목적은 그래프 구조가
+       바뀌어도 "근거 없는 답변이 캐시에 들어가는" 경로가 되살아나지 않게 하는 **구조적 이중 방어**다
+       (company_id 노드 가드와 같은 원칙).
+    2. **답변 길이가 상식 범위** — 빈/공백·한두 글자 같은 **퇴화 출력**과 컨텍스트 덤프성 장문을
+       걷어낸다. 오염된 답변은 대개 정상 길이로 나오므로 인젝션 차단 기여는 거의 없다.
+    3. **답변에 UNTRUSTED_DATA 마커가 없다** — `wrap_untrusted()`가 이미 `sanitize_untrusted()`로
+       사용자 입력의 `-{3,}`를 전각으로 깨뜨리므로(`prompt_safety.py`), **사용자 입력에서 유래한**
+       마커는 애초에 답변에 실릴 수 없다. 따라서 이 조건이 잡는 것은 인젝션이 아니라 모델이 스스로
+       프롬프트 스캐폴딩을 복창한 **경계 붕괴 신호**다. 그런 턴의 출력은 재사용하지 않는다.
+
+    ## ⚠️ 잔여 위험 — 이 함수는 이슈 2번을 "부분 완화"할 뿐 해소하지 못한다
+
+    실제 위협인 "오염된 청크가 검색되었거나, 인젝션으로 `grounded=true` + **정상 길이의 왜곡 답변**이
+    생성된 경우"는 위 세 조건을 **전부 통과해 그대로 캐시된다.** 이 함수에는 답변과 근거의 정합성을
+    검증하는 수단이 없기 때문이다. #1584로 blast radius가 회사 1개로 줄어든 상태가 여전히 상한이다.
+
+    실질적 강화 방향(후속): 저장 시 `sources`의 `chunk_ref`/`chunk_hash`를 metadata에 함께 남기고,
+    **캐시 히트를 서빙하기 직전에** 그 청크가 아직 존재하며 내용이 동일한지 대조한다. 그러면
+    ①오염·삭제된 근거에 기반한 캐시 답변이 걸러지고 ②설계 판단 2의 write-after-purge 레이스도
+    같은 메커니즘으로 덮인다(`semantic_cache.py` 모듈 docstring 참고). 저장 포맷 변경이 필요해
+    이 이슈의 범위를 넘는다.
+
+    캐시 기록만 막고 응답 자체는 그대로 반환한다 — 사용자에게 보이는 동작은 바뀌지 않는다.
+    로그에는 답변 원문을 남기지 않는다(개인정보·인젝션 페이로드 잔존 방지 — 길이만 기록).
+    """
+    sources = state.get("sources")
+    if not sources:
+        logger.warning("캐시 기록 거부 — sources가 비어 있다(근거 없는 답변)")
+        return False
+
+    answer = (state["llm_answer"].answer or "").strip()
+    if not (MIN_CACHEABLE_ANSWER_LENGTH <= len(answer) <= MAX_CACHEABLE_ANSWER_LENGTH):
+        logger.warning(
+            "캐시 기록 거부 — 답변 길이 %d자가 허용 범위(%d~%d)를 벗어났다",
+            len(answer), MIN_CACHEABLE_ANSWER_LENGTH, MAX_CACHEABLE_ANSWER_LENGTH,
+        )
+        return False
+
+    if UNTRUSTED_DATA_BEGIN in answer or UNTRUSTED_DATA_END in answer:
+        logger.warning("캐시 기록 거부 — 답변에 UNTRUSTED_DATA 마커가 섞였다(프롬프트 경계 붕괴 신호)")
+        return False
+
+    return True
+
+
+def _resolve_cacheable(state: RagChatState) -> bool:
+    """`_is_cacheable` 판정을 요청당 1회로 묶는다(#1594 P3).
+
+    exact·semantic 두 저장 노드가 각자 `_is_cacheable`를 부르면 한 요청에 판정이 2회 돌고, 거부 시
+    경고 로그도 2줄씩 쌓인다. 거부 조건은 외부 입력(질문)으로 유발 가능하므로 로그 증폭 벡터가 된다
+    — 앞 노드(`cache_write`)가 판정 결과를 state에 실어 뒤 노드가 재사용한다.
+
+    키가 없으면(그래프를 우회한 직접 호출 등) 그 자리에서 판정한다 — 캐시된 값이 없다고 해서
+    "기록 허용"으로 폴백하면 fail-open이 되므로 반드시 실제 판정으로 떨어뜨린다.
+    """
+    cached = state.get("cacheable")
+    if cached is not None:
+        return cached
+    return _is_cacheable(state)
+
+
 # ============================================================================
 # StateGraph 노드들 — 각 노드는 state를 받아서 수정된 state를 반환
 # ============================================================================
@@ -230,6 +321,10 @@ def _node_semantic_cache_check(state: RagChatState) -> RagChatState:
     전역 조회가 되살아나지 않도록 노드 자체에서도 방어적으로 miss 반환한다(Chroma는 filter 값에
     None을 허용하지 않아 `filter={"company_id": None}`은 ValueError로 터진다 — 실측 확인).
 
+    TTL(#1594): 필터에 `created_at >= ttl_cutoff()`를 함께 걸어 만료된 항목은 애초에 후보로
+    올라오지 않게 한다. 만료분의 실제 삭제는 저장 경로의 `enforce_retention()`이 맡지만, 조회에서
+    먼저 막아야 "삭제가 아직 안 돌았을 때 구 답변이 나가는" 창이 생기지 않는다.
+
     파싱 실패 시 miss로 안전하게 폴백한다(캐시 오염으로 전체 요청이 죽지 않도록).
     """
     company_id = state.get("company_id")
@@ -237,16 +332,17 @@ def _node_semantic_cache_check(state: RagChatState) -> RagChatState:
         return {**state, "cached_result": None, "final_response": None}
 
     vectorstore = get_vectorstore(COLLECTION_SEMANTIC_CACHE)
-    # filter로 회사 스코프를 강제한다. company_id metadata가 없는 과거(#1584 이전) 캐시 항목은
-    # 어떤 회사 필터에도 매칭되지 않으므로 자연히 조회 대상에서 빠진다(실측 확인).
+    # filter로 회사 스코프(#1584) + TTL 미경과(#1594)를 함께 강제한다. company_id/created_at
+    # metadata가 없는 과거 캐시 항목은 어떤 필터에도 매칭되지 않으므로 자연히 조회 대상에서
+    # 빠진다(실측 확인).
     results = vectorstore.similarity_search_with_score(
-        state["question"], k=1, filter={"company_id": company_id}
+        state["question"], k=1, filter=fresh_entry_filter(company_id)
     )
 
     cached_result = None
     if results:
         doc, score = results[0]
-        if score <= (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD):
+        if score <= (1 - semantic_cache_threshold()):
             try:
                 cached_result = json.loads(doc.metadata["answer_json"])
             except (KeyError, json.JSONDecodeError, TypeError):
@@ -314,13 +410,17 @@ def _node_cache_write(state: RagChatState) -> RagChatState:
     """캐시 저장 노드.
 
     RagAnswerData를 조립해서 Redis에 저장하고 final_response를 세팅.
+
+    `_is_cacheable`이 거부하면 저장만 건너뛰고 응답은 그대로 반환한다(#1594 P2). 판정 결과를
+    state에 실어 뒤따르는 semantic 저장 노드가 재사용한다(요청당 1회 — `_resolve_cacheable`).
     """
     answer_data = RagAnswerData(
         answer=state["llm_answer"].answer,
         sources=state["sources"]
     )
+    cacheable = _is_cacheable(state)
     # 이력이 있던 요청은 캐시 저장도 생략(design §4) — 캐시 조회를 우회한 요청과 대칭.
-    if not state.get("skip_cache"):
+    if not state.get("skip_cache") and cacheable:
         redis_client = get_redis_client()
         redis_client.setex(
             state["cache_key"],
@@ -329,6 +429,7 @@ def _node_cache_write(state: RagChatState) -> RagChatState:
         )
     return {
         **state,
+        "cacheable": cacheable,
         "final_response": AIResponse.ok(answer_data.model_dump())
     }
 
@@ -338,8 +439,15 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     (no_result 경로는 그래프 구조상 이 노드를 거치지 않으므로 별도 분기 불필요).
 
     질문 원문을 page_content로, RagAnswerData 직렬화 결과를 metadata["answer_json"]으로,
-    요청자의 회사 식별자를 metadata["company_id"]로 저장한다(#1584) — 조회 시 이 필드로
-    회사 스코프를 필터링한다.
+    요청자의 회사 식별자를 metadata["company_id"]로, 생성 시각(epoch seconds)을
+    metadata["created_at"]으로 저장한다(#1584, #1594) — 조회 시 앞의 둘로 회사 스코프와 TTL을
+    필터링한다.
+
+    저장 직후 `enforce_retention()`으로 TTL 경과분 삭제 + 용량 상한 축출을 수행한다(#1594) —
+    캐시가 커지는 유일한 지점이 여기이므로 정리도 같은 지점에 붙이는 것이 가장 단순하다.
+    이 호출은 내부에서 예외를 삼키므로 정리 실패가 응답을 막지 않는다.
+
+    `_is_cacheable`이 거부한 답변은 저장하지 않는다(#1594 P2) — exact 캐시와 동일 기준.
 
     company_id가 없으면(개인회원) 저장하지 않는다 — 조회를 건너뛰는 것과 대칭이며, Chroma가
     metadata 값에 None을 허용하지 않기도 한다(실측: "Expected metadata value to be a str, int,
@@ -355,6 +463,9 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     if company_id is None:
         return state
 
+    if not _resolve_cacheable(state):
+        return state
+
     answer_data = RagAnswerData(
         answer=state["llm_answer"].answer,
         sources=state["sources"]
@@ -366,9 +477,11 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
             metadata={
                 "answer_json": answer_data.model_dump_json(),
                 "company_id": company_id,
+                CREATED_AT_FIELD: now_epoch_seconds(),
             },
         )
     ])
+    enforce_retention()
     return state
 
 
@@ -469,6 +582,7 @@ def run_rag_chat_chain(
         "llm_answer": None,
         "sources": None,
         "final_response": None,
+        "cacheable": None,
         "history": history,
         "skip_cache": bool(history),
         "company_id": company_id,

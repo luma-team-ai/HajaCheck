@@ -170,33 +170,39 @@ def run_business_license_ocr_chain(image_base64: str) -> BusinessLicenseOcrResul
 
     OCR이 텍스트를 하나도 못 찾으면 LLM을 호출하지 않고 빈 결과를 반환한다(크레딧 절약 —
     LLM에 빈 컨텍스트를 줘봐야 null만 나온다).
+
+    ⚠️ 함수 **전체**를 `tracing_context(enabled=False)`로 감싼다(#1594 P3). 예전에는 LLM invoke
+    한 줄만 감싸고 있었는데, 전역 백스톱(LANGSMITH_HIDE_*)이 사라진 지금 그 구조에서는 누군가
+    이 체인에 LLM 호출을 한 줄 더 추가하거나 `with` 블록 **밖**에서 호출하면 사업자등록번호·
+    대표자명이 **경보 없이** LangSmith(국외 SaaS)로 전송된다. 함수 스코프로 올려두면 이후 추가되는
+    호출이 자동으로 억제 범위에 포함된다.
     """
-    image_bytes = _decode_image(image_base64)
-    lines_with_scores = _extract_text_lines(image_bytes)
-
-    if not lines_with_scores:
-        return BusinessLicenseOcrResult(line_count=0, avg_confidence=None)
-
-    texts = [text for text, _score in lines_with_scores]
-    avg_confidence = sum(score for _text, score in lines_with_scores) / len(lines_with_scores)
-
-    prompt = _build_prompt("\n".join(texts))
     with tracing_context(enabled=False):
+        image_bytes = _decode_image(image_base64)
+        lines_with_scores = _extract_text_lines(image_bytes)
+
+        if not lines_with_scores:
+            return BusinessLicenseOcrResult(line_count=0, avg_confidence=None)
+
+        texts = [text for text, _score in lines_with_scores]
+        avg_confidence = sum(score for _text, score in lines_with_scores) / len(lines_with_scores)
+
+        prompt = _build_prompt("\n".join(texts))
         llm_result = (
             get_llm()
             .with_structured_output(BusinessLicenseOcrExtract, ttl=SHORT_CACHE_TTL_SECONDS)
             .invoke(prompt)
         )
 
-    business_registration_number = _find_business_reg_number(
-        texts
-    ) or _normalize_reg_number(llm_result.business_registration_number)
+        business_registration_number = _find_business_reg_number(
+            texts
+        ) or _normalize_reg_number(llm_result.business_registration_number)
 
-    return BusinessLicenseOcrResult(
-        business_registration_number=business_registration_number,
-        company_name=llm_result.company_name,
-        representative_name=llm_result.representative_name,
-        business_start_date=_normalize_start_date(llm_result.business_start_date),
-        line_count=len(texts),
-        avg_confidence=round(avg_confidence, 4),
-    )
+        return BusinessLicenseOcrResult(
+            business_registration_number=business_registration_number,
+            company_name=llm_result.company_name,
+            representative_name=llm_result.representative_name,
+            business_start_date=_normalize_start_date(llm_result.business_start_date),
+            line_count=len(texts),
+            avg_confidence=round(avg_confidence, 4),
+        )

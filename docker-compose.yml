@@ -132,6 +132,12 @@ services:
       # 기존 hf_cache 볼륨(이미 fastapi 소유) 하위로 고정해 재기동해도 설정이 유지되게 한다.
       YOLO_CONFIG_DIR: /app/hf_cache/ultralytics
       MPLCONFIGDIR: /app/hf_cache/matplotlib
+      # RAG 시맨틱 캐시 보존 정책(#1594) — 근거·기본값 산출은 ai/core/semantic_cache.py 모듈
+      # docstring 참고. 미설정이면 코드 기본값과 동일하게 동작하며, 잘못된 값을 넣어도 경고 로그만
+      # 남기고 기본값으로 폴백한다(앱 기동은 막지 않음).
+      SEMANTIC_CACHE_THRESHOLD: ${SEMANTIC_CACHE_THRESHOLD:-0.95}
+      SEMANTIC_CACHE_TTL_SECONDS: ${SEMANTIC_CACHE_TTL_SECONDS:-86400}
+      SEMANTIC_CACHE_MAX_ENTRIES: ${SEMANTIC_CACHE_MAX_ENTRIES:-5000}
     volumes:
       - chroma_data:/app/chroma_data
       - hf_cache:/app/hf_cache
