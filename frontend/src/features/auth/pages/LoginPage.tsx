@@ -5,8 +5,8 @@ import brandLogo from '../../../assets/brand/sidenav-brand-logo.png';
 import type { ApiError } from '../../../shared/api/types';
 import { Button } from '../../../shared/components/Button';
 import { isSafeInternalPath } from '../../../shared/utils/safeInternalPath';
-import { isCounselorRole } from '../../../shared/constants/roles';
-import { COUNSELOR_QUEUE_ROUTE } from '../../../shared/constants/routes';
+import { isCompanyDashboardRole } from '../../../shared/constants/roles';
+import { resolveRoleHomeRoute } from '../../../shared/constants/routes';
 import { authApi } from '../api/authApi';
 import { AuthSignupCta } from '../components/AuthSignupCta';
 import { CompanyLoginTab } from '../components/CompanyLoginTab';
@@ -63,10 +63,18 @@ export function LoginPage() {
       const from = (location.state as { from?: string } | null)?.from;
       // state.from은 라우터 state에 실린 값이라 외부에서 임의로 주입 가능 — 내부 절대경로임을
       // 검증하지 않고 그대로 navigate에 넘기면 오픈 리다이렉트로 악용될 수 있다(#280 P3).
-      // from이 없을 때의 기본 목적지는 role에 따라 갈린다 — COUNSELOR는 일반 대시보드에 볼일이
-      // 없어 상담원 콘솔 대기열로 보낸다(#1001, HAJA-495, useLogin.ts와 동일 분기).
-      const fallback = isCounselorRole(me.role) ? COUNSELOR_QUEUE_ROUTE : '/dashboard';
-      navigate(isSafeInternalPath(from) ? from : fallback);
+      // 기본 목적지는 role에 따라 갈린다 — COUNSELOR는 상담원 콘솔 대기열(#1001, HAJA-495),
+      // PLATFORM_ADMIN은 플랫폼 관리자 콘솔로 보낸다. PLATFORM_ADMIN이 빠져 있어 기존 세션으로
+      // /login에 재방문하면 대시보드로 들어가던 우회 경로가 있었다(#1513 — 훅만 고치면 여기로 뚫린다).
+      //
+      // 기업 대시보드(AppShell)를 쓰지 않는 role은 state.from도 무시하고 role 홈이 이긴다.
+      // from에 대시보드 하위 경로가 실려 있으면 AppShell의 allowedRoles 가드가 다시 튕겨내
+      // 리다이렉트가 한 번 더 도는데(#1513 4번 가드와 이중), role 홈을 먼저 확정해 그 왕복을 없앤다.
+      if (isCompanyDashboardRole(me.role) && isSafeInternalPath(from)) {
+        navigate(from);
+      } else {
+        navigate(resolveRoleHomeRoute(me.role));
+      }
     }
   }, [isSuccess, me, navigate, setUser, location.state]);
 

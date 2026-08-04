@@ -8,6 +8,7 @@ import { CounselorRoute } from '../shared/components/CounselorRoute';
 import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { LoadingSpinner } from '../shared/components/LoadingSpinner';
 import LandingPage from '../features/landing/LandingPage';
+import { COMPANY_DASHBOARD_ROLES } from '../shared/constants/roles';
 import { PLATFORM_ADMIN_ROUTE } from '../shared/constants/routes';
 import { AppShellRoute } from './AppShellRoute';
 import { PlatformAdminShellRoute } from './PlatformAdminShellRoute';
@@ -454,8 +455,13 @@ export const router = createBrowserRouter([
     // ProtectedRoute로 부모 전체를 감싸 자식 라우트를 일괄 보호한다(#231, HAJA-189) —
     // 이 셸에 새 페이지를 포함하려면: children에 라우트 추가 + handle에 breadcrumb/activeHref 선언만 하면 됨
     // (페이지 컴포넌트는 AppLayout을 직접 감쌀 필요 없음 — AppShellRoute.tsx 참조)
+    //
+    // allowedRoles(#1513): 이 셸은 기업회원 대시보드 전용이다. 서버가 로그인 단계에서 포털을 갈라
+    // 놓았지만(POST /api/auth/login은 ADMIN/INSPECTOR/USER만 허용), 이미 세션을 가진 PLATFORM_ADMIN·
+    // COUNSELOR가 주소창으로 /dashboard에 직접 들어오는 경로는 라우터가 막아야 한다. 거부 대상은
+    // ProtectedRoute가 resolveRoleHomeRoute로 각자 콘솔에 돌려보낸다(대시보드 고정이면 무한 루프).
     element: (
-      <ProtectedRoute>
+      <ProtectedRoute allowedRoles={COMPANY_DASHBOARD_ROLES}>
         <AppShellRoute />
       </ProtectedRoute>
     ),

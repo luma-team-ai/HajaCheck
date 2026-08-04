@@ -8,6 +8,8 @@
 // 여기 LOGIN_ROUTE는 react-router 내부 경로(basename이 라우터에서 따로 붙는다)라 형태가 다르다.
 // basename 배포 설정을 바꾼다면 두 파일을 함께 확인할 것.
 
+import { isCounselorRole, isPlatformAdminRole, type Role } from './roles';
+
 /** 미인증 시 리다이렉트 대상(react-router 경로) */
 export const LOGIN_ROUTE = '/login';
 
@@ -43,3 +45,21 @@ export const COUNSELOR_QUEUE_ROUTE = '/counsel-console/queue';
 // 상담원 전용 로그인(플랫폼 관리자 로그인과 동일 디자인, 라벨만 "상담원 로그인") — 기업회원 로그인
 // (LOGIN_ROUTE)과 분리된 전용 경로. CounselorRoute가 미인증 시 이 값으로 리다이렉트한다.
 export const COUNSELOR_LOGIN_ROUTE = '/counsel-console/login';
+
+// role별 "홈"(#1513) — 로그인한 사용자를 어디로 보내야 하는지의 단일 기준.
+// 두 사용처가 반드시 같은 답을 내야 한다:
+//   1) ProtectedRoute — allowedRoles 불충족 시 되돌려보낼 화면
+//   2) LoginPage — 이미 세션이 있는 채로 /login에 재방문했을 때의 기본 목적지
+// 서로 다른 답을 내면 무한 리다이렉트가 된다. 예: 기업 대시보드(AppShell)에 allowedRoles가
+// 걸린 뒤 거부 대상을 DASHBOARD_ROUTE로 고정해 두면 거부 → 대시보드 → 거부 …로 순환한다.
+// 각 role의 홈은 그 role이 통과할 수 있는 가드(PlatformAdminRoute/CounselorRoute/AppShell
+// ProtectedRoute) 뒤에 있어야 하며, 지금 세 값 모두 그 조건을 만족한다.
+export function resolveRoleHomeRoute(role: Role | undefined): string {
+  if (isPlatformAdminRole(role)) {
+    return PLATFORM_ADMIN_ROUTE;
+  }
+  if (isCounselorRole(role)) {
+    return COUNSELOR_QUEUE_ROUTE;
+  }
+  return DASHBOARD_ROUTE;
+}
