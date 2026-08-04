@@ -224,9 +224,8 @@ describe("exportReportToPdf", () => {
       JSON.stringify(candidate.body).includes("중대한 결함 등"),
     );
     expect(options?.body).toEqual([
-      // C등급뿐이라 중대한 결함은 없음, 공중이용부위는 판정 근거가 없어 빈칸.
+      // C등급뿐이라 중대한 결함은 없음, 공중이용부위는 미입력이라 행 자체를 생략한다.
       ["중대한 결함 등", "없음"],
-      ["공중이 이용하는\n부위의 결함", "-"],
       // 목록 표기는 문서 전체가 `ㆍ` 하나로 통일된다(`-`/`1)`/`//` 혼용 금지).
       [
         "점검 주요결과",
@@ -252,6 +251,35 @@ describe("exportReportToPdf", () => {
       ]),
     );
   });
+
+  it("공중이 이용하는 부위의 결함이 미입력이면 해당 행을 렌더링하지 않는다", async () => {
+    const content = makeContent();
+
+    // undefined인 경우
+    await exportReportToPdf({
+      ...content,
+      overview: { ...content.overview, public_use_area_defect: undefined },
+    });
+
+    const optionsUndefined = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    const bodyUndefined = JSON.stringify(optionsUndefined?.body ?? []);
+    expect(bodyUndefined).not.toContain("공중이 이용하는");
+
+    // 공백만 있는 경우
+    await exportReportToPdf({
+      ...content,
+      overview: { ...content.overview, public_use_area_defect: "   " },
+    });
+
+    const optionsBlank = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    const bodyBlank = JSON.stringify(optionsBlank?.body ?? []);
+    expect(bodyBlank).not.toContain("공중이 이용하는");
+  });
+
 
   it("결과 요약은 소절 없이 `책임기술자 종합의견` 표 하나로 렌더링하고 하단에 서명란을 붙인다", async () => {
     await exportReportToPdf(makeContent(), {

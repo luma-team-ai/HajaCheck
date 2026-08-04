@@ -575,11 +575,10 @@ export async function exportReportToPdf(
         ["중대한 결함 등", criticalDefectSummary(content.detail)],
         // 하자 데이터엔 "공중이 이용하는 부위"(보도·난간 등) 여부 구분이 없어 자동 판정할 수
         // 없다 — 근거 없이 "없음"이라 단정하면 허위가 되므로, 편집기(1.기본현황)에서 점검자가
-        // 직접 입력한 값만 쓰고 미입력이면 "-"로 표기한다.
-        [
-          "공중이 이용하는\n부위의 결함",
-          content.overview.public_use_area_defect?.trim() || "-",
-        ],
+        // 직접 입력한 값만 쓴다. 미입력이면 행 자체를 생략해 빈 "-"가 보이지 않도록 한다.
+        ...(content.overview.public_use_area_defect?.trim()
+          ? [["공중이 이용하는\n부위의 결함", content.overview.public_use_area_defect.trim()] as [string, string]]
+          : []),
         ["점검 주요결과", inspectionResultSummary(content)],
         ["주요 보수ㆍ보강", majorRepairSummary(content.recommendation)],
       ],
