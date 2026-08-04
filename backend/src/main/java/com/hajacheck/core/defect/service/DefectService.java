@@ -78,6 +78,13 @@ public class DefectService {
      * 으로 묶어 동일한 값을 반복 반영한다. mediaId가 없는 하자는 그룹 크기 1(기존 단독 동작과 동일).
      * 신규 엔티티/컬럼 없이 이 메서드 하나의 {@code @Transactional} 안에서 그룹 전체가 갱신되므로,
      * 그룹 내 아무 하자에서나 낙관적 락(lock_version) 충돌이 나면 트랜잭션 전체가 롤백된다(부분 반영 없음).
+     *
+     * <p>anchor가 아닌 그룹 멤버의 상태 전이 건너뛰기는 updateStatus와 <b>같은</b>
+     * {@link #shouldSkipGroupMember} 규칙을 쓴다(#1591 P2). 이전엔 이 경로에만 규칙이 없어, 그룹에
+     * 이미 RESOLVED인 멤버가 하나만 있어도 그 멤버가 changeStatus()의 동일 상태 재전이 거부
+     * (targetStatus=RESOLVED) 또는 사유 없는 RESOLVED 이탈 거부(targetStatus=IN_PROGRESS)에 걸려
+     * <b>그 사진의 조치 등록이 영구히 불가능</b>했다. 건너뛰는 멤버도 조치 필드·제출 이력은 그대로
+     * 기록한다(조치 등록의 본래 목적) — 상태만 제자리에 둔다. {@link #applyActionResult} 참조.
      */
     @Transactional
     public DefectResponse registerActionResult(
@@ -96,8 +103,14 @@ public class DefectService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
 
         List<Defect> group = resolveActionGroup(anchor);
+        // 그룹 멤버의 상태 전이 건너뛰기는 updateStatus와 완전히 같은 규칙을 쓴다(#1591 P2,
+        // shouldSkipGroupMember). anchor의 현재 상태는 루프 안에서 바뀌므로 진입 전에 확정한다.
+        boolean anchorNotMovingBackward = targetStatus.isAtOrAfter(anchor.getStatus());
         for (Defect defect : group) {
-            applyActionResult(userId, defect, request, targetStatus);
+            boolean isAnchor = defect.getId().equals(anchor.getId());
+            boolean skipStatusTransition = !isAnchor
+                    && shouldSkipGroupMember(defect.getStatus(), targetStatus, anchorNotMovingBackward);
+            applyActionResult(userId, defect, request, targetStatus, skipStatusTransition);
         }
 
         String actionAssigneeName = userRepository.findById(request.actionAssigneeId())
@@ -107,9 +120,28 @@ public class DefectService {
         return response.withGroupSummary(group.size(), aggregateGroupStatus(group));
     }
 
-    // registerActionResult()의 하자 1건분 반영 로직 — 그룹 내 각 하자에 동일하게 적용한다.
+    /**
+     * registerActionResult()의 하자 1건분 반영 로직 — 그룹 내 각 하자에 동일하게 적용한다.
+     *
+     * <p>{@code skipStatusTransition} 이면 조치 필드·이력만 남기고 상태는 제자리에 둔다(#1591 P2) —
+     * 상태 전이만 건너뛸 뿐 "이 사진에 조치를 등록했다"는 사실 자체는 멤버 전원에게 기록되어야 한다.
+     * defect_action_logs 의 phase 는 멤버의 실제 상태가 아니라 <b>사용자가 제출한</b> targetStatus 로
+     * 남긴다. 이건 트레이드오프가 아니라 사실상 강제다 — phase 컬럼 타입이 defects.status 의
+     * defect_status_type 이 아니라 <b>{@code defect_action_log_phase_type}(IN_PROGRESS/RESOLVED 2라벨,
+     * V32)</b> 이라, 건너뛴 멤버의 실제 상태(CONFIRMED)를 쓰면 DB 제약 위반이다
+     * ({@link com.hajacheck.core.defect.entity.DefectActionLog} 의 phase 필드 주석 참고). 의미상으로도
+     * 이 테이블은 상태 스냅샷이 아니라 제출 이력이고, 조회 API(getActionLogs)가 IN_PROGRESS/RESOLVED
+     * 두 phase 로만 필터하므로 제출 phase 를 그대로 써야 화면에서 사라지지도 않는다.
+     *
+     * <p><b>감사 기록의 범위 한계</b> — 아래 덮어쓰기 감사 기록은 {@code actionContent}/{@code actionMediaId}
+     * 두 필드만 남기고 {@code actionDate}/{@code actionAssigneeId} 의 이전 값은 <b>무기록으로 소실</b>된다
+     * (#1128 때부터의 기존 동작). #1591 로 건너뛴 멤버(이미 RESOLVED인 하자 포함)까지 이 경로에
+     * 도달하게 되면서 소실 범위가 넓어졌다 — 단 제출 자체는 defect_action_logs 에 append-only 로
+     * 전량 보존되므로 복원 근거는 남는다.
+     */
     private void applyActionResult(
-            Long userId, Defect defect, DefectActionResultRequest request, DefectStatus targetStatus) {
+            Long userId, Defect defect, DefectActionResultRequest request, DefectStatus targetStatus,
+            boolean skipStatusTransition) {
         DefectStatus previousStatus = defect.getStatus();
         // 조치 필드(사진/내용)는 1세트만 존재해 targetStatus=RESOLVED 2차 등록이 IN_PROGRESS 1차
         // 등록분을 덮어쓴다(#1128 코드리뷰 P2-1) — 덮어써지기 직전 값을 감사기록으로 먼저 남겨
@@ -124,9 +156,15 @@ public class DefectService {
                     defect.getId(), userId, "actionMediaId",
                     String.valueOf(previousActionMediaId), String.valueOf(request.actionMediaId()), null));
         }
-        defect.registerActionResult(
-                request.actionMediaId(), request.actionContent(), request.actionDate(), request.actionAssigneeId(),
-                targetStatus);
+        if (skipStatusTransition) {
+            defect.updateActionResultFields(
+                    request.actionMediaId(), request.actionContent(), request.actionDate(),
+                    request.actionAssigneeId());
+        } else {
+            defect.registerActionResult(
+                    request.actionMediaId(), request.actionContent(), request.actionDate(),
+                    request.actionAssigneeId(), targetStatus);
+        }
         // 이번 제출을 append-only 이력으로 남긴다(#1193/HAJA-569) — flat 필드(위)는 "최신 스냅샷"만
         // 유지하지만, 이 테이블은 targetStatus=IN_PROGRESS 유지 재제출을 포함해 모든 제출을 보존한다.
         // 그룹 팬아웃(#1456)에서는 그룹 내 하자마다 로그가 1건씩 남는다(§제약 — 이력 중복 저장 트레이드오프).
@@ -331,7 +369,10 @@ public class DefectService {
     }
 
     /**
-     * updateStatus() 그룹 팬아웃에서 anchor가 아닌 멤버를 건너뛸지 판정한다.
+     * 그룹 팬아웃에서 anchor가 아닌 멤버를 건너뛸지 판정한다 — {@link #updateStatus}와
+     * {@link #registerActionResult}가 <b>공유</b>하는 단일 규칙이다(#1591 P2로 두 경로의 비대칭 해소).
+     * registerActionResult에서는 "건너뛴다"가 <b>상태 전이만</b> 건너뛴다는 뜻이고 조치 필드·제출
+     * 이력은 그대로 남는다(updateStatus는 상태 변경이 전부라 멤버 전체를 건너뛴다).
      *
      * <p><b>anchor가 진행을 앞으로 미는 요청이면, 그 목표로 "정방향 한 단계" 전이가 되는 멤버만
      * 따라간다</b>({@link DefectStatus#isForwardStepTo}). 나머지는 전부 제자리에 둔다:

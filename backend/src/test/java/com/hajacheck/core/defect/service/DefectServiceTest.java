@@ -42,6 +42,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -634,11 +635,13 @@ class DefectServiceTest {
     }
 
     @Test
-    void registerActionResult_그룹내하나전이불가하면_전체예외전파_이후멤버미반영() {
-        // id 오름차순으로 처리하므로 id=9(이미 RESOLVED, 종료 상태)가 anchor(id=10)보다 먼저 처리된다
-        // — 첫 멤버에서 예외가 나면 그 뒤 멤버(anchor 포함)는 전혀 손대지 않아야 한다(부분 반영 없음,
-        // 실제 DB에서는 @Transactional 롤백으로 N건 전체가 원복된다 — 단위 테스트는 예외가 삼켜지지
-        // 않고 그대로 전파되는지, 처리 순서상 뒤 멤버가 변경되지 않는지까지만 확인한다).
+    void registerActionResult_그룹에이미RESOLVED인멤버_상태는유지하고조치필드만기록() {
+        // #1591 P2 — 기대값 변경(구 registerActionResult_그룹내하나전이불가하면_전체예외전파_이후멤버미반영).
+        // [바뀐 이유] 이 시나리오는 팬아웃에 스킵 규칙이 없어서 나던 "전체 롤백" 그 자체다: id=9가 이미
+        // RESOLVED라 changeStatus(RESOLVED)가 동일 상태 재전이로 거부 → 트랜잭션 전체 롤백 → anchor의
+        // 조치 등록이 영구 불가였다. 이제 앞서 있는/이미 목표 상태인 멤버는 updateStatus와 같은
+        // shouldSkipGroupMember 규칙으로 상태 전이만 건너뛴다. 옛 테스트가 지키던 "전체 예외 전파 ·
+        // 이후 멤버 미반영"(부분 반영 없음) 자체는 살아 있는 의도라 아래 별도 테스트로 옮겨 보존했다.
         Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
         ReflectionTestUtils.setField(anchor, "mediaId", 77L);
         Defect alreadyResolved = existingDefect(9L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
@@ -652,11 +655,113 @@ class DefectServiceTest {
                 eq(100L), eq(77L), any()))
                 .thenReturn(List.of(alreadyResolved, anchor));
 
-        assertThatThrownBy(() -> defectService.registerActionResult(
-                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.RESOLVED)))
-                .isInstanceOf(com.hajacheck.global.exception.DomainStateTransitionException.class);
+        DefectResponse response = defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.RESOLVED));
 
-        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS); // 뒤 멤버는 손대지 않음
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED); // anchor는 정상 전이
+        assertThat(alreadyResolved.getStatus()).isEqualTo(DefectStatus.RESOLVED); // 앞선 멤버는 제자리
+        // 건너뛴 멤버도 "이 사진에 대한 조치 등록" 대상이므로 조치 필드는 기록된다.
+        assertThat(alreadyResolved.getActionContent()).isEqualTo("균열 부위 보수 완료");
+        assertThat(alreadyResolved.getActionMediaId()).isEqualTo(50L);
+        assertThat(alreadyResolved.getActionDate()).isEqualTo(LocalDate.of(2026, 7, 24));
+        assertThat(alreadyResolved.getActionAssigneeId()).isEqualTo(200L);
+        // 제출 이력은 그룹 전원(2건), status revision은 실제로 전이된 anchor 1건만.
+        ArgumentCaptor<DefectActionLog> logCaptor = ArgumentCaptor.forClass(DefectActionLog.class);
+        verify(defectActionLogRepository, org.mockito.Mockito.times(2)).save(logCaptor.capture());
+        // phase는 멤버의 실제 상태가 아니라 "제출한" targetStatus다 — phase 컬럼 타입이
+        // defect_action_log_phase_type(IN_PROGRESS/RESOLVED 2라벨)이라 그 외 값은 DB 제약 위반이다.
+        assertThat(logCaptor.getAllValues()).allSatisfy(log ->
+                assertThat(log.getPhase()).isEqualTo(DefectStatus.RESOLVED));
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(argThat(revision ->
+                revision.getDefectId().equals(10L)
+                        && revision.getFieldChanged().equals("status")
+                        && revision.getOldValue().equals("IN_PROGRESS")
+                        && revision.getNewValue().equals("RESOLVED")));
+        // 건너뛴 멤버는 상태가 안 바뀌었으므로 status revision이 없다. (이 하자는 조치 기록이 처음이라
+        // 덮어쓰기 감사 기록도 없다 — 기존 기록이 있는 경우는 아래 별도 테스트에서 고정한다.)
+        verify(defectRevisionRepository, never()).save(argThat(revision ->
+                revision.getDefectId().equals(9L)));
+        assertThat(response.groupSize()).isEqualTo(2);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.RESOLVED);
+    }
+
+    @Test
+    void registerActionResult_건너뛴RESOLVED멤버의기존조치기록도덮어쓰기감사가남는다() {
+        // #1591 리뷰 P3 — 위 테스트의 멤버는 actionContent가 null(최초 등록)이라 덮어쓰기 감사 경로가
+        // 미커버였다. 이미 조치 기록이 있는 RESOLVED 멤버가 형제 하자(anchor)의 제출로 덮어써지는
+        // 경로를 따로 고정한다. Defect#registerActionResult javadoc이 "이미 RESOLVED인 하자는 막힌다"고
+        // 못 박은 계약이 그룹 팬아웃에서는 완화된다는 사실(#1591 의도된 완화)이 여기서 드러난다.
+        // 감사 기록은 actionContent/actionMediaId 두 필드만 남고 actionDate/actionAssigneeId의 이전
+        // 값은 무기록으로 소실된다(#1128부터의 기존 한계 — 제출 자체는 defect_action_logs에 전량 보존).
+        Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect alreadyResolved = existingDefect(9L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
+        ReflectionTestUtils.setField(alreadyResolved, "mediaId", 77L);
+        ReflectionTestUtils.setField(alreadyResolved, "actionContent", "1차 보수 완료");
+        ReflectionTestUtils.setField(alreadyResolved, "actionMediaId", 41L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(alreadyResolved, anchor));
+
+        defectService.registerActionResult(USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.RESOLVED));
+
+        assertThat(alreadyResolved.getStatus()).isEqualTo(DefectStatus.RESOLVED); // 상태는 여전히 제자리
+        assertThat(alreadyResolved.getActionContent()).isEqualTo("균열 부위 보수 완료"); // 필드는 덮어써짐
+        verify(defectRevisionRepository).save(argThat(revision ->
+                revision.getDefectId().equals(9L)
+                        && revision.getFieldChanged().equals("actionContent")
+                        && revision.getOldValue().equals("1차 보수 완료")
+                        && revision.getNewValue().equals("균열 부위 보수 완료")));
+        verify(defectRevisionRepository).save(argThat(revision ->
+                revision.getDefectId().equals(9L)
+                        && revision.getFieldChanged().equals("actionMediaId")
+                        && revision.getOldValue().equals("41")
+                        && revision.getNewValue().equals("50")));
+        // 상태는 안 바뀌었으므로 status revision은 이 멤버에 남지 않는다.
+        verify(defectRevisionRepository, never()).save(argThat(revision ->
+                revision.getDefectId().equals(9L) && revision.getFieldChanged().equals("status")));
+    }
+
+    @Test
+    void registerActionResult_그룹내하나전이불가하면_전체예외전파_이후멤버미반영() {
+        // 구 동명 테스트(#1456)의 살아 있는 의도를 보존한다 — 그룹 팬아웃은 한 멤버라도 거부되면 예외를
+        // 삼키지 않고 그대로 전파하고, 처리 순서상 뒤 멤버는 손대지 않는다(부분 반영 없음, 실제 DB에서는
+        // @Transactional 롤백으로 N건 전체 원복).
+        //
+        // #1591로 스킵 규칙이 붙은 뒤에도 남는 거부 경로를 시나리오로 쓴다: anchor를 뒤로 되돌리는
+        // 요청(RESOLVED → IN_PROGRESS)은 anchorNotMovingBackward=false라 "목표와 같은 상태"만 건너뛰고,
+        // 아직 RESOLVED인 멤버(id=9)는 사유 없는 RESOLVED 이탈로 거부된다. 조치 등록 폼에는 사유
+        // 입력란이 없으므로 되돌리기는 updateStatus의 몫이라는 기존 계약이 유지된다.
+        //
+        // ⚠️ 한계(과신 금지) — 이 시나리오는 anchor 자신도 거부되는 요청이라, 원 테스트가 담고 있던
+        // "anchor 요청은 유효한데 멤버 거부로 전체가 롤백된다"는 성질까지 증명하지는 못한다. 그 조합은
+        // #1587(그룹 스킵 규칙)과 #1591로 구조적으로 도달 불가가 됐다 — 정방향 팬아웃에서 따라가는
+        // 멤버는 정의상 "정방향 한 단계"뿐이라 changeStatus가 거부할 수 없다. 여기서 보존 가능한
+        // 최선이 이 형태이며, 검증 범위는 "예외가 삼켜지지 않고 전파 + 뒤 멤버 미반영"까지다.
+        Defect anchor = existingDefect(5L, DefectStatus.RESOLVED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect alsoResolved = existingDefect(9L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
+        ReflectionTestUtils.setField(alsoResolved, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(alsoResolved, anchor));
+
+        assertThatThrownBy(() -> defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.IN_PROGRESS)))
+                .isInstanceOf(DomainValidationException.class);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED); // 뒤 멤버는 손대지 않음
+        assertThat(anchor.getActionContent()).isNull();
         verify(defectActionLogRepository, never()).save(any());
         verify(defectRevisionRepository, never()).save(any());
     }
@@ -902,10 +1007,15 @@ class DefectServiceTest {
     }
 
     @Test
-    void registerActionResult_updateStatus의그룹스킵규칙에영향받지않는다() {
-        // #1583 무회귀 확인 — 스킵 규칙은 updateStatus 전용이다. registerActionResult는 그룹 전원에게
-        // 조치 결과를 그대로 반영하며, 뒤처진 멤버(CONFIRMED)를 RESOLVED로 미는 건너뛰기 전이는
-        // 사유 입력란이 없는 폼이라 기존대로 거부된다(#1128 조기 완료 방지).
+    void registerActionResult_뒤처진멤버는건너뛰기전이없이제자리에둔다() {
+        // #1591 P2 — 기대값 변경(구 registerActionResult_updateStatus의그룹스킵규칙에영향받지않는다, #1587).
+        // [바뀐 이유] 옛 테스트가 지키던 실질 불변식은 "뒤처진 CONFIRMED 멤버가 IN_PROGRESS를 건너뛰고
+        // 조용히 RESOLVED로 완료 처리되지 않는다"(#1128 조기 완료 방지)였고, 그건 여기서도 그대로
+        // 유지된다 — 멤버는 CONFIRMED에 남는다. 바뀐 건 그 불변식을 지키는 방식뿐이다: 예전엔 "요청
+        // 전체를 400으로 거부"해서 지켰고(그래서 그 사진의 조치 등록 자체가 불가능했다), 이제는
+        // updateStatus와 같은 shouldSkipGroupMember로 "그 멤버의 상태 전이만 건너뛴다". 옛 테스트 이름이
+        // 못 박던 "registerActionResult는 스킵 규칙에 영향받지 않는다"는 #1583이 의도적으로 남겨둔
+        // 두 경로의 비대칭이며, 이 이슈가 해소 대상으로 지목한 바로 그 항목이다.
         Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
         ReflectionTestUtils.setField(anchor, "mediaId", 77L);
         Defect behindMember = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
@@ -919,10 +1029,15 @@ class DefectServiceTest {
                 eq(100L), eq(77L), any()))
                 .thenReturn(List.of(behindMember, anchor));
 
-        assertThatThrownBy(() -> defectService.registerActionResult(
-                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.RESOLVED)))
-                .isInstanceOf(DomainValidationException.class);
-        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        DefectResponse response = defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.RESOLVED));
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(behindMember.getStatus()).isEqualTo(DefectStatus.CONFIRMED); // 조기 완료되지 않는다
+        assertThat(behindMember.getActionContent()).isEqualTo("균열 부위 보수 완료"); // 조치 기록은 남는다
+        verify(defectRevisionRepository, never()).save(argThat(revision ->
+                revision.getDefectId().equals(9L) && revision.getFieldChanged().equals("status")));
+        assertThat(response.groupSize()).isEqualTo(2);
     }
 
     @Test
