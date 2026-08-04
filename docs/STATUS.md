@@ -36,6 +36,19 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **🚀 dev → main 승격 (2026-08-04)** — **PR #1465**(merge 커밋 `6e2eeda8`, **48커밋 / 306파일 / PR 46건 / 이슈 38건 종료**). 선행 역머지 **PR #1466** + merge 커밋 `cc449f38`. CD success, arm1 자동배포 완료.
+  - **승격 전 전체검수 — 전 게이트 PASS**: backend `./gradlew test` **2111건 0 failures** · ai-server `pytest` **421 passed** · frontend `npm run build` ✓ · dev CI 최근 5커밋 전부 success.
+  - **스키마 드리프트 프리플라이트 CLEAN** — 일회용 PG16에 **V1~V40 전량 적용 성공** 후 prod(`hajacheck` 전용 컨테이너, 30테이블/315컬럼)와 **양방향 전수 diff** → 차이는 V39/V40이 추가할 3컬럼뿐, **prod-only 드리프트 0건**(#531·baseline 스탬프 사각지대 재점검 포함).
+  - **배포 실측**: prod Flyway **V39·V40 success=t** 적용 확인, `rag_documents` 3컬럼(`embedding_started_at`·`expected_chunk_count`·`embed_batch_id`) 생성 확인. 컨테이너 spring/fastapi/frontend 전부 healthy. front 200 · api 401(정상 응답) · `/ai/` **404**(외부 폐쇄 유지).
+  - **R3(운영 config)**: `.env.example`·compose·Dockerfile·nginx **전부 무변경**, `application.yml`은 기본값 있는 프로퍼티 1개 추가(`ai.*.embedding-status-timeout-ms: 5000`) → **승격이 요구한 신규 env 0건**. / **R4**: destructive **0건**(V39·V40 둘 다 `add column if not exists`).
+  - **arm1 `.env`에 LangSmith 4키 추가**(별건) — `LANGCHAIN_TRACING_V2`/`ENDPOINT`/`API_KEY`/`PROJECT`. 백업 `.env.bak.20260804-langsmith`, 26→30키, **기존 26키 해시 무변동**. 마스킹은 compose 기본값 `LANGSMITH_HIDE_INPUTS/OUTPUTS=true` 유지 — fastapi 재기동으로 트레이싱 활성화 확인.
+    - ⚠️ **로컬 `.env`를 arm1에 통째 복사 금지** — `DB_URL`이 로컬 `hajacheck_dev`(호스트 PG 터널) ↔ arm1 `hajacheck`(전용 컨테이너)로 다르고, `COMPOSE_FILE`에 터널 프로파일이 딸려가며, arm1 전용 4키(`ARM1_DB_NAME`·`DEPLOY_TARGET`·`FRONTEND_BASE_URL`·`REDIS_DB_INDEX`)가 소실된다. 추가는 **백업 후 필요한 키만 append**.
+  - **⚠️ 역머지 squash 사고(재발 방지)** — PR #1466을 **PR머신이 squash 머지**(부모 1개)해 main 커밋이 dev의 조상이 되지 않았고, 승격 PR #1465가 계속 CONFLICTING이었다. dev에 **진짜 merge 커밋**(`cc449f38`, 내용 변경 0)을 직접 올려 해소. **역머지는 반드시 merge 커밋** — 머신에 맡기면 squash되므로 사람이 수동 merge 하거나 이번처럼 merge 커밋을 직접 올려야 한다.
+  - **⚠️ STATUS.md는 앞으로 dev에 커밋** — main에 직접 넣으면(과거 `953c219a`·`0991a693`) dev와 갈라져 다음 승격에서 같은 충돌이 재발한다. main은 승격으로 받는다.
+  - **📌 위 인프라 표의 "dev 브랜치 보호 활성화(직접 push 차단)"은 stale** — 실측 결과 dev·main 모두 **브랜치 보호 없음**(`gh api .../protection` 404), 직접 push가 실제로 성공했다. 표 정정 필요(후속).
+  - **이슈 종료 38건** — `Closes`를 **번호마다 따로** 붙여 전건 자동종료 확인(한 줄 1키워드면 첫 번호만 닫힘). **#1342는 제외**(`awaiting-promotion` 라벨이 붙었으나 P2 체크리스트 2건 미완료 — 라벨 정리 필요).
+  - **Jira**: 대응 20건 `완료` 전환(HAJA-542·575·616·618~621·623·624·626·627·629~632·636·637·639~641). 나머지 18건은 Jira 티켓 미생성이거나 이미 완료 상태. **`dev-pr-check`에 149건 적체** — 과거 승격들이 5단계(완료 전환)를 누락한 결과, 별도 정리 필요.
+
 - **🛠️ 하자 조치 등록 그룹 팬아웃 — 이미지 단위 보수 작업 v0.2 (→ dev, 2026-08-04)** — BE **#1460**(이슈 #1456), FE **#1461**(이슈 #1457). 둘 다 `awaiting-promotion` 라벨 부여. **마이그레이션 0건** — `docs/_local/repair-work-image-unit-plan_v0.2.md`(신규 엔티티 대신 `inspection_id+media_id` 계산 그룹, 스키마 무변경 버전)를 채택해 v0.1(신규 테이블 3개) 대비 마이그레이션 리스크를 제거했다.
   - **BE(#1460)**: `DefectService#registerActionResult` 내부를 단일 하자 처리 → 그룹 팬아웃으로 확장. 같은 `inspection_id+media_id`로 확정된(CONFIRMED 이상) 비삭제 하자 전체를 **id 오름차순**으로 묶어 동일 트랜잭션에서 반복 반영(잠금 순서 고정으로 교착 방지, 낙관적 락 충돌 시 그룹 전체 롤백). API는 기존 `PATCH /api/defects/{id}/action` 그대로(신규 엔드포인트 없음), `DefectResponse`에 `groupSize`/`groupStatus`/`mediaId` additive 필드만 추가.
   - **FE(#1461)**: 착수 전 확인해보니 카드 목록 `mediaId` 클라이언트 그룹핑(`groupDefectsByImage`)과 상세 모달의 그룹 공유 조치 폼(bbox 전환 시 진단만 바뀌고 폼은 그룹 defects 유지)이 **#1422/#1436/#1450에서 이미 구현돼 있었다** — 원래 계획했던 카드/모달/보고서 그룹핑 작업 대부분이 불필요했다. 실제 변경은 `DefectActionForm` 성공 안내에 `groupSize>1`이면 "같은 이미지의 하자 N건에 함께 반영됨" 문구를 붙인 것뿐(옵셔널 필드 소비, 별도 API 호출 없음).
