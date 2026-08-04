@@ -40,9 +40,12 @@ import org.springframework.transaction.annotation.Transactional;
  * <p><b>⚠️ 어느 단언이 무엇을 잡는지 — 하나도 "중복"이 아니다(지우지 말 것).</b>
  * <ul>
  *   <li><b>① 세션 미생성</b> (세션을 <b>주입하지 않은</b> 요청의 {@code getSession(false)} == null):
- *       {@code getSession(true)} 가 게이트 <b>앞</b>으로 새는 회귀를 잡는 <b>유일한</b> 단언이다.
- *       openapi 가 계약한 "세션 생성 자체가 일어나지 않는다"의 근거가 여기뿐이다. 아래 ②③은 세션을
- *       미리 주입하므로 "새 세션이 안 생긴다"를 증명하지 못한다.</li>
+ *       <b>이 컨트롤러가</b> {@code getSession(true)} 를 게이트 <b>앞</b>에서 호출하는 회귀를 잡는
+ *       <b>유일한</b> 단언이다(아래 ②③은 세션을 미리 주입하므로 "새 세션이 안 생긴다"를 증명하지 못한다).
+ *       다만 openapi 가 계약한 "세션 생성 자체가 일어나지 않는다" 전체를 커버하지는 <b>않는다</b> —
+ *       MockMvc 의 {@code with(csrf())} 가 CSRF 저장소를 테스트용으로 교체하므로,
+ *       <b>필터 단계</b>에서 세션이 생기는 회귀(예: SecurityConfig 를 세션 기반 CSRF 저장소로 변경)는
+ *       여기서 잡히지 않는다. 자세한 인과와 사각지대는 해당 단언 옆 주석 참조.</li>
  *   <li><b>② 세션 ID 무회전</b> + SecurityContext 미저장: 게이트가 {@code changeSessionId()} <b>뒤</b>로
  *       밀리는 회귀를 잡는 <b>유일한</b> 단언이다. 즉 실행 순서 계약을 실질적으로 고정하는 건 ②다.</li>
  *   <li><b>③ 그 세션으로 {@code GET /api/users/me} → 401</b>: {@code saveContext} 미호출을 잡는다.
@@ -104,8 +107,14 @@ class LoginRoleGateIntegrationTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.error.code").value("AUTH_ROLE_NOT_ALLOWED"))
                 .andReturn();
 
-        // ① 게이트가 getSession(true) 보다 앞이라는 유일한 증거.
-        // (CSRF 는 CookieCsrfTokenRepository 라 세션을 만들지 않으므로, 세션이 생겼다면 로그인 경로가 만든 것이다.)
+        // ① 게이트가 getSession(true) 보다 앞이라는 증거.
+        // 여기서 세션이 안 생기는 이유는 MockMvc 의 with(csrf()) 가 WebTestUtils.setCsrfTokenRepository() 로
+        // 필터체인의 저장소를 TestCsrfTokenRepository 로 "교체"해 토큰을 request attribute 에 담기 때문이다
+        // (프로덕션 CookieCsrfTokenRepository 는 이 테스트에서 아예 실행되지 않는다).
+        // ⚠️ 사각지대: 그래서 SecurityConfig 를 HttpSessionCsrfTokenRepository 로 바꾸는 회귀는 이 단언이
+        //    잡지 못한다 — 프로덕션에선 CsrfFilter 가 컨트롤러 도달 전에 세션을 만들어 openapi 계약이
+        //    깨지는데 여기는 통과한다. 실제 CSRF 저장소가 무엇인지에 의존하는 검증은
+        //    AuthCsrfRotationIntegrationTest(RANDOM_PORT, 후처리기가 손대지 않는 컨텍스트) 쪽 몫이다.
         assertThat(noSessionResult.getRequest().getSession(false))
                 .as("차단 경로는 세션을 생성조차 하지 않는다")
                 .isNull();
