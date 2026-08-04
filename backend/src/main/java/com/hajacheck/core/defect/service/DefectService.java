@@ -297,10 +297,10 @@ public class DefectService {
      * 필요 여부 등)가 다를 수 있다 — 그중 하나라도 거부되면 트랜잭션 전체가 롤백된다(부분 반영 없음,
      * registerActionResult와 동일 원칙).
      *
-     * <p>anchor가 아닌 그룹 멤버가 이미 목표 상태이면 건너뛴다(#1562 P2) — changeStatus()는 동일
-     * 상태 재전이를 항상 거부하므로, 그대로 반영하면 그룹 내 하자마다 진행 속도가 달라 이미 목표
-     * 상태에 도달한 멤버가 하나만 있어도 그룹 전체 요청이 실패했다. anchor 자신이 이미 목표 상태인
-     * 경우는 사용자가 직접 고른 대상이므로 기존과 동일하게 changeStatus()의 거부를 그대로 표면화한다.
+     * <p>anchor가 아닌 그룹 멤버의 건너뛰기 규칙은 {@link #shouldSkipGroupMember} 참조 — 이미 목표
+     * 상태인 멤버(#1562 P2)와, anchor가 정방향으로 움직일 때 이미 더 앞서 있는 멤버(#1583)를
+     * 건너뛴다. anchor 자신은 사용자가 직접 고른 대상이므로 기존과 동일하게 changeStatus()의 거부를
+     * 그대로 표면화한다.
      */
     @Transactional
     public DefectResponse updateStatus(
@@ -310,9 +310,14 @@ public class DefectService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
 
         List<Defect> group = resolveActionGroup(anchor);
+        // anchor가 진행을 뒤로 되돌리는 요청인지 여부에 따라 그룹 멤버 건너뛰기 규칙이 달라진다
+        // (shouldSkipGroupMember 참조). anchor의 현재 상태는 루프 안에서 바뀌므로 진입 전에 확정한다.
+        // 목표가 anchor의 현재 상태와 같은 경우도 true지만(엄밀히는 "제자리") anchor 자신이 어차피
+        // changeStatus에서 거부되므로 동작에는 영향이 없다.
+        boolean anchorNotMovingBackward = status.isAtOrAfter(anchor.getStatus());
         for (Defect defect : group) {
             boolean isAnchor = defect.getId().equals(anchor.getId());
-            if (!isAnchor && defect.getStatus() == status) {
+            if (!isAnchor && shouldSkipGroupMember(defect.getStatus(), status, anchorNotMovingBackward)) {
                 continue;
             }
             DefectStatus previousStatus = defect.getStatus();
@@ -323,6 +328,37 @@ public class DefectService {
 
         DefectResponse response = DefectResponse.from(anchor);
         return response.withGroupSummary(group.size(), aggregateGroupStatus(group));
+    }
+
+    /**
+     * updateStatus() 그룹 팬아웃에서 anchor가 아닌 멤버를 건너뛸지 판정한다.
+     *
+     * <p><b>anchor가 진행을 앞으로 미는 요청이면, 그 목표로 "정방향 한 단계" 전이가 되는 멤버만
+     * 따라간다</b>({@link DefectStatus#isForwardStepTo}). 나머지는 전부 제자리에 둔다:
+     * <ul>
+     *   <li><b>이미 목표 상태</b>(#1562 P2) — changeStatus()가 동일 상태 재전이를 항상 거부해,
+     *       한 멤버만 목표에 도달해 있어도 그룹 전체 요청이 실패했다.</li>
+     *   <li><b>목표보다 앞서 있음</b>(#1583) — 그룹 조회 대상이 {@link #GROUP_ELIGIBLE_STATUSES}
+     *       (CONFIRMED 이상)라 anchor가 앞으로 나아갈 때 더 앞선 멤버(예: RESOLVED)만 남아 있는 조합이
+     *       자연히 발생한다. 그 멤버까지 태우면 사용자가 건드리지도 않은 조치완료 하자가 조용히
+     *       역행하거나(사유 있을 때), 역행이 거부돼 요청 전체가 실패했다(사유 없을 때).</li>
+     *   <li><b>두 단계 이상 뒤처져 있음</b>(#1583 리뷰 P2) — 앞선 멤버를 건너뛰게 되면서 그룹이
+     *       의도적으로 분기된 채 남는 상태가 정상 경로가 됐고, 그 뒤 anchor를 더 진행시키면 뒤처진
+     *       멤버가 조치 기록(actionContent/actionDate) 없이 건너뛰기 전이돼 버린다(사유 있을 때) 또는
+     *       건너뛰기 거부로 요청 전체가 실패한다(사유 없을 때). 뒤처진 멤버는 자기 차례에 한 단계씩
+     *       따라오면 되므로 여기서 끌고 가지 않는다.</li>
+     * </ul>
+     *
+     * <p>반대로 anchor를 <b>뒤로 되돌리는</b> 요청(예: RESOLVED → IN_PROGRESS 재검토)은 "이 사진의
+     * 보수 작업 전체를 다시 연다"는 뜻이므로, 앞선 멤버도 함께 되돌리는 기존 동작(#1556)을 유지한다
+     * (이미 목표 상태인 멤버만 제외 — #1562).
+     */
+    private boolean shouldSkipGroupMember(
+            DefectStatus memberStatus, DefectStatus targetStatus, boolean anchorNotMovingBackward) {
+        if (!anchorNotMovingBackward) {
+            return memberStatus == targetStatus;
+        }
+        return !memberStatus.isForwardStepTo(targetStatus);
     }
 
 }

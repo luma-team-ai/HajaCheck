@@ -216,14 +216,9 @@ public class Defect {
                     "changeStatus 불가: 현재 상태와 동일한 상태로는 전이할 수 없다 (상태=%s)".formatted(status));
         }
 
-        DefectStatus expectedNext = switch (this.status) {
-            case DETECTED -> DefectStatus.CONFIRMED;
-            case CONFIRMED -> DefectStatus.IN_PROGRESS;
-            case IN_PROGRESS -> DefectStatus.RESOLVED;
-            case RESOLVED -> null;
-        };
-
-        boolean isForwardStep = status == expectedNext;
+        // 정방향 한 단계 판정은 DefectStatus#isForwardStepTo가 단일 기준이다(#1583) — 서비스 계층의
+        // 그룹 팬아웃도 같은 메서드를 쓰므로 두 곳의 규칙이 갈라질 수 없다.
+        boolean isForwardStep = this.status.isForwardStepTo(status);
         if (!isForwardStep && (reason == null || reason.isBlank())) {
             throw new DomainValidationException(
                     "changeStatus 불가: 역행/건너뛰기 전이는 사유가 필요하다 (현재 상태=%s, 요청 상태=%s)"
