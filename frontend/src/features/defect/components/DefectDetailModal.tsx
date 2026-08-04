@@ -10,7 +10,6 @@ import { ActivityHistoryPanel } from './ActivityHistoryPanel';
 import { DefectActionForm } from './DefectActionForm';
 import { DefectExplainPanel } from './DefectExplainPanel';
 import { DefectImageViewer } from './DefectImageViewer';
-import { DefectStatusChangeControl } from './DefectStatusChangeControl';
 
 type Props = {
   defects: InspectionDefect[];
@@ -265,12 +264,9 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
               <>
                 <DefectActionForm
                   key={`action-${detailDefect.id}`}
-                  defectId={detailDefect.id}
-                  inspectionId={detailDefect.inspectionId}
-                  status={detailDefect.status}
+                  defect={detailDefect}
                   actionResult={detailDefect.actionResult}
                 />
-                <DefectStatusChangeControl key={`status-change-${detailDefect.id}`} defect={detailDefect} />
                 <ActivityHistoryPanel key={`history-${detailDefect.id}`} defectId={detailDefect.id} />
               </>
             )}
