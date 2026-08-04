@@ -7,22 +7,27 @@
 두 계층으로 나눠 검증한다:
 1. **단위 테스트** — `pii_scrub_anonymizer` 순수 함수 계약(구조 보존·부분 치환).
 2. **통합 테스트** — 기존 `test_langsmith_tracing_exclusion.py`와 동일한 방식으로 실제
-   전송 페이로드 바이트를 캡처(`_extract_bytes`/`_wait_for_flush` 재사용)해 마스킹이
-   아니라 "부분 치환"임을 실증한다. 특히 "같은 페이로드에 일반 문장은 원문 그대로 남는다"
-   케이스가 이 작업의 핵심 단언이다 — 이게 없으면 전면 마스킹과 결과로 구분이 안 된다.
+   전송 페이로드 바이트를 캡처(공통 헬퍼 `tests/_langsmith_test_helpers.py`를 두 파일이
+   같이 import)해 마스킹이 아니라 "부분 치환"임을 실증한다. 특히 "같은 페이로드에 일반
+   문장은 원문 그대로 남는다" 케이스가 이 작업의 핵심 단언이다 — 이게 없으면 전면 마스킹과
+   결과로 구분이 안 된다.
+3. **설치 fail-safe** — `install_pii_scrub_anonymizer()`가 실패해도 예외를 전파하지 않는다
+   (main.py 모듈 최상위 호출이라 전파되면 ai-server가 기동조차 못 한다).
 """
-import io
-import time
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
-import zstandard
 from langsmith import run_trees as ls_run_trees
-from langsmith import utils as ls_utils
 from langsmith.client import Client
 from langsmith.run_helpers import tracing_context
 
 from ai.core.langsmith_pii_scrub import install_pii_scrub_anonymizer, pii_scrub_anonymizer
+from _langsmith_test_helpers import (
+    extract_bytes,
+    reset_langsmith_process_state,
+    wait_for_flush,
+)
 
 RRN_PII = "901231-1234567"
 BIZ_REG_PII = "123-45-67890"
@@ -38,55 +43,12 @@ FAKE_LANGSMITH_KEY = "-".join(("test", "dummy", "langsmith", "key", "not", "a", 
 FAKE_HF_TOKEN = "-".join(("test", "dummy", "hf", "token", "not", "a", "real", "secret"))
 
 
-_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
-
-
-def _extract_bytes(data) -> bytes:
-    """LangSmith 전송 페이로드를 실제(압축 해제된) 바이트로 변환.
-
-    (`tests/test_langsmith_tracing_exclusion.py`의 동일 헬퍼와 같은 방식 — 소규모 배치는
-    bytes로 오지만 대규모 트레이스는 zstd로 압축돼 `_io.BytesIO`로 온다.)
-    """
-    if isinstance(data, bytes):
-        raw = data
-    elif hasattr(data, "read"):
-        pos = data.tell() if hasattr(data, "tell") else None
-        content = data.read()
-        if pos is not None and hasattr(data, "seek"):
-            data.seek(pos)
-        raw = content if isinstance(content, bytes) else str(content).encode("utf-8")
-    else:
-        raw = str(data).encode("utf-8")
-
-    if raw[:4] == _ZSTD_MAGIC:
-        return zstandard.ZstdDecompressor().stream_reader(io.BytesIO(raw)).read()
-    return raw
-
-
-def _wait_for_flush(captured: list, *, timeout: float = 8.0, settle: float = 0.4) -> None:
-    """백그라운드 전송이 끝날 때까지 대기(길이가 settle 초 동안 변하지 않으면 완료로 본다)."""
-    deadline = time.time() + timeout
-    last_len = -1
-    settle_start = time.time()
-    while time.time() < deadline:
-        if len(captured) != last_len:
-            last_len = len(captured)
-            settle_start = time.time()
-        elif captured and time.time() - settle_start >= settle:
-            return
-        time.sleep(0.05)
-
-
 @pytest.fixture(autouse=True)
 def _reset_langsmith_process_state():
     """각 테스트마다 LangSmith 싱글턴 및 LRU 캐시를 초기화(다른 테스트 파일과 동일 이유)."""
-    def _reset():
-        ls_utils.get_env_var.cache_clear()
-        ls_run_trees._CLIENT = None
-
-    _reset()
+    reset_langsmith_process_state()
     yield
-    _reset()
+    reset_langsmith_process_state()
 
 
 # ── 단위 테스트 — pii_scrub_anonymizer 순수 함수 계약 ──────────────────────────
@@ -154,6 +116,39 @@ def test_non_dict_input_returned_unchanged():
     assert pii_scrub_anonymizer("not a dict") == "not a dict"  # type: ignore[arg-type]
 
 
+# ── 설치 단계 fail-safe — 실패해도 ai-server 기동을 막지 않는다 ────────────────
+
+
+def test_install_does_not_propagate_client_creation_failure(caplog):
+    """`get_cached_client`가 터져도 예외가 전파되지 않는다(부팅 크래시 방지).
+
+    `install_pii_scrub_anonymizer()`는 main.py 모듈 최상위에서 호출되므로, 예외가 새면
+    `import main`이 실패해 ai-server가 아예 뜨지 못한다. langsmith private API 의존
+    (kwargs 처리·`_anonymizer` 속성)이 버전 업그레이드로 깨졌을 때 서비스 전체가 죽는
+    회귀를 이 테스트로 못박는다. 대신 실패는 반드시 로그로 표면화돼야 한다.
+    """
+    with patch.object(ls_run_trees, "get_cached_client", side_effect=RuntimeError("boom")):
+        with caplog.at_level(logging.ERROR, logger="ai.core.langsmith_pii_scrub"):
+            install_pii_scrub_anonymizer()  # 예외가 전파되면 이 지점에서 테스트 실패
+
+    assert any(
+        record.levelno >= logging.ERROR and record.exc_info for record in caplog.records
+    ), "설치 실패를 조용히 삼켰다 — 스택과 함께 ERROR 로그로 남아야 한다"
+
+
+def test_install_does_not_propagate_anonymizer_assignment_failure():
+    """이미 만들어진 싱글턴에 `_anonymizer` 강제 재할당이 막혀도 예외가 전파되지 않는다."""
+
+    class _FrozenClient:
+        _anonymizer = None  # pii_scrub_anonymizer가 아니므로 재할당 경로로 진입한다
+
+        def __setattr__(self, name, value):
+            raise AttributeError(f"read-only: {name}")
+
+    with patch.object(ls_run_trees, "get_cached_client", return_value=_FrozenClient()):
+        install_pii_scrub_anonymizer()  # 예외가 전파되면 이 지점에서 테스트 실패
+
+
 # ── 통합 테스트 — 실제 전송 페이로드 바이트 캡처 ──────────────────────────────
 
 
@@ -174,7 +169,7 @@ def _run_llm_and_capture_payload(monkeypatch, *, error_message: str | None = Non
     def _spy(self, method, path, **kwargs):
         data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
         if data:
-            captured.append(_extract_bytes(data))
+            captured.append(extract_bytes(data))
         raise RuntimeError("테스트에서 실제 전송을 막음")
 
     hf_response = MagicMock()
@@ -203,7 +198,7 @@ def _run_llm_and_capture_payload(monkeypatch, *, error_message: str | None = Non
                 with pytest.raises(Exception):
                     model.invoke(SENSITIVE_PROMPT)
 
-        _wait_for_flush(captured)
+        wait_for_flush(captured)
 
     return b"".join(captured)
 

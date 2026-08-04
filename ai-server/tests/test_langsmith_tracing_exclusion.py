@@ -9,64 +9,23 @@ OCR 체인(사업자등록번호·대표자명 등 개인정보 포함)은 민�
 2. HF API 토큰이 어떤 경로로도 전송되지 않는다 (마스킹 여부 무관).
 3. 대조군(제약 없는 일반 LLM 호출)이 실제로 전송됨을 보증 (억제 검증의 신뢰도 확보).
 """
-import io
 import json
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-import zstandard
-from langsmith import run_trees as ls_run_trees
-from langsmith import utils as ls_utils
 from langsmith.client import Client
 from langsmith.run_helpers import tracing_context
+
+from _langsmith_test_helpers import (
+    extract_bytes,
+    reset_langsmith_process_state,
+    wait_for_flush,
+)
 
 SENSITIVE_INPUT = "사업자등록번호 123-45-67890 대표자 홍길동"
 SENSITIVE_OUTPUT = "원인은 콘크리트 중성화로 추정됩니다"
 FAKE_LANGSMITH_KEY = "-".join(("test", "dummy", "langsmith", "key", "not", "a", "real", "secret"))
 FAKE_HF_TOKEN = "-".join(("test", "dummy", "hf", "token", "not", "a", "real", "secret"))
-
-
-_ZSTD_MAGIC = b"\x28\xb5\x2f\xfd"
-
-
-def _extract_bytes(data) -> bytes:
-    """LangSmith 전송 페이로드를 실제(압축 해제된) 바이트로 변환.
-
-    소규모 배치는 bytes로 오지만, 대규모 트레이스는 zstd로 압축되고
-    `_io.BytesIO`로 온다 — 압축 해제 없이는 민감 문자열을 검색할 수 없다.
-    """
-    if isinstance(data, bytes):
-        raw = data
-    elif hasattr(data, "read"):
-        pos = data.tell() if hasattr(data, "tell") else None
-        content = data.read()
-        if pos is not None and hasattr(data, "seek"):
-            data.seek(pos)
-        raw = content if isinstance(content, bytes) else str(content).encode("utf-8")
-    else:
-        raw = str(data).encode("utf-8")
-
-    if raw[:4] == _ZSTD_MAGIC:
-        return zstandard.ZstdDecompressor().stream_reader(io.BytesIO(raw)).read()
-    return raw
-
-
-def _wait_for_flush(captured: list, *, timeout: float = 8.0, settle: float = 0.4) -> None:
-    """백그라운드 전송이 끝날 때까지 대기.
-
-    captured 길이가 settle 초 동안 변하지 않으면 flush 완료로 본다.
-    """
-    deadline = time.time() + timeout
-    last_len = -1
-    settle_start = time.time()
-    while time.time() < deadline:
-        if len(captured) != last_len:
-            last_len = len(captured)
-            settle_start = time.time()
-        elif captured and time.time() - settle_start >= settle:
-            return
-        time.sleep(0.05)
 
 
 @pytest.fixture(autouse=True)
@@ -76,13 +35,9 @@ def _reset_langsmith_process_state():
     LangSmith 클라이언트와 env 판정이 프로세스 단위로 캐시되므로,
     한 테스트의 설정이 다음 테스트로 새어 들어오는 것을 방지한다.
     """
-    def _reset():
-        ls_utils.get_env_var.cache_clear()
-        ls_run_trees._CLIENT = None
-
-    _reset()
+    reset_langsmith_process_state()
     yield
-    _reset()
+    reset_langsmith_process_state()
 
 
 def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch):
@@ -116,13 +71,13 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch)
     def _spy_for_ocr(self, method, path, **kwargs):
         data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
         if data:
-            captured_ocr.append(_extract_bytes(data))
+            captured_ocr.append(extract_bytes(data))
         raise RuntimeError("테스트에서 실제 전송을 막음")
 
     def _spy_for_control(self, method, path, **kwargs):
         data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
         if data:
-            captured_control.append(_extract_bytes(data))
+            captured_control.append(extract_bytes(data))
         raise RuntimeError("테스트에서 실제 전송을 막음")
 
     # OCR 체인은 with_structured_output(BusinessLicenseOcrExtract)로 파싱하므로 응답이 그
@@ -188,7 +143,7 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch)
         # 억제(no-op) 검증이라 데이터가 영영 안 온다 — captured가 비어있으면 settle 조건
         # (elif captured and ...)이 성립하지 않아 항상 timeout 전체를 대기한다. 그래도
         # 나머지 케이스(대조군 등)처럼 8s를 다 쓸 필요는 없어 1.5s로만 줄인다(PR #1557 P3).
-        _wait_for_flush(captured_ocr, timeout=1.5)
+        wait_for_flush(captured_ocr, timeout=1.5)
 
     # OCR 체인은 tracing_context(enabled=False)로 감싸져 있으므로 페이로드가 **완전히 비어있어야 한다**
     ocr_payload = b"".join(captured_ocr)
@@ -199,8 +154,7 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch)
 
     # ② 대조군 — 마스킹을 OFF로 하고 일반 LLM 호출하면 프롬프트가 실제로 **전송된다**
     # (이것이 없으면 OCR 테스트가 "원래 아무것도 안 잡혀서" 통과한 건지 "억제됐기 때문에" 통과한 건지 모름)
-    ls_utils.get_env_var.cache_clear()  # 이전 spy의 Client 싱글턴 영향 제거
-    ls_run_trees._CLIENT = None
+    reset_langsmith_process_state()  # 이전 spy의 Client 싱글턴·env 판정 캐시 영향 제거
     monkeypatch.setenv("LANGSMITH_HIDE_INPUTS", "false")  # 대조군은 마스킹 OFF
     monkeypatch.setenv("LANGSMITH_HIDE_OUTPUTS", "false")
 
@@ -216,7 +170,7 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch)
             result = model.invoke(SENSITIVE_INPUT)
             assert result.content == SENSITIVE_OUTPUT, "마스킹이 응답을 바꾸면 안 됨"
 
-        _wait_for_flush(captured_control)
+        wait_for_flush(captured_control)
 
     # 마스킹 OFF 상태의 호출은 페이로드에 프롬프트가 **실제로 포함되어야 한다**
     control_payload = b"".join(captured_control)
@@ -249,7 +203,7 @@ def test_hf_api_token_never_leaves_when_tracing_enabled(monkeypatch):
     def _spy(self, method, path, **kwargs):
         data = kwargs.get("request_kwargs", {}).get("data") or kwargs.get("data")
         if data:
-            captured.append(_extract_bytes(data))
+            captured.append(extract_bytes(data))
         raise RuntimeError("테스트에서 실제 전송을 막음")
 
     hf_response = MagicMock()
@@ -270,7 +224,7 @@ def test_hf_api_token_never_leaves_when_tracing_enabled(monkeypatch):
         with tracing_context(enabled=True):
             model.invoke(SENSITIVE_INPUT)
 
-        _wait_for_flush(captured)
+        wait_for_flush(captured)
 
     payload = b"".join(captured)
     assert payload, "전송 페이로드를 가로채지 못했다 — 검증 자체가 성립하지 않는다"

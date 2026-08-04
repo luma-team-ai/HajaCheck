@@ -27,8 +27,11 @@ kwargs를 조용히 무시하고 기존 인스턴스를 그대로 반환한다(l
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # 각 (라벨, 패턴) — 순서가 중요하다. 앞선 패턴이 치환한 구간은 뒤 패턴이 다시 볼 필요가
 # 없어지고(치환 토큰 `[REDACTED:...]`에는 숫자가 없어 재매칭 위험도 없다), 특히 이메일은
@@ -98,12 +101,28 @@ def install_pii_scrub_anonymizer() -> None:
     "나중에 어떤 경로로든 트레이스가 나가면 최소한 PII는 걸러진다"는 안전망이 된다
     (게이트를 두면 조건이 갈라지는 조합이 반드시 생긴다는 것이 과거 #1240 구현의
     교훈이었다 — `git show f41533ef:ai-server/ai/core/langsmith_guard.py` 참고).
-    """
-    from langsmith.run_trees import get_cached_client
 
-    client = get_cached_client(anonymizer=pii_scrub_anonymizer)
-    if client._anonymizer is not pii_scrub_anonymizer:
-        # 싱글턴이 이미 존재했다면(정상 부팅 순서에선 불가능하지만 보조 진입점에서는
-        # 가능) 위 호출의 kwargs가 조용히 무시된다 — 그 경우를 명시적으로 감지해
-        # 강제 재할당한다(#1248에서 검증된 함정).
-        client._anonymizer = pii_scrub_anonymizer
+    **어떤 실패도 호출자에게 전파하지 않는다(fail-safe).** 이 함수는 main.py 모듈
+    최상위에서 호출되므로, 예외가 새어 나가면 `import main` 자체가 실패해 ai-server가
+    아예 뜨지 못한다. 내부 구현이 langsmith private API(`get_cached_client` kwargs 처리·
+    `client._anonymizer` 속성)에 의존하는 만큼 라이브러리 업그레이드로 깨질 수 있고,
+    그때 서비스 전체가 죽는 편익은 없다 — `pii_scrub_anonymizer()`가 이미 채택한
+    "스크럽 실패가 트레이싱/서비스를 죽이면 안 된다"는 원칙을 설치 단계에도 적용한다.
+    단, 조용히 넘어가면 트레이싱이 켜진 채 스크럽만 빠진 상태를 눈치채지 못하므로
+    `logger.exception`으로 스택과 함께 크게 남긴다.
+    """
+    try:
+        from langsmith.run_trees import get_cached_client
+
+        client = get_cached_client(anonymizer=pii_scrub_anonymizer)
+        if client._anonymizer is not pii_scrub_anonymizer:
+            # 싱글턴이 이미 존재했다면(정상 부팅 순서에선 불가능하지만 보조 진입점에서는
+            # 가능) 위 호출의 kwargs가 조용히 무시된다 — 그 경우를 명시적으로 감지해
+            # 강제 재할당한다(#1248에서 검증된 함정).
+            client._anonymizer = pii_scrub_anonymizer
+    except Exception:
+        logger.exception(
+            "LangSmith PII 스크럽 anonymizer 설치 실패 — 서비스 기동은 계속한다. "
+            "이 상태에서 트레이싱이 켜져 있으면 PII가 스크럽되지 않은 채 전송될 수 있으니 "
+            "즉시 확인이 필요하다(langsmith 버전 업그레이드로 private API가 바뀐 경우 등)."
+        )
