@@ -635,22 +635,24 @@ export async function exportReportToPdf(
     // 이 바를 별도 autoTable로 분리하면 jsPDF-autotable이 페이지 넘김 시 자동 반복시키는
     // `head`에 포함되지 않아, 표가 여러 페이지에 걸칠 때 첫 페이지에만 나오고 사라진다(한글
     // "표 제목 줄 자동 반복" 관용구와 어긋남). 아래 컬럼 헤더 행과 같은 표의 `head` 첫 행으로
-    // 합쳐서 페이지마다 함께 반복되게 한다 — colSpan은 6개 컬럼을 3:3으로 나눠 원본의
+    // 합쳐서 페이지마다 함께 반복되게 한다 — colSpan은 4개 컬럼을 2:2로 나눠 원본의
     // "라벨:값" 2분할을 근사한다(정확한 폭 비율은 원본과 다를 수 있으나 순수 장식용 바라 무관).
+    // "연번"·"결함발생 부재"(구조부재명 데이터가 없어 시설물 주소가 대신 흘러들어오던 컬럼)는
+    // 원본 양식에 없거나 채울 데이터가 없어 뺐다(#1499) — 남은 4개 컬럼(상태평가·결함종류·
+    // 조사 결과·추정 원인) 중 상태평가·결함종류만 원본과 의미가 겹치고 나머지 둘은 우리 전용
+    // 보충 정보다.
     autoTable(doc, {
       ...tableDefaults,
       startY: y,
       head: [
         [
-          { content: "상태평가 결과 및 보수ㆍ보강", colSpan: 3 },
+          { content: "상태평가 결과 및 보수ㆍ보강", colSpan: 2 },
           {
             content: `상태평가 결과 : ${worstGrade(content.summary.count_by_grade)}`,
-            colSpan: 3,
+            colSpan: 2,
           },
         ],
         [
-          "연번",
-          "결함발생 부재",
           "상태\n평가",
           "결함종류",
           "조사 결과",
@@ -659,25 +661,19 @@ export async function exportReportToPdf(
       ],
       body:
         content.detail.items.length > 0
-          ? content.detail.items.map((item, index) => [
-              String(index + 1),
-              // "결함발생 부재"(구조부재명) 데이터가 없어 시설물 주소(item.location)가 대신
-              // 흘러들어왔었다 — 원본 양식에 없는 정보라 화면엔 빈 값으로 표시한다(#1499).
-              "-",
+          ? content.detail.items.map((item) => [
               toMemberGrade(item.severity_grade),
               item.defect_type || "-",
               item.description || "-",
               item.cause || "-",
             ])
-          : [["-", "-", "-", "-", "확인된 결함이 없습니다.", "-"]],
+          : [["-", "-", "확인된 결함이 없습니다.", "-"]],
       // 좁은 열은 원본처럼 9pt로 강등한다.
       columnStyles: {
-        0: { cellWidth: 11, halign: "center", fontSize: FONT_SIZE.tableNarrow },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 12, halign: "center" },
-        3: { cellWidth: 24 },
-        4: { cellWidth: "auto" },
-        5: { cellWidth: 38 },
+        0: { cellWidth: 14, halign: "center", fontSize: FONT_SIZE.tableNarrow },
+        1: { cellWidth: 30 },
+        2: { cellWidth: "auto" },
+        3: { cellWidth: 44 },
       },
     });
     return lastTableY();

@@ -652,11 +652,12 @@ describe("exportReportToPdf", () => {
     const options = findTableOptions(
       (candidate) =>
         Array.isArray(candidate.head) &&
-        (candidate.head as string[][])[1]?.includes("결함발생 부재"),
+        (candidate.head as string[][])[1]?.includes("결함종류"),
     );
-    // "결함발생 부재" 컬럼은 구조부재명 데이터가 없어 시설물 주소(item.location)를 대신
-    // 표시해왔으나, 원본 양식에 없는 정보라 항상 빈 값("-")으로 표시한다(#1499).
-    expect(options?.body).toEqual([["1", "-", "c", "균열", "설명", "원인"]]);
+    // "연번"·"결함발생 부재"(구조부재명 데이터가 없어 시설물 주소를 대신 표시해왔던 컬럼)는
+    // 원본 양식에 없거나 채울 데이터가 없어 뺐다(#1499) — 상태평가·결함종류·조사 결과·추정
+    // 원인 4개 컬럼만 남는다.
+    expect(options?.body).toEqual([["c", "균열", "설명", "원인"]]);
   });
 
   it("등급별 건수에서 최악 등급을 상태평가 결과로 표기한다", async () => {
@@ -676,7 +677,7 @@ describe("exportReportToPdf", () => {
     const options = findTableOptions(
       (candidate) =>
         Array.isArray(candidate.head) &&
-        (candidate.head as string[][])[1]?.includes("결함발생 부재"),
+        (candidate.head as string[][])[1]?.includes("결함종류"),
     );
     const barRow = (options?.head as { content: string }[][])[0];
     expect(barRow[1].content).toBe("상태평가 결과 : d");
