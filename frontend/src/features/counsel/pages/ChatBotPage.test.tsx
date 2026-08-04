@@ -40,4 +40,16 @@ describe('ChatBotPage', () => {
 
     expect(await screen.findByText(/상담원 연결을 요청했습니다/)).toBeTruthy();
   });
+
+  it('#1434: 경로 안내 오버라이드가 있는 노드는 문구가 교체되고 바로가기 버튼이 붙는다', async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByText(mockScenarioRoots[1].buttonLabel));
+
+    expect(
+      await screen.findByText('[마이페이지 > 결제 정보]에서 결제 내역을 확인하거나 플랜을 변경하실 수 있습니다.'),
+    ).toBeTruthy();
+    const link = screen.getByRole('link', { name: '내 플랜' });
+    expect(link.getAttribute('href')).toBe('/mypage/plan');
+  });
 });

@@ -160,6 +160,22 @@ export const counselHandlers = [
         },
       });
     }
+    // #1434 시나리오 바로가기 버튼 테스트용 — 실제 프로덕션 노드 id=9("결제 수단 변경")와
+    // 동일한 id를 응답에 넣어 SCENARIO_ACTION_OVERRIDES[9] 매칭을 재현한다.
+    if (id === 20) {
+      return HttpResponse.json({
+        success: true,
+        data: {
+          id: 9,
+          parentId: 2,
+          category: 'ACCOUNT_BILLING',
+          buttonLabel: '결제 수단 변경',
+          responseText: '[마이페이지 > 결제 정보]에서 카드 정보를 직접 변경하실 수 있습니다.',
+          leadsToCounselor: false,
+          children: [],
+        },
+      });
+    }
     return HttpResponse.json(
       { success: false, error: { code: 'COUNSEL_SCENARIO_NOT_FOUND', message: '상담 시나리오를 찾을 수 없습니다.' } },
       { status: 404 },

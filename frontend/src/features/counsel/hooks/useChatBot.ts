@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getApiErrorMessage } from '../../../shared/api/types';
 import { counselApi } from '../api/counselApi';
+import { SCENARIO_ACTION_OVERRIDES } from '../constants';
 import { useCounselSocket } from './useCounselSocket';
 import type {
   BotScenarioButtonResponse,
+  BotScenarioNodeResponse,
   ChatMessageResponse,
   ChatMessageSender,
   CounselTicketSummaryResponse,
@@ -16,10 +18,20 @@ function nextId() {
 }
 
 export type ChatBotLogEntry =
-  | { id: string; kind: 'bot-text'; text: string }
+  | { id: string; kind: 'bot-text'; text: string; actionRoute?: string; actionLabel?: string }
   | { id: string; kind: 'bot-buttons'; buttons: BotScenarioButtonResponse[] }
   | { id: string; kind: 'user-choice'; label: string }
   | { id: string; kind: 'ticket-created'; ticket: CounselTicketSummaryResponse };
+
+// 노드 응답 문구를 만들 때 #1434 오버라이드(있으면 문구 교체 + 바로가기 버튼 정보)를 적용한다.
+function resolveNodeText(node: BotScenarioNodeResponse, fallbackText: string) {
+  const override = SCENARIO_ACTION_OVERRIDES[node.id];
+  return {
+    text: override?.responseText ?? node.responseText ?? fallbackText,
+    actionRoute: override?.actionRoute,
+    actionLabel: override?.actionLabel,
+  };
+}
 
 const GREETING =
   '안녕하세요! 오늘 어떤 도움이 필요하신가요? 아래에서 원하시는 카테고리를 선택해 주세요.';
@@ -95,11 +107,12 @@ export function useChatBot(initialCategory?: string) {
 
       if (matchedRoot) {
         const node = await counselApi.getScenarioNode(matchedRoot.id);
-        const text =
-          node.data.responseText ??
-          `${matchedRoot.buttonLabel}에 대해 구체적으로 어떤 내용이 필요하신가요?`;
+        const { text, actionRoute, actionLabel } = resolveNodeText(
+          node.data,
+          `${matchedRoot.buttonLabel}에 대해 구체적으로 어떤 내용이 필요하신가요?`,
+        );
         setLog([
-          { id: nextId(), kind: 'bot-text', text },
+          { id: nextId(), kind: 'bot-text', text, actionRoute, actionLabel },
           { id: nextId(), kind: 'bot-buttons', buttons: node.data.children },
         ]);
         return;
@@ -144,10 +157,14 @@ export function useChatBot(initialCategory?: string) {
       const res = await counselApi.getScenarioNode(button.id);
       // 최상위 카테고리는 시드 데이터에 responseText가 없다(null) — 하위 옵션만 덩그러니 뜨지 않도록
       // 방금 누른 버튼 라벨을 바탕으로 안내 문구를 프론트에서 생성한다(백엔드 데이터 변경 없이).
-      const text = res.data.responseText ?? `${button.buttonLabel}에 대해 구체적으로 어떤 내용이 필요하신가요?`;
+      // #1434: 경로 안내가 있는 노드는 SCENARIO_ACTION_OVERRIDES로 문구 보정 + 바로가기 버튼 부착.
+      const { text, actionRoute, actionLabel } = resolveNodeText(
+        res.data,
+        `${button.buttonLabel}에 대해 구체적으로 어떤 내용이 필요하신가요?`,
+      );
       setLog((prev) => [
         ...prev,
-        { id: nextId(), kind: 'bot-text' as const, text },
+        { id: nextId(), kind: 'bot-text' as const, text, actionRoute, actionLabel },
         { id: nextId(), kind: 'bot-buttons' as const, buttons: res.data.children },
       ]);
     } catch (err) {
