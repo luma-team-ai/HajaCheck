@@ -379,6 +379,85 @@ describe('useRagChat (통합 테스트)', () => {
     // 상한(3초) + 늦은 복원 도착까지 기다리므로 기본 testTimeout(5초)보다 길게 잡는다.
   }, 15000);
 
+  // #1590 리뷰 P3-A — 세션 발급이 실패하면 "확정"이 아니라 "시도"였을 뿐이다. 되돌리지 않으면
+  // 이후 도착한 복원 200이 저장된 세션을 채택하지 못해 대화가 갈라진다(P2-1의 좁은 재현 경로).
+  it('createSession 실패 뒤 도착한 복원 200은 저장된 세션을 정상 채택한다', async () => {
+    setRagSessionId(7);
+    const sentSessionIds: Array<number | undefined> = [];
+    server.use(
+      http.get('/api/chat-sessions/:sessionId/messages', async () => {
+        await delay(RAG_RESTORE_WAIT_TIMEOUT_MS + 800);
+        const data: ChatSessionMessageResponse[] = [];
+        return HttpResponse.json({ success: true, data });
+      }),
+      http.post('/api/chat-sessions', () =>
+        HttpResponse.json(
+          { success: false, error: { code: 'SESSION_CREATE_FAILED', message: '세션 생성 실패' } },
+          { status: 500 },
+        ),
+      ),
+      http.post('/api/ai/rag-chat', async ({ request }) => {
+        const body = (await request.json()) as { sessionId?: number };
+        sentSessionIds.push(body?.sessionId);
+        return HttpResponse.json({ success: true, data: mockRagAnswer, usage: { tokens: 0 } });
+      }),
+    );
+
+    const { result } = renderHook(() => useRagChat());
+
+    act(() => {
+      result.current.send('세션 발급이 실패하는 첫 질문');
+    });
+
+    // 상한 초과 → 세션 발급 시도 → 실패로 에러 표시(이 시점 sessionCommittedRef는 되돌아가야 한다)
+    await waitFor(() => expect(result.current.error).not.toBeNull(), {
+      timeout: RAG_RESTORE_WAIT_TIMEOUT_MS + 2000,
+    });
+    expect(sessionCreateCount).toBe(1);
+
+    // 뒤늦게 복원 200 도착 — 저장된 세션(7)이 채택돼야 한다.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    act(() => {
+      result.current.retry();
+    });
+    await waitFor(() => expect(assistantOf(result.current.messages)).toBeDefined());
+
+    expect(sentSessionIds).toEqual([7]); // 새 세션을 또 만들지 않고 복원된 세션을 쓴다
+    expect(sessionCreateCount).toBe(1);
+    expect(getRagSessionId()).toBe(7);
+  }, 20000);
+
+  // #1590 리뷰 P3-B — 복원 GET이 영원히 응답하지 않아도(api 인스턴스에 자체 timeout 없음) 대기는
+  // 첫 질의 1회로 끝나야 한다. 매 질의마다 상한만큼 지연되면 사용자는 계속 3초씩 손해를 본다.
+  it('응답 없는 복원 GET이어도 두 번째 질의부터는 대기 없이 즉시 진행한다', async () => {
+    setRagSessionId(7);
+    server.use(
+      http.get('/api/chat-sessions/:sessionId/messages', async () => {
+        await delay('infinite');
+        return HttpResponse.json({ success: true, data: [] });
+      }),
+    );
+
+    const { result } = renderHook(() => useRagChat());
+
+    act(() => {
+      result.current.send('첫 질문');
+    });
+    await waitFor(() => expect(assistantOf(result.current.messages)).toBeDefined(), {
+      timeout: RAG_RESTORE_WAIT_TIMEOUT_MS + 2000,
+    });
+
+    const startedAt = Date.now();
+    act(() => {
+      result.current.send('두 번째 질문');
+    });
+    await waitFor(() => expect(usersOf(result.current.messages)).toHaveLength(2));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(Date.now() - startedAt).toBeLessThan(RAG_RESTORE_WAIT_TIMEOUT_MS);
+  }, 20000);
+
   // #1590 P2 — 계정 전환 후 이전 사용자의 session_id가 남아 있고, 복원 GET(403)이 도착하기 전에
   // 새 사용자가 첫 질문을 보내는 레이스. 예전에는 마운트 즉시 sessionIdRef에 옛 id를 넣어 그
   // 질의가 403으로 실패했다(화면에 에러 배너). 이제는 새 세션으로 정상 처리돼야 한다.

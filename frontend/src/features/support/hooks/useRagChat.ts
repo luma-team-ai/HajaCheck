@@ -95,7 +95,7 @@ export function useRagChat() {
     // 대신 runQuery가 이 promise(restoreRef)를 기다리므로, 동일 사용자면 옛 세션을 그대로 이어간다.
 
     let cancelled = false;
-    restoreRef.current = (async () => {
+    const restoring = (async () => {
       try {
         const res = await supportApi.getSessionMessages(savedId);
         if (cancelled) return;
@@ -117,6 +117,10 @@ export function useRagChat() {
         clearRagSessionId();
       }
     })();
+    // 복원이 끝나면 대기 대상에서 뺀다 — 남겨두면 이후 질의가 매번 이 promise를 다시 await 한다.
+    restoreRef.current = restoring.finally(() => {
+      restoreRef.current = null;
+    });
 
     return () => {
       cancelled = true;
@@ -136,6 +140,10 @@ export function useRagChat() {
       // 복원이 비정상적으로 지연되면 질의를 막지 않고 새 세션 경로로 진행한다(상한).
       if (restoreRef.current) {
         await waitAtMost(restoreRef.current, RAG_RESTORE_WAIT_TIMEOUT_MS);
+        // 기다림은 1회로 끝낸다 — 복원 GET이 영원히 응답하지 않는 네트워크에서는 위 finally가
+        // 실행되지 않아, 여기서 비우지 않으면 이후 모든 질의가 매번 상한만큼 지연된다(api 인스턴스에
+        // 자체 timeout이 없다). 이미 한 번 기회를 줬으므로 이후 질의는 즉시 진행한다.
+        restoreRef.current = null;
         if (gen !== genRef.current) return; // 그 사이 startNewChat — 이 결과는 폐기
       }
 
@@ -144,7 +152,16 @@ export function useRagChat() {
       if (sessionId === null) {
         // createSession await 도중 늦게 도착한 복원 응답이 이 세션을 덮어쓰지 않도록 먼저 표시한다.
         sessionCommittedRef.current = true;
-        const sessionRes = await supportApi.createSession();
+        let sessionRes;
+        try {
+          sessionRes = await supportApi.createSession();
+        } catch (createError) {
+          // 발급에 실패했으면 "확정"이 아니라 "시도"였을 뿐이다 — 되돌리지 않으면 이후 도착한
+          // 복원 200이 저장된 세션을 채택하지 못하고(대화 분기), 403도 무효한 id를 지우지 못한 채
+          // localStorage에 남는다(#1590 리뷰 P3).
+          sessionCommittedRef.current = false;
+          throw createError;
+        }
         if (gen !== genRef.current) return; // 그 사이 startNewChat — 이 결과는 폐기
         sessionId = sessionRes.data.sessionId;
         sessionIdRef.current = sessionId;
