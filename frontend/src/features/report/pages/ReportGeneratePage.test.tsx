@@ -969,7 +969,7 @@ describe('ReportGeneratePage', () => {
   });
 
   // Step B("작성자 확인")는 hasContent 하나로만 결정되므로 임시저장으로 dirty=false가 되어도
-  // 서버가 groundingCheckPassed를 null로 리셋해도 activetation 상태가 흔들리지 않는다.
+  // 서버가 groundingCheckPassed를 null로 리셋해도 activation 상태가 흔들리지 않는다.
   // (이전 구현의 hasEverEdited 의존성을 제거하고 단순화한 회귀 시나리오)
   it('편집 후 임시저장해도 작성자 확인 단계가 AI 분류로 되돌아가지 않는다', async () => {
     renderPage();
