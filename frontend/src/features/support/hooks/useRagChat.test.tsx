@@ -3,7 +3,7 @@
 // useDefectExplain.test.tsx 관례를 따르되, useRagChat은 순수 useState/useRef 훅이라
 // (React Query 미사용) @testing-library/react의 renderHook으로 직접 구동한다.
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SUPPORT_DEV_TRIGGER, supportHandlers } from '../api/supportApi.handlers';
@@ -200,7 +200,9 @@ describe('useRagChat (통합 테스트)', () => {
             sender: 'BOT',
             content: '이전 답변',
             citations: [
-              { documentId: '12', chunkRef: '12_1', locator: '제1조', snippet: '법령 스니펫' },
+              // 실제 Jackson 직렬화(Long→JSON number)를 재현 — 문자열로 목킹하면 doc_id 문자열
+              // 변환 누락(PR #1563 P2)을 테스트가 못 잡는다.
+              { documentId: 12, chunkRef: '12_1', locator: '제1조', snippet: '법령 스니펫' },
             ],
             createdAt: new Date().toISOString(),
           },
@@ -267,5 +269,78 @@ describe('useRagChat (통합 테스트)', () => {
 
     expect(sessionCreateCount).toBe(2);
     expect(getRagSessionId()).not.toBe(firstSessionId);
+  });
+
+  // PR #1563 P2 픽스 검증 — 경쟁 조건 2건.
+
+  it('진행 중인 질의가 있을 때 startNewChat을 호출하면, 뒤늦게 도착한 이전 응답이 새 대화에 섞이지 않는다', async () => {
+    server.use(
+      http.post('/api/ai/rag-chat', async () => {
+        await delay(50);
+        return HttpResponse.json({ success: true, data: mockRagAnswer, usage: { tokens: 0 } });
+      }),
+    );
+
+    const { result } = renderHook(() => useRagChat());
+
+    act(() => {
+      result.current.send('첫 번째 대화 질문');
+    });
+    expect(result.current.loading).toBe(true);
+
+    // 응답이 도착하기 전에 새 대화 시작 — in-flight 상태에서도 클릭 가능(AiAssistantPage는
+    // messages.length만 보고 loading은 안 봄).
+    act(() => {
+      result.current.startNewChat();
+    });
+    expect(result.current.messages).toHaveLength(0);
+
+    // 지연됐던 첫 번째 질의의 응답이 이제 도착 — 폐기되어야 하고, 새 대화는 계속 빈 상태.
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(result.current.messages).toHaveLength(0);
+
+    // startNewChat이 inFlightRef를 풀어놨으므로 새 대화에서 바로 다음 질의가 가능해야 한다.
+    act(() => {
+      result.current.send('새 대화의 질문');
+    });
+    await waitFor(() => expect(assistantOf(result.current.messages)).toBeDefined());
+    expect(usersOf(result.current.messages)).toHaveLength(1);
+    expect(usersOf(result.current.messages)[0].text).toBe('새 대화의 질문');
+  });
+
+  it('마운트 시 세션 복원이 늦게 도착해도, 그 사이 사용자가 보낸 대화를 덮어쓰지 않는다', async () => {
+    setRagSessionId(7);
+    server.use(
+      http.get('/api/chat-sessions/:sessionId/messages', async () => {
+        await delay(80);
+        const data: ChatSessionMessageResponse[] = [
+          {
+            id: 1,
+            sessionId: 7,
+            sender: 'USER',
+            content: '이전 질문',
+            citations: [],
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        return HttpResponse.json({ success: true, data });
+      }),
+    );
+
+    const { result } = renderHook(() => useRagChat());
+
+    // 복원 GET이 아직 진행 중인 사이 사용자가 새 질의를 보낸다.
+    act(() => {
+      result.current.send('새로 보낸 질문');
+    });
+    await waitFor(() => expect(assistantOf(result.current.messages)).toBeDefined());
+    expect(usersOf(result.current.messages)[0].text).toBe('새로 보낸 질문');
+
+    // 늦게 도착한 복원 응답이 방금 주고받은 대화를 덮어쓰지 않아야 한다.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(usersOf(result.current.messages)).toHaveLength(1);
+    expect(usersOf(result.current.messages)[0].text).toBe('새로 보낸 질문');
+    // 세션이 이미 있었으므로(복원 대상 세션 7) 새로 생성하지 않는다.
+    expect(sessionCreateCount).toBe(0);
   });
 });

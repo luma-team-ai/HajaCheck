@@ -32,7 +32,10 @@ export interface ChatSessionResponse {
 }
 
 export interface ChatSessionCitation {
-  documentId: string;
+  // 백엔드 ChatMessageCitation.documentId는 Long이라 Jackson이 JSON number로 직렬화한다
+  // (PR #1563 P2 픽스 — 이전엔 string으로 잘못 선언돼 있었다). SourceCitation.doc_id(문자열
+  // 계약)로 변환하는 책임은 useRagChat.ts의 toChatMessage()가 진다.
+  documentId: number;
   chunkRef: string;
   locator: string;
   snippet: string;
