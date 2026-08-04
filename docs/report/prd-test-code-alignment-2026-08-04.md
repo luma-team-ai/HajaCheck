@@ -58,7 +58,7 @@ AssertionError [ERR_ASSERTION]: assert(typeof value === "string" && webidl.is.US
 |---|---|---|---|---|
 | 2-1 | **UT-074 / HC_016_07** | `/action`은 상태머신을 트리거하지 않고 **조치 필드만** 갱신, `defect.status` 변경 없음 | `/action`은 **`targetStatus`(IN_PROGRESS·RESOLVED) 필수**이며 정방향 규칙으로 **상태를 전이**한다(#1128) | `DefectService.registerActionResult` / `DefectTest.registerActionResult_CONFIRMED에서_IN_PROGRESS로전이하고조치필드저장` / `openapi.yaml:2756` |
 | 2-2 | **HC_007_02** | 이미지 다수 + **영상 1건** 업로드, "영상은 프레임 자동 추출" → PASS | 업로드 허용 타입 = `image/jpeg`·`image/png` **뿐**. 영상은 `FILE_INVALID_TYPE`으로 거부 | `application.yml:79-87`, `MediaUploadProperties:15` · 같은 시트 UT-082와 정면 충돌 |
-| 2-3 | **HC_003_01/02/04** | 아이디·비밀번호 찾기 = **이메일 인증코드 발송·검증** | 아이디 찾기 = **사업자번호 + 상호명/대표자명 대조**, 비밀번호 = **재설정 링크 + 1회성 토큰** | `AccountRecoveryService` / `PasswordResetService:52 RESET_PATH="/reset-password?token="` (UT-012~021이 정본) |
+| 2-3 | **HC_003_01/02/04** | 아이디·비밀번호 찾기 = **이메일 인증코드 발송·검증** | 아이디 찾기 = **사업자번호 + 상호명/대표자명 대조**, 비밀번호 = **재설정 링크 + 1회성 토큰** | `AccountRecoveryService` / `PasswordResetService:52`의 `RESET_PATH` 상수(재설정 링크 경로) (UT-012~021이 정본) |
 | 2-4 | **HC_001_03/04** 비고 | "N/A 설계변경으로 **코드 없음**" | 진위확인 버튼 + 결과 뱃지 6종 + 가입 게이팅 **FE 구현 완료(#663)**, BE API도 존재 | `CompanySignupPage.tsx:69-70`, `CompanySignupPage.businessVerification.test.tsx` |
 | 2-5 | **HC_015_05 / HC_014 검증포인트5** | 시스템 모니터링에 **HF 사용량 · 예산 가드레일 경고** 표시 → PASS | 모니터링 응답은 `serverHealth·jobQueue·resourceUsage·errorLogs` **4종뿐**. HF 사용량 카드는 **서버 자원 카드로 의도적 대체(#728 — HF 사용량 공개 API 부재)**, 예산 가드레일은 미구현 | `SystemMonitoringResponse.java:9-14`, `monitoring.types.ts:40-41` |
 
