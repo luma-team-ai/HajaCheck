@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -948,20 +949,21 @@ class FacilityServiceTest {
 
     @Test
     void recalculateNextInspectionDueAt_회차순서대로확정_매번최신점검일기준으로갱신된다() {
-        // #1591 P2 — 정상 순서(2회차 → 3회차). 뒤에 확정한 회차가 항상 더 최신 점검일이므로
+        // #1591 P2 — 정상 순서(2회차 → 3회차). 뒤에 확정한 회차가 항상 더 최신 확정 점검일이므로
         // 두 번 모두 반영되어 다음 점검일이 앞으로 나아간다.
         Facility facility = facilityWithCycle(6);
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
         LocalDate round2Date = LocalDate.of(2026, 1, 10);
         LocalDate round3Date = LocalDate.of(2026, 7, 10);
 
-        // 2회차 확정 시점 — 이 시설물의 최신 점검일은 아직 2회차 자신이다.
-        when(inspectionRepository.findMaxInspectionDateByFacilityId(10L)).thenReturn(Optional.of(round2Date));
+        // 2회차 확정 시점 — 최신 "확정" 회차는 방금 REPORTED가 된 2회차 자신이다(같은 트랜잭션의
+        // auto-flush로 집계에 포함된다).
+        stubMaxReportedInspectionDate(round2Date);
         facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round2Date);
         assertThat(facility.getNextInspectionDueAt()).isEqualTo(round2Date.plusMonths(6));
 
-        // 3회차 확정 시점 — 최신 점검일이 3회차로 올라갔다.
-        when(inspectionRepository.findMaxInspectionDateByFacilityId(10L)).thenReturn(Optional.of(round3Date));
+        // 3회차 확정 시점 — 최신 확정 회차가 3회차로 올라갔다.
+        stubMaxReportedInspectionDate(round3Date);
         facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round3Date);
         assertThat(facility.getNextInspectionDueAt()).isEqualTo(round3Date.plusMonths(6));
     }
@@ -975,33 +977,68 @@ class FacilityServiceTest {
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
         LocalDate round2Date = LocalDate.of(2026, 1, 10);
         LocalDate round3Date = LocalDate.of(2026, 7, 10);
-        // 두 회차 모두 이미 저장돼 있으므로 최신 점검일은 언제나 3회차의 것이다.
-        when(inspectionRepository.findMaxInspectionDateByFacilityId(10L)).thenReturn(Optional.of(round3Date));
+        // 3회차가 먼저 확정됐으므로 최신 "확정" 회차는 이후로 계속 3회차의 것이다.
+        stubMaxReportedInspectionDate(round3Date);
 
         facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round3Date);
         assertThat(facility.getNextInspectionDueAt()).isEqualTo(round3Date.plusMonths(6));
 
-        // 뒤늦게 확정된 2회차는 최신 점검일이 아니므로 아무것도 바꾸지 않는다.
+        // 뒤늦게 확정된 2회차는 최신 확정 회차가 아니므로 아무것도 바꾸지 않는다.
         facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round2Date);
         assertThat(facility.getNextInspectionDueAt()).isEqualTo(round3Date.plusMonths(6));
     }
 
     @Test
-    void recalculateNextInspectionDueAt_최신회차재확정_주기단축이즉시반영된다() {
-        // #1591 P2 설계 근거 고정 — max(기존값, baseDate+cycle) 대신 "최신 점검일일 때만 반영"을 택한 이유.
-        // 주기를 12→3개월로 줄인 뒤 최신 회차를 재확정하면 다음 점검일은 반드시 앞당겨져야 한다
-        // (max() 였다면 옛 값 2027-07-10 에 눌러앉아 단축이 무시됐다).
-        Facility facility = facilityWithCycle(12);
+    void recalculateNextInspectionDueAt_더최신회차가미확정이면_이번확정을그대로반영한다() {
+        // #1591 리뷰 P2 회귀 고정 — 3회차가 생성돼 아직 분석 중(미확정)인데 2회차 보고서를 확정하는
+        // 조합. createInspection이 이전 회차의 REPORTED 여부를 막지 않아(날짜 하한만 검증) 정상
+        // 경로로 발생한다. 비교 기준이 "존재하는 회차"였을 땐 미확정 3회차가 max를 끌어올려 2회차의
+        // 정당한 재계산까지 스킵돼, 다음 점검일이 1회차 산출값(이미 지난 날짜)에 고착됐다.
+        // 기준을 REPORTED로 좁혔으므로 최신 확정 회차는 방금 확정된 2회차 자신이다.
+        Facility facility = facilityWithCycle(6);
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
-        LocalDate latestDate = LocalDate.of(2026, 7, 10);
-        when(inspectionRepository.findMaxInspectionDateByFacilityId(10L)).thenReturn(Optional.of(latestDate));
+        LocalDate round2Date = LocalDate.of(2026, 1, 10);
+        LocalDate unreportedRound3Date = LocalDate.of(2026, 7, 10);
+        // 3회차(2026-07-10)는 이미 생성돼 있지만 REPORTED가 아니라 이 집계에 잡히지 않는다.
+        stubMaxReportedInspectionDate(round2Date);
+        // DB 상태를 그대로 모형화한다 — 상태를 안 보는 옛 기준(findMaxInspectionDateByFacilityId)이라면
+        // 미확정 3회차까지 집계돼 2026-07-10 이 나온다. 정상 코드는 이 스텁을 쓰지 않으므로 lenient 지만,
+        // 비교 기준이 그 쿼리로 되돌아가면 아래 단언이 실제로 깨져 회귀를 잡는다(스텁 위생이 아니라 의미로).
+        lenient().when(inspectionRepository.findMaxInspectionDateByFacilityId(10L))
+                .thenReturn(Optional.of(unreportedRound3Date));
 
-        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, latestDate);
-        assertThat(facility.getNextInspectionDueAt()).isEqualTo(LocalDate.of(2027, 7, 10));
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round2Date);
 
-        facility.updateSchedule(3, LocalDate.of(2026, 7, 10)); // 사용자가 주기를 3개월로 단축
-        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, latestDate);
-        assertThat(facility.getNextInspectionDueAt()).isEqualTo(LocalDate.of(2026, 10, 10));
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(round2Date.plusMonths(6));
+    }
+
+    @Test
+    void recalculateNextInspectionDueAt_주기단축후다음회차확정_단축된주기가반영된다() {
+        // #1591 P2 설계 근거 고정 — max(기존값, baseDate+cycle) 대신 "최신 확정 회차일 때만 반영"을
+        // 택한 이유. 도달 경로는 FacilityService.update() 다: inspectionCycleMonths 와
+        // nextInspectionDueAt 을 함께 받으므로, 주기만 12→3 으로 줄이고 due 는 옛 값(2027-07-10, 먼
+        // 미래)으로 남길 수 있다. 그 상태에서 다음 회차(2026-09-10)를 확정하면 다음 점검일은
+        // 2026-12-10 이어야 한다 — max() 였다면 2027-07-10 에 눌러앉아 주기 단축이 통째로 무시된다.
+        Facility facility = Facility.builder()
+                .companyId(OWNER_ID)
+                .name("기존시설")
+                .type("BUILDING")
+                .address("서울시 강남구")
+                .inspectionCycleMonths(3)                            // update()로 12 → 3 단축
+                .nextInspectionDueAt(LocalDate.of(2027, 7, 10))      // due 는 옛 주기(12개월) 산출값 그대로
+                .build();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        LocalDate nextRoundDate = LocalDate.of(2026, 9, 10);
+        stubMaxReportedInspectionDate(nextRoundDate);
+
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, nextRoundDate);
+
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(LocalDate.of(2026, 12, 10));
+    }
+
+    private void stubMaxReportedInspectionDate(LocalDate date) {
+        when(inspectionRepository.findMaxInspectionDateByFacilityIdAndStatus(10L, InspectionStatus.REPORTED))
+                .thenReturn(Optional.of(date));
     }
 
     private Facility facilityWithCycle(int cycleMonths) {

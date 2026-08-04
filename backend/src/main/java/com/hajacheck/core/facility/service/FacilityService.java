@@ -18,6 +18,7 @@ import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
+import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.repository.FacilityRepresentativeMediaProjection;
@@ -422,7 +423,7 @@ public class FacilityService {
      * 강제되지 않는다(ReportService#markInspectionReported 는 그 회차의 상태만 본다). 그래서 3회차를
      * 먼저 확정한 뒤 밀려 있던 2회차를 확정하면, 무조건 덮어쓰기가 next_inspection_due_at 을
      * <b>과거로 되돌려</b> 점검 일정 알림·대시보드가 이미 지난 날짜를 "다음 점검일"로 표시했다.
-     * 이 회차가 시설물의 <b>최신 점검일</b>일 때만 반영해서 그 역행을 막는다.
+     * 이 회차가 시설물의 <b>최신 확정(REPORTED) 회차</b>일 때만 반영해서 그 역행을 막는다.
      */
     @Transactional
     public void recalculateNextInspectionDueAt(
@@ -440,18 +441,31 @@ public class FacilityService {
     }
 
     /**
-     * 이 회차의 점검일이 시설물의 최신 점검일보다 뒤처져 있는지(= 이미 더 최신 회차가 존재하는지)
-     * 판정한다(#1591 P2). 판정 기준은 이미 있는
-     * {@link InspectionRepository#findMaxInspectionDateByFacilityId}(#1291 회차 생성 검증용)를 재사용한다 —
-     * 이 메서드가 불리는 시점엔 확정 중인 회차도 이미 저장돼 있으므로 {@code baseDate == max} 면 최신이다.
-     * 회차가 하나도 조회되지 않으면(empty) 비교 기준이 없으므로 baseDate 를 최신으로 본다.
+     * 이 회차의 점검일이 시설물의 <b>최신 확정(REPORTED) 회차</b>보다 뒤처져 있는지(= 이미 더 최신인
+     * 확정 회차가 존재하는지) 판정한다(#1591 P2).
      *
-     * <p><b>대안이던 {@code max(기존값, baseDate + cycle)} 대신 "최신 점검일일 때만 반영"을 택한 이유</b>:
+     * <p><b>비교 대상을 REPORTED 로 좁힌 이유(#1591 리뷰 P2)</b> — 처음엔 상태 조건이 없는
+     * {@link InspectionRepository#findMaxInspectionDateByFacilityId}(#1291 회차 생성 검증용)를 재사용했는데,
+     * 그 쿼리는 <b>회차 존재만으로</b> max 가 올라간다. createInspection 은 이전 회차의 REPORTED 여부를
+     * 막지 않으므로(날짜 하한만 검증, 미종료 회차는 경고창일 뿐) "3회차가 생성돼 아직 분석 중인데
+     * 2회차 보고서를 확정" 하는 조합이 정상 경로로 발생한다. 그때 미확정 3회차가 max 를 끌어올려
+     * 2회차의 <b>정당한</b> 재계산까지 통째로 스킵돼, 다음 점검일이 1회차 산출값(대개 이미 지난 날짜)에
+     * 고착됐다 — 이 가드가 만든 새 회귀였다. 재계산이 비교해야 하는 것은 "존재하는 회차"가 아니라
+     * "이미 확정된 회차"이므로 {@code status = REPORTED} 로 좁힌다.
+     *
+     * <p>호출부는 같은 트랜잭션에서 이 회차를 REPORTED 로 전이시킨 <b>직후</b>에 부르고, 그 전이는
+     * 관리 엔티티의 더티 체킹이라 JPQL 실행 시 auto-flush 로 현재 회차도 집계에 포함된다 →
+     * 정상 경로에서는 {@code baseDate == max} 가 되어 반영된다. 확정 회차가 하나도 없으면(empty)
+     * 비교 기준이 없으므로 baseDate 를 최신으로 본다.
+     *
+     * <p><b>대안이던 {@code max(기존값, baseDate + cycle)} 대신 "최신 확정 회차일 때만 반영"을 택한 이유</b>:
      * <ul>
-     *   <li>max() 는 next_inspection_due_at 을 <b>단조증가</b>로 고정해 버린다. 그러면 최신 회차의
-     *       점검일이 뒤늦게 정정되거나(입력 오류 수정) 점검 주기를 <b>짧게</b> 바꾼 뒤 그 회차를 다시
-     *       확정해도 날짜가 앞당겨지지 않고 옛 값에 눌러앉는다 — "주기를 단축했는데 일정이 안 당겨진다"는
-     *       새 버그를 만든다.</li>
+     *   <li>max() 는 next_inspection_due_at 을 <b>단조증가</b>로 고정해 버린다. 그러면 점검 주기를
+     *       <b>짧게</b> 바꾼 뒤 다음 회차를 확정해도 날짜가 앞당겨지지 않고 옛 값에 눌러앉는다 —
+     *       "주기를 단축했는데 일정이 안 당겨진다"는 새 버그다. 도달 경로는 {@link #update} 다:
+     *       inspectionCycleMonths 와 nextInspectionDueAt 을 함께 받으므로 주기만 12→3 으로 줄이고
+     *       due 는 옛 값(먼 미래)으로 남길 수 있고, 그 뒤 회차를 확정하면 max() 는 단축을 무시한다.
+     *       선택한 방식은 그 경우에도 정확히 {@code 점검일 + 새 주기} 를 낸다.</li>
      *   <li>여기서 막아야 하는 건 "값이 작아지는 것"이 아니라 "<b>낡은 회차</b>가 최신 회차의 산출을
      *       덮어쓰는 것"이다. 기준을 점검일 자체에 두면 원인을 직접 차단하면서, 최신 회차의 재계산은
      *       언제나 현재 주기 기준으로 정확히 다시 나온다.</li>
@@ -460,7 +474,8 @@ public class FacilityService {
      * 주기 단축이 즉시 일정에 반영되는 경로도 그대로 남는다.
      */
     private boolean isStaleInspectionDate(Long facilityId, LocalDate baseDate) {
-        return inspectionRepository.findMaxInspectionDateByFacilityId(facilityId)
+        return inspectionRepository
+                .findMaxInspectionDateByFacilityIdAndStatus(facilityId, InspectionStatus.REPORTED)
                 .map(baseDate::isBefore)
                 .orElse(false);
     }

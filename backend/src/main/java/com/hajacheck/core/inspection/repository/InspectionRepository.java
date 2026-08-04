@@ -48,6 +48,19 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     @Query("select max(i.inspectionDate) from Inspection i where i.facilityId = :facilityId")
     Optional<LocalDate> findMaxInspectionDateByFacilityId(@Param("facilityId") Long facilityId);
 
+    // #1591 P2 — 다음 점검일 재계산의 "이 회차가 최신인가" 판정용. 위 findMaxInspectionDateByFacilityId
+    // 와 달리 반드시 status 조건이 필요하다: 그 쿼리는 회차 <b>존재</b>만으로 max가 올라가는데
+    // (createInspection은 이전 회차의 REPORTED 여부를 막지 않는다 — 날짜 하한만 검증하고 미종료
+    // 회차는 경고창일 뿐), 재계산이 비교해야 하는 건 "아직 분석 중인 회차"가 아니라 이미 확정된
+    // 회차다. status 없이 비교하면 "3회차 생성됨(미확정) + 2회차 확정" 조합에서 2회차의 정당한
+    // 재계산이 통째로 스킵돼 다음 점검일이 옛 값에 고착된다.
+    // 호출부(FacilityService#recalculateNextInspectionDueAt)는 같은 트랜잭션에서 이 회차를 REPORTED로
+    // 전이시킨 직후에 부르므로, JPQL 실행 시 auto-flush 로 현재 회차도 집계에 포함된다.
+    @Query("select max(i.inspectionDate) from Inspection i "
+            + "where i.facilityId = :facilityId and i.status = :status")
+    Optional<LocalDate> findMaxInspectionDateByFacilityIdAndStatus(
+            @Param("facilityId") Long facilityId, @Param("status") InspectionStatus status);
+
     // 회차 간 비교(HAJA-531/#1112) — 시설물 1건의 특정 회차 단건 조회.
     Optional<Inspection> findByFacilityIdAndRoundNo(Long facilityId, Integer roundNo);
 
