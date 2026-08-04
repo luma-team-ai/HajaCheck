@@ -7,7 +7,7 @@ type Props = {
   onSubmit: () => void;
   onDelete: () => void;
   onClose: () => void;
-  anchor: { top: number; left: number };
+  anchor: { top: number; left: number; openUpward?: boolean };
   canSubmit: boolean;
   canDelete: boolean;
   isClonePending?: boolean;
@@ -39,7 +39,11 @@ export function ReportRowMenu({
       role="menu"
       aria-label="보고서 작업 메뉴"
       className="fixed z-50 w-32 rounded-[20px] border border-zinc-200 bg-white/90 py-1 shadow-lg backdrop-blur-[6px]"
-      style={{ top: anchor.top, left: anchor.left }}
+      style={{
+        top: anchor.top,
+        left: anchor.left,
+        transform: anchor.openUpward ? 'translateY(-100%)' : undefined,
+      }}
     >
       <button
         type="button"

@@ -157,6 +157,8 @@ startxref
       id: Number(params.id),
       content: newContent,
       groundingCheckPassed: null,
+      version: (currentReportState.version ?? 1) + 1,
+      editedBy: currentReportState.editedBy ?? 1,
     };
     const body: ApiResponse<ReportDetailResponse> = {
       success: true,
