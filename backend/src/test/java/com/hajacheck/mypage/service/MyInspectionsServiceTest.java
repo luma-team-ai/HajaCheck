@@ -251,6 +251,7 @@ class MyInspectionsServiceTest {
         assertThat(result.get(0).fileSizeBytes()).isNull();
         assertThat(result.get(0).facilityName()).isEqualTo("보고서빌딩");
         assertThat(result.get(0).roundNo()).isEqualTo(5);
+        assertThat(result.get(0).pdfUrl()).isEqualTo("/api/reports/50/pdf/abc.pdf");
     }
 
     @Test
@@ -284,6 +285,21 @@ class MyInspectionsServiceTest {
 
         assertThat(result.get(0).fileSizeBytes()).isNull();
         verify(reportPdfStorage, never()).load(any(), any());
+    }
+
+    @Test
+    void getReports_pdfUrl없으면응답도null() {
+        Inspection inspection = inspectionWithFacility(
+                25L, 2L, "보고서빌딩", 1, 300L, 300L, InspectionStatus.REPORTED);
+        Report report = reportOf(55L, 25L, inspection, null);
+        when(reportRepository.findMyFinalizedReports(
+                eq(300L), eq(100L), eq(ReportStatus.FINALIZED), any(), any()))
+                .thenReturn(List.of(report));
+        when(defectRepository.findDistinctGradesByInspectionIds(List.of(25L))).thenReturn(List.of());
+
+        List<MyReportRowResponse> result = service.getReports(300L, 100L, "ALL");
+
+        assertThat(result.get(0).pdfUrl()).isNull();
     }
 
     @Test
