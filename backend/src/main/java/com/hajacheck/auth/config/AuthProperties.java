@@ -31,6 +31,10 @@ public class AuthProperties {
     /** 사업자등록증 OCR 공개 프록시 rate-limit(#557 / HAJA-324). */
     private BusinessLicenseOcrRateLimit businessLicenseOcrRateLimit = new BusinessLicenseOcrRateLimit();
 
+    /** 사업자등록증 ↔ 입력 사업자번호 대조 게이트 rate-limit(#1469 / HAJA-650) — 위 프리필 캡과 별개 축. */
+    private BusinessLicenseCrossCheckRateLimit businessLicenseCrossCheckRateLimit =
+            new BusinessLicenseCrossCheckRateLimit();
+
     /** 초대 코드 redeem rate-limit(#794, PR머신 리뷰 P2 — 무차별 대입 방어). */
     private InviteCodeRedeemRateLimit inviteCodeRedeemRateLimit = new InviteCodeRedeemRateLimit();
 
@@ -136,6 +140,87 @@ public class AuthProperties {
          * 무제한 방지가 목적이라 크게 잡지 않는다.
          */
         private int dailyLimit = 500;
+
+        /** 일일 캡 창 길이. */
+        private Duration dailyWindow = Duration.ofDays(1);
+
+        public int getGlobalLimit() {
+            return globalLimit;
+        }
+
+        public void setGlobalLimit(int globalLimit) {
+            this.globalLimit = globalLimit;
+        }
+
+        public Duration getGlobalWindow() {
+            return globalWindow;
+        }
+
+        public void setGlobalWindow(Duration globalWindow) {
+            this.globalWindow = globalWindow;
+        }
+
+        public int getDailyLimit() {
+            return dailyLimit;
+        }
+
+        public void setDailyLimit(int dailyLimit) {
+            this.dailyLimit = dailyLimit;
+        }
+
+        public Duration getDailyWindow() {
+            return dailyWindow;
+        }
+
+        public void setDailyWindow(Duration dailyWindow) {
+            this.dailyWindow = dailyWindow;
+        }
+    }
+
+    /**
+     * 사업자등록증 대조 게이트 rate-limit 설정(#1469 / HAJA-650) — 가입 제출 시 업로드된 등록증을 OCR로
+     * 읽어 입력 사업자번호와 대조하는 {@code BusinessLicenseCrossCheckService} 전용 축이다.
+     *
+     * <p>⚠️ <b>{@link BusinessLicenseOcrRateLimit}(공개 프리필)과 절대 공유하면 안 된다.</b> 대조는 캡이
+     * 소진되면 fail-open 으로 <b>통과</b>하므로, 캡을 공유하면 공격자가 비로그인 프리필 API를 반복 호출해
+     * 캡을 태우는 것만으로 <b>가입 심사 게이트를 통째로 끌 수 있다</b>. 키(prefix)와 이 설정을 모두 분리해
+     * 프리필 트래픽이 대조 예산을 건드리지 못하게 한다.
+     *
+     * <p>IP 축을 쓰지 않는 이유는 {@link BusinessLicenseOcrRateLimit}·{@link PasswordResetRateLimit} 과
+     * 동일하다(2026-07-17 A 결정 — XFF 위조 가능).
+     *
+     * <p><b>기본값 산정 기준</b>: 이 축은 "AI 과금 방어"와 "게이트가 조용히 꺼지지 않을 것" 사이의 절충이다.
+     * 캡이 작으면 정상 가입자도 대조 없이 통과해 게이트가 무증상으로 죽으므로, 같은 AI 호출을 쓰는
+     * 프리필보다 <b>넉넉하게</b> 잡는다(프리필은 실패해도 수동입력 폴백이 있는 보조기능이지만, 이쪽은 보안
+     * 게이트다). 반대로 무제한이면 유료 LLM 다운스트림이 열리므로 일일 절대 캡은 반드시 둔다.
+     */
+    public static class BusinessLicenseCrossCheckRateLimit {
+
+        /**
+         * 전역 상한(전체 합산) 허용 횟수. <b>기본 분당 30회</b> — 호출 시점이 "가입 폼 최종 제출"이라
+         * 파일 선택마다 발생하는 프리필(20/분)보다 트래픽이 희박하다. 그럼에도 20이 아니라 30으로 둔 이유는
+         * 순간 동시 가입(캠페인·시연 등)이 정상 사용자를 대조 없이 통과시키는 상황을 피하기 위함이다.
+         * AI 서버 CPU 관점에서 30/분은 프리필(20/분)과 합쳐도 기존 부하 설계 범위 안이다.
+         */
+        private int globalLimit = 30;
+
+        /** 전역 상한 창 길이. */
+        private Duration globalWindow = Duration.ofMinutes(1);
+
+        /**
+         * 일일 절대 캡. <b>기본 1000/일</b> — 분당 축만으로는 지속 반복 시 일일 LLM 호출이 사실상 무제한
+         * (30/분 × 1440분 = 43,200/일)이라 총량 캡을 둔다.
+         *
+         * <p>프리필(500/일)보다 크게 잡은 근거: ①캡 소진의 <b>결과가 다르다</b> — 프리필은 사용자가 수동
+         * 입력으로 폴백할 뿐이지만, 여기선 심사 게이트가 꺼진다. ②공격자가 이 캡을 태우려면 이메일·사업자번호
+         * 중복 검사와 국세청 진위확인을 <b>먼저 통과</b>해야 해서(대조는 그 뒤에 실행된다) 프리필처럼
+         * 무마찰로 반복할 수 없다. ③실제 정상 가입은 하루 두 자릿수 추정이라 1000은 수십 배 여유다.
+         * 그럼에도 무제한이 아니므로 LLM 과금 폭주는 이 선에서 멈춘다.
+         *
+         * <p>⚠️ 이 캡에 실제로 닿으면 {@code log.error} 경보가 남는다 — 값을 올리기 전에 "정상 트래픽 증가"
+         * 인지 "게이트를 끄려는 시도"인지부터 판별할 것.
+         */
+        private int dailyLimit = 1000;
 
         /** 일일 캡 창 길이. */
         private Duration dailyWindow = Duration.ofDays(1);
@@ -301,6 +386,15 @@ public class AuthProperties {
 
     public void setBusinessLicenseOcrRateLimit(BusinessLicenseOcrRateLimit businessLicenseOcrRateLimit) {
         this.businessLicenseOcrRateLimit = businessLicenseOcrRateLimit;
+    }
+
+    public BusinessLicenseCrossCheckRateLimit getBusinessLicenseCrossCheckRateLimit() {
+        return businessLicenseCrossCheckRateLimit;
+    }
+
+    public void setBusinessLicenseCrossCheckRateLimit(
+            BusinessLicenseCrossCheckRateLimit businessLicenseCrossCheckRateLimit) {
+        this.businessLicenseCrossCheckRateLimit = businessLicenseCrossCheckRateLimit;
     }
 
     public Duration getPasswordResetTtl() {

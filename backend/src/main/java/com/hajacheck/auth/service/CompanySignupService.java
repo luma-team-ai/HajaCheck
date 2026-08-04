@@ -59,7 +59,8 @@ public class CompanySignupService {
      * {@link #buildOcrRaw} 직렬화가 실패했을 때만 쓰는 최소 stub — <b>손으로 조립한 유일한 JSON 리터럴</b>
      * 이라 상수로 고정한다(가변값이 섞이지 않으므로 이스케이프 문제가 원천적으로 없다).
      * ⚠️ 여기엔 {@code ntsOutcome} 이 없다 = "증명할 수 없음" → {@code Company#isNtsVerified} 가 false 로
-     * 판정한다. fail-safe 방향이라 의도된 동작이다.
+     * 판정한다. fail-safe 방향이라 의도된 동작이다. 같은 원칙으로 {@code licenseOcrOutcome}(#1469)도
+     * <b>일부러 넣지 않는다</b> — 직렬화가 실패한 행은 어떤 검증도 증명할 수 없는 행으로 남아야 한다.
      */
     private static final String OCR_RAW_FALLBACK = "{\"source\":\"" + OCR_SOURCE_MANUAL_INPUT + "\"}";
 
@@ -67,6 +68,7 @@ public class CompanySignupService {
     private final CompanyRepository companyRepository;
     private final CompanyAccountWriter accountWriter;
     private final NtsBusinessVerifyClient ntsBusinessVerifyClient;
+    private final BusinessLicenseCrossCheckService businessLicenseCrossCheckService;
     private final FileStorageService fileStorage;
     private final FileStorageProperties fileStorageProperties;
     private final TokenStore tokenStore;
@@ -75,9 +77,10 @@ public class CompanySignupService {
     private final AuthProperties authProperties;
 
     /**
-     * 회원가입: ①이메일/사업자번호 선검사(조기 409) ②국세청 진위확인(확정 불량이면 차단) ③파일 저장
-     * (트랜잭션 밖 IO) ④User+Company(VERIFIED·APPROVED)+오너 멤버십+Consents 원자저장(writer)
-     * ⑤가입상태 토큰 발급 ⑥마스킹 응답.
+     * 회원가입: ①이메일/사업자번호 선검사(조기 409) ②국세청 진위확인(확정 불량이면 차단)
+     * ③사업자등록증 ↔ 입력 사업자번호 대조(확정 불일치면 차단, #1469) ④파일 저장(트랜잭션 밖 IO)
+     * ⑤User+Company(VERIFIED·APPROVED)+오너 멤버십+Consents 원자저장(writer) ⑥가입상태 토큰 발급
+     * ⑦마스킹 응답.
      *
      * <p>응답 {@code status} 는 #1324 부터 항상 {@code APPROVED} 다 — 승인 대기 단계가 없다.
      */
@@ -102,18 +105,34 @@ public class CompanySignupService {
             throw new BusinessException(ErrorCode.AUTH_BUSINESS_VERIFICATION_FAILED);
         }
 
-        // ③ 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
+        // ③ 사업자등록증 ↔ 입력 사업자번호 대조(#1469). 진위확인은 "입력한 3필드가 실재하고 서로
+        //    일치하는가"만 보므로, 남의 등록증을 올리고 실재하는 제3자 정보를 수기 입력하면 통과했다 —
+        //    업로드 파일과 입력값의 연결을 여기서 검사한다.
+        //    ⚠️ 파일 저장(아래 ④)보다 반드시 먼저다: 차단 시 파일을 저장하지 않아 보상삭제 경로를 타지
+        //    않고 고아 파일도 남지 않는다.
+        //    fail-open — MISMATCH(확정 불일치)만 차단이고 OCR 실패·인식 불가·미지원 형식·rate-limit
+        //    소진은 모두 통과다(BusinessLicenseCrossCheckService 는 예외를 위로 던지지 않는다).
+        BusinessLicenseCrossCheckOutcome licenseCrossCheck = businessLicenseCrossCheckService.crossCheck(
+                request.businessRegistrationFile(), normalizedBrn);
+        if (licenseCrossCheck == BusinessLicenseCrossCheckOutcome.MISMATCH) {
+            throw new BusinessException(ErrorCode.AUTH_BUSINESS_LICENSE_MISMATCH);
+        }
+
+        // ④ 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
+        //    ⚠️ 대조 단계에서 같은 MultipartFile 을 이미 한 번 읽었다(getBytes/getInputStream) —
+        //    스프링의 MultipartFile 구현은 재읽기가 가능하지만, 회귀 시 조용히 빈 파일이 저장되므로
+        //    "대조 통과 후 파일이 정상 저장된다"를 테스트로 고정해 둔다(CompanySignupServiceTest).
         StoredFile stored = fileStorage.store(request.businessRegistrationFile(), FILE_CATEGORY,
                 fileStorageProperties.getAllowedContentTypes(), fileStorageProperties.getMaxSizeBytes());
 
-        // ④ 원자저장(회사 VERIFIED+APPROVED, 오너 멤버십 포함) — 실패 시 파일 보상삭제.
+        // ⑤ 원자저장(회사 VERIFIED+APPROVED, 오너 멤버십 포함) — 실패 시 파일 보상삭제.
         Company company;
         try {
             String passwordHash = passwordEncoder.encode(request.password());
             company = accountWriter.createAccount(
                     email, request.representativeName(), passwordHash,
                     request.companyName(), normalizedBrn, request.address(), request.addressDetail(),
-                    stored.url(), buildOcrRaw(verification),
+                    stored.url(), buildOcrRaw(verification, licenseCrossCheck),
                     policyProperties.getTermsVersion(), policyProperties.getPrivacyVersion(),
                     request.businessStartDate());
         } catch (DataIntegrityViolationException e) {
@@ -142,16 +161,16 @@ public class CompanySignupService {
         // companies.business_registration_ocr_raw.ntsOutcome 에 같은 값이 영속된다(buildOcrRaw).
         // 컨테이너 로그는 회전·유실되므로 여기에만 의존하면 배포 후 재구성이 불가능하다.
         // 개인정보(이메일·사업자번호·대표자명)는 남기지 않는다.
-        log.info("기업 가입 자동승인(#1324) — companyId={}, 국세청 진위확인 결과={}",
-                company.getId(), verification);
+        log.info("기업 가입 자동승인(#1324) — companyId={}, 국세청 진위확인 결과={}, 등록증 대조 결과={}",
+                company.getId(), verification, licenseCrossCheck);
 
-        // ⑤ 가입 상태 토큰(장기, peek 용) — 값은 companyId.
+        // ⑥ 가입 상태 토큰(장기, peek 용) — 값은 companyId.
         String signupToken = tokenStore.issue(
                 TokenNamespaces.SIGNUP_STATUS,
                 company.getId().toString(),
                 authProperties.getSignupStatusTtl());
 
-        // ⑥ 마스킹 응답.
+        // ⑦ 마스킹 응답.
         return CompanySignupResponse.from(company, email, signupToken);
     }
 
@@ -191,24 +210,36 @@ public class CompanySignupService {
      * 시각 키도 출처에 따라 갈린다: {@code ntsCheckedAt}(여기, 실제 조회 시각) vs
      * {@code ntsBackfilledAt}(V38, 소급 스탬프 시각).
      *
+     * <p><b>{@code licenseOcrOutcome}(#1469)</b> — 업로드된 사업자등록증과 입력 사업자번호의 대조 판정
+     * ({@link BusinessLicenseCrossCheckOutcome}). 이 대조도 fail-open 이라 {@code MATCH} 가 아닌 값으로도
+     * 가입이 승인되므로, "등록증을 실제로 대조해 본 회사"와 "대조하지 못한 채 승인된 회사"를 구분하려면
+     * 이 라벨이 남아야 한다. {@code ntsOutcome} 과 마찬가지로 <b>enum 파싱 금지</b> — #1469 이전 가입분은
+     * 키 자체가 없다(차단된 {@code MISMATCH} 는 회사 행이 만들어지지 않으므로 DB에 등장하지 않는다).
+     *
      * <p>집계 쿼리(신규 가입 + V38 소급분을 한 번에) — "국세청 검증을 증명할 수 없는 회사":
      * {@code select count(*) from companies
      *        where business_registration_ocr_raw->>'ntsOutcome' not in ('VERIFIED','LEGACY_VERIFIED')
      *           or business_registration_ocr_raw->>'ntsOutcome' is null}
      *
+     * <p>"업로드 등록증 대조를 통과했다고 증명할 수 있는 회사":
+     * {@code select count(*) from companies
+     *        where business_registration_ocr_raw->>'licenseOcrOutcome' = 'MATCH'}
+     *
      * <p>⚠️ 개인정보 금지 — enum 라벨과 타임스탬프만 남긴다(사업자번호·대표자명·이메일 절대 금지).
      * 문자열을 손으로 이어붙이지 않고 Jackson 으로 직렬화해 이스케이프를 보장한다(jsonb 는 문법이
      * 깨지면 flush 시점 원시 SQL 예외로 샌다 — {@code JsonValidator} 가 그 앞단을 지킨다).
      */
-    private static String buildOcrRaw(NtsVerificationOutcome verification) {
+    private static String buildOcrRaw(NtsVerificationOutcome verification,
+                                      BusinessLicenseCrossCheckOutcome licenseCrossCheck) {
         ObjectNode node = OCR_RAW_MAPPER.createObjectNode();
         node.put("source", OCR_SOURCE_MANUAL_INPUT);
         node.put("ntsOutcome", verification.name());
         node.put("ntsCheckedAt", Instant.now().toString());
+        node.put("licenseOcrOutcome", licenseCrossCheck.name());
         try {
             return OCR_RAW_MAPPER.writeValueAsString(node);
         } catch (JsonProcessingException e) {
-            // 고정 스키마(문자열 3개)라 실패할 수 없지만, 실패하더라도 가입 자체를 막지는 않는다 —
+            // 고정 스키마(문자열 4개)라 실패할 수 없지만, 실패하더라도 가입 자체를 막지는 않는다 —
             // provenance 기록 실패가 회원가입 장애로 번지면 안 된다. 최소 stub 으로 낙하한다.
             log.warn("OCR 원본 provenance 직렬화 실패 — stub 으로 대체. exception={}",
                     e.getClass().getSimpleName());

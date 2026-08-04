@@ -132,6 +132,17 @@ app:
       # 무제한(20/분 × 1440분 = 최대 28,800/일)이라, 유료 LLM 다운스트림 총량을 별도로 캡한다.
       daily-limit: 500
       daily-window: 1d
+    # 사업자등록증 대조 게이트 rate-limit(#1469 / HAJA-650) — 가입 제출 시 업로드 등록증 OCR ↔ 입력
+    # 사업자번호 대조 전용. ⚠️ 위 프리필 캡과 반드시 분리한다(키도 rate:business-license-crosscheck:*):
+    # 대조는 캡 소진 시 fail-open 통과라, 캡을 공유하면 비로그인 프리필 반복 호출만으로 가입 심사
+    # 게이트를 통째로 끌 수 있다. 값 산정 근거는 AuthProperties.BusinessLicenseCrossCheckRateLimit 참조.
+    business-license-cross-check-rate-limit:
+      global-limit: 30
+      global-window: 1m
+      # 일일 절대 캡 — 프리필(500)보다 크게 잡는다(캡 소진 = 보안 게이트 정지라 손해가 더 크고,
+      # 대조는 중복검사·국세청 진위확인을 통과해야만 도달하므로 무마찰 반복이 불가능하다).
+      daily-limit: 1000
+      daily-window: 1d
   # 재설정 메일 발신 주소 + 링크 base. ⚠️ 링크 base 는 반드시 설정값 — 요청 Host 에서 유도 금지(poisoning).
   mail:
     from: ${MAIL_FROM:no-reply@hajacheck.local}
