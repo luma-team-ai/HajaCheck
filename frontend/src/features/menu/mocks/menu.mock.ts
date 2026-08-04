@@ -17,7 +17,9 @@ export const mockMenuTree: MenuTreeItem[] = [
     children: [
       { code: 'DASHBOARD_OVERVIEW', name: '전체 시설물 현황', menuType: 'INTERNAL', iconKey: 'dashboard', path: '/dashboard', activePathPattern: null, opensNewTab: false, enabled: true, children: [] },
       { code: 'DASHBOARD_UPCOMING_INSPECTIONS', name: '다음 점검일 도래', menuType: 'INTERNAL', iconKey: 'dashboard', path: '/dashboard/upcoming-inspections', activePathPattern: null, opensNewTab: false, enabled: true, children: [] },
-      { code: 'DASHBOARD_AI_WEEKLY_BRIEFING', name: 'AI 주간 브리핑 카드', menuType: 'INTERNAL', iconKey: 'dashboard', path: '/dashboard/ai-weekly-briefing', activePathPattern: null, opensNewTab: false, enabled: true, children: [] },
+      // 이 목은 서버 menus 테이블과 같은 집합을 유지해야 한다(#1538). 과거 'DASHBOARD_AI_WEEKLY_BRIEFING'이
+      // 여기에만 있어 로컬에서는 사이드바에 링크가 보이고 실서버에서는 안 보이는 드리프트가 있었다
+      // (2026-08-04 prod 실측: 대시보드 하위 = OVERVIEW·UPCOMING_INSPECTIONS 2개, menus 전체 29행).
     ],
   },
   {

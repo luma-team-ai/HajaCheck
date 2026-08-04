@@ -105,7 +105,10 @@ const DEFAULT_ITEMS: SideNavItem[] = [
     subItems: [
       { label: '전체 시설물 현황', href: '/dashboard' },
       { label: '다음 점검일 도래', href: '/dashboard/upcoming-inspections' },
-      { label: 'AI 주간 브리핑 카드', href: '/dashboard/ai-weekly-briefing' },
+      // 'AI 주간 브리핑 카드'는 의도적으로 두지 않는다(#1538) — 별도 화면이 아니라 대시보드 안의
+      // AiBriefingCard 인라인 위젯이라 메뉴 항목을 따로 둘 실익이 없다고 판단했다(#1522 결정).
+      // 서버 메뉴(menus 테이블)에도 이 항목이 없으므로, 여기 폴백에만 남기면 "서버 메뉴 조회가
+      // 실패했을 때만 나타나는 링크"가 되어 실제 동작과 어긋난다. 위젯과 라우트(#478 앵커 스크롤)는 유지.
     ],
   },
   {

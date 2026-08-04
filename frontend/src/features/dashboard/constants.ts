@@ -14,8 +14,12 @@ export const inspectionDefectsPath = (inspectionId: number, defectId?: number): 
     ? `/inspections/${inspectionId}/defects?defectId=${defectId}`
     : `/inspections/${inspectionId}/defects`;
 
-// 사이드바 "AI 주간 브리핑 카드" 메뉴는 별도 화면이 아니라 이 페이지 안의 AiBriefingCard 인라인 위젯을
-// 가리킨다(#478, #472와 동일한 라우트-메뉴 불일치 유형). 새 화면 대신 이 경로로 진입하면 위젯 위치로
-// 스크롤한다 — 값은 router.tsx의 라우트 등록·DashboardPage.tsx의 스크롤 판정 양쪽에서 동일하게 참조.
+// AI 주간 브리핑은 별도 화면이 아니라 대시보드 안의 AiBriefingCard 인라인 위젯이다. 이 경로로 진입하면
+// 새 화면을 띄우는 대신 위젯 위치로 스크롤한다(#478, #472와 동일한 라우트-메뉴 불일치 유형).
+// 값은 router.tsx의 라우트 등록·DashboardPage.tsx의 스크롤 판정 양쪽에서 동일하게 참조한다.
+//
+// ⚠️ #1538: **사이드바 메뉴 항목은 존재하지 않는다.** 서버 menus 테이블에도 없고 SideNavBar 폴백에서도
+// 뺐다(위젯이 이미 대시보드에 노출되므로 메뉴를 따로 두지 않기로 #1522에서 결정). 따라서 이 경로의
+// 진입점은 **URL 직접 입력·외부 링크뿐**이다 — "사이드바 href와 맞춘다"는 근거로 이 값을 바꾸지 말 것.
 export const AI_WEEKLY_BRIEFING_PATH = '/dashboard/ai-weekly-briefing';
 export const AI_WEEKLY_BRIEFING_ANCHOR_ID = 'ai-weekly-briefing-card';
