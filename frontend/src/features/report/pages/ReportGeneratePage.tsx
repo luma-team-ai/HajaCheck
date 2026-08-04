@@ -19,7 +19,7 @@ import {
 import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
-import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { buildReportPdfFileName, exportReportToPdf, normalizePdfPreviewUrl } from '../utils/exportReportToPdf';
 import {
   getEmptyManualSectionLabels,
   getMissingFinalReportRequiredLabels,
@@ -60,23 +60,6 @@ const REPORT_STEPS: ReadonlyArray<{ key: string; label: string; isActive: (ctx: 
 ];
 
 const PDF_VIEWER_FRAGMENT = 'toolbar=0&navpanes=0&view=FitH';
-
-function normalizePdfPreviewUrl(pdfUrl: string): string {
-  const trimmed = pdfUrl.trim();
-  const candidate = /^localhost(?::\d+)?\//i.test(trimmed)
-    ? `${window.location.protocol}//${trimmed}`
-    : trimmed;
-
-  try {
-    const url = new URL(candidate, window.location.origin);
-    if (url.pathname.startsWith('/api/reports/')) {
-      return `${url.pathname}${url.search}`;
-    }
-    return url.href;
-  } catch {
-    return candidate;
-  }
-}
 
 function buildPdfPreviewSrc(pdfUrl: string, blobUrl?: string | null): string {
   const targetUrl = blobUrl || normalizePdfPreviewUrl(pdfUrl);

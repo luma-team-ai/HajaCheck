@@ -153,6 +153,7 @@ export interface MyReportCard {
   issuedAt: string; // ISO datetime(LocalDateTime, Report.updatedAt 근사) — '2024.03.16' 표기는 formatIssuedDate
   fileSizeBytes: number | null; // null이면 PDF 조회 실패 — 화면에서 크기 표시 자체를 감춘다
   gradeDots: ReportGradeDotColor[];
+  pdfUrl: string | null; // null이면 저장된 PDF가 없음 — 다운로드 버튼을 disabled로 유지(#1464)
 }
 
 // ---- 마이페이지 — 비밀번호 변경(#1316, HAJA-602) ----

@@ -22,7 +22,8 @@ public record MyReportRowResponse(
         Integer roundNo,
         LocalDateTime issuedAt,
         Long fileSizeBytes,
-        List<ReportGradeDotColor> gradeDots) {
+        List<ReportGradeDotColor> gradeDots,
+        String pdfUrl) {
 
     // 심각도 순(RED → ORANGE → GREEN) 고정 — 존재하는 색만 중복 없이 이 순서로 반환한다(handoff §2-3).
     private static final List<ReportGradeDotColor> SEVERITY_ORDER =
@@ -37,7 +38,8 @@ public record MyReportRowResponse(
                 roundNo,
                 report.getUpdatedAt(),
                 fileSizeBytes,
-                toGradeDots(grades));
+                toGradeDots(grades),
+                report.getPdfUrl());
     }
 
     private static List<ReportGradeDotColor> toGradeDots(Set<DefectGrade> grades) {
