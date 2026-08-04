@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { buildReportPdfFileName } from '../../report/utils/exportReportToPdf';
 import type { MyReportCard } from '../types';
 import { formatFileSize, formatIssuedDate, formatReportTitle } from '../utils/myInspectionsFormat';
 import { DownloadIcon } from './icons/DownloadIcon';
@@ -11,12 +13,35 @@ type Props = {
 
 // 보고서 카드 한 줄 — "최근 발급된 보고서" 목록의 개별 항목(HAJA-366/#668, BE 연동 #844/HAJA-442).
 // 미리보기는 회사 보고서 목록(ReportListTable)과 동일하게 /reports/:reportId(ReportGeneratePage)로
-// 연결한다(#1236). 다운로드는 실 엔드포인트(GET /api/reports/{id}/pdf/{storageKey})가 필요로 하는
-// storageKey/pdfUrl이 이 목록 API(GET /api/me/reports) 응답에 없어 여전히 비활성 — BE 계약 확장이
-// 선행돼야 하는 후속 건.
+// 연결한다(#1236). 다운로드는 목록 API(GET /api/me/reports) 응답의 pdfUrl(#1464)을 그대로
+// fetch → blob → objectURL 방식으로 내려받는다(ReportGeneratePage#handleDownloadStoredPdf와 동일 패턴).
 export function MyReportListItem({ report }: Props) {
   const title = formatReportTitle(report.facilityName, report.issuedAt, report.roundNo);
   const fileSizeLabel = formatFileSize(report.fileSizeBytes);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const canDownload = report.pdfUrl != null;
+
+  const handleDownload = async () => {
+    if (!report.pdfUrl || isDownloading) return;
+    setIsDownloading(true);
+    try {
+      const response = await fetch(report.pdfUrl, { credentials: 'include' });
+      if (!response.ok) throw new Error(`PDF ${response.status}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = buildReportPdfFileName(report.inspectionId);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // 다운로드 실패는 조용히 무시 — 목록 화면 전체를 깨뜨리지 않는다. 재시도는 버튼 재클릭으로.
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   return (
     <li className="flex flex-wrap items-center gap-4 rounded-xl bg-white px-4 py-3 shadow-sm">
@@ -43,9 +68,12 @@ export function MyReportListItem({ report }: Props) {
         </Link>
         <button
           type="button"
-          className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1.5 text-xs font-semibold text-text-default opacity-60"
-          disabled
-          title="다운로드 API 연동 후 지원 예정(BE 미구현)"
+          onClick={handleDownload}
+          className={`inline-flex items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1.5 text-xs font-semibold text-text-default ${
+            canDownload && !isDownloading ? '' : 'cursor-not-allowed opacity-60'
+          }`}
+          disabled={!canDownload || isDownloading}
+          title={canDownload ? undefined : '다운로드 가능한 PDF가 없습니다'}
         >
           <DownloadIcon />
           다운로드
