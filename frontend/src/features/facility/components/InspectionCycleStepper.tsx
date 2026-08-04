@@ -1,7 +1,9 @@
 import type { ChangeEvent } from 'react';
 
 const MIN_MONTHS = 1;
-const MAX_MONTHS = 60;
+// PRD 스펙(docs/prd/PRD_hajaCheck.md "점검주기 ≤120개월")·백엔드 검증
+// (FacilityCreateRequest/FacilityScheduleRequest @Max(120))과 일치시킨다(#1507/HAJA-659).
+const MAX_MONTHS = 120;
 const QUICK_OPTIONS: { label: string; months: number }[] = [
   { label: '3개월', months: 3 },
   { label: '6개월', months: 6 },
