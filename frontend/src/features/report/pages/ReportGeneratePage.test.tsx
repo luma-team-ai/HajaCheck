@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, RouterProvider, createMemoryRouter } from 'react-router-dom';
+import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import type { ReportDetailResponse } from '../api/reportApi';
 import type { InspectionResponse, DefectDetailItem, MediaResponse } from '../../inspection/api/inspectionApi.types';
 import { isReportContent, type ReportContent } from '../types';
@@ -185,13 +185,13 @@ afterAll(() => server.close());
 describe('ReportGeneratePage', () => {
   const renderPageWithPath = (path: string) => {
     const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [{ path: '/reports/:reportId', element: <ReportGeneratePage /> }],
+      { initialEntries: [path] },
+    );
     return render(
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={[path]}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
+        <RouterProvider router={router} />
       </QueryClientProvider>,
     );
   };
@@ -209,16 +209,7 @@ describe('ReportGeneratePage', () => {
   });
 
   it('should handle invalid report ID gracefully', () => {
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/invalid']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPageWithPath('/reports/invalid');
 
     expect(screen.getByText(/잘못된 접근/)).toBeTruthy();
   });
@@ -284,7 +275,7 @@ describe('ReportGeneratePage', () => {
     await waitFor(() => expect(purposeInput.readOnly).toBe(false));
   });
 
-  it('내용이 비어 있는 추가 섹션은 저장할 수 없다 — AlertModal로 안내하고 저장 API는 호출하지 않는다', async () => {
+  it('내용이 비어 있는 추가 섹션도 임시저장할 수 있다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
 
@@ -296,11 +287,8 @@ describe('ReportGeneratePage', () => {
 
     fireEvent.click(saveButton);
 
-    await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeTruthy();
-    });
-    expect(within(screen.getByRole('dialog')).getByText(/제출문/)).toBeTruthy();
-    expect(updateReportCallCount).toBe(0);
+    await waitFor(() => expect(updateReportCallCount).toBe(1));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('기존 reportId 상세 content로 진입해 바로 PDF 생성 후 확정할 수 있다', async () => {
@@ -314,16 +302,7 @@ describe('ReportGeneratePage', () => {
       groundingCheckPassed: true,
     };
 
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/1']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPage();
 
     await screen.findByDisplayValue(realContractContent.overview.purpose);
 
@@ -335,7 +314,13 @@ describe('ReportGeneratePage', () => {
       expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
     });
     expect(exportReportToPdf).toHaveBeenCalledWith(
-      realContractContent,
+      {
+        ...realContractContent,
+        summary: {
+          ...realContractContent.summary,
+          responsible_engineer_name: '',
+        },
+      },
       expect.objectContaining({ facilityName: '테스트 시설물', inspectionRound: 1 }),
     );
     expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
@@ -392,16 +377,7 @@ describe('ReportGeneratePage', () => {
       pdfUrl: '/api/reports/1/pdf/storage-key',
     };
 
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/1?mode=export']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPageWithPath('/reports/1?mode=export');
 
     const pdfFrame = await screen.findByTitle('저장된 보고서 PDF');
     expect(preflightCount).toBe(1);
@@ -561,16 +537,7 @@ describe('ReportGeneratePage', () => {
       pdfUrl: null,
     };
 
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/1?mode=export']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPageWithPath('/reports/1?mode=export');
 
     const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
     expect(pdfFrame.getAttribute('src')).toContain('blob:');
@@ -598,12 +565,29 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByText('저장된 PDF가 없습니다.')).toBeNull();
   });
 
-  // 검증 전(그리고 grounding이라는 단어를 노출하지 않는지) 확인 — 일반 점검자가 이해할 수 있는
-  // 문구여야 한다.
-  // #1338 — 클라이언트 미리보기 렌더 조건은 이제 !dirty(저장됨)만으로 판단한다. 정상적인
-  // "PDF 미리보기" 클릭 흐름은 dirty면 먼저 저장을 시도하도록 가드되므로, 이 안내 문구는
-  // 그 가드를 우회해(예: 방문 이력 복귀) mode=export로 직접 들어온 미저장 상태에서만 뜬다.
-  it('저장하지 않은 변경 사항이 있는 상태로 mode=export에 진입하면 미리보기 대신 저장 안내 문구를 보여준다', async () => {
+  // 미리보기는 확정 전 편집 중인 상태를 보기 위한 기능이라, 확정 검증 통과 여부와 무관하게
+  // content만 있으면 현재 내용으로 즉석 렌더링해야 한다(확정 검증이 최종 확정 버튼을 누르기
+  // 전까지 한 번도 실행되지 않았을 수 있어, 이 게이트를 걸면 신규 보고서는 미리보기를 영영
+  // 못 보게 된다).
+  it('확정 검증을 통과하지 못한 보고서로 mode=export에 직접 진입해도 현재 내용으로 미리보기를 렌더한다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      groundingCheckPassed: null,
+      status: 'DRAFT',
+      pdfUrl: null,
+    };
+
+    renderPageWithPath('/reports/1?mode=export');
+
+    const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
+    expect(screen.getByText(/아직 확정되지 않은 미리보기입니다/)).toBeTruthy();
+    expect(screen.queryByText(/grounding/i)).toBeNull();
+  });
+
+  // 미리보기는 "저장 여부"와도 무관해야 한다 — 임시저장은 라우트 이탈 시 데이터 유실을 막기
+  // 위한 방어 장치일 뿐, 편집 중 미리보기를 보는 것과는 별개 목적이다.
+  it('저장하지 않은 변경 사항이 있는 상태로 mode=export에 진입해도 현재(미저장) 내용으로 미리보기를 렌더한다', async () => {
     reportState = {
       ...mockReportDetailResponse,
       groundingCheckPassed: null,
@@ -628,14 +612,10 @@ describe('ReportGeneratePage', () => {
 
     await router.navigate('/reports/1?mode=export');
 
-    const guidance = await screen.findByText('아직 미리 볼 수 없습니다.');
-    expect(guidance).toBeTruthy();
-    expect(
-      screen.getByText('편집한 내용을 아직 저장하지 않았습니다. 저장한 뒤 다시 시도해 주세요.'),
-    ).toBeTruthy();
+    const pdfFrame = await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+    expect(pdfFrame.getAttribute('src')).toContain('blob:');
     expect(screen.queryByText(/grounding/i)).toBeNull();
     expect(screen.queryByText(/확정 검증/)).toBeNull();
-    expect(screen.queryByTitle('보고서 PDF 미리보기(확정 전)')).toBeNull();
   });
 
   it('확정 검증을 아직 통과하지 못했어도(content가 편집되지 않은 상태) 최종 보고서 확정 버튼은 활성화되어 있다', async () => {
@@ -648,22 +628,212 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByRole('button', { name: '확정 검증' })).toBeNull();
   });
 
-  it('서식 섹션 추가 메뉴에 표준서식 수동 입력 항목을 모두 노출한다', async () => {
+  it('저장된 보고서에 내용이 비어 있는 수동 섹션이 있으면 최종 보고서 확정 버튼 클릭 시 어떤 섹션을 채워야 하는지 모달로 안내한다', async () => {
+    // #1341 원 설계: 버튼을 비활성화해 이유를 숨기지 않는다 — 항상 클릭 가능하고, 클릭 시
+    // AlertModal이 무엇이 비었는지 알려준다(#1375/#1377에서 버튼을 조용히 비활성화하도록 되돌아간
+    // 회귀를 #1409에서 원복).
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content: {
+        ...mockContent,
+        manualSections: [
+          {
+            id: 'manual-empty-safety',
+            type: 'safety-assessment',
+            title: '안전성평가 결과',
+            data: { body: '' },
+          },
+        ],
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(/필수값이 누락된 추가 섹션.*안전성평가 결과/)).toBeTruthy();
+  });
+
+  it('종합 의견이 비어 있으면 최종 보고서 확정 버튼 클릭 시 모달로 안내한다', async () => {
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content: {
+        ...mockContent,
+        summary: {
+          ...mockContent.summary,
+          overall_opinion: '   ',
+        },
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(/결과 요약 > 종합 의견/)).toBeTruthy();
+  });
+
+  it('결과 요약 책임기술자는 배정 점검자 이름으로 기본 표시되고 수동 수정할 수 있다', async () => {
+    const updatedContent = {
+      ...mockContent,
+      summary: { ...mockContent.summary, responsible_engineer_name: '박수정' },
+    };
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      context: {
+        ...mockReport.context,
+        assignedInspector: { id: 1, name: '김기준', role: 'INSPECTOR' },
+        defects: [],
+        media: [],
+      },
+      content: mockContent,
+    };
+    server.use(
+      http.patch('/api/reports/:id', async ({ request }) => {
+        updateReportCallCount += 1;
+        const body = (await request.json()) as { contentJson: string };
+        expect(JSON.parse(body.contentJson)).toEqual(updatedContent);
+        return HttpResponse.json({
+          success: true,
+          data: {
+            ...reportState,
+            content: updatedContent,
+          },
+        });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const engineerInput = screen.getByLabelText('책임기술자') as HTMLInputElement;
+    expect(engineerInput.value).toBe('김기준');
+    fireEvent.change(engineerInput, { target: { value: '박수정' } });
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
+
+    await waitFor(() => expect(updateReportCallCount).toBe(1));
+  });
+
+  it.each([
+    {
+      label: '기본현황',
+      expectedLabel: '기본현황 > 점검 목적',
+      content: {
+        ...mockContent,
+        overview: { ...mockContent.overview, purpose: '   ' },
+      },
+    },
+    {
+      label: '진단 외관조사결과 기본사항',
+      expectedLabel: '진단 외관조사결과 기본사항 > 하자 #1 설명',
+      content: {
+        ...mockContent,
+        detail: { items: [{ ...mockContent.detail.items[0], description: '' }] },
+      },
+    },
+    {
+      label: '보수ㆍ보강(안)',
+      expectedLabel: '보수ㆍ보강(안) > 권고 #1 방법',
+      content: {
+        ...mockContent,
+        recommendation: { ...mockContent.recommendation, items: [{ ...mockContent.recommendation.items[0], method: '' }] },
+      },
+    },
+  ])('$label 편집 필드가 비어 있으면 최종 보고서 확정 버튼 클릭 시 모달로 안내한다', async ({ content, expectedLabel }) => {
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content,
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(dialog).getByText(new RegExp(expectedLabel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))).toBeTruthy();
+  });
+
+  it('제출문은 회사명만 있어도 임시저장할 수 있고 최종 확정에서만 필수값 누락을 안내한다', async () => {
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+      content: {
+        ...mockContent,
+        manualSections: [
+          {
+            id: 'manual-submission',
+            type: 'submission',
+            title: '제출문',
+            data: {
+              recipient: '',
+              contractDate: '',
+              companyName: '개발팀 공용 테스트',
+              companyAddress: '',
+              representativeName: '',
+            },
+          },
+        ],
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    expect(finalizeButton.disabled).toBe(false);
+    fireEvent.click(finalizeButton);
+
+    const finalizeDialog = await screen.findByRole('dialog');
+    expect(within(finalizeDialog).getByText('확정할 수 없습니다')).toBeTruthy();
+    expect(within(finalizeDialog).getByText(/필수값이 누락된 추가 섹션.*제출문/)).toBeTruthy();
+    fireEvent.click(within(finalizeDialog).getByRole('button', { name: '확인' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '제출문 누락 저장 방지' } });
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
+
+    await waitFor(() => expect(updateReportCallCount).toBe(1));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('서식 섹션 추가 메뉴에는 결과 요약 하위인 종합의견 및 고정 섹션과 중복되는 항목을 노출하지 않는다', async () => {
     renderPage();
 
     await screen.findByText('보고서 생성 결과');
     fireEvent.click(screen.getByRole('button', { name: '+ 서식 섹션 추가' }));
 
     expect(screen.getByRole('button', { name: '제출문' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '기본현황' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '참여 기술진 명단' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '책임기술자 종합의견' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '부위별 상태평가 결과 및 보수ㆍ보강' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '안전성평가 결과' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '현장시험(비파괴 및 추가시험)' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '시설물 현황' })).toBeTruthy();
     expect(screen.getByRole('button', { name: '위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도' })).toBeTruthy();
+    // 결과 요약 하위 개념(종합의견)은 별도 항목으로 노출하지 않는다.
+    expect(screen.queryByRole('button', { name: '책임기술자 종합의견' })).toBeNull();
+    // 고정 섹션과 제목/문구가 그대로 겹치는 수동 섹션 스캐폴딩은 메뉴에서 뺀다(#1409) —
+    // 'overview-form'="기본현황"(고정 overview 라벨과 동일), 'inspection-result-repair'/
+    // 'member-condition-repair'는 고정 detail 섹션이 이미 표로 렌더링하는 문구와 중복.
+    expect(screen.queryByRole('button', { name: '기본현황' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '상태평가 결과 및 보수ㆍ보강' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '부위별 상태평가 결과 및 보수ㆍ보강' })).toBeNull();
   });
 
   it('저장 실패 시 axios 인터셉터가 던진 ApiError의 실제 message를 그대로 노출한다(제네릭 문구로 덮지 않는다)', async () => {
@@ -700,16 +870,7 @@ describe('ReportGeneratePage', () => {
       }),
     );
 
-    const queryClient = new QueryClient();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/reports/99']}>
-          <Routes>
-            <Route path="/reports/:reportId" element={<ReportGeneratePage />} />
-          </Routes>
-        </MemoryRouter>
-      </QueryClientProvider>,
-    );
+    renderPageWithPath('/reports/99');
 
     await waitFor(() => {
       expect(screen.getByText('보고서 생성 결과')).toBeTruthy();
@@ -771,10 +932,10 @@ describe('ReportGeneratePage', () => {
   it('진단 외관조사결과 기본사항 페이지네이션 컨트롤이 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByRole('button', { name: '이전 페이지' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: '다음 페이지' })).toBeTruthy();
     const detailSection = screen.getByText('진단 외관조사결과 기본사항').closest('.rounded-lg') as HTMLElement | null;
     expect(detailSection).toBeTruthy();
+    expect(within(detailSection!).getByRole('button', { name: '이전 페이지' })).toBeTruthy();
+    expect(within(detailSection!).getByRole('button', { name: '다음 페이지' })).toBeTruthy();
     expect(within(detailSection!).getByText('1', { selector: 'span.font-bold' })).toBeTruthy();
     expect(within(detailSection!).getByText('/ 1', { selector: 'span.text-zinc-500' })).toBeTruthy();
   });
@@ -782,7 +943,7 @@ describe('ReportGeneratePage', () => {
   it('보수ㆍ보강에 시급성 pill과 하자 badge가 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
-    expect(screen.getByDisplayValue('보수 시급성: 중')).toBeTruthy();
+    expect(screen.getByLabelText('권고 1 보수 시급성').textContent).toBe('보수 시급성: 중');
     expect(screen.getByRole('button', { name: '하자 #01' })).toBeTruthy();
   });
 
@@ -807,8 +968,9 @@ describe('ReportGeneratePage', () => {
     expect(updateReportCallCount).toBe(0);
   });
 
-  // #1338 — 미저장 변경이 있는 상태에서 미리보기 진입 시 임시저장을 먼저 시도한 뒤 이동한다.
-  it('미저장 변경이 있는 상태에서 PDF 미리보기를 클릭하면 임시저장 후 export 모드로 이동한다', async () => {
+  // 미리보기는 편집 중인 내용을 보기 위한 기능이라, 미저장 변경이 있어도 저장을 강제하지 않고
+  // 바로 export 모드로 이동해 현재 내용을 렌더한다(임시저장은 라우트 이탈 가드가 별도로 담당).
+  it('미저장 변경이 있는 상태에서 PDF 미리보기를 클릭하면 저장 없이 바로 export 모드로 이동한다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
 
@@ -818,15 +980,111 @@ describe('ReportGeneratePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'PDF 미리보기' }));
 
     await waitFor(() => {
-      expect(updateReportCallCount).toBe(1);
-    });
-    await waitFor(() => {
       expect(screen.queryByLabelText('점검 목적')).toBeNull();
     });
+    expect(updateReportCallCount).toBe(0);
   });
 
-  // #1338 — 미저장 변경 + 빈 추가 섹션이 있으면 저장을 시도하지 않고 AlertModal만 띄운 채 이동하지 않는다.
-  it('미저장 변경에 빈 추가 섹션이 있으면 PDF 미리보기가 저장/이동 없이 AlertModal만 띄운다', async () => {
+  it('미저장 변경 상태에서 PDF 내보내기가 아닌 다른 라우트로 이탈하면 임시저장 모달을 띄우고 저장 후 이동한다', async () => {
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [
+        { path: '/reports/:reportId', element: <ReportGeneratePage /> },
+        { path: '/dashboard', element: <div>대시보드 페이지</div> },
+      ],
+      { initialEntries: ['/reports/1'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('보고서 생성 결과');
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '이탈 전 저장' } });
+
+    await router.navigate('/dashboard');
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('편집한 내용이 저장되지 않았습니다')).toBeTruthy();
+    expect(screen.getByText('이 페이지를 나가기 전에 변경 내용을 임시저장합니다.')).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/reports/1');
+    expect(updateReportCallCount).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(router.state.location.pathname).toBe('/reports/1');
+
+    await router.navigate('/dashboard');
+    await screen.findByText('편집한 내용이 저장되지 않았습니다');
+    fireEvent.click(screen.getByRole('button', { name: '임시저장 후 나가기' }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
+    expect(screen.getByText('대시보드 페이지')).toBeTruthy();
+    expect(updateReportCallCount).toBe(1);
+  });
+
+  it('미저장 상태의 PDF 미리보기에서도 다른 라우트 이탈 시 같은 임시저장 모달을 띄운다', async () => {
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [
+        { path: '/reports/:reportId', element: <ReportGeneratePage /> },
+        { path: '/dashboard', element: <div>대시보드 페이지</div> },
+      ],
+      { initialEntries: ['/reports/1'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('보고서 생성 결과');
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '미리보기 이탈 전 저장' } });
+
+    await router.navigate('/reports/1?mode=export');
+    await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+
+    await router.navigate('/dashboard');
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.getByText('편집한 내용이 저장되지 않았습니다')).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/reports/1');
+    expect(router.state.location.search).toBe('?mode=export');
+  });
+
+  // 회귀 테스트 — 미리보기(mode=export)에서 편집 화면으로 "뒤로가기"할 때는 같은 컴포넌트가
+  // 유지돼 content가 그대로 남아있으므로 임시저장 모달이 뜨면 안 된다(이전엔 편도로만
+  // 예외 처리돼 있어 이 방향에서만 잘못 떴었다).
+  it('미저장 상태에서 미리보기 → 편집 화면으로 돌아갈 때는 임시저장 모달을 띄우지 않는다', async () => {
+    const queryClient = new QueryClient();
+    const router = createMemoryRouter(
+      [{ path: '/reports/:reportId', element: <ReportGeneratePage /> }],
+      { initialEntries: ['/reports/1'] },
+    );
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('보고서 생성 결과');
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '뒤로가기 전 미저장 변경' } });
+
+    await router.navigate('/reports/1?mode=export');
+    await screen.findByTitle('보고서 PDF 미리보기(확정 전)');
+
+    await router.navigate('/reports/1');
+
+    await screen.findByLabelText('점검 목적');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(router.state.location.search).toBe('');
+  });
+
+  // 빈 추가 섹션이 있어도 미리보기는 저장/확정 검증과 무관하게 봐야 하므로 AlertModal 없이
+  // 바로 현재 내용으로 렌더한다. 빈 섹션 검증은 "저장"과 "최종 확정" 시점에만 걸린다
+  // (handleSave/handleFinalizeAll — 별도 테스트에서 커버).
+  it('미저장 변경에 빈 추가 섹션이 있어도 PDF 미리보기는 AlertModal 없이 바로 export 모드로 이동한다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
 
@@ -836,11 +1094,10 @@ describe('ReportGeneratePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'PDF 미리보기' }));
 
     await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeTruthy();
+      expect(screen.queryByLabelText('점검 목적')).toBeNull();
     });
-    expect(within(screen.getByRole('dialog')).getByText(/제출문/)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(updateReportCallCount).toBe(0);
-    expect(screen.getByLabelText('점검 목적')).toBeTruthy();
   });
 
   // #1338 — 최종 확정 통합 플로우 중 확정 검증이 groundingCheckPassed=false를 반환하면 AlertModal로
@@ -891,6 +1148,88 @@ describe('ReportGeneratePage', () => {
     expect(revokeObjectURLSpy).toHaveBeenCalledWith('blob:http://localhost/fake-preview-url');
     createObjectURLSpy.mockRestore();
     revokeObjectURLSpy.mockRestore();
+  });
+
+  // 회귀 테스트(#1379) — detail.items 순서가 실제 defects 목록 순서와 다를 때(AI 재생성 등으로
+  // 흔히 발생) defect_id로 정확히 매칭해야 한다. 예전엔 배열 인덱스로만 짝지어서, 순서가 어긋나면
+  // 엉뚱한 하자의 사진·bbox가 표시됐다.
+  it('detail.items 순서가 defects 순서와 달라도 defect_id로 올바른 사진과 매칭한다', async () => {
+    server.use(
+      http.get('/api/inspections/1/defects', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              id: 5, inspectionId: 1, type: 'CRACK', grade: 'A', status: 'DETECTED', confidence: 0.9,
+              isReviewed: false, bboxX: 0.1, bboxY: 0.1, bboxW: 0.1, bboxH: 0.1,
+              mediaId: 100, imageUrl: '/img/a-grade.jpg', createdAt: '2026-07-22T10:00:00Z',
+            },
+            {
+              id: 9, inspectionId: 1, type: 'CRACK', grade: 'E', status: 'DETECTED', confidence: 0.9,
+              isReviewed: false, bboxX: 0.2, bboxY: 0.2, bboxW: 0.1, bboxH: 0.1,
+              mediaId: 200, imageUrl: '/img/e-grade.jpg', createdAt: '2026-07-22T10:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    reportState = {
+      ...mockReport,
+      content: {
+        ...mockContent,
+        detail: {
+          // defects 응답과 반대 순서(9번이 먼저) — defect_id 없이 인덱스로만 매칭했다면
+          // 첫 항목에 5번(A등급/a-grade.jpg)의 사진이 잘못 뜬다.
+          items: [
+            { defect_id: 9, defect_type: '균열', location: 'E', severity_grade: 'E', description: '', cause: '' },
+            { defect_id: 5, defect_type: '균열', location: 'A', severity_grade: 'A', description: '', cause: '' },
+          ],
+        },
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const images = await screen.findAllByRole('img', { name: /현장 이미지/ });
+    expect(images.map((image) => image.getAttribute('src'))).toEqual([
+      '/img/e-grade.jpg',
+      '/img/a-grade.jpg',
+    ]);
+  });
+
+  it('detail.items에 defect_id가 있으면 매칭 실패 시 인덱스 사진으로 폴백하지 않는다', async () => {
+    server.use(
+      http.get('/api/inspections/1/defects', () =>
+        HttpResponse.json({
+          success: true,
+          data: [
+            {
+              id: 5, inspectionId: 1, type: 'CRACK', grade: 'A', status: 'DETECTED', confidence: 0.9,
+              isReviewed: false, bboxX: 0.1, bboxY: 0.1, bboxW: 0.1, bboxH: 0.1,
+              mediaId: 100, imageUrl: '/img/a-grade.jpg', createdAt: '2026-07-22T10:00:00Z',
+            },
+          ],
+        }),
+      ),
+    );
+    reportState = {
+      ...mockReport,
+      content: {
+        ...mockContent,
+        detail: {
+          items: [
+            { defect_id: 999, defect_type: '균열', location: '삭제된 하자', severity_grade: 'A', description: '', cause: '' },
+          ],
+        },
+      },
+    };
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    expect(screen.getByText('이미지 없음')).toBeTruthy();
+    expect(screen.queryByRole('img', { name: /현장 이미지/ })).toBeNull();
   });
 });
 
@@ -966,6 +1305,7 @@ describe('DetailSection', () => {
       />,
     );
 
+    fireEvent.load(screen.getByRole('img'));
     const box = container.querySelector('span[aria-hidden="true"].absolute') as HTMLElement | null;
     expect(box).not.toBeNull();
     expect(box?.style.left).toBe('25%');
@@ -991,6 +1331,7 @@ describe('DetailSection', () => {
     );
 
     expect(screen.getAllByRole('img')).toHaveLength(1);
+    fireEvent.load(screen.getByRole('img'));
     expect(container.querySelector('span[aria-hidden="true"].absolute')).toBeNull();
   });
 });

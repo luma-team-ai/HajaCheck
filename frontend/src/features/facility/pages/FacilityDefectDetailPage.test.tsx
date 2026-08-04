@@ -7,9 +7,12 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { facilityComparisonHandlers } from '../api/facilityComparisonApi.handlers';
 import { facilityDefectHandlers } from '../api/facilityDefectApi.handlers';
+import { facilityHandlers } from '../api/facilityApi.handlers';
 import { FacilityDefectDetailPage } from './FacilityDefectDetailPage';
 
-const server = setupServer(...facilityDefectHandlers, ...facilityComparisonHandlers);
+// #1350 — 페이지가 useFacility(facilityId)로 AI 설명용 facilityType을 조회하므로
+// GET /api/facilities/:id를 목하는 facilityHandlers도 함께 등록해야 한다.
+const server = setupServer(...facilityDefectHandlers, ...facilityComparisonHandlers, ...facilityHandlers);
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -46,19 +49,25 @@ describe('FacilityDefectDetailPage (통합 테스트)', () => {
     expect(screen.getByText('김검수')).not.toBeNull();
   });
 
-  it('기본 선택 탭은 "오버레이"이고 이미지 위에 마킹 레이어가 함께 렌더링된다', async () => {
+  it('기본 선택 탭은 "오버레이"이고 이미지 위에 실 bbox 위치의 마킹 박스가 함께 렌더링된다(#1369)', async () => {
     renderPage();
     await screen.findByText('하자 상세');
 
     expect(screen.getByRole('tab', { name: '오버레이' }).getAttribute('aria-selected')).toBe(
       'true',
     );
-    // 오버레이 마킹 레이어는 alt=""(장식용)라 접근성 트리에서 이미지 role이 아니라 hidden으로 빠진다 —
-    // aria-hidden 이미지는 role 쿼리로 잡히지 않으므로 원본 사진(하자 이미지)만 role로 확인한다.
     expect(screen.getByRole('img', { name: '균열 하자 이미지' })).not.toBeNull();
+    // #1369 — 이전엔 좌표를 무시한 고정 SVG였다. 이제 목데이터의 bboxX/Y/W/H가 실제로 style에
+    // 반영되는지까지 확인해, 값이 하드코딩된 자리표시자로 되돌아가는 회귀를 잡는다.
+    const markingBox = screen.getByLabelText('AI 감지 영역');
+    expect(markingBox).not.toBeNull();
+    expect(markingBox.style.left).toBe('42%');
+    expect(markingBox.style.top).toBe('10%');
+    expect(markingBox.style.width).toBe('8%');
+    expect(markingBox.style.height).toBe('75%');
   });
 
-  it('"원본" 탭 클릭 시 원본으로 전환되고 오버레이 마킹 레이어가 사라진다', async () => {
+  it('"원본" 탭 클릭 시 원본으로 전환되고 마킹 박스가 사라진다', async () => {
     renderPage();
     await screen.findByText('하자 상세');
 
@@ -68,9 +77,59 @@ describe('FacilityDefectDetailPage (통합 테스트)', () => {
     expect(screen.getByRole('tab', { name: '오버레이' }).getAttribute('aria-selected')).toBe(
       'false',
     );
+    expect(screen.queryByLabelText('AI 감지 영역')).toBeNull();
+  });
+
+  it('bbox 좌표가 없는(null) 하자는 "오버레이" 탭에서도 마킹 박스를 렌더하지 않는다(#1369)', async () => {
+    server.use(
+      http.get('/api/defects/:id', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            id: 101,
+            inspectionId: 8,
+            facilityId: 1,
+            facilityName: '강남 오피스타워 A동',
+            location: '외벽 동측 12층 부근',
+            assigneeName: '김검수',
+            foundCycle: 8,
+            typeLabel: '균열',
+            grade: 'E',
+            status: 'CONFIRMED',
+            confidence: 0.94,
+            crackWidthMm: 0.8,
+            crackLengthMm: 2400,
+            imageUrl: null,
+            bboxX: null,
+            bboxY: null,
+            bboxW: null,
+            bboxH: null,
+            createdAt: '2026-06-21T09:00:00.000Z',
+          },
+        }),
+      ),
+    );
+
+    renderPage();
+    await screen.findByText('하자 상세');
+
+    expect(screen.queryByLabelText('AI 감지 영역')).toBeNull();
   });
 
   it('AI 설명 패널은 로딩 후 진단·권장조치 텍스트를 표시한다', async () => {
+    renderPage();
+
+    expect(await screen.findByText(/구조적 스트레스로 인한 진행성 균열/)).not.toBeNull();
+  });
+
+  // code-reviewer P2(PR #1364) — 시설물 상세 조회(useFacility)가 실패해도 AI 설명 조회 자체가
+  // 영구히 막히지 않고(facilityType 자리표시자로 계속 시도) 콘텐츠를 표시해야 한다. 이전엔
+  // facilityType이 끝내 비어있으면 enabled가 계속 false로 남아 패널이 조용히 빈 화면이었다.
+  it('시설물 조회(GET /api/facilities/:id)가 실패해도 AI 설명 패널은 빈 화면이 아니라 정상 표시된다', async () => {
+    server.use(
+      http.get('/api/facilities/:id', () => new HttpResponse(null, { status: 500 })),
+    );
+
     renderPage();
 
     expect(await screen.findByText(/구조적 스트레스로 인한 진행성 균열/)).not.toBeNull();

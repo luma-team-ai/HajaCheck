@@ -79,8 +79,8 @@ export function FacilitySummaryTable({ filterParams }: FacilitySummaryTableProps
   const visibleData = data ? data.slice(0, VISIBLE_LIMIT) : [];
 
   return (
-    <section className="flex flex-col gap-2 overflow-hidden bg-white border border-zinc-200 pt-6">
-      <div className="flex items-center justify-between px-6">
+    <section className="flex min-h-[220px] flex-col overflow-hidden bg-white border border-zinc-200 p-6">
+      <div className="flex items-center justify-between pb-4">
         <h3 className="text-zinc-900 text-base font-medium leading-6">시설물별 요약</h3>
         {hasMore && (
           <button
@@ -92,10 +92,20 @@ export function FacilitySummaryTable({ filterParams }: FacilitySummaryTableProps
           </button>
         )}
       </div>
-      {isLoading && <LoadingSpinner />}
-      {isError && <p className="dashboard-card-status px-6">시설물별 요약을 불러오지 못했습니다.</p>}
+      {isLoading && (
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <LoadingSpinner />
+        </div>
+      )}
+      {isError && (
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <p className="dashboard-card-status m-0 p-0">시설물별 요약을 불러오지 못했습니다.</p>
+        </div>
+      )}
       {!isLoading && !isError && (!data || data.length === 0) && (
-        <p className="dashboard-card-status px-6">등록된 시설물이 없습니다.</p>
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <p className="dashboard-card-status m-0 p-0">등록된 시설물이 없습니다.</p>
+        </div>
       )}
       {!isLoading && !isError && data && data.length > 0 && (
         <FacilitySummaryRowsTable items={visibleData} maxDefects={maxDefects} />

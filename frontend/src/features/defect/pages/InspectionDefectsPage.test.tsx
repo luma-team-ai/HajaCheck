@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { api } from '../../../shared/api/axios';
 import { defectHandlers } from '../api/defectApi.handlers';
 import { defectMediaApi } from '../api/defectMediaApi';
-import { mockDefects } from '../mocks/defect.mock';
+import { mockDefects, mockInspectionDefectResponses } from '../mocks/defect.mock';
 import { InspectionDefectsPage } from './InspectionDefectsPage';
 
 const explainHandler = http.post('/api/ai/defect-explain', () =>
@@ -28,6 +28,9 @@ const server = setupServer(...defectHandlers, explainHandler);
 // PATCH 핸들러가 mockDefects를 in-place로 변경한다(조치 결과 등록 테스트가 상태를 RESOLVED로 바꿈) —
 // 다음 테스트를 오염시키지 않도록 매 테스트 후 스냅샷으로 복원한다.
 const mockDefectsSnapshot = JSON.parse(JSON.stringify(mockDefects)) as typeof mockDefects;
+const mockInspectionDefectsSnapshot = JSON.parse(
+  JSON.stringify(mockInspectionDefectResponses),
+) as typeof mockInspectionDefectResponses;
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -35,6 +38,9 @@ afterEach(() => {
   cleanup();
   mockDefectsSnapshot.forEach((snapshot, index) => {
     Object.assign(mockDefects[index], snapshot);
+  });
+  mockInspectionDefectsSnapshot.forEach((snapshot, index) => {
+    Object.assign(mockInspectionDefectResponses[index], snapshot);
   });
 });
 afterAll(() => server.close());
@@ -57,14 +63,12 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
   it('점검(inspectionId=101)에 속한 하자 카드와 KPI를 렌더링한다', async () => {
     renderPage('101');
 
-    // inspectionId=101 mock은 철근 노출(CONFIRMED)과 균열(DETECTED)이다. 카드 그리드는 검수 전
-    // DETECTED를 숨기므로 철근 노출만 버튼으로 렌더링하고, KPI의 원본 하자 집계는 2건을 유지한다.
-    expect(await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' })).not.toBeNull();
-    expect(screen.queryByRole('button', { name: '균열 하자 상세 보기' })).toBeNull();
+    // inspectionId=101은 같은 이미지의 관리 대상 2건과 별도 DETECTED 1건이다.
+    expect(await screen.findByRole('button', { name: '철근 노출 · 균열 이미지 카드 상세 보기' })).not.toBeNull();
 
     const kpi = screen.getByLabelText('점검 하자 요약');
     expect(within(kpi).getByText('총 하자')).not.toBeNull();
-    expect(within(kpi).getByText('2건')).not.toBeNull();
+    expect(within(kpi).getByText('3건')).not.toBeNull();
   });
 
   it('헤더에 점검 코드(INS-nnnn) 텍스트를 렌더링한다', async () => {
@@ -82,7 +86,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
   it('카드를 클릭하면 하자 상세 모달이 열리고, 조치 결과 등록 폼과 활동 기록을 보여준다', async () => {
     renderPage('101');
 
-    const card = await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
+    const card = await screen.findByRole('button', { name: '철근 노출 · 균열 이미지 카드 상세 보기' });
     fireEvent.click(card);
 
     const modal = await screen.findByRole('dialog', { name: '하자 상세' });
@@ -90,7 +94,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     // 채워지므로 findBy로 로딩 완료를 기다린다.
     expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
     expect(within(modal).getByRole('heading', { name: '조치 결과 등록' })).not.toBeNull();
-    expect(within(modal).getByLabelText('조치 내용 *')).not.toBeNull();
+    expect(within(modal).getByLabelText('조치 내용')).not.toBeNull();
   });
 
   // 대시보드 "검수하기" → defectId 쿼리파라미터 딥링크(#1117 회귀 수정) — 카드를 클릭하지 않아도
@@ -98,6 +102,60 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
   it('URL에 defectId 쿼리파라미터가 있으면 카드 클릭 없이도 하자 상세 모달이 자동으로 열린다', async () => {
     renderPage('101', '?defectId=1');
 
+    const modal = await screen.findByRole('dialog', { name: '하자 상세' });
+    expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
+  });
+
+  it('같은 mediaId의 하자는 카드 하나로 묶고 딥링크는 대표 하자가 아닌 지정 하자를 정확히 연다', async () => {
+    const groupedDefects = [
+      { ...mockInspectionDefectResponses[0] },
+      {
+        ...mockInspectionDefectResponses[0],
+        id: 6,
+        mediaId: 901,
+        type: 'CRACK' as const,
+        typeLabel: '균열',
+        grade: 'E' as const,
+        status: 'IN_PROGRESS' as const,
+        confidence: 0.97,
+        bboxX: 0.55,
+        bboxY: 0.45,
+        bboxW: 0.18,
+        bboxH: 0.22,
+      },
+    ];
+    server.use(
+      http.get('/api/inspections/:id/defects', () =>
+        HttpResponse.json({ success: true, data: groupedDefects }),
+      ),
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = groupedDefects.find((defect) => defect.id === Number(params.id));
+        return HttpResponse.json({
+          success: true,
+          data: found
+            ? {
+                ...mockDefects[0],
+                id: found.id,
+                type: found.type,
+                typeLabel: found.typeLabel,
+                grade: found.grade,
+                status: found.status,
+                confidence: found.confidence,
+                reviewed: found.isReviewed,
+              }
+            : null,
+        });
+      }),
+    );
+
+    renderPage('101', '?defectId=1');
+
+    const cards = await screen.findAllByRole('button', {
+      name: '균열 · 철근 노출 이미지 카드 상세 보기',
+      hidden: true,
+    });
+    expect(cards).toHaveLength(1);
+    expect(screen.getByText('하자 2건')).not.toBeNull();
     const modal = await screen.findByRole('dialog', { name: '하자 상세' });
     expect(await within(modal).findByText('DEF-0001')).not.toBeNull();
   });
@@ -134,7 +192,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
   it('모달의 닫기 버튼을 클릭하면 모달이 닫힌다', async () => {
     renderPage('101');
 
-    const card = await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
+    const card = await screen.findByRole('button', { name: '철근 노출 · 균열 이미지 카드 상세 보기' });
     fireEvent.click(card);
     await screen.findByRole('dialog', { name: '하자 상세' });
 
@@ -159,20 +217,20 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 
     renderPage('101');
 
-    const card = await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
+    const card = await screen.findByRole('button', { name: '철근 노출 · 균열 이미지 카드 상세 보기' });
     fireEvent.click(card);
     const modal = await screen.findByRole('dialog', { name: '하자 상세' });
     await within(modal).findByText('DEF-0001');
 
-    const photoInput = within(modal).getByLabelText('조치 후 사진 업로드 *') as HTMLInputElement;
+    const photoInput = within(modal).getByLabelText('조치 후 사진 업로드') as HTMLInputElement;
     const file = new File(['dummy'], 'after.png', { type: 'image/png' });
     fireEvent.change(photoInput, { target: { files: [file] } });
 
-    fireEvent.change(within(modal).getByLabelText('조치 내용 *'), {
+    fireEvent.change(within(modal).getByLabelText('조치 내용'), {
       target: { value: '균열 부위 에폭시 주입 및 표면 도포 완료' },
     });
-    fireEvent.change(within(modal).getByLabelText('조치일 *'), { target: { value: '2026-07-20' } });
-    fireEvent.change(within(modal).getByLabelText('담당자 *'), {
+    fireEvent.change(within(modal).getByLabelText('조치일'), { target: { value: '2026-07-20' } });
+    fireEvent.change(within(modal).getByLabelText('담당자'), {
       target: { value: (await within(modal).findByRole('option', { name: '김도현 검사자' })).getAttribute('value') },
     });
 
@@ -188,7 +246,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
       expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).disabled).toBe(false),
     );
     expect((within(modal).getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('IN_PROGRESS');
-    expect(within(modal).getByLabelText('조치 후 사진 업로드 *')).not.toBeNull();
+    expect(within(modal).getByLabelText('조치 후 사진 업로드')).not.toBeNull();
     expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치중');
     // #1128 코드리뷰 P2-2 — 성공 후 폼 필드가 초기화되고 성공 알림이 뜬다(중복 업로드/의도치 않은
     // 완결 방지). 초기화된 상태라 재제출은 필드를 다시 채워야만 가능하다.
@@ -199,18 +257,18 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     // 조치완료(RESOLVED)로 전이하려면 이번엔 사용자가 명시적으로 "조치완료"를 선택해야 한다
     // (#1193/HAJA-569 — 자동 다음 단계 강제 제거). 초기화된 필드를 다시 채운 뒤 제출한다.
     const secondFile = new File(['dummy2'], 'after2.png', { type: 'image/png' });
-    fireEvent.change(within(modal).getByLabelText('조치 후 사진 업로드 *'), { target: { files: [secondFile] } });
-    fireEvent.change(within(modal).getByLabelText('조치 내용 *'), {
+    fireEvent.change(within(modal).getByLabelText('조치 후 사진 업로드'), { target: { files: [secondFile] } });
+    fireEvent.change(within(modal).getByLabelText('조치 내용'), {
       target: { value: '보수 완료 확인 — 재발 없음' },
     });
-    fireEvent.change(within(modal).getByLabelText('조치일 *'), { target: { value: '2026-07-21' } });
-    fireEvent.change(within(modal).getByLabelText('담당자 *'), {
+    fireEvent.change(within(modal).getByLabelText('조치일'), { target: { value: '2026-07-21' } });
+    fireEvent.change(within(modal).getByLabelText('담당자'), {
       target: { value: (await within(modal).findByRole('option', { name: '김도현 검사자' })).getAttribute('value') },
     });
     fireEvent.change(within(modal).getByLabelText('진행상태 *'), { target: { value: 'RESOLVED' } });
     fireEvent.click(within(modal).getByRole('button', { name: '상태 저장' }));
 
-    await waitFor(() => expect(within(modal).queryByLabelText('조치 후 사진 업로드 *')).toBeNull());
+    await waitFor(() => expect(within(modal).queryByLabelText('조치 후 사진 업로드')).toBeNull());
     // 조치 필드는 1세트뿐이라 2차 등록 내용이 최종 요약에 남는다(1차 내용은 감사기록으로만 보존,
     // #1128 코드리뷰 P2-1).
     expect(within(modal).getByText('보수 완료 확인 — 재발 없음')).not.toBeNull();
@@ -222,7 +280,7 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
 
   it('우측 활동 기록 사이드바에 점검에 속한 하자들의 변경 이력을 모아 보여준다', async () => {
     renderPage('101');
-    await screen.findByRole('button', { name: '철근 노출 하자 상세 보기' });
+    await screen.findByRole('button', { name: '철근 노출 · 균열 이미지 카드 상세 보기' });
 
     const activityPanel = screen.getByLabelText('점검 활동 기록');
     // mockDefectRevisions[1]: 과거 CONFIRMED→ACTION_PENDING 변경 이력이 존재(defect.mock.ts).

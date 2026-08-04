@@ -49,6 +49,12 @@ def _blank_crack_canvas() -> np.ndarray:
     return np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=bool)
 
 
+# dark 최상위 밴드(≥0.00194422, v4 재교정값 — #1447 P3) — v3 min 합의에서 등급이 area 축으로만
+# 결정되게 고정하는 값.
+# 어두움 축 자체를 검증하는 테스트가 아니면 이 값을 넘겨 기존 area 기반 기대치를 유지한다.
+SEVERE_DARK_RATIO = 0.003
+
+
 class _FakeHugeImage:
     """실제로는 아주 작은 파일이지만 헤더상 해상도만 거대하다고 선언하는 가짜 Image."""
 
@@ -143,6 +149,7 @@ def test_yolo_type_detections_includes_area_ratio_from_mask(monkeypatch):
     assert detection.confidence == 0.95
     assert detection.grade == "E"  # area_ratio=1.0 → 면적 비율 100%는 E 등급
     assert detection.area_ratio == 1.0
+    assert detection.area_px == pytest.approx(100.0)  # 1.0 × (10×10 원본 픽셀)
 
 
 def test_yolo_type_detections_area_ratio_fallback_to_bbox(monkeypatch):
@@ -197,7 +204,7 @@ def test_crack_mask_to_detections_extracts_component_bbox_area_ratio_and_confide
     probability = np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=np.float32)
     probability[100:200, 100:200] = 0.8
 
-    detections = chain._crack_mask_to_detections(mask, probability)
+    detections = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO)
 
     assert len(detections) == 1
     detection = detections[0]
@@ -210,11 +217,40 @@ def test_crack_mask_to_detections_extracts_component_bbox_area_ratio_and_confide
     assert detection.bbox_h == pytest.approx(100 / CRACK_INPUT_SIZE)
 
 
+def test_crack_mask_to_detections_measures_straight_line_length_and_width():
+    """width_px=2×면적/둘레·length_px=면적/폭 근사 — 4px 두께 200px 직선에서 검증."""
+    mask = _blank_crack_canvas()
+    mask[100:104, 100:300] = True  # 4×200=800px, 컷오프(~82px)보다 큼
+    probability = np.where(mask, 0.9, 0.0).astype(np.float32)
+
+    detection = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO)[0]
+
+    assert detection.width_px == pytest.approx(4, rel=0.1)
+    assert detection.length_px == pytest.approx(200, rel=0.1)
+    assert detection.area_px == pytest.approx(800, rel=0.01)
+
+
+def test_crack_mask_to_detections_scales_measurements_to_original_resolution():
+    """scale(원본px/콘텐츠px)은 측정값만 원본 해상도로 환산하고 등급·면적비에는 영향이 없어야 한다."""
+    mask = _blank_crack_canvas()
+    mask[100:104, 100:300] = True
+    probability = np.where(mask, 0.9, 0.0).astype(np.float32)
+
+    base = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO, scale=1.0)[0]
+    scaled = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO, scale=2.0)[0]
+
+    assert scaled.width_px == pytest.approx(base.width_px * 2, rel=0.05)
+    assert scaled.length_px == pytest.approx(base.length_px * 2, rel=0.05)
+    assert scaled.area_px == pytest.approx(base.area_px * 4, rel=0.05)
+    assert scaled.grade == base.grade
+    assert scaled.area_ratio == base.area_ratio
+
+
 def test_crack_mask_to_detections_returns_empty_for_blank_mask():
     mask = _blank_crack_canvas()
     probability = np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=np.float32)
 
-    assert chain._crack_mask_to_detections(mask, probability) == []
+    assert chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO) == []
 
 
 def test_crack_mask_to_detections_filters_noise_specks_below_min_area_ratio():
@@ -224,7 +260,7 @@ def test_crack_mask_to_detections_filters_noise_specks_below_min_area_ratio():
     mask[0:5, 0:5] = True
     probability = np.where(mask, 0.9, 0.0).astype(np.float32)
 
-    assert chain._crack_mask_to_detections(mask, probability) == []
+    assert chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO) == []
 
 
 def test_crack_mask_to_detections_separates_disjoint_components():
@@ -233,7 +269,7 @@ def test_crack_mask_to_detections_separates_disjoint_components():
     mask[400:420, 400:420] = True  # 서로 멀리 떨어진 두 번째 컴포넌트
     probability = np.where(mask, 0.7, 0.0).astype(np.float32)
 
-    detections = chain._crack_mask_to_detections(mask, probability)
+    detections = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO)
 
     assert len(detections) == 2
     assert all(d.type == "CRACK" for d in detections)
@@ -253,7 +289,7 @@ def test_crack_mask_to_detections_caps_component_count_and_keeps_largest(monkeyp
         mask[y0 : y0 + side, x0 : x0 + side] = True
         probability[y0 : y0 + side, x0 : x0 + side] = 0.9
 
-    detections = chain._crack_mask_to_detections(mask, probability)
+    detections = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO)
 
     assert len(detections) == 5
     kept_areas = sorted(round(d.area_ratio * CRACK_INPUT_SIZE**2) for d in detections)
@@ -279,8 +315,10 @@ def test_crack_mask_to_detections_grade_is_invariant_to_fragmentation():
     probability_single = np.where(single, 0.9, 0.0).astype(np.float32)
     probability_fragmented = np.where(fragmented, 0.9, 0.0).astype(np.float32)
 
-    single_detections = chain._crack_mask_to_detections(single, probability_single)
-    fragmented_detections = chain._crack_mask_to_detections(fragmented, probability_fragmented)
+    single_detections = chain._crack_mask_to_detections(single, probability_single, SEVERE_DARK_RATIO)
+    fragmented_detections = chain._crack_mask_to_detections(
+        fragmented, probability_fragmented, SEVERE_DARK_RATIO
+    )
 
     assert len(single_detections) == 1
     assert len(fragmented_detections) == 4
@@ -288,12 +326,82 @@ def test_crack_mask_to_detections_grade_is_invariant_to_fragmentation():
     assert all(d.grade == single_grade for d in fragmented_detections)
 
 
+def test_crack_mask_to_detections_width_is_stable_for_close_merged_fragments():
+    """#1447 P2 — 같은 label로 병합되지만(MORPH_CLOSE) 원래 마스크상 끊긴 두 조각의 width_px가
+    연속된 단일 블록 대비 부당하게 작아지면 안 된다.
+
+    close 커널(3×3 ellipse)이 메울 수 있는 1px 간극으로 직선을 2조각으로 끊으면 하나의 label로
+    재병합되지만(단일 탐지), 둘레 계산에 원래(파편화된) 마스크를 쓰면 조각마다 별도 외곽선이
+    잡혀 둘레가 부풀고 width_px가 실제보다 작게 나온다(수정 전 재현: width -1.0%, 재현 조각
+    수가 늘수록 왜곡도 커짐). 수정 후에는 닫힌 연결영역 기준으로 둘레를 구해 훨씬 근접해야 한다.
+
+    ⚠️ close 자체가 다리를 놓는 자리마다 경계에 미세한 요철을 남기므로(둥근 커널의 부작용),
+    간극 개수가 많아질수록 이 수정으로도 완전히 없앨 수 없는 잔여 오차가 남는다(8조각·1px
+    간극 인위적 구성 실측: 수정 전 -6.8% → 수정 후 -6.2%, 절반도 못 줄임). 이 테스트는 실제
+    임계값 잡음이 보통 만드는 수준(간극 1곳)으로 한정한다 — 완전 해결이 아니라 "가장 흔한
+    파편화 패턴에서 유의미하게 개선"이 이 수정의 범위다.
+    """
+    single = _blank_crack_canvas()
+    single[100:104, 100:300] = True  # 200x4=800px 연속 직선
+
+    fragmented = single.copy()
+    fragmented[100:104, 199] = False  # 1px 간극 — close(3x3)로 재병합되는 최소 재현 케이스
+
+    probability_single = np.where(single, 0.9, 0.0).astype(np.float32)
+    probability_fragmented = np.where(fragmented, 0.9, 0.0).astype(np.float32)
+
+    single_detections = chain._crack_mask_to_detections(single, probability_single, 0.0)
+    fragmented_detections = chain._crack_mask_to_detections(fragmented, probability_fragmented, 0.0)
+
+    assert len(fragmented_detections) == 1  # close로 하나의 label에 재병합됐는지 전제 확인
+    single_width = single_detections[0].width_px
+    fragmented_width = fragmented_detections[0].width_px
+    assert fragmented_width == pytest.approx(single_width, rel=0.03)  # 수정 전 이 케이스: -1.0%
+
+
+def test_crack_mask_to_detections_caps_grade_for_bright_hairline_crack():
+    """v4 min 합의 — 면적(길이)만 크고 어두움이 낮은 실금은 등급이 어두움 축으로 제한된다(2026-08-03 재보정).
+
+    실사용 근접촬영 실금 사진에서 area_ratio가 높게 나오는 케이스: 같은 마스크라도
+    dark_ratio가 낮으면(실금) 등급이 어두움 축으로 제한되어야 한다.
+    """
+    mask = _blank_crack_canvas()
+    mask[100:200, 100:200] = True  # area 2.4% → area_s=0.9
+    probability = np.where(mask, 0.9, 0.0).astype(np.float32)
+
+    severe = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO)
+    hairline = chain._crack_mask_to_detections(mask, probability, 0.0005)  # dark_s=0.5 (0.00010537 < 0.0005 < 0.00151626)
+
+    assert severe[0].grade == "E"  # min(0.9, fallback 0.9)=0.9, SEVERE_DARK_RATIO=0.003 >= 0.00194422
+    assert hairline[0].grade == "C"  # min(0.9, 0.5)=0.5
+
+
+def test_crack_dark_ratio_separates_dark_line_from_faint_line():
+    """_crack_dark_ratio — 같은 마스크에서 짙은 선이 옅은 선보다 큰 값을 내야 하고, 빈 마스크는 0."""
+    from PIL import Image as PILImage
+
+    size = 100
+    mask = np.zeros((size, size), dtype=bool)
+    mask[50, 10:90] = True  # 가로선 1px
+
+    def image_with_line(line_value: int) -> PILImage.Image:
+        arr = np.full((size, size, 3), 200, dtype=np.uint8)
+        arr[50, 10:90] = line_value
+        return PILImage.fromarray(arr)
+
+    dark = chain._crack_dark_ratio(image_with_line(20), mask)
+    faint = chain._crack_dark_ratio(image_with_line(180), mask)
+
+    assert dark > faint > 0.0
+    assert chain._crack_dark_ratio(image_with_line(20), np.zeros((size, size), dtype=bool)) == 0.0
+
+
 def test_crack_mask_to_detections_clamps_confidence_below_manual_creation_sentinel():
     mask = _blank_crack_canvas()
     mask[100:200, 100:200] = True
     probability = np.where(mask, 0.999999, 0.0).astype(np.float32)
 
-    detections = chain._crack_mask_to_detections(mask, probability)
+    detections = chain._crack_mask_to_detections(mask, probability, SEVERE_DARK_RATIO)
 
     assert detections[0].confidence == chain.CONFIDENCE_CLAMP_MAX
 
@@ -361,6 +469,14 @@ def _make_crack_detection() -> DetectedDefect:
         type="CRACK", bbox_x=0.1, bbox_y=0.1, bbox_w=0.1, bbox_h=0.1,
         confidence=0.8, grade="B", area_ratio=0.01,
     )
+
+
+def _detection(defect_type: str, x: float, y: float, w: float, h: float) -> DetectedDefect:
+    return DetectedDefect(
+        type=defect_type, bbox_x=x, bbox_y=y, bbox_w=w, bbox_h=h,
+        confidence=0.9, grade="C", area_ratio=w * h,
+    )
+
 
 
 def test_run_defect_detection_chain_aggregates_crack_spalling_rebar_exposure(monkeypatch):

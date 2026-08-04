@@ -35,8 +35,18 @@ const REPORT_103_TITLE = formatReportListTitle('강남 파이낸스센터', '202
 const reportContent = {
   overview: { purpose: '정기점검', facility_summary: '시설물 개요', scope: '공용부' },
   summary: { overall_opinion: '양호', total_count: 0, count_by_grade: {}, key_findings: [] },
-  detail: { items: [] },
-  recommendation: { items: [], monitoring_points: [] },
+  detail: {
+    items: [
+      {
+        location: '슬래브',
+        type: '균열',
+        grade: 'C',
+        description: '균열 1건 확인',
+        cause: '건조수축 추정',
+      },
+    ],
+  },
+  recommendation: { items: [{ target: '슬래브 균열', method: '표면처리' }], monitoring_points: [] },
 };
 
 const server = setupServer(...reportHandlers, ...facilityHandlers, ...platformAdminCompanyHandlers);
@@ -231,6 +241,54 @@ describe('ReportListPage', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
     await waitFor(() => expect(calls).toEqual(['detail', 'recheck', 'upload', 'finalize']));
+  });
+
+  it('DRAFT 행 제출 시 종합 의견이 비어 있으면 PDF 생성과 확정을 수행하지 않는다', async () => {
+    const calls: string[] = [];
+    vi.mocked(exportReportToPdf).mockClear();
+    const contentWithoutOpinion = {
+      ...reportContent,
+      summary: { ...reportContent.summary, overall_opinion: '   ' },
+    };
+    server.use(
+      http.get('/api/reports/103', () => {
+        calls.push('detail');
+        return HttpResponse.json({
+          success: true,
+          data: {
+            id: 103,
+            inspectionId: 3,
+            version: 3,
+            status: 'DRAFT',
+            groundingCheckPassed: true,
+            content: contentWithoutOpinion,
+            createdBy: 1,
+            createdAt: '2026-06-23T09:15:00',
+          },
+        });
+      }),
+      http.post('/api/reports/103/grounding-recheck', () => {
+        calls.push('recheck');
+        return HttpResponse.json({ success: true, data: {} });
+      }),
+      http.post('/api/reports/103/pdf', () => {
+        calls.push('upload');
+        return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/103/pdf/generated.pdf' } });
+      }),
+      http.post('/api/reports/103/finalize', () => {
+        calls.push('finalize');
+        return HttpResponse.json({ success: true, data: {} });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_103_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
+
+    await waitFor(() => expect(calls).toEqual(['detail']));
+    expect(exportReportToPdf).not.toHaveBeenCalled();
   });
 
   it('DRAFT 행 제출 시 대표 사진 제외 옵션이면 PDF에 하자 이미지를 넣지 않는다', async () => {
@@ -446,7 +504,10 @@ describe('ReportListPage', () => {
     fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: '발행' }));
 
-    expect(await screen.findByRole('alert')).toBeTruthy();
+    // 서버가 준 구체 사유(예: 근거 재검증 실패)를 일반 문구로 덮지 않고 그대로 보여준다
+    // (PR머신 리뷰 P3, #1418 — 예전엔 catch가 항상 일반 문구로 대체해 이 사유가 버려졌음).
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('근거 재검증 실패');
     fireEvent.click(screen.getByRole('menuitem', { name: '발행' }));
 
     await waitFor(() => expect(detailCount).toBe(2));
@@ -494,6 +555,27 @@ describe('ReportListPage', () => {
     expect(await screen.findByText(/알 수 없음/)).toBeTruthy();
   });
 
+  it('변경 이력 폴백은 실사용자처럼 보이는 작성자 목 이름을 노출하지 않는다', async () => {
+    server.use(
+      http.get('/api/inspections/:id/reports', () =>
+        HttpResponse.json({
+          success: true,
+          data: [],
+        }),
+      ),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '변경 이력' }));
+
+    const panel = (await screen.findByText('변경 이력')).closest('.w-72') as HTMLElement;
+    await within(panel).findAllByText('개발용 이력');
+    expect(within(panel).queryAllByText(/김관리|이점검|시스템/)).toHaveLength(0);
+  });
+
   it('변경 이력 비교 결과는 패널 내부가 아니라 공용 모달로 열고 내부 key를 한글 라벨로 표시한다', async () => {
     server.use(
       http.get('/api/reports/:id', ({ params }) => {
@@ -538,5 +620,79 @@ describe('ReportListPage', () => {
     expect(within(dialog).getByText('이전 시설물 개요')).toBeTruthy();
     expect(within(dialog).queryByText('overview.facility_summary')).toBeNull();
     expect(within(panelRoot).queryByLabelText('보고서 버전 비교 결과')).toBeNull();
+  });
+
+  it('변경 이력 비교 결과는 sectionOrder/manualSections 저장용 내부값을 그대로 노출하지 않는다', async () => {
+    server.use(
+      http.get('/api/reports/:id', ({ params }) => {
+        const id = Number(params.id);
+        const isSelectedVersion = id === 102;
+        return HttpResponse.json({
+          success: true,
+          data: {
+            id,
+            inspectionId: 1,
+            version: isSelectedVersion ? 2 : 3,
+            status: 'FINALIZED',
+            groundingCheckPassed: true,
+            pdfUrl: `/api/reports/${id}/pdf/storage-key`,
+            content: {
+              ...reportContent,
+              ...(isSelectedVersion
+                ? {
+                    manualSections: [
+                      {
+                        id: 'manual-submission-msa49gv2-f1z0dm',
+                        type: 'submission',
+                        title: '제출문',
+                        data: {
+                          recipient: '서울특별시장 귀하',
+                          contractDate: '2026년 08월 01일',
+                          companyName: '개발팀 공용 테스트',
+                          companyAddress: '서울시 강남구',
+                          representativeName: '홍길동',
+                        },
+                      },
+                    ],
+                    sectionOrder: [
+                      'manual-submission-msa49gv2-f1z0dm',
+                      'overview',
+                      'summary',
+                      'detail',
+                      'recommendation',
+                      'photos',
+                    ],
+                  }
+                : {
+                    sectionOrder: ['overview', 'summary', 'detail', 'recommendation', 'photos'],
+                    manualSections: [],
+                  }),
+            },
+            createdBy: 1,
+            createdAt: '2026-07-24T14:30:00',
+          },
+        });
+      }),
+    );
+
+    renderPage();
+
+    const row = (await screen.findByText(REPORT_101_TITLE)).closest('tr') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: /작업 메뉴 열기/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '변경 이력' }));
+
+    const compareButtons = await screen.findAllByRole<HTMLButtonElement>('button', { name: '비교' });
+    fireEvent.click(compareButtons.find((button) => !button.disabled)!);
+
+    const dialog = await screen.findByRole('dialog', { name: '현재 버전 ↔ v2' });
+    expect(within(dialog).getByText('섹션 순서 1')).toBeTruthy();
+    expect(within(dialog).getAllByText('기본현황').length).toBeGreaterThan(0);
+    expect(within(dialog).getByText('제출문')).toBeTruthy();
+    expect(within(dialog).getByText('수동 서식 섹션 > 제출문 > 수신자')).toBeTruthy();
+    expect(within(dialog).getByText('서울특별시장 귀하')).toBeTruthy();
+    expect(within(dialog).queryByText(/manual-submission-/)).toBeNull();
+    expect(within(dialog).queryByText('["overview","summary","detail","recommendation","photos"]')).toBeNull();
+    expect(within(dialog).queryByText('manualSections')).toBeNull();
+    expect(within(dialog).queryByText('sectionOrder')).toBeNull();
   });
 });

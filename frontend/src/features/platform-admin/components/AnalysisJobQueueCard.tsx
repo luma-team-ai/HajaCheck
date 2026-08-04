@@ -18,23 +18,32 @@ interface AnalysisJobQueueCardProps {
   isLoading: boolean;
   isError: boolean;
   onRefresh: () => void;
+  /** refetch() 진행 중 여부 — true인 동안 새로고침 버튼에 시각적 피드백(회전 아이콘)을 준다.
+   * isLoading은 최초 로딩에만 true라 재조회 클릭 시엔 버튼이 아무 반응 없어 보이는 문제(#1408 후속)를 막는다. */
+  isFetching?: boolean;
 }
 
 // 분석 잡 큐 — Figma node-id 1-404. 진행/완료/실패 요약 배지 + 최근 잡 목록 테이블.
 // 백엔드 폴링 API가 아직 없어 "새로고침"은 refetch()를 그대로 호출한다(자동 폴링은 후속 범위).
-export function AnalysisJobQueueCard({ queue, isLoading, isError, onRefresh }: AnalysisJobQueueCardProps) {
+export function AnalysisJobQueueCard({ queue, isLoading, isError, onRefresh, isFetching = false }: AnalysisJobQueueCardProps) {
   const jobs = queue?.jobs ?? [];
 
   return (
     <section className="flex flex-col gap-5 rounded-[20px] border border-border bg-surface p-6" data-testid={JOB_QUEUE_TEST_ID}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="m-0 text-base font-bold text-heading">분석 잡 큐</h3>
+        <div className="flex flex-col gap-0.5">
+          <h3 className="m-0 text-base font-bold text-heading">분석 잡 큐</h3>
+          <span className="text-[11px] text-text-muted">당일 등록된 잡만 표시됩니다</span>
+        </div>
         <button
           type="button"
-          className="flex items-center gap-1.5 text-[13px] font-medium text-text-muted hover:text-text-default"
+          className="flex cursor-pointer items-center gap-1.5 text-[13px] font-medium text-text-muted hover:text-text-default disabled:cursor-not-allowed disabled:opacity-60"
           onClick={onRefresh}
+          disabled={isFetching}
         >
-          <RefreshIcon />
+          <span className={isFetching ? 'inline-flex animate-spin' : 'inline-flex'}>
+            <RefreshIcon />
+          </span>
           새로고침
         </button>
       </div>
@@ -58,11 +67,11 @@ export function AnalysisJobQueueCard({ queue, isLoading, isError, onRefresh }: A
         <table className="w-full min-w-[560px] border-collapse">
           <thead>
             <tr className="border-b border-border">
-              <th className="px-3 py-3 text-left text-xs font-medium text-text-muted">잡 ID</th>
+              <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-text-muted">잡 ID</th>
               <th className="px-3 py-3 text-left text-xs font-medium text-text-muted">시설물</th>
-              <th className="px-3 py-3 text-right text-xs font-medium text-text-muted">이미지</th>
-              <th className="px-3 py-3 text-left text-xs font-medium text-text-muted">상태</th>
-              <th className="px-3 py-3 text-right text-xs font-medium text-text-muted">소요시간</th>
+              <th className="whitespace-nowrap px-3 py-3 text-right text-xs font-medium text-text-muted">이미지</th>
+              <th className="whitespace-nowrap px-3 py-3 text-left text-xs font-medium text-text-muted">상태</th>
+              <th className="whitespace-nowrap px-3 py-3 text-right text-xs font-medium text-text-muted">소요시간</th>
             </tr>
           </thead>
           <tbody>
@@ -90,14 +99,19 @@ export function AnalysisJobQueueCard({ queue, isLoading, isError, onRefresh }: A
               !isError &&
               jobs.map((job) => (
                 <tr key={job.id} className="border-b border-border last:border-b-0">
-                  <td className={`px-3 py-3 align-middle text-sm font-semibold ${JOB_ID_TEXT_CLASS[job.status]}`}>
+                  <td className={`whitespace-nowrap px-3 py-3 align-middle text-sm font-semibold ${JOB_ID_TEXT_CLASS[job.status]}`}>
                     {job.id}
                   </td>
-                  <td className="px-3 py-3 align-middle text-sm text-text-default">{job.facilityName}</td>
-                  <td className="px-3 py-3 text-right align-middle text-sm text-text-default">
+                  <td
+                    className="max-w-[280px] truncate px-3 py-3 align-middle text-sm text-text-default"
+                    title={job.facilityAddress}
+                  >
+                    {job.facilityAddress}
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3 text-right align-middle text-sm text-text-default">
                     {job.imageCount.toLocaleString('ko-KR')}
                   </td>
-                  <td className="px-3 py-3 align-middle">
+                  <td className="whitespace-nowrap px-3 py-3 align-middle">
                     <span
                       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${JOB_STATUS_BADGE_CLASS[job.status]}`}
                     >
@@ -105,7 +119,7 @@ export function AnalysisJobQueueCard({ queue, isLoading, isError, onRefresh }: A
                       {JOB_STATUS_LABEL[job.status]}
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-right align-middle text-sm text-text-muted">
+                  <td className="whitespace-nowrap px-3 py-3 text-right align-middle text-sm text-text-muted">
                     {job.durationLabel ?? MONITORING_EMPTY_CELL}
                   </td>
                 </tr>

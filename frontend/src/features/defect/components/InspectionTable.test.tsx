@@ -21,7 +21,6 @@ const BASE_INSPECTION: InspectionListItem = {
   id: 101,
   facilityId: 1,
   facilityName: '강남 오피스타워 A동',
-  facilityType: '건물',
   roundNo: 3,
   inspectionDate: '2026-07-01',
   type: 'REGULAR',

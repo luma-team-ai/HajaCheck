@@ -51,6 +51,9 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 회차 간 비교(HAJA-531/#1112) — 시설물 1건의 특정 회차 단건 조회.
     Optional<Inspection> findByFacilityIdAndRoundNo(Long facilityId, Integer roundNo);
 
+    // 시설물 상세 "점검 이력" 탭(#1359/HAJA-616) — 시설물 1건의 전체 회차를 최신순으로 조회.
+    List<Inspection> findByFacilityIdOrderByRoundNoDesc(Long facilityId);
+
     // 시설물 현황 목록(#540 ⑥, HAJA-378) — 시설물별 "최근 점검일" 1건씩만 필요하다.
     // findRecentByFacilityIds 는 전체 시설물이 뒤섞인 플랫 리스트라 시설물별 최신 1건 추출에는
     // 부적합(서비스단 재그룹 없이는 못 씀). Postgres DISTINCT ON 으로 시설물별 최신 1건만
@@ -95,6 +98,21 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
             @Param("analyzingStatus") InspectionStatus analyzingStatus,
             @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses);
 
+    // 검수 확정(InspectionService.confirmReview, PR머신 리뷰 P2) — read-then-advanceTo(더티 체킹)
+    // 대신 원자적 조건부 UPDATE로 ANALYZED→REVIEWED를 쓴다. 위 startAnalyzingIfNotRunning과 같은
+    // 이유: 사전에 읽은 엔티티의 status를 그대로 믿고 advanceTo만 하면, 그 사이(특히 하자 0건
+    // 회차에서) 다른 요청이 재분석을 원자적으로 선점(ANALYZED→ANALYZING)해도 이 read-then-write가
+    // 그걸 못 보고 그대로 REVIEWED로 덮어써 실행 중인 워커를 고아화한다. WHERE에 "여전히 ANALYZED"를
+    // 강제해 그 경합을 원천 차단하고, 영향 행 0건이면 호출부가 다른 요청이 먼저 상태를 바꿨다고
+    // 판정한다.
+    @Modifying
+    @Query("update Inspection i set i.status = :reviewedStatus "
+            + "where i.id = :id and i.status = :fromStatus")
+    int confirmReviewIfAnalyzed(
+            @Param("id") Long id,
+            @Param("reviewedStatus") InspectionStatus reviewedStatus,
+            @Param("fromStatus") InspectionStatus fromStatus);
+
     // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차/10차) — analysisTaskExecutor는 테넌트 구분 없는
     // 전역 공유 풀이라, 한 회사가 대량 요청으로 큐를 독점하면 다른 회사까지 막힌다(noisy-neighbor).
     // 공유 풀에 넣기 전에 이 목록으로 회사별 상한을 강제하되, "살아있는 잡"만 세도록 호출부가
@@ -124,4 +142,10 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
             @Param("companyId") Long companyId,
             @Param("userId") Long userId,
             @Param("statuses") Collection<InspectionStatus> statuses);
+
+    // 플랫폼 관리자 분석 잡 큐(#1408) — 회사 스코프 없이 전체 최근 N건, facility(주소 표시용) N+1
+    // 방지를 위해 join fetch. findRecentByFacilityIds(#351)와 동일하게 건수 제한은 파생 쿼리가
+    // 아니라 Pageable로 받는다.
+    @Query("select i from Inspection i join fetch i.facility order by i.createdAt desc, i.id desc")
+    List<Inspection> findRecentOrderByCreatedAtDesc(Pageable pageable);
 }

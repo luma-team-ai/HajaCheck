@@ -11,8 +11,20 @@ interface StatisticsKpiSectionProps {
 export function StatisticsKpiSection({ filterParams }: StatisticsKpiSectionProps) {
   const { data, isLoading, isError } = useStatisticsSummary(filterParams);
 
-  if (isLoading) return <LoadingSpinner />;
-  if (isError || !data) return <p className="dashboard-card-status">요약 정보를 불러오지 못했습니다.</p>;
+  if (isLoading) {
+    return (
+      <div className="flex h-32 items-center justify-center bg-white border border-zinc-200 p-6">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+  if (isError || !data) {
+    return (
+      <div className="flex h-32 items-center justify-center bg-white border border-zinc-200 p-6">
+        <p className="dashboard-card-status m-0 p-0">요약 정보를 불러오지 못했습니다.</p>
+      </div>
+    );
+  }
 
   const cards = [
     {

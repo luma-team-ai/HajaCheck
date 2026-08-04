@@ -1,4 +1,5 @@
 import { api } from '../../../shared/api/axios';
+import { planApi } from '../../../shared/api/planApi';
 import type { PageResponse } from '../../../shared/api/types';
 import type { PeriodFilterValue } from '../components/PeriodFilterSelect';
 import type {
@@ -14,7 +15,7 @@ import type {
 } from '../types';
 
 export const mypageApi = {
-  getPlan: () => api.get<MyPlan>('/me/plan'),
+  getPlan: () => planApi.getCurrentPlan<MyPlan>(),
   getSeats: () => api.get<SeatsInfo>('/me/seats'),
   // 토스페이먼츠 결제창 연동(#989, HAJA-490) — 기존 모의 결제(POST /me/plan/checkout, #712)를
   // 대체한다. 주문 생성(orders) → 결제창(requestPayment) → 승인(payments/confirm) 3단계 흐름.

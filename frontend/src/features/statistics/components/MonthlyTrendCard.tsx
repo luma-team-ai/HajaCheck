@@ -106,9 +106,19 @@ export function MonthlyTrendCard({ filterParams }: MonthlyTrendCardProps) {
 
   return (
     <section className="flex h-80 flex-col bg-white border border-zinc-200 p-6">
-      <h3 className="pb-6 text-zinc-900 text-base font-medium leading-6">월별 하자 추이</h3>
-      {isLoading && <LoadingSpinner />}
-      {isError && <p className="dashboard-card-status">월별 추이를 불러오지 못했습니다.</p>}
+      <div className="mb-6 flex items-center justify-between">
+        <h3 className="text-zinc-900 text-base font-medium leading-6">월별 하자 추이</h3>
+      </div>
+      {isLoading && (
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <LoadingSpinner />
+        </div>
+      )}
+      {isError && (
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <p className="dashboard-card-status">월별 추이를 불러오지 못했습니다.</p>
+        </div>
+      )}
       {!isLoading && !isError && (!data || data.length === 0) && (
         <ChartEmptyState
           ariaLabel="월별 하자 추이"

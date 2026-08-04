@@ -5,6 +5,7 @@
 HF Serverless Inference API(Qwen3-8B) 전용.
 """
 import hashlib
+import logging
 import os
 from datetime import date
 from functools import lru_cache
@@ -25,6 +26,8 @@ from ai.core.langsmith_guard import enforce_masked_tracing
 # 발동하지 않는다(내용은 anonymizer 백스톱이 계속 차단 — langsmith_guard.py "보조 진입점
 # 부트 순서" 참고).
 enforce_masked_tracing()
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-8B")
 MAX_RETRIES = 2
@@ -60,6 +63,28 @@ def _log_usage(tokens: int) -> None:
         pass  # 사용량 집계 실패가 응답을 막으면 안 됨
 
 
+def _log_retry_failure(path: str, attempt: int, error: Exception) -> None:
+    """재시도 루프에서 삼킨 실패를 남긴다 — 이전에는 전부 조용히 흡수돼 마지막 예외만 보였다.
+
+    ⚠️ 프롬프트·응답 본문은 절대 로그에 넣지 않는다(시설명·위치·하자내용 등이 섞여 있고,
+    LangSmith 마스킹 정책과 같은 기준을 로그에도 적용). 남기는 건 경로·시도 횟수·예외 타입뿐.
+
+    예외 객체를 exc_info/str로 넘기지 않는 이유(PR머신 P1): langchain_core의
+    PydanticOutputParser는 파싱 실패 시 OutputParserException의 **메시지 안에 파싱 대상 LLM 응답
+    원문을 통째로** 담는다("Failed to parse X from completion {원문}. Got: ..." — 실측 확인).
+    따라서 exc_info를 넘기면 마스킹 의도와 정반대로 응답 본문이 로그에 그대로 남는다. 예외 타입명만
+    남겨도 실패 성격(파싱 실패/타임아웃/HTTP 오류) 구분에는 충분하고, 마지막 시도 실패는 어차피
+    호출부로 raise되므로 상세는 그쪽에서 다룬다.
+    """
+    logger.warning(
+        "LLM %s 호출 실패 — 재시도 %d/%d (%s)",
+        path,
+        attempt + 1,
+        MAX_RETRIES + 1,
+        type(error).__name__,
+    )
+
+
 class CachedLLM:
     """get_llm()이 반환하는 래퍼. .invoke()에서만 캐시/재시도/사용량 로깅을 적용한다."""
 
@@ -77,12 +102,13 @@ class CachedLLM:
                 return cached
 
         last_error: Exception | None = None
-        for _ in range(MAX_RETRIES + 1):
+        for attempt in range(MAX_RETRIES + 1):
             try:
                 response = self._chat.invoke(prompt)
                 break
             except Exception as e:  # noqa: BLE001 — 재시도 대상은 광범위한 네트워크/타임아웃 오류
                 last_error = e
+                _log_retry_failure("일반", attempt, e)
         else:
             raise last_error  # MAX_RETRIES 모두 실패
 
@@ -165,7 +191,7 @@ class _StructuredLLM:
                         pass
 
         last_error: Exception | None = None
-        for _ in range(MAX_RETRIES + 1):
+        for attempt in range(MAX_RETRIES + 1):
             try:
                 # invoke를 try 안에 둬 LLM 호출 실패(빈 응답 RuntimeError·타임아웃 등)도 파싱 실패와
                 # 동일하게 재시도 대상에 포함(#448 P2: 일시적 truncation을 구조화 출력 경로에서도 흡수).
@@ -173,6 +199,7 @@ class _StructuredLLM:
                 parsed = self._parser.parse(response.content)
             except Exception as e:  # noqa: BLE001 — LLM 호출·파싱 실패 모두 재시도
                 last_error = e
+                _log_retry_failure("구조화", attempt, e)
                 continue
 
             tokens = (response.usage_metadata or {}).get("total_tokens", 0)

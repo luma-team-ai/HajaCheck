@@ -3,13 +3,21 @@
 실제 HuggingFace 임베딩 모델/디스크 Chroma를 쓰지 않고 get_vectorstore()만 모킹해 add_texts() 호출
 인자(메타데이터 필드 정확성)를 검증한다(handoff §AI-server 테스트 지시 그대로).
 """
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from ai.core.rag_ingest import delete_document, delete_stale_chunks, ingest_document
+from ai.core.rag_ingest import (
+    delete_document,
+    delete_stale_chunks,
+    document_ingest_lock,
+    ingest_document,
+)
 from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS
 from main import app
+from routers.ai_router import _run_ingest_background
 
 client = TestClient(app)
 
@@ -20,8 +28,9 @@ FLAT_LAW_SAMPLE = (
 )
 
 
+@patch("ai.core.rag_ingest.bm25_index")
 @patch("ai.core.rag_ingest.get_vectorstore")
-def test_ingest_document_regulations_청킹결과와메타데이터를add_texts에전달(mock_get_vectorstore):
+def test_ingest_document_regulations_청킹결과와메타데이터를add_texts에전달(mock_get_vectorstore, mock_bm25_index):
     mock_vs = MagicMock()
     mock_get_vectorstore.return_value = mock_vs
 
@@ -62,6 +71,8 @@ def test_ingest_document_regulations_청킹결과와메타데이터를add_texts�
     # defect_kb 전용 필드(authored_at/verification_status)는 regulations 청크에 없어야 한다.
     assert "authored_at" not in first
     assert "verification_status" not in first
+    # #1410 — 적재 성공 직후 BM25 캐시 무효화
+    mock_bm25_index.invalidate.assert_called_once_with(COLLECTION_REGULATIONS)
 
 
 @patch("ai.core.rag_ingest.get_vectorstore")
@@ -85,8 +96,9 @@ def test_ingest_document_결측필드는키자체를생략(mock_get_vectorstore)
         assert "publisher" not in metadata
 
 
+@patch("ai.core.rag_ingest.bm25_index")
 @patch("ai.core.rag_ingest.get_vectorstore")
-def test_ingest_document_defect_kb_authored_at과verification_status를포함(mock_get_vectorstore):
+def test_ingest_document_defect_kb_authored_at과verification_status를포함(mock_get_vectorstore, mock_bm25_index):
     mock_vs = MagicMock()
     mock_get_vectorstore.return_value = mock_vs
 
@@ -110,6 +122,8 @@ def test_ingest_document_defect_kb_authored_at과verification_status를포함(mo
     assert "article" not in first
     assert "effective_date" not in first
     assert "publisher" not in first
+    # #1410 — invalidate 자체가 regulations 외에는 no-op이라 분기 없이 항상 호출된다.
+    mock_bm25_index.invalidate.assert_called_once_with(COLLECTION_DEFECT_KB)
 
 
 def test_ingest_document_알수없는컬렉션은ValueError():
@@ -123,8 +137,9 @@ def test_ingest_document_알수없는컬렉션은ValueError():
         assert "unknown target_collection" in str(e)
 
 
+@patch("ai.core.rag_ingest.bm25_index")
 @patch("ai.core.rag_ingest.get_vectorstore")
-def test_delete_document_doc_id로where삭제(mock_get_vectorstore):
+def test_delete_document_doc_id로where삭제(mock_get_vectorstore, mock_bm25_index):
     mock_vs = MagicMock()
     mock_get_vectorstore.return_value = mock_vs
 
@@ -134,10 +149,13 @@ def test_delete_document_doc_id로where삭제(mock_get_vectorstore):
     # langchain_chroma==0.1.4의 Chroma.delete()가 where를 무시해(code-review P1) 내부 _collection을
     # 직접 호출하도록 고쳤다 — 이 테스트도 실제 구현과 같은 대상을 검증해야 회귀를 잡는다.
     mock_vs._collection.delete.assert_called_once_with(where={"doc_id": "42"})
+    # #1410 — BM25 캐시 무효화 훅
+    mock_bm25_index.invalidate.assert_called_once_with(COLLECTION_REGULATIONS)
 
 
+@patch("ai.core.rag_ingest.bm25_index")
 @patch("ai.core.rag_ingest.get_vectorstore")
-def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstore):
+def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstore, mock_bm25_index):
     mock_vs = MagicMock()
     mock_get_vectorstore.return_value = mock_vs
 
@@ -147,6 +165,8 @@ def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstor
     mock_vs._collection.delete.assert_called_once_with(
         where={"$and": [{"doc_id": "42"}, {"chunk_index": {"$gte": 3}}]}
     )
+    # #1410 — BM25 캐시 무효화 훅
+    mock_bm25_index.invalidate.assert_called_once_with(COLLECTION_REGULATIONS)
 
 
 # ── /ai/rag-documents/embed 엔드포인트 ──
@@ -154,7 +174,11 @@ def test_delete_stale_chunks_keep_chunk_count이상만삭제(mock_get_vectorstor
 @patch("routers.ai_router.delete_stale_chunks")
 @patch("routers.ai_router.ingest_document")
 def test_embed_endpoint_성공_chunk_count반환(mock_ingest, mock_delete_stale):
-    mock_ingest.return_value = 5
+    # 504 방지 비동기화(16ffe3bb) 이후 응답의 chunk_count는 엔드포인트가 동기로 직접 청킹해 얻은
+    # 값이다 — 실제 임베딩 적재(ingest_document)는 BackgroundTasks로 넘어가고 그 반환값은 응답에
+    # 쓰이지 않는다. mock_ingest.return_value로 응답을 통제할 수 없으므로, FLAT_LAW_SAMPLE을 실제
+    # split_regulation_text로 청킹했을 때 나오는 청크 수(1개)를 그대로 기대값으로 쓴다.
+    mock_ingest.return_value = 1
 
     res = client.post(
         "/ai/rag-documents/embed",
@@ -171,9 +195,9 @@ def test_embed_endpoint_성공_chunk_count반환(mock_ingest, mock_delete_stale)
     assert res.status_code == 200
     body = res.json()
     assert body["success"] is True
-    assert body["data"]["chunk_count"] == 5
-    # 삭제는 ingest 성공 이후, 실제 반환된 chunk_count로 초과분만 정리한다.
-    mock_delete_stale.assert_called_once_with("42", "regulations", 5)
+    assert body["data"]["chunk_count"] == 1
+    # 삭제는 ingest 성공 이후, 엔드포인트가 동기로 계산한 실제 chunk_count로 초과분만 정리한다.
+    mock_delete_stale.assert_called_once_with("42", "regulations", 1)
     mock_ingest.assert_called_once()
 
 
@@ -201,8 +225,9 @@ def test_embed_endpoint_잘못된target_collection_VALIDATION_ERROR(mock_ingest,
 
 @patch("routers.ai_router.delete_stale_chunks")
 @patch("routers.ai_router.ingest_document")
-def test_embed_endpoint_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_ingest, mock_delete_stale):
-    mock_ingest.side_effect = RuntimeError("chroma write failed")
+@patch("ai.core.chunking.split_regulation_text")
+def test_embed_endpoint_청킹단계_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_split, mock_ingest, mock_delete_stale):
+    mock_split.side_effect = RuntimeError("chunking failed")
 
     res = client.post(
         "/ai/rag-documents/embed",
@@ -248,7 +273,289 @@ def test_embed_endpoint_필수필드누락_422():
     assert res.status_code == 422
 
 
+# ── GET /ai/rag-documents/{doc_id}/embedding-status ──
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_실제청크수를반환(mock_get_vectorstore):
+    mock_vs = MagicMock()
+    mock_vs._collection.get.return_value = {"ids": ["42_0", "42_1", "42_2"]}
+    mock_get_vectorstore.return_value = mock_vs
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "regulations"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["chunk_count"] == 3
+    mock_get_vectorstore.assert_called_once_with("regulations")
+    mock_vs._collection.get.assert_called_once_with(where={"doc_id": "42"})
+
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_청크없으면0(mock_get_vectorstore):
+    mock_vs = MagicMock()
+    mock_vs._collection.get.return_value = {"ids": []}
+    mock_get_vectorstore.return_value = mock_vs
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "defect_kb"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["data"]["chunk_count"] == 0
+
+
+def test_embedding_status_잘못된target_collection_VALIDATION_ERROR():
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "bogus"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_조회예외_VALIDATION_ERROR폴백(mock_get_vectorstore):
+    mock_get_vectorstore.side_effect = RuntimeError("chroma unavailable")
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "regulations"},
+    )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+# ── DELETE /ai/rag-documents/{doc_id} (#1394) ──
+
+@patch("routers.ai_router.delete_document")
+def test_delete_endpoint_성공(mock_delete_document):
+    res = client.delete("/ai/rag-documents/42?target_collection=regulations")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    mock_delete_document.assert_called_once_with("42", "regulations")
+
+
+@patch("routers.ai_router.delete_document")
+def test_delete_endpoint_잘못된target_collection_VALIDATION_ERROR(mock_delete_document):
+    mock_delete_document.side_effect = ValueError("unknown collection: bogus")
+
+    res = client.delete("/ai/rag-documents/1?target_collection=bogus")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@patch("routers.ai_router.delete_document")
+def test_delete_endpoint_예상치못한예외_LLM_INVALID_OUTPUT폴백(mock_delete_document):
+    mock_delete_document.side_effect = RuntimeError("chroma delete failed")
+
+    res = client.delete("/ai/rag-documents/1?target_collection=regulations")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "LLM_INVALID_OUTPUT"
+
+
+def test_delete_endpoint_target_collection누락_422():
+    res = client.delete("/ai/rag-documents/1")
+    assert res.status_code == 422
+
+
 if __name__ == "__main__":
     print("Running rag_ingest self-check...")
     test_ingest_document_알수없는컬렉션은ValueError()
     print("OK: rag_ingest self-check passed (run via pytest for mocked cases)")
+
+
+# ── embed_batch_id (#1393 리뷰 P2 — 청크 수가 같은 재임베딩의 거짓 완료 차단) ──
+
+@patch("routers.ai_router.delete_stale_chunks")
+@patch("routers.ai_router.ingest_document")
+def test_embed_endpoint_배치식별자를응답하고배경임베딩에전달(mock_ingest, mock_delete_stale):
+    res = client.post(
+        "/ai/rag-documents/embed",
+        json={
+            "doc_id": "42",
+            "title": "시설물 안전법",
+            "doc_type": "LAW",
+            "target_collection": "regulations",
+            "text": FLAT_LAW_SAMPLE,
+        },
+    )
+
+    body = res.json()
+    embed_batch_id = body["data"]["embed_batch_id"]
+    assert embed_batch_id
+    # 배경 임베딩이 같은 식별자를 각 청크 메타데이터에 심어야 status 조회로 되돌려받을 수 있다.
+    assert mock_ingest.call_args.kwargs["embed_batch_id"] == embed_batch_id
+
+
+@patch("ai.core.rag_ingest.get_vectorstore")
+def test_ingest_document_배치식별자를메타데이터에기록(mock_get_vectorstore):
+    ingest_document(
+        "42", "시설물 안전법", "LAW", "regulations", FLAT_LAW_SAMPLE, embed_batch_id="batch-1"
+    )
+
+    metadatas = mock_get_vectorstore.return_value.add_texts.call_args.kwargs["metadatas"]
+    assert all(metadata["embed_batch_id"] == "batch-1" for metadata in metadatas)
+
+
+@patch("ai.core.rag_ingest.get_vectorstore")
+def test_ingest_document_배치식별자가없으면키자체를생략(mock_get_vectorstore):
+    ingest_document("42", "시설물 안전법", "LAW", "regulations", FLAT_LAW_SAMPLE)
+
+    metadatas = mock_get_vectorstore.return_value.add_texts.call_args.kwargs["metadatas"]
+    assert all("embed_batch_id" not in metadata for metadata in metadatas)
+
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_모든청크가같은배치면배치식별자를반환(mock_get_vectorstore):
+    mock_vs = MagicMock()
+    mock_vs._collection.get.return_value = {
+        "ids": ["42_0", "42_1"],
+        "metadatas": [{"embed_batch_id": "batch-2"}, {"embed_batch_id": "batch-2"}],
+    }
+    mock_get_vectorstore.return_value = mock_vs
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "regulations"},
+    )
+
+    body = res.json()
+    assert body["data"]["chunk_count"] == 2
+    assert body["data"]["embed_batch_id"] == "batch-2"
+
+
+@patch("ai.core.vectorstore.get_vectorstore")
+def test_embedding_status_옛배치와새배치가섞여있으면None(mock_get_vectorstore):
+    # 재임베딩 진행 중 — 청크 수는 옛 배치만으로도 기대치와 같을 수 있으므로 배치 식별자가
+    # 확정되지 않으면 Spring이 완료로 확정하지 않아야 한다.
+    mock_vs = MagicMock()
+    mock_vs._collection.get.return_value = {
+        "ids": ["42_0", "42_1"],
+        "metadatas": [{"embed_batch_id": "batch-3"}, {"embed_batch_id": "batch-2"}],
+    }
+    mock_get_vectorstore.return_value = mock_vs
+
+    res = client.get(
+        "/ai/rag-documents/42/embedding-status",
+        params={"target_collection": "regulations"},
+    )
+
+    assert res.json()["data"]["embed_batch_id"] is None
+
+
+# ── 삭제 ↔ 재임베딩 doc_id 락 직렬화 (#1412 P2) ──
+
+def test_delete_endpoint가_재임베딩락_해제까지_대기했다가_실행된다():
+    """재임베딩 배경 태스크가 document_ingest_lock(doc_id)을 보유한 동안 DELETE가 블록되는지 검증.
+
+    락이 없으면 삭제가 재임베딩 중간에 끼어들어 "삭제 → 재임베딩이 새 청크 재삽입"이 되어
+    DB 로우 없이 Chroma에만 남는 고아 청크가 생긴다(#1412). 락을 잡으면 삭제는 항상
+    재임베딩이 끝난 뒤 실행되어 최종 상태가 청크 0개로 수렴한다.
+    """
+    doc_id = "lock-race-1"
+    events: list[str] = []
+    events_guard = threading.Lock()
+    chroma_chunks: set[str] = set()
+
+    ingest_started = threading.Event()
+    ingest_may_finish = threading.Event()
+    delete_called = threading.Event()
+
+    def fake_ingest(*args, **kwargs):
+        # 재임베딩이 청크를 다시 써 넣는 구간(락 안) — 이 사이 삭제가 끼어들면 고아 청크가 남는다.
+        ingest_started.set()
+        ingest_may_finish.wait(timeout=5)
+        chroma_chunks.update({f"{doc_id}_0", f"{doc_id}_1"})
+        with events_guard:
+            events.append("ingest")
+        return 2
+
+    def fake_delete_stale(*args, **kwargs):
+        with events_guard:
+            events.append("delete_stale")
+
+    def fake_delete_document(called_doc_id, collection):
+        delete_called.set()
+        chroma_chunks.clear()
+        with events_guard:
+            events.append("delete")
+
+    with patch("routers.ai_router.ingest_document", side_effect=fake_ingest), \
+            patch("routers.ai_router.delete_stale_chunks", side_effect=fake_delete_stale), \
+            patch("routers.ai_router.delete_document", side_effect=fake_delete_document):
+        reembed = threading.Thread(
+            target=_run_ingest_background,
+            args=(doc_id, "제목", "LAW", "regulations", FLAT_LAW_SAMPLE,
+                  None, None, None, None, 2, "batch-1"),
+        )
+        reembed.start()
+        assert ingest_started.wait(timeout=5), "재임베딩 배경 태스크가 시작되어야 한다"
+
+        responses: list = []
+        deleter = threading.Thread(
+            target=lambda: responses.append(
+                client.delete(f"/ai/rag-documents/{doc_id}?target_collection=regulations")
+            )
+        )
+        deleter.start()
+
+        # 재임베딩이 락을 쥐고 있는 동안에는 삭제가 실행되지 않아야 한다.
+        assert not delete_called.wait(timeout=0.5), "재임베딩 락 보유 중에는 삭제가 블록되어야 한다"
+
+        ingest_may_finish.set()
+        reembed.join(timeout=5)
+        deleter.join(timeout=5)
+
+    assert responses and responses[0].json()["success"] is True
+    # 삭제는 재임베딩(ingest + stale 정리)이 모두 끝난 뒤에 실행된다.
+    assert events == ["ingest", "delete_stale", "delete"]
+    # 최종 상태: 재임베딩이 다시 써 넣은 청크까지 포함해 0개로 수렴(고아 청크 없음).
+    assert chroma_chunks == set()
+
+
+def test_delete_endpoint가_document_ingest_lock을_사용한다():
+    """삭제 경로가 (새 락 메커니즘이 아니라) 재임베딩과 동일한 doc_id 락을 잡는지 직접 확인."""
+    doc_id = "lock-race-2"
+    lock = document_ingest_lock(doc_id)
+    responses: list = []
+
+    with patch("routers.ai_router.delete_document") as mock_delete:
+        lock.acquire()
+        try:
+            deleter = threading.Thread(
+                target=lambda: responses.append(
+                    client.delete(f"/ai/rag-documents/{doc_id}?target_collection=regulations")
+                )
+            )
+            deleter.start()
+            time.sleep(0.3)
+            assert mock_delete.call_count == 0, "동일 doc_id 락 보유 중에는 삭제가 실행되면 안 된다"
+        finally:
+            lock.release()
+        deleter.join(timeout=5)
+
+    assert responses and responses[0].json()["success"] is True
+    mock_delete.assert_called_once_with(doc_id, "regulations")
+    # 락은 반드시 반납되어야 한다(다음 재임베딩/삭제가 영구 블록되지 않도록).
+    assert lock.acquire(timeout=1)
+    lock.release()

@@ -47,8 +47,11 @@ import org.springframework.transaction.annotation.Transactional;
  * 높으면(FREE&lt;STANDARD&lt;ENTERPRISE, {@link PlanName} 선언 순서) curr.startedAt 이 속한 달에 전환 1건으로
  * 센다 — Free→Standard 뿐 아니라 Free→Enterprise, Standard→Enterprise 도 모두 포함한다.
  *
- * <p><b>분석 요청/상담 건수</b>: usage_counters(개인+회사 구독 전체)의 월별 합계 — KPI 의 누적치는 트렌드
- * 윈도우(최근 {@value #TREND_MONTHS}개월) monthlySummary 합계와 항상 일치한다.
+ * <p><b>분석 장수/상담 건수</b>: usage_counters(개인+회사 구독 전체)의 월별 합계 — KPI 의 누적치는 트렌드
+ * 윈도우(최근 {@value #TREND_MONTHS}개월) monthlySummary 합계와 항상 일치한다. "분석" 쪽은 화면 라벨이
+ * 전부 "장"(분석 장수/분석 요청 장수)이라 {@code analyzedImageCount}(분석한 이미지 장수) 기준이다 —
+ * {@code analysisRequestCount}(요청 건수)는 요청 1건이 여러 장을 한 번에 분석하는 구조라 쓰지 않는다
+ * (#1407 후속 — 필드 혼용 버그였다).
  *
  * <p><b>상담 유형 분포는 이번 범위 밖</b>(사용자 지시, 2026-07-23) — 항상 빈 목록을 반환한다
  * (PlatformAdminCounselTypeDistributionItem 참고).
@@ -89,8 +92,11 @@ public class PlatformAdminServiceStatsService {
         long newSubscribersThisMonth = newSubscribersByMonth.get(currentMonth);
         long newSubscribersLastMonth = countNewSubscribers(historyByCompany, previousMonth);
 
-        Map<YearMonth, Long> analysisRequestsByMonth =
-                usageSumByMonth(months, UsageCounter::getAnalysisRequestCount);
+        // "장" 단위(#633 KPI 카드·트렌드 차트·월별 요약표 라벨 전부 "분석 장수"/"분석 요청 장수")라 이미지
+        // 장수(analyzedImageCount) 기준이어야 한다 — 요청 건수(analysisRequestCount)는 요청 1건이 여러
+        // 장을 한 번에 분석하는 구조라 "장" 라벨과 값이 어긋난다(#1407 후속, 회귀 고정).
+        Map<YearMonth, Long> analyzedImageCountByMonth =
+                usageSumByMonth(months, UsageCounter::getAnalyzedImageCount);
         Map<YearMonth, Long> counselCountByMonth = usageSumByMonth(months, UsageCounter::getCounselTicketCount);
         Map<YearMonth, Long> upgradeConversionsByMonth = conversionsByMonth(historyByCompany, planById);
 
@@ -99,7 +105,7 @@ public class PlatformAdminServiceStatsService {
                 totalSubscribersNow - totalSubscribersLastMonth,
                 newSubscribersThisMonth,
                 changePercent(newSubscribersThisMonth, newSubscribersLastMonth),
-                analysisRequestsByMonth.values().stream().mapToLong(Long::longValue).sum(),
+                analyzedImageCountByMonth.values().stream().mapToLong(Long::longValue).sum(),
                 counselCountByMonth.values().stream().mapToLong(Long::longValue).sum());
 
         List<PlatformAdminSubscriberTrendPoint> subscriberTrend = months.stream()
@@ -107,7 +113,7 @@ public class PlatformAdminServiceStatsService {
                 .toList();
 
         List<PlatformAdminAnalysisRequestTrendPoint> analysisRequestTrend = months.stream()
-                .map(ym -> new PlatformAdminAnalysisRequestTrendPoint(monthLabel(ym), analysisRequestsByMonth.get(ym)))
+                .map(ym -> new PlatformAdminAnalysisRequestTrendPoint(monthLabel(ym), analyzedImageCountByMonth.get(ym)))
                 .toList();
 
         List<PlatformAdminPlanDistributionItem> planDistribution = planDistribution(planById);
@@ -118,7 +124,7 @@ public class PlatformAdminServiceStatsService {
             long thisNew = newSubscribersByMonth.get(ym);
             long prevNew = i == 0 ? newSubscribersLastMonth : newSubscribersByMonth.get(months.get(i - 1));
             monthlySummary.add(new PlatformAdminMonthlySummaryRow(
-                    monthLabel(ym), thisNew, analysisRequestsByMonth.get(ym), counselCountByMonth.get(ym),
+                    monthLabel(ym), thisNew, analyzedImageCountByMonth.get(ym), counselCountByMonth.get(ym),
                     upgradeConversionsByMonth.getOrDefault(ym, 0L), trendOf(thisNew, prevNew)));
         }
 

@@ -61,11 +61,9 @@ public final class GroundingReportContentSerializer {
 
         private static Content from(ReportResponse response, ReportOptions options) {
             Set<String> selected = options.selectedSections();
-            boolean includeSummary = selected.contains("summary");
-            boolean includeOpinion = selected.contains("opinion");
             return new Content(
                     selected.contains("overview") ? response.overview() : emptyOverview(),
-                    includeSummary || includeOpinion ? summaryForOptions(response.summary(), includeSummary, includeOpinion) : emptySummary(),
+                    selected.contains("summary") ? summaryOrEmpty(response.summary()) : emptySummary(),
                     selected.contains("details") ? response.detail() : emptyDetail(),
                     selected.contains("recommendation") ? response.recommendation() : emptyRecommendation(),
                     response.groundingOk(),
@@ -77,7 +75,7 @@ public final class GroundingReportContentSerializer {
             List<String> sections,
             Boolean includePhoto) {
 
-        private static final Set<String> ALL_SECTIONS = Set.of("overview", "summary", "details", "recommendation", "opinion");
+        private static final Set<String> ALL_SECTIONS = Set.of("overview", "summary", "details", "recommendation");
 
         private static ReportOptions from(Set<String> sections, Boolean includePhoto) {
             Set<String> effectiveSections = sections == null ? ALL_SECTIONS : sections;
@@ -106,16 +104,8 @@ public final class GroundingReportContentSerializer {
         return new ReportResponse.Summary("", 0, Map.of(), List.of());
     }
 
-    private static ReportResponse.Summary summaryForOptions(
-            ReportResponse.Summary source, boolean includeSummary, boolean includeOpinion) {
-        if (source == null) {
-            return emptySummary();
-        }
-        return new ReportResponse.Summary(
-                includeOpinion ? source.overallOpinion() : "",
-                includeSummary ? source.totalCount() : 0,
-                includeSummary ? source.countByGrade() : Map.of(),
-                includeSummary ? source.keyFindings() : List.of());
+    private static ReportResponse.Summary summaryOrEmpty(ReportResponse.Summary source) {
+        return source == null ? emptySummary() : source;
     }
 
     private static ReportResponse.Detail emptyDetail() {

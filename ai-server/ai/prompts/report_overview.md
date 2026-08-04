@@ -1,5 +1,5 @@
 <!-- 보고서 "점검 개요" 섹션 (FR-5-06, report-chain-design.md §6.1) -->
-<!-- 입력 변수: {facility_info_text} -->
+<!-- 입력 변수: facility_info_text -->
 
 아래 시설물 정보를 바탕으로 정밀 하자 점검 보고서의 **점검 개요** 섹션을 작성하세요.
 

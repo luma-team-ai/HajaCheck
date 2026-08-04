@@ -119,8 +119,16 @@ public class FacilityService {
                                 // facilityId asc, createdAt desc 정렬이므로 같은 facilityId의 첫 값이 최신이다.
                                 (first, second) -> first));
 
+        // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — listStatus()가 이미 쓰는 배치 조회와 동일 패턴.
+        List<Inspection> latestInspections = nullToEmpty(inspectionRepository.findLatestByFacilityIds(facilityIds));
+        Map<Long, LocalDate> lastInspectedByFacilityId = latestInspections.stream()
+                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
+        Map<Long, Long> latestInspectionIdByFacilityId = latestInspections.stream()
+                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getId));
+
         // 시설물 목록 대표 사진 썸네일(HAJA-367/#670) — 시설물별 findByFacilityIdOrderByIdAsc 반복 호출은
-        // N+1이므로 배치 쿼리 1회로 조회(위 latestDefectId와 동일한 조립 패턴).
+        // N+1이므로 배치 쿼리 1회로 조회(위 latestDefectId와 동일한 조립 패턴). 지도뷰에서 대표 사진이
+        // 없는 시설물은 최신 점검의 첫 사진으로 폴백하되, 사용자가 명시로 등록한 대표 사진이 항상 우선이다.
         Map<Long, String> thumbnailUrlByFacilityId =
                 nullToEmpty(mediaRepository.findFirstIdsByFacilityIds(facilityIds, companyId)).stream()
                         .collect(Collectors.toMap(
@@ -128,13 +136,15 @@ public class FacilityService {
                                 p -> thumbnailPath(p.getMediaId()),
                                 // facilityId asc, id asc 정렬이므로 같은 facilityId의 첫 값이 최초 등록 사진이다.
                                 (first, second) -> first));
-
-        // 시설물 카드 "최근 점검 MM.dd"(HAJA-514/#1074) — listStatus()가 이미 쓰는 배치 조회와 동일 패턴.
-        List<Inspection> latestInspections = nullToEmpty(inspectionRepository.findLatestByFacilityIds(facilityIds));
-        Map<Long, LocalDate> lastInspectedByFacilityId = latestInspections.stream()
-                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
-        Map<Long, Long> latestInspectionIdByFacilityId = latestInspections.stream()
-                .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getId));
+        Map<Long, String> inspectionThumbnailUrlByFacilityId =
+                latestInspections.isEmpty() ? Map.of() :
+                        nullToEmpty(mediaRepository.findFirstIdsByInspectionIds(
+                                latestInspections.stream().map(Inspection::getId).toList())).stream()
+                                .collect(Collectors.toMap(
+                                        FacilityRepresentativeMediaProjection::getFacilityId,
+                                        p -> thumbnailPath(p.getMediaId()),
+                                        // inspectionIds는 시설물별 최신 점검만 넘기며, id asc 첫 값이 대표 폴백이다.
+                                        (first, second) -> first));
 
         FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
 
@@ -151,7 +161,8 @@ public class FacilityService {
                 .map(facility -> FacilityResponse.from(
                         facility,
                         latestDefectIdByFacilityId.get(facility.getId()),
-                        thumbnailUrlByFacilityId.get(facility.getId()),
+                        resolveThumbnailUrl(
+                                facility.getId(), thumbnailUrlByFacilityId, inspectionThumbnailUrlByFacilityId),
                         lastInspectedByFacilityId.get(facility.getId()),
                         latestInspectionIdByFacilityId.get(facility.getId()),
                         defectSummary.highestGradeByFacilityId().get(facility.getId()),
@@ -183,6 +194,11 @@ public class FacilityService {
                 .findFirst()
                 .map(Inspection::getId)
                 .orElse(null);
+        if (thumbnailUrl == null && latestInspectionId != null) {
+            thumbnailUrl = mediaRepository.findFirstByInspectionIdOrderByIdAsc(latestInspectionId)
+                    .map(media -> thumbnailPath(media.getId()))
+                    .orElse(null);
+        }
         FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
         long defectCount = defectRepository.countGroupByFacilityIds(List.of(facilityId), companyId).stream()
                 .findFirst()
@@ -204,6 +220,15 @@ public class FacilityService {
     // 인가된 컨트롤러 엔드포인트 경로만 노출한다.
     private static String thumbnailPath(Long mediaId) {
         return "/api/media/" + mediaId + "/thumbnail";
+    }
+
+    private static String resolveThumbnailUrl(
+            Long facilityId, Map<Long, String> representativeThumbnails, Map<Long, String> inspectionThumbnails) {
+        if (facilityId == null) {
+            return null;
+        }
+        String representativeThumbnail = representativeThumbnails.get(facilityId);
+        return representativeThumbnail != null ? representativeThumbnail : inspectionThumbnails.get(facilityId);
     }
 
     private FacilityDefectSummary summarizeFacilityDefects(List<Inspection> inspections) {

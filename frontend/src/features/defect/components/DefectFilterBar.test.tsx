@@ -5,6 +5,7 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { defectHandlers } from "../api/defectApi.handlers";
+import { planQueryKeys } from "../../../shared/api/planApi";
 import type { DefectListFilters } from "../types";
 import { DefectFilterBar } from "./DefectFilterBar";
 
@@ -17,8 +18,16 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-function renderFilterBar(filters: DefectListFilters, onChange = vi.fn()) {
+function renderFilterBar(
+  filters: DefectListFilters,
+  onChange = vi.fn(),
+  hasAiAddon = true,
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  queryClient.setQueryData(planQueryKeys.current, { plan: { name: "CURRENT" } });
+  queryClient.setQueryData(planQueryKeys.catalog, [
+    { name: "CURRENT", hasAiAddon },
+  ]);
   render(
     <QueryClientProvider client={queryClient}>
       <DefectFilterBar filters={filters} onChange={onChange} />
@@ -28,6 +37,16 @@ function renderFilterBar(filters: DefectListFilters, onChange = vi.fn()) {
 }
 
 describe("DefectFilterBar", () => {
+  it("현재 플랜의 실시간 정책이 AI 미지원이면 검색 입력과 실행을 비활성화한다", () => {
+    renderFilterBar({ page: 0, size: 20 }, vi.fn(), false);
+
+    expect((screen.getByLabelText("AI 자연어 검색") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "AI 검색 실행" }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect(screen.getByText("AI 자연어 검색은 AI 부가 기능이 포함된 플랜에서만 사용할 수 있습니다."))
+      .not.toBeNull();
+  });
+
   it("LLM이 분석한 값만 결과 칩으로 표시한다", () => {
     renderFilterBar({
       type: "CRACK",

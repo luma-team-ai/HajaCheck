@@ -184,6 +184,7 @@ def _sample_facility_info() -> dict:
 def _sample_defects() -> list[dict]:
     return [
         {
+            "id": 1,
             "defect_type": "균열",
             "location": "1동 1층 기둥",
             "severity_grade": "B",
@@ -212,13 +213,14 @@ def _sample_summary(total_count: int = 1) -> ReportSummary:
 def _sample_detail(n: int = 1) -> ReportDetail:
     items = [
         DefectDetailItem(
+            defect_id=i + 1,
             defect_type="균열",
             location="1동 1층 기둥",
             severity_grade="B",
             description="기둥 표면 수평 균열",
             cause="건조 수축에 의한 미세 균열",
         )
-        for _ in range(n)
+        for i in range(n)
     ]
     return ReportDetail(items=items)
 
@@ -704,29 +706,30 @@ def test_detail_item_count_mismatch_returns_validation_error(mock_get_llm, mock_
 
 
 def test_detail_matches_confirmed_true_when_content_matches_regardless_of_order():
-    """defect_type+severity_grade 조합이 순서 무관하게 일치하면 매치로 판정한다."""
+    """id 기준으로 매칭되고 그 id의 유형/등급까지 일치하면, items 순서가 confirmed_defects와
+    달라도 매치로 판정한다."""
     confirmed = [
-        {"defect_type": "균열", "severity_grade": "B"},
-        {"defect_type": "박리", "severity_grade": "C"},
+        {"id": 1, "defect_type": "균열", "severity_grade": "B"},
+        {"id": 2, "defect_type": "박리", "severity_grade": "C"},
     ]
     items = [
         DefectDetailItem(
-            defect_type="박리", location="-", severity_grade="C등급", description="-", cause="-"
+            defect_id=2, defect_type="박리", location="-", severity_grade="C등급", description="-", cause="-"
         ),
         DefectDetailItem(
-            defect_type="균열", location="-", severity_grade=" b ", description="-", cause="-"
+            defect_id=1, defect_type="균열", location="-", severity_grade=" b ", description="-", cause="-"
         ),
     ]
     assert _detail_matches_confirmed(items, confirmed) is True
 
 
 def test_detail_matches_confirmed_false_when_content_swapped_despite_same_count():
-    """개수는 같아도(1건) 유형/등급 조합이 실제 confirmed_defects와 다르면 불일치로 판정한다 —
-    기존의 개수만 비교하던 로직은 이 케이스를 놓쳤다(PR머신 P2)."""
-    confirmed = _sample_defects()  # 균열/B 1건
+    """개수는 같고 id도 confirmed_defects와 대응돼도, 그 id가 가리키는 유형/등급이 실제와 다르면
+    불일치로 판정한다 — 기존의 개수만 비교하던 로직은 이 케이스를 놓쳤다(PR머신 P2)."""
+    confirmed = _sample_defects()  # id=1, 균열/B 1건
     items = [
         DefectDetailItem(
-            defect_type="박리", location="1동 1층 기둥", severity_grade="C", description="-", cause="-"
+            defect_id=1, defect_type="박리", location="1동 1층 기둥", severity_grade="C", description="-", cause="-"
         )
     ]
     assert _detail_matches_confirmed(items, confirmed) is False
@@ -742,7 +745,7 @@ def test_detail_content_mismatch_triggers_regenerate_then_recovers(mock_get_llm,
     wrong_detail = ReportDetail(
         items=[
             DefectDetailItem(
-                defect_type="박리", location="1동 1층 기둥", severity_grade="C",
+                defect_id=1, defect_type="박리", location="1동 1층 기둥", severity_grade="C",
                 description="잘못된 유형/등급", cause="-",
             )
         ]
@@ -786,7 +789,7 @@ def test_detail_content_mismatch_persists_returns_validation_error(mock_get_llm,
     always_wrong_detail = ReportDetail(
         items=[
             DefectDetailItem(
-                defect_type="박리", location="1동 1층 기둥", severity_grade="C",
+                defect_id=1, defect_type="박리", location="1동 1층 기둥", severity_grade="C",
                 description="계속 잘못된 유형/등급", cause="-",
             )
         ]
@@ -801,6 +804,168 @@ def test_detail_content_mismatch_persists_returns_validation_error(mock_get_llm,
     body = res.json()
     assert body["success"] is False
     assert body["error"]["code"] == "VALIDATION_ERROR"
+
+
+@patch("ai.chains.report_chain.get_llm")
+def test_run_detail_chain_chunks_large_defect_list(mock_get_llm):
+    """대용량 하자(예: 38건) 목록이 들어오면 15건 단위 청크로 분할되어 병렬 처리되는지 확인한다."""
+    from ai.chains.report_chain import _run_detail_chain
+
+    defects = [
+        {"id": i, "defect_type": "균열", "location": f"위치-{i}", "severity_grade": "B", "description": f"설명-{i}"}
+        for i in range(1, 39)
+    ]
+
+    mock_llm = MagicMock()
+    def _with_structured_output(schema, **_kwargs):
+        structured = MagicMock()
+        def _invoke(prompt, *_a, **_kw):
+            # 프롬프트에서 전달된 id 목록 추출해서 대답
+            items = []
+            for line in prompt.split("\n"):
+                if line.strip().startswith("1.") or line.strip().startswith("2.") or line.strip().startswith("3.") or "id: " in line:
+                    if "id: " in line:
+                        idx_str = line.split("id: ")[1].split(" /")[0].strip()
+                        if idx_str.isdigit():
+                            idx = int(idx_str)
+                            items.append(
+                                DefectDetailItem(
+                                    defect_id=idx,
+                                    defect_type="균열",
+                                    location=f"위치-{idx}",
+                                    severity_grade="B",
+                                    description=f"설명-{idx}",
+                                    cause="원인",
+                                )
+                            )
+            return ReportDetail(items=items)
+        structured.invoke.side_effect = _invoke
+        return structured
+
+    mock_llm.with_structured_output.side_effect = _with_structured_output
+    mock_get_llm.return_value = mock_llm
+
+    result = _run_detail_chain(defects)
+
+    assert len(result.items) == 38
+    assert [item.defect_id for item in result.items] == list(range(1, 39))
+
+
+@patch("ai.chains.report_chain.get_llm")
+def test_run_detail_chain_repairs_missing_chunk_items(mock_get_llm):
+    """청크 호출에서도 LLM이 일부 detail item을 누락하면 입력 하자 기준 fallback으로 1:1 대응을 보장한다."""
+    from ai.chains.report_chain import _run_detail_chain
+
+    defects = [
+        {"id": i, "defect_type": "균열", "location": f"위치-{i}", "severity_grade": "B", "description": f"설명-{i}"}
+        for i in range(1, 39)
+    ]
+
+    mock_llm = MagicMock()
+
+    def _with_structured_output(schema, **_kwargs):
+        structured = MagicMock()
+
+        def _invoke(prompt, *_a, **_kw):
+            first_id = None
+            for line in prompt.split("\n"):
+                if "id: " in line:
+                    first_id = int(line.split("id: ")[1].split(" /")[0].strip())
+                    break
+            return ReportDetail(
+                items=[
+                    DefectDetailItem(
+                        defect_id=first_id,
+                        defect_type="균열",
+                        location=f"위치-{first_id}",
+                        severity_grade="B",
+                        description=f"설명-{first_id}",
+                        cause="LLM 원인",
+                    )
+                ]
+            )
+
+        structured.invoke.side_effect = _invoke
+        return structured
+
+    mock_llm.with_structured_output.side_effect = _with_structured_output
+    mock_get_llm.return_value = mock_llm
+
+    result = _run_detail_chain(defects)
+
+    assert len(result.items) == 38
+    assert [item.defect_id for item in result.items] == list(range(1, 39))
+    assert result.items[0].cause == "LLM 원인"
+    assert result.items[1].cause.startswith("입력된 하자 유형")
+
+
+@patch("ai.chains.report_chain.get_llm")
+def test_run_detail_chain_repairs_empty_output_up_to_request_limit(mock_get_llm):
+    """계약 상한(confirmed_defects 100건)까지 LLM detail이 전부 누락돼도 입력 하자 기준으로 복구한다."""
+    from ai.chains.report_chain import _run_detail_chain
+
+    defects = [
+        {"id": i, "defect_type": "균열", "location": f"위치-{i}", "severity_grade": "B", "description": f"설명-{i}"}
+        for i in range(1, 101)
+    ]
+
+    mock_llm = MagicMock()
+    structured = MagicMock()
+    structured.invoke.return_value = ReportDetail(items=[])
+    mock_llm.with_structured_output.return_value = structured
+    mock_get_llm.return_value = mock_llm
+
+    result = _run_detail_chain(defects)
+
+    assert len(result.items) == 100
+    assert [item.defect_id for item in result.items] == list(range(1, 101))
+    assert all(item.cause.startswith("입력된 하자 유형") for item in result.items)
+    assert _detail_matches_confirmed(result.items, defects) is True
+
+
+@patch("ai.chains.report_chain.get_llm")
+def test_run_detail_chain_repairs_invalid_detail_content(mock_get_llm):
+    """LLM이 개수는 맞춰도 id별 유형/등급을 잘못 쓰면 해당 항목을 입력 하자 기준 fallback으로 교체한다."""
+    from ai.chains.report_chain import _run_detail_chain
+
+    defects = [
+        {"id": i, "defect_type": "균열", "location": f"위치-{i}", "severity_grade": "B", "description": f"설명-{i}"}
+        for i in range(1, 39)
+    ]
+
+    mock_llm = MagicMock()
+
+    def _with_structured_output(schema, **_kwargs):
+        structured = MagicMock()
+
+        def _invoke(prompt, *_a, **_kw):
+            items = []
+            for line in prompt.split("\n"):
+                if "id: " in line:
+                    idx = int(line.split("id: ")[1].split(" /")[0].strip())
+                    items.append(
+                        DefectDetailItem(
+                            defect_id=idx,
+                            defect_type="잘못된유형",
+                            location=f"위치-{idx}",
+                            severity_grade="E",
+                            description=f"설명-{idx}",
+                            cause="잘못된 원인",
+                        )
+                    )
+            return ReportDetail(items=items)
+
+        structured.invoke.side_effect = _invoke
+        return structured
+
+    mock_llm.with_structured_output.side_effect = _with_structured_output
+    mock_get_llm.return_value = mock_llm
+
+    result = _run_detail_chain(defects)
+
+    assert len(result.items) == 38
+    assert _detail_matches_confirmed(result.items, defects) is True
+    assert all(item.cause.startswith("입력된 하자 유형") for item in result.items)
 
 
 # ── GroundingAction 명시적 분기 — PR머신 P2: REGENERATE 외 값(WARN 등)도 조용히 통과되지 않는지 ──

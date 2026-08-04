@@ -189,6 +189,12 @@ public class Defect {
      * 그 외(역행·건너뛰기) 전이는 {@code reason}이 있어야만 허용한다(PRD FR-4 "역행·건너뛰기는
      * 사유 기록 필수"). 단, 조치완료(RESOLVED)는 사유 유무와 무관하게 이탈(다른 상태로 재전이)이
      * 불가한 종료 상태로 유지한다 — 완료 처리 자체를 되돌리는 것은 별도 스코프.
+     *
+     * <p>신규(DETECTED) 이탈에는 등급이 필요하다(#1397) — PRD FR-4가 검수를 "오탐 수정·등급 확정"으로
+     * 정의하므로, 등급이 없는 채로 DETECTED를 벗어나면 "검수는 끝났는데 등급은 없는" 상태가 된다.
+     * 그 상태는 되돌릴 수 없다: 화면의 등급 수정은 DETECTED에서만 열리고 다른 화면에도 등급 편집
+     * UI가 없어, 한 번 확정되면 앱 어디서도 등급을 부여할 수 없는 영구 미분류로 고착된다.
+     * 등급 부여는 {@link #review(DefectGrade)}가 status를 바꾸지 않으므로 확정 전에 먼저 하면 된다.
      */
     public void changeStatus(DefectStatus status, String reason) {
         if (status == null) {
@@ -196,6 +202,11 @@ public class Defect {
         }
         requireNotDeleted("changeStatus");
 
+        if (this.status == DefectStatus.DETECTED && this.grade == null) {
+            throw new DomainValidationException(
+                    "changeStatus 불가: 등급이 없는 신규(DETECTED) 결함은 먼저 등급을 확정해야 한다 (요청 상태=%s)"
+                            .formatted(status));
+        }
         if (this.status == DefectStatus.RESOLVED) {
             throw new DomainStateTransitionException(
                     "changeStatus 불가: 조치완료(RESOLVED)는 종료 상태라 다른 상태로 전이할 수 없다");
@@ -289,6 +300,21 @@ public class Defect {
         }
         this.deleted = true;
         this.reviewed = true;
+    }
+
+    /**
+     * 오탐 삭제 복구(#1399) — 잘못 지운 하자를 되돌린다. soft delete라 데이터는 그대로 살아 있고
+     * 플래그만 되돌리면 되며, 삭제 사유 이력({@code defect_revisions})도 append-only라 보존된다.
+     *
+     * <p>{@code reviewed}는 되돌리지 않는다 — 삭제·복구 모두 사람이 손댄 검수 행위이고,
+     * 복구 후 다시 등급 확정·검수 확정 단계를 밟게 된다. "되살릴 자격이 있는 삭제인지"(검수자
+     * 오탐 판정 vs 재분석 소프트삭제)는 이력을 아는 서비스 계층이 판정한다.
+     */
+    public void restore() {
+        if (!this.deleted) {
+            return;
+        }
+        this.deleted = false;
     }
 
     private void requireNotDeleted(String action) {

@@ -31,6 +31,63 @@ export interface Defect {
   // actionAssigneeId/actionAssigneeName flat 필드로 응답한다 — normalizeDefect()가 API 경계에서
   // 이 형태로 조립한다(#1182). 필드가 옵셔널이라 기존 mock/테스트 데이터를 건드리지 않아도 된다.
   actionResult?: DefectActionResult | null;
+  // 이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456/#1457) — PATCH /api/defects/{id}/action 응답에서만
+  // 채워진다(신규 저장 컬럼 아님, 조치 등록 시점의 그룹 크기/집계 상태). 다른 조회 경로(목록/상세
+  // 단순 조회)는 백엔드가 null로 남기므로 옵셔널로 둔다.
+  groupSize?: number | null;
+  groupStatus?: DefectStatus | null;
+}
+
+// GET /api/inspections/{id}/defects의 실제 DefectDetailItem JSON 계약.
+// 단건 DefectResponse와 달리 시설물/actionResult 필드가 없고 isReviewed 이름을 사용한다.
+export interface InspectionDefectResponse {
+  id: number;
+  inspectionId: number;
+  type: DefectType;
+  typeLabel: string;
+  grade: DefectGrade | null;
+  status: DefectStatus;
+  confidence: number;
+  isReviewed: boolean;
+  bboxX: number | null;
+  bboxY: number | null;
+  bboxW: number | null;
+  bboxH: number | null;
+  crackWidthMm: number | null;
+  crackLengthMm: number | null;
+  areaRatio: number | null;
+  mediaId: number | null;
+  imageUrl: string | null;
+  detailUrl: string | null;
+  createdAt: string;
+}
+
+// 점검별 하자 화면 내부 view model. API의 isReviewed만 기존 UI 명명인 reviewed로 변환한다.
+export interface InspectionDefect {
+  id: number;
+  inspectionId: number;
+  type: DefectType;
+  typeLabel: string;
+  grade: DefectGrade | null;
+  status: DefectStatus;
+  confidence: number;
+  reviewed: boolean;
+  bboxX: number | null;
+  bboxY: number | null;
+  bboxW: number | null;
+  bboxH: number | null;
+  crackWidthMm: number | null;
+  crackLengthMm: number | null;
+  areaRatio: number | null;
+  mediaId: number | null;
+  imageUrl: string | null;
+  detailUrl: string | null;
+  createdAt: string;
+}
+
+// 점검별 하자 응답에 없는 시설물명을 상위 InspectionListItem에서 병합한 PDF 전용 모델.
+export interface DefectExportItem extends InspectionDefect {
+  facilityName: string;
 }
 
 // GET /api/defects/{id}/revisions 응답 항목 — backend DefectRevisionResponse와 1:1(HAJA-314)
@@ -125,7 +182,6 @@ export interface InspectionListItem {
   id: number;
   facilityId: number;
   facilityName: string;
-  facilityType: string;
   roundNo: number;
   inspectionDate: string; // YYYY-MM-DD
   type: InspectionType;
@@ -208,3 +264,14 @@ export interface DefectActionLogEntry {
 }
 
 export type DefectActionLogPhase = 'IN_PROGRESS' | 'RESOLVED';
+
+// 점검 하자 화면 전용 이미지 그룹. mediaId가 없는 하자는 defect:{id} 키로 개별 그룹을 유지한다.
+export interface DefectImageGroup {
+  key: string;
+  mediaId: number | null;
+  imageUrl: string | null;
+  defects: InspectionDefect[];
+  representative: InspectionDefect;
+  latestCreatedAt: string;
+  highestConfidence: number;
+}

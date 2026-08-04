@@ -46,8 +46,9 @@ export const facilityDefectHandlers = [
     return HttpResponse.json(body);
   }),
 
-  // ai-server AIResponse({success,data,usage,error}) — 스프링 인증 프록시 /api/ai/* 경유(vite.config.ts 프록시)
-  http.post('/api/ai/facility-defect-explain', () => {
+  // ai-server AIResponse({success,data,usage,error}) — 스프링 인증 프록시 /api/ai/* 경유(vite.config.ts 프록시).
+  // #1350 — 실제로 존재한 적 없는 /facility-defect-explain 대신 실 엔드포인트(/defect-explain)를 목한다.
+  http.post('/api/ai/defect-explain', () => {
     const body: { success: boolean; data: FacilityDefectAiExplanation; usage: { tokens: number } } = {
       success: true,
       data: mockFacilityDefectAiExplanation,

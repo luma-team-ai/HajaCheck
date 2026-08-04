@@ -1,8 +1,8 @@
 import { GRADE_CLASSES, STATUS_PRESENTATION } from '../constants/defectPresentation';
-import type { Defect } from '../types';
+import type { DefectImageGroup, DefectStatus } from '../types';
 
 type Props = {
-  defect: Defect;
+  group: DefectImageGroup;
   onSelect: (id: number) => void;
 };
 
@@ -18,50 +18,75 @@ export function pickTextColorClass(classNames: string): string {
 // 점검 상세(카드형, HAJA-393/394 §화면 구조 ②) 하자 카드 — contract.md 확정: 유형/등급뱃지/상태뱃지/
 // 썸네일/AI신뢰도/최대폭. 등급·상태 배지 색상은 defectPresentation의 상수를 재사용(신규 색상 상수
 // 추가 금지 컨벤션).
-export function DefectCard({ defect, onSelect }: Props) {
-  const statusPresentation = STATUS_PRESENTATION[defect.status];
-  const gradeColorClass = defect.grade ? pickTextColorClass(GRADE_CLASSES[defect.grade]) : '';
-  const statusColorClass = pickTextColorClass(statusPresentation.className);
+const MANAGED_STATUSES: Exclude<DefectStatus, 'DETECTED'>[] = ['CONFIRMED', 'IN_PROGRESS', 'RESOLVED'];
+
+export function DefectCard({ group, onSelect }: Props) {
+  const { representative } = group;
+  const gradeColorClass = representative.grade
+    ? pickTextColorClass(GRADE_CLASSES[representative.grade])
+    : '';
+  const typeLabels = Array.from(new Set(group.defects.map((defect) => defect.typeLabel)));
+  const visibleTypes = typeLabels.slice(0, 2).join(' · ');
+  const remainingTypeCount = Math.max(0, typeLabels.length - 2);
+  const maxCrackWidth = group.defects.reduce<number | null>(
+    (max, defect) =>
+      defect.crackWidthMm == null ? max : max == null ? defect.crackWidthMm : Math.max(max, defect.crackWidthMm),
+    null,
+  );
 
   return (
     <button
       type="button"
       className="defect-card-grid__card"
-      onClick={() => onSelect(defect.id)}
-      aria-label={`${defect.typeLabel} 하자 상세 보기`}
+      onClick={() => onSelect(representative.id)}
+      aria-label={`${visibleTypes} 이미지 카드 상세 보기`}
     >
       <div className="defect-card-grid__thumb">
-        {defect.imageUrl ? (
-          <img src={defect.imageUrl} alt="" />
+        {group.imageUrl ? (
+          <img src={group.imageUrl} alt="" />
         ) : (
           <span className="defect-card-grid__thumb-empty" aria-hidden="true">
-            {defect.typeLabel?.slice(0, 1)}
+            사진 없음
           </span>
         )}
+        <span className="defect-card-grid__count">하자 {group.defects.length}건</span>
       </div>
 
       <div className="defect-card-grid__body">
         <div className="defect-card-grid__heading">
-          <p className="defect-card-grid__type">{defect.typeLabel}</p>
+          <p className="defect-card-grid__type">
+            {visibleTypes}
+            {remainingTypeCount > 0 && ` 외 ${remainingTypeCount}종`}
+          </p>
 
           <div className="defect-card-grid__badges">
-            {defect.grade && (
+            {representative.grade && (
               <span className={`defect-card-grid__badge ${gradeColorClass}`}>
                 <span className="defect-card-grid__badge-dot" aria-hidden="true" />
-                {defect.grade}
+                {representative.grade}
               </span>
             )}
-            <span className={`defect-card-grid__badge ${statusColorClass}`}>
-              <span className="defect-card-grid__badge-dot" aria-hidden="true" />
-              {statusPresentation.label}
-            </span>
           </div>
         </div>
 
+        <div className="defect-card-grid__status-summary" aria-label="상태별 하자 수">
+          {MANAGED_STATUSES.map((status) => {
+            const count = group.defects.filter((defect) => defect.status === status).length;
+            if (count === 0) return null;
+            const colorClass = pickTextColorClass(STATUS_PRESENTATION[status].className);
+            return (
+              <span key={status} className={colorClass}>
+                <i aria-hidden="true" />
+                {STATUS_PRESENTATION[status].label} {count}
+              </span>
+            );
+          })}
+        </div>
+
         <div className="defect-card-grid__stats">
-          <span>AI 신뢰도 {Math.round(defect.confidence * 100)}%</span>
+          <span>최고 신뢰도 {Math.round(group.highestConfidence * 100)}%</span>
           <span className="defect-card-grid__stats-divider" aria-hidden="true" />
-          <span>최대폭 {defect.crackWidthMm != null ? `${defect.crackWidthMm}mm` : '-'}</span>
+          <span>최대폭 {maxCrackWidth != null ? `${maxCrackWidth}mm` : '-'}</span>
         </div>
       </div>
     </button>

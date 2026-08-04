@@ -1,11 +1,12 @@
-import type { ChangeEvent } from 'react';
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
+import { getApiErrorMessage } from '../../../shared/api/types';
 import { Modal } from '../../../shared/components/Modal/Modal';
 import { DefectOverlay } from '../components/DefectOverlay';
+import { DeletedDefectsPanel } from '../components/DeletedDefectsPanel';
 import { InspectionDefectExplainPanel } from '../components/InspectionDefectExplainPanel';
 import { useInspectionResult } from '../hooks/useInspectionResult';
 import { inspectionApi } from '../api/inspectionApi';
@@ -18,6 +19,9 @@ const ALL_GRADES: DefectGrade[] = ['A', 'B', 'C', 'D', 'E'];
 
 // 누락 추가 캔버스 — 드래그 없이 클릭만 해도 제출되던 0크기 박스 방지 임계값(정규화 좌표 기준, #841)
 const MIN_BBOX_SIZE = 0.01;
+
+// 되살리기 사유 기본값(#1399) — 서버가 1~500자를 필수로 요구한다. 수정 가능하다.
+const RESTORE_REASON_DEFAULT = '오탐 판정 취소';
 
 // Figma 시안의 등급 라벨은 이 페이지 전용 워딩이다 — feature 간 직접 import 금지(types.ts 참고).
 // StatisticsGradeDistributionCard와 동일 라벨 사용.
@@ -61,7 +65,9 @@ export function ResultViewerPage() {
   const initialMediaIdParam = searchParams.get('mediaId');
   const initialDefectIdParam = searchParams.get('defectId');
 
-  const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
+  // 신뢰도 슬라이더는 제거됐다(팀 QA 요청 — 등급 버튼만으로 충분한데 조작이 번거로움). filterDefects
+  // 호출부에서 confidence 인자를 0(전체 노출)으로 고정한다 — 안 보이는 사각지대를 만들지 않는다는
+  // 취지(이전 커밋 사유)는 그대로 유지.
   const [gradeFilter, setGradeFilter] = useState<DefectGrade[]>(ALL_GRADES);
   const [selectedDefectId, setSelectedDefectId] = useState<number | undefined>(
     initialDefectIdParam ? Number(initialDefectIdParam) : undefined,
@@ -93,6 +99,10 @@ export function ResultViewerPage() {
   // 오탐 삭제 사유 입력 — 브라우저 prompt()가 아니라 등급 수정·누락 추가와 같은 모달로 받는다(#1255).
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [deleteReason, setDeleteReason] = useState('');
+  // 오탐 되살리기(#1399) — 서버가 사유를 필수로 받으므로(감사 이력) 삭제와 같은 모달로 확인받는다.
+  // 기본 문구를 채워 두어 "실수를 되돌리는" 흔한 경우엔 한 번만 누르면 되게 한다.
+  const [restoreTargetId, setRestoreTargetId] = useState<number | undefined>();
+  const [restoreReason, setRestoreReason] = useState(RESTORE_REASON_DEFAULT);
   const [isAddMissingOpen, setIsAddMissingOpen] = useState(false);
   // 누락 추가 그리기 모드 — 메인 뷰어 이미지 위에서 직접 드래그로 박스를 지정한다(#874, 2안).
   const [isDrawingMissing, setIsDrawingMissing] = useState(false);
@@ -101,6 +111,18 @@ export function ResultViewerPage() {
   // ponytail: 캔버스 드래그 상태 — 그리기 모드 진입/모달 닫힘마다 리셋
   const [draggingBbox, setDraggingBbox] = useState<{ x: number; y: number; width: number; height: number } | undefined>();
   const [canvasMouseDown, setCanvasMouseDown] = useState(false);
+  // 드래그 시작점(마우스다운 위치) 고정 — mousemove가 draggingBbox.x/y(매 프레임 min()으로 갱신되는
+  // 값)를 기준으로 폭을 계산하면, 오른쪽에서 왼쪽으로 끄는 드래그에서 그 min()이 매번 "현재" 값으로
+  // 덮어써져 원래 시작점을 잃는다 — 왼쪽→오른쪽만 정상이고 반대 방향은 매 프레임 델타만큼만
+  // 커지는 버그였다(팀 QA 발견). 시작점을 별도 ref로 고정해 두 방향 모두 항상 그 고정점 기준으로
+  // 계산한다.
+  const drawStartRef = useRef<{ x: number; y: number } | undefined>();
+  // 드래그 중 이미지 사각형(마우스다운 시점에 한 번만 캡처) — window 레벨 리스너는 e.currentTarget이
+  // 이미지 div가 아니라 window 자체라 별도로 기준 사각형을 들고 있어야 한다.
+  const canvasRectRef = useRef<DOMRect | undefined>();
+  // 드래그 중 커서가 이미지 밖으로 나갔음을 안내하는 배너 표시 여부(팀 QA 요청) — 그냥 조용히
+  // 중단되면 사용자는 왜 박스 그리기가 멈췄는지 알 수 없다.
+  const [isDrawOutOfBounds, setIsDrawOutOfBounds] = useState(false);
   // rules-of-hooks: 훅은 조건부 return 이전에 호출해야 한다. 훅 내부 enabled 플래그가
   // 유효하지 않은 inspectionId일 때 쿼리를 스킵하므로, ID 검증 return은 훅 호출 다음에 둔다.
   const { data, isLoading, isError, refetch } = useInspectionResult(inspectionId);
@@ -116,7 +138,7 @@ export function ResultViewerPage() {
   // rules-of-hooks: 모든 훅은 조건부 return 이전에 호출되어야 한다.
   // data가 없을 때도 안전하게 처리할 수 있도록 가드 포함.
   const visibleDefects = data?.defects
-    ? filterDefects(data.defects, confidenceThreshold, gradeFilter)
+    ? filterDefects(data.defects, 0, gradeFilter)
     : [];
 
   // 미디어 우선 그룹핑(#804) — 전체 media 목록에서 시작해 각 media의 하자를 붙인다.
@@ -158,10 +180,48 @@ export function ResultViewerPage() {
   // (handleGenerateReport 등보다 먼저 선언 — 뒤 핸들러들이 전방참조 없이 곧장 쓸 수 있게).
   const currentDefects = currentMediaGroup?.defects ?? [];
 
+  // 삭제된 하자도 "지금 보고 있는 이미지" 것만 보여준다 — 다른 사진에서 지운 것까지 섞이면
+  // 무엇을 되살리는지 판단할 근거(이미지)가 화면에 없다(#1399).
+  //
+  // ⚠️ 의도된 제약(#1401): currentMediaGroup.mediaId 는 항상 실제 이미지 id 라, mediaId=null 인
+  // 삭제 하자는 어떤 이미지에서도 이 목록에 뜨지 않는다. 서버는 반환하지만 화면에서 빠진다.
+  // 그런 하자는 애초에 뷰어의 일반 목록·오버레이 어디에도 나타나지 않아 선택 자체가 불가능하고,
+  // 따라서 뷰어로는 오탐 삭제도 할 수 없다 — 만들려면 API를 직접 두 번(생성·삭제) 쳐야 한다.
+  // 도달 경로가 없는 케이스를 위해 별도 그룹을 만들지 않는다. 이 화면이 이미지 중심인 한 유지된다.
+  const currentDeletedDefects = useMemo(
+    () => (data?.deletedDefects ?? []).filter((item) => item.defect.mediaId === currentMediaGroup?.mediaId),
+    [data?.deletedDefects, currentMediaGroup?.mediaId],
+  );
+
   // 현재 media 인디케이터 (예: "이미지 1/2")
   const currentMediaIndex = mediaGroups.findIndex((g) => g.mediaId === currentMediaGroup?.mediaId);
   const mediaIndicator = mediaGroups.length > 0 ? `이미지 ${currentMediaIndex + 1}/${mediaGroups.length}` : '';
   const isLastMedia = currentMediaIndex === mediaGroups.length - 1;
+
+  // 이전/다음 이미지를 미리 받아둔다(팀 QA 요청) — DefectOverlay의 imageUrl은 상세(고해상도)
+  // 이미지라 로딩이 오래 걸리는데, "다음 이미지" 클릭 시점에야 요청이 시작되면 바운딩 박스(즉시
+  // 렌더)와 사진(네트워크 대기)이 따로따로 나타난다. 인접 이미지만 미리 fetch해 브라우저 캐시에
+  // 태워두면 클릭 시점엔 이미 캐시에서 그려진다 — 전체 이미지를 다 미리 받으면(수십 장) 지금 보는
+  // 이미지 로딩과 대역폭을 다투므로 범위를 제한한다. new Image()는 DOM에 붙이지 않는 순수 프리페치
+  // 트릭.
+  //
+  // 앞으로 2장 / 뒤로 1장(팀 QA 발견 — "다음" 연타 시 못 따라옴) — "다음" 연타가 "이전" 연타보다
+  // 훨씬 흔한 사용 패턴이라 앞쪽에 더 넓은 버퍼를 둔다. 그래도 순간적으로 아주 빠르게 여러 장을
+  // 넘기면(버퍼보다 빠른 클릭) 결국 못 따라잡는다 — 이건 실제 네트워크 전송 시간의 한계라 프리페치
+  // 범위를 늘리는 것만으로 완전히 없앨 순 없다(DefectOverlay의 로딩 스피너가 그 남은 구간을
+  // 가려준다).
+  useEffect(() => {
+    const neighbors = [
+      mediaGroups[currentMediaIndex - 1],
+      mediaGroups[currentMediaIndex + 1],
+      mediaGroups[currentMediaIndex + 2],
+    ];
+    for (const neighbor of neighbors) {
+      if (neighbor?.imageUrl) {
+        new Image().src = neighbor.imageUrl;
+      }
+    }
+  }, [mediaGroups, currentMediaIndex]);
 
   // 이 이미지의 검수 완료 여부 — 신뢰도·등급 필터와 무관하게 원본(data.defects) 기준으로 센다.
   // 필터로 가려진 하자를 "완료"로 오인하면 마지막에 점검 요약이 열리지 않아 사용자가 갇힌다.
@@ -235,12 +295,48 @@ export function ResultViewerPage() {
     }
   }, [data, deleteReason, currentDefects, selectedDefectId, isUpdating, refetch]);
 
+  const handleOpenRestore = useCallback((defectId: number) => {
+    setRestoreTargetId(defectId);
+    setRestoreReason(RESTORE_REASON_DEFAULT);
+    setErrorMessage('');
+  }, []);
+
+  const handleCancelRestore = useCallback(() => {
+    if (isUpdating) return;
+    setRestoreTargetId(undefined);
+    setErrorMessage('');
+  }, [isUpdating]);
+
+  const handleConfirmRestore = useCallback(async () => {
+    const reason = restoreReason.trim();
+    if (restoreTargetId == null || isUpdating) return;
+    if (reason.length === 0 || reason.length > 500) {
+      setErrorMessage('사유는 1-500자 범위여야 합니다.');
+      return;
+    }
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.reviewDefect(restoreTargetId, { isDeleted: false, reason });
+      await refetch();
+      // 되살린 하자를 바로 선택해 준다 — 되돌린 뒤 이어서 검수하는 흐름이 자연스럽다.
+      setSelectedDefectId(restoreTargetId);
+      setRestoreTargetId(undefined);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : '되살리기에 실패했습니다.';
+      setErrorMessage(msg);
+    } finally {
+      setIsUpdating(false);
+    }
+  }, [restoreTargetId, restoreReason, isUpdating, refetch]);
+
   const handleOpenGradeEdit = useCallback(() => {
     if (!data) return;
     const selected = findSelectedDefect(data.defects, currentDefects, selectedDefectId);
     if (selected) {
       setGradeEditId(selected.id);
-      setSelectedGrade(selected.grade);
+      // 등급 미판정(null)이면 라디오를 비워 둔 채로 연다 — 검수자가 처음으로 등급을 매기는 경로.
+      setSelectedGrade(selected.grade ?? '');
     }
   }, [data, currentDefects, selectedDefectId]);
 
@@ -321,10 +417,21 @@ export function ResultViewerPage() {
   }, [isUpdating]);
 
   // 누락 추가 버튼 클릭 — 모달을 바로 열지 않고 메인 뷰어 위 그리기 모드로 전환한다(#874, 2안).
+  // 이미 그리기 모드인 상태에서 다시 누르면 취소로 토글한다(팀 QA 발견 — 예전엔 항상 무조건
+  // 그리기 모드를 (재)시작해서, 켜져 있는 상태에서 또 눌러도 끌 방법이 이 버튼 자체엔 없었다).
   const handleStartDrawingMissing = useCallback(() => {
-    setIsDrawingMissing(true);
-    setDraggingBbox(undefined);
-    setErrorMessage('');
+    setIsDrawingMissing((prev) => {
+      if (prev) {
+        setDraggingBbox(undefined);
+        setCanvasMouseDown(false);
+        setIsDrawOutOfBounds(false);
+        return false;
+      }
+      setDraggingBbox(undefined);
+      setErrorMessage('');
+      setIsDrawOutOfBounds(false);
+      return true;
+    });
   }, []);
 
   // 위치 지정 없이 바로 유형/등급 선택으로 진행(기존 "박스는 선택사항" 동작 유지).
@@ -338,64 +445,118 @@ export function ResultViewerPage() {
     setIsDrawingMissing(false);
     setDraggingBbox(undefined);
     setCanvasMouseDown(false);
+    setIsDrawOutOfBounds(false);
+    drawStartRef.current = undefined;
+    canvasRectRef.current = undefined;
   }, []);
 
   // ponytail: 캔버스 드래그 이벤트 — 마우스 위치를 이미지 좌표계(0~1 정규화)로 변환.
   // 메인 뷰어(DefectOverlay)의 좌표계를 그대로 재사용 — 별도 축소 캔버스를 두지 않는다(#874).
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      const canvas = e.currentTarget;
-      const rect = canvas.getBoundingClientRect();
+      const rect = e.currentTarget.getBoundingClientRect();
       const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+      canvasRectRef.current = rect;
+      drawStartRef.current = { x, y };
       setCanvasMouseDown(true);
       setDraggingBbox({ x, y, width: 0, height: 0 });
+      setIsDrawOutOfBounds(false);
     },
     [],
   );
 
-  const handleCanvasMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      if (!canvasMouseDown || !draggingBbox) return;
-      const canvas = e.currentTarget;
-      const rect = canvas.getBoundingClientRect();
+  // 드래그 중엔 이동/종료를 div가 아니라 window에서 듣는다(팀 QA 요청) — div의 onMouseMove/
+  // onMouseUp/onMouseLeave만 쓰면 커서가 이미지 경계를 넘는 순간 이벤트가 끊겨(mouseleave) 드래그가
+  // 가차없이 취소됐다. window 리스너는 커서가 어디에 있든 계속 좌표를 받아 [0,1]로 클램프하므로
+  // 박스가 이미지 가장자리에 붙은 채 계속 진행되고, 실제로 마우스 버튼을 뗀 순간(mouseup, 어디서
+  // 떼든 window가 받음)에만 종료된다 — "살짝 벗어나면 봐주고" 요구를 사실상 무제한 허용으로 만족.
+  useEffect(() => {
+    if (!canvasMouseDown) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      const rect = canvasRectRef.current;
+      const start = drawStartRef.current;
+      if (!rect || !start) return;
+      const rawX = (e.clientX - rect.left) / rect.width;
+      const rawY = (e.clientY - rect.top) / rect.height;
+      setIsDrawOutOfBounds(rawX < 0 || rawX > 1 || rawY < 0 || rawY > 1);
+      const x = Math.max(0, Math.min(1, rawX));
+      const y = Math.max(0, Math.min(1, rawY));
+      // 항상 고정된 시작점(start) 기준으로 계산 — 진행 중인 draggingBbox 값을 기준으로 삼지 않는다.
+      setDraggingBbox({
+        x: Math.min(start.x, x),
+        y: Math.min(start.y, y),
+        width: Math.abs(x - start.x),
+        height: Math.abs(y - start.y),
+      });
+    };
+
+    // 드래그 없이 클릭만 하면 0크기 박스가 그대로 제출되던 것을 방지(#841) — 최소 임계값 미만이면
+    // 위치 미지정(undefined)으로 되돌린다. 유효한 크기로 드래그가 끝나면 그리기 모드를 마치고
+    // 유형/등급 선택 모달을 연다(#874). mouseup 이벤트 자체의 좌표로 최종 박스를 다시 계산한다 —
+    // 중간 draggingBbox state를 참조하면(클로저) 이 리스너가 구독된 시점의 값에 갇힌다.
+    const handleWindowMouseUp = (e: MouseEvent) => {
+      const rect = canvasRectRef.current;
+      const start = drawStartRef.current;
+      setCanvasMouseDown(false);
+      setIsDrawOutOfBounds(false);
+      drawStartRef.current = undefined;
+      canvasRectRef.current = undefined;
+      if (!rect || !start) {
+        setDraggingBbox(undefined);
+        return;
+      }
       const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
       const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-      setDraggingBbox({
-        x: Math.min(draggingBbox.x, x),
-        y: Math.min(draggingBbox.y, y),
-        width: Math.abs(x - draggingBbox.x),
-        height: Math.abs(y - draggingBbox.y),
-      });
-    },
-    [canvasMouseDown, draggingBbox],
-  );
+      const finalBox = {
+        x: Math.min(start.x, x),
+        y: Math.min(start.y, y),
+        width: Math.abs(x - start.x),
+        height: Math.abs(y - start.y),
+      };
+      if (finalBox.width < MIN_BBOX_SIZE || finalBox.height < MIN_BBOX_SIZE) {
+        setDraggingBbox(undefined);
+        return;
+      }
+      setDraggingBbox(finalBox);
+      setIsDrawingMissing(false);
+      setIsAddMissingOpen(true);
+    };
 
-  // 드래그 없이 클릭만 하면 0크기 박스가 그대로 제출되던 것을 방지(#841) — 최소 임계값 미만이면
-  // 위치 미지정(undefined)으로 되돌린다. 유효한 크기로 드래그가 끝나면 그리기 모드를 마치고
-  // 유형/등급 선택 모달을 연다(#874).
-  const handleCanvasMouseUp = useCallback(() => {
-    setCanvasMouseDown(false);
-    if (!draggingBbox) return;
-    if (draggingBbox.width < MIN_BBOX_SIZE || draggingBbox.height < MIN_BBOX_SIZE) {
-      setDraggingBbox(undefined);
-      return;
-    }
-    setIsDrawingMissing(false);
-    setIsAddMissingOpen(true);
-  }, [draggingBbox]);
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    window.addEventListener('mouseup', handleWindowMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleWindowMouseMove);
+      window.removeEventListener('mouseup', handleWindowMouseUp);
+    };
+  }, [canvasMouseDown]);
 
   const handleConfirmReview = useCallback(async () => {
     if (!data) return;
     const selected = findSelectedDefect(data.defects, currentDefects, selectedDefectId);
     if (!selected || isUpdating) return;
+    // 확정 후 다음 미확정 하자로 자동 이동한다(팀 QA 요청, #1255의 "자동 이동 안 함" 결정을
+    // 뒤집음). #1255의 우려는 "뭐가 확정됐는지 화면에서 안 보임"이었는데, 확정된 박스가 이제
+    // 초록으로 남아있어(DefectOverlay) 화면이 바뀌어도 방금 확정한 게 무엇인지 계속 보인다 — 그
+    // 우려가 해소돼 이동을 막을 이유가 없다. 다음 대상은 확정 API 호출 전(현재 목록) 기준으로
+    // 미리 고른다 — refetch 완료를 기다려 새 데이터로 계산할 필요 없이 즉시 이동할 수 있다.
+    //
+    // "배열상 다음 것"이 아니라 "남은 미확정 중 첫 번째"로 고른다(팀 QA 발견 회귀) — 사용자가
+    // 순서 없이 아무 박스나 골라 확정할 수 있어서, 방금 확정한 게 목록 맨 뒤(index+1이 없음)면
+    // 앞쪽에 미확정이 남아 있어도 자동 이동이 전혀 안 됐다.
+    const remainingPending = currentDefects.filter(
+      (d) => d.status === 'DETECTED' && d.id !== selected.id,
+    );
+    const next = remainingPending[0];
     setIsUpdating(true);
     setErrorMessage('');
     try {
       await inspectionApi.updateDefectStatus(selected.id, { status: 'CONFIRMED' });
       await refetch();
-      // 자동 이동하지 않는다(#1255) — 확정 직후 화면이 저절로 바뀌면 무엇이 확정됐는지 확인할 수
-      // 없다. 대신 검수 완료 안내 배너의 "다음 이미지 / 점검 요약" CTA로 다음 행동을 명시한다.
+      if (next) {
+        setSelectedDefectId(next.id);
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : '검수 확정에 실패했습니다.';
       setErrorMessage(msg);
@@ -404,9 +565,28 @@ export function ResultViewerPage() {
     }
   }, [data, currentDefects, selectedDefectId, isUpdating, refetch]);
 
-  const handleGenerateReport = useCallback(() => {
+  // "점검 요약" 클릭 시 회차 검수를 먼저 확정(ANALYZED→REVIEWED)한 뒤 이동한다 — 이전엔 이 전이가
+  // 최종 보고서 확정에만 묶여 있어, 검수는 끝났는데 보고서를 안(못) 만든 회차가 계속 "진행 중"으로
+  // 잡혀 같은 시설물의 새 회차 생성마다 중복 경고가 떴다. 서버가 멱등 처리하므로 재진입·중복
+  // 클릭은 안전하다.
+  const handleGenerateReport = useCallback(async () => {
+    if (isUpdating) return;
+    setIsUpdating(true);
+    setErrorMessage('');
+    try {
+      await inspectionApi.confirmReview(inspectionId);
+    } catch (error) {
+      // 확정 실패해도 이동은 막지 않는다(PR머신 리뷰 P2) — 보고서 화면 자체(generateDraft)는
+      // 회차 상태와 무관하게 동작하도록 설계돼 있어(ReportService 주석), 검수 확정 실패를
+      // 진입의 하드 블로커로 두면 "검수 다 끝낸 회차인데 서버 확정만 실패해서 보고서 화면에
+      // 영영 못 들어감"이라는 막다른 길이 생긴다. 서버는 REVIEWED/REPORTED에 멱등이라 다음
+      // 재진입 때 자연히 다시 시도된다 — 여기서는 경고만 남기고 그대로 진행한다.
+      console.warn('회차 검수 확정 실패 — 그대로 보고서 화면으로 진행', getApiErrorMessage(error, ''));
+    } finally {
+      setIsUpdating(false);
+    }
     navigate(`/inspections/${inspectionId}/reports`);
-  }, [inspectionId, navigate]);
+  }, [inspectionId, navigate, isUpdating]);
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
     return (
@@ -419,10 +599,6 @@ export function ResultViewerPage() {
   if (!data) return <div className="p-5">탐지된 하자가 없습니다.</div>;
 
   const selected = findSelectedDefect(data.defects, currentDefects, selectedDefectId);
-
-  const handleThresholdChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setConfidenceThreshold(Number(event.target.value));
-  };
 
   const handleGradeToggle = (grade: DefectGrade) => {
     setGradeFilter((prev) =>
@@ -441,33 +617,24 @@ export function ResultViewerPage() {
           type="button"
           variant="secondary"
           size="md"
-          onClick={handleGenerateReport}
-          disabled={data.reviewedCount !== data.totalCount}
+          onClick={() => void handleGenerateReport()}
+          disabled={data.reviewedCount !== data.totalCount || isUpdating}
           title={data.reviewedCount !== data.totalCount ? `${data.reviewedCount}/${data.totalCount} 하자 검수 확정 필요` : ''}
         >
-          점검 요약
+          {isUpdating ? '이동 중...' : '점검 요약'}
         </Button>
       </div>
 
-      {/* Filter Controls — Top Level */}
-      <div className="flex gap-4">
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-text-muted">신뢰도:</label>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.05}
-            value={confidenceThreshold}
-            onChange={handleThresholdChange}
-            className="h-1 w-24 cursor-pointer"
-          />
-          <span className="text-xs font-medium">{confidenceThreshold.toFixed(2)}</span>
-        </div>
+      {/* Filter Controls — Top Level (신뢰도 슬라이더 제거, 팀 QA 요청 — 등급 버튼만으로 충분) */}
+      <div className="flex items-center gap-4">
+        {/* 등급(A~E) 자체는 점검자라면 이미 안다(팀 QA 정정) — 모르는 건 "이 버튼이 뭘 하는지"
+            (등급별 필터 토글이라는 것)다. 캡션·title 모두 필터 동작을 설명하도록 바꾼다. */}
+        <span className="text-xs text-text-muted">등급 필터 (선택한 등급만 표시):</span>
         <div className="flex gap-2">
           {ALL_GRADES.map((grade) => (
             <label
               key={grade}
+              title={`${GRADE_LABELS[grade]}만 표시 — 다시 누르면 숨김`}
               className={`cursor-pointer rounded-full px-2.5 py-1 text-xs font-medium transition ${
                 gradeFilter.includes(grade)
                   ? 'bg-primary text-surface'
@@ -536,7 +703,11 @@ export function ResultViewerPage() {
               {/* 누락 추가 그리기 모드 툴바 — 메인 이미지 위에서 직접 드래그(#874, 2안) */}
               {isDrawingMissing && (
                 <div className="flex w-full items-center justify-between rounded-lg bg-primary/10 px-4 py-2 text-sm text-text-default">
-                  <span>이미지 위에 드래그해서 하자 위치를 표시하세요.</span>
+                  <span className={isDrawOutOfBounds ? 'font-medium text-danger' : ''}>
+                    {isDrawOutOfBounds
+                      ? '이미지 범위를 벗어났습니다. 이미지 안에서 다시 드래그해 주세요.'
+                      : '이미지 위에 드래그해서 하자 위치를 표시하세요.'}
+                  </span>
                   <div className="flex gap-2">
                     <Button type="button" variant="secondary" size="sm" onClick={handleSkipDrawingMissing}>
                       박스 없이 계속
@@ -561,16 +732,28 @@ export function ResultViewerPage() {
                     drawMode={isDrawingMissing}
                     draggingBbox={draggingBbox}
                     onCanvasMouseDown={handleCanvasMouseDown}
-                    onCanvasMouseMove={handleCanvasMouseMove}
-                    onCanvasMouseUp={handleCanvasMouseUp}
                   />
+                  {/* 이 이미지에서 찾은 하자 수 대비 검수 확정 수(팀 QA 요청) — 신뢰도·등급
+                      필터와 무관하게 원본 기준(currentMediaCounts)이라 오탐 삭제·누락 추가로
+                      실제 개수가 바뀌면(refetch 후) 그대로 반영된다. 범례(DefectOverlay 안)
+                      바로 아래 둬서 같은 정보 묶음으로 보이게 한다. */}
+                  {currentMediaCounts.total > 0 && (
+                    <span className="text-[11px] text-text-muted">
+                      이 이미지에서 찾은 하자 — 검수{' '}
+                      {currentMediaCounts.total - currentMediaCounts.pending} / {currentMediaCounts.total}
+                    </span>
+                  )}
                   {currentDefects.length === 0 && (
                     <div className="text-sm text-text-muted">
                       {data.defects.length === 0
                         ? '탐지된 하자가 없습니다.'
                         : visibleDefects.length === 0
                           ? '조건에 맞는 하자가 없습니다.'
-                          : '이 이미지에 해당하는 하자가 없습니다.'}
+                          : isLastMedia
+                            ? '이 이미지의 하자가 없습니다.'
+                            : // 검수할 게 없는 이미지에서 다음 행동을 명시한다 — 마지막 이미지에서는
+                              // '다음 이미지' 버튼이 비활성이라 안내하지 않는다(이미지가 1장뿐일 때도 동일).
+                              "이 이미지의 하자가 없습니다. 상단의 '다음 이미지' 버튼으로 이동하세요."}
                     </div>
                   )}
                 </>
@@ -615,6 +798,12 @@ export function ResultViewerPage() {
                 {errorMessage && (
                   <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
                 )}
+                {/* 비활성 버튼만 두면 왜 안 눌리는지 알 수 없다 — 다음 행동을 문구로 명시(#1397). */}
+                {selected && selected.status === 'DETECTED' && selected.grade == null && (
+                  <div className="rounded-lg bg-warning-soft-bg px-4 py-3 text-sm text-warning-soft-fg">
+                    등급이 지정되지 않은 하자입니다. 우측 &apos;등급 수정&apos;으로 등급을 먼저 정해야 검수 확정할 수 있습니다.
+                  </div>
+                )}
                 <div className="flex items-center gap-3">
                 <Button
                   type="button"
@@ -626,19 +815,40 @@ export function ResultViewerPage() {
                 >
                   오탐 삭제
                 </Button>
+                {/* 등급 미판정 하자는 확정을 막는다(#1397) — 확정되면 status가 DETECTED를 벗어나
+                    '등급 수정' 버튼까지 잠겨(아래 :721) 앱 어디서도 등급을 부여할 수 없는 영구
+                    미분류로 고착된다. 백엔드도 같은 규칙을 갖지만(Defect.changeStatus) 화면에서
+                    먼저 막아 무엇을 해야 하는지(등급 수정 먼저) 알린다. */}
                 <Button
                   type="button"
                   variant="primary"
                   size="lg"
                   className="flex-[7]"
                   onClick={handleConfirmReview}
-                  disabled={isUpdating || !selected || selected.status !== 'DETECTED'}
+                  disabled={
+                    isUpdating || !selected || selected.status !== 'DETECTED' || selected.grade == null
+                  }
+                  title={
+                    selected && selected.status === 'DETECTED' && selected.grade == null
+                      ? '등급이 없는 하자입니다. 먼저 우측 «등급 수정»으로 등급을 지정하세요.'
+                      : ''
+                  }
                 >
                   이 하자 검수 확정
                 </Button>
                 </div>
               </div>
             )}
+
+            {/* 오탐 삭제 되살리기(#1399) — 액션 버튼 바로 아래. 기본 접힘이라 평소엔 한 줄만 차지한다.
+                visibleDefects 조건 밖에 둔다: 이 이미지의 하자를 전부 오탐 삭제해 화면이 비어도
+                되돌아올 자리는 남아 있어야 한다. */}
+            <DeletedDefectsPanel
+              items={currentDeletedDefects}
+              onRestore={handleOpenRestore}
+              restoringId={restoreTargetId}
+              disabled={isUpdating}
+            />
           </div>
 
           {/* Right: Analysis Panel — currentMediaGroup만 있으면 항상 렌더(#874: 하자 0건이어도
@@ -684,12 +894,18 @@ export function ResultViewerPage() {
                         </svg>
                         <span className="text-xs font-medium text-text-default">분석 요약</span>
                       </div>
-                      {data && (
+                      {/* 등급 미판정 하자는 AI 설명을 요청하지 않는다 — 프롬프트 입력이 등급이라
+                          null을 넘기면 근거 없는 설명이 나온다. 먼저 '등급 수정'으로 등급을 매기면 뜬다. */}
+                      {data && selected.grade != null ? (
                         <InspectionDefectExplainPanel
                           defectType={selected.type}
                           grade={selected.grade}
                           facilityType={data.facilityType}
                         />
+                      ) : (
+                        <div className="text-sm text-text-muted">
+                          등급이 아직 매겨지지 않은 하자입니다. &apos;등급 수정&apos;으로 등급을 지정하면 AI 분석이 표시됩니다.
+                        </div>
                       )}
                     </div>
                   </>
@@ -711,15 +927,19 @@ export function ResultViewerPage() {
                   >
                     등급 수정
                   </Button>
+                  {/* 그리기 모드 중엔 primary로 눌린 상태를 표시한다(팀 QA 요청) — secondary
+                      그대로 두면 지금 이 버튼이 켜져 있는지(캔버스가 그리기 대기 중인지) 표시가
+                      없었다. */}
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant={isDrawingMissing ? 'primary' : 'secondary'}
                     size="lg"
                     className="flex-1"
                     onClick={handleStartDrawingMissing}
                     disabled={isUpdating || isCurrentMediaReviewed || allReviewed}
+                    aria-pressed={isDrawingMissing}
                   >
-                    누락 추가
+                    {isDrawingMissing ? '그리기 중' : '누락 추가'}
                   </Button>
                 </div>
               )}
@@ -750,6 +970,16 @@ export function ResultViewerPage() {
               id="delete-reason-textarea"
               value={deleteReason}
               onChange={(e) => setDeleteReason(e.target.value)}
+              // Enter로 바로 삭제 확정(팀 QA 요청) — Shift+Enter는 그대로 줄바꿈으로 남겨둔다
+              // (여러 줄 사유를 쓰는 사람도 있어서). 삭제 버튼의 disabled 조건과 동일하게 검증한다.
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (deleteReason.trim() && !isUpdating) {
+                    void handleConfirmDeleteFalsePositive();
+                  }
+                }
+              }}
               placeholder="삭제 사유를 입력해주세요 (1-500자)"
               maxLength={500}
               className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
@@ -776,6 +1006,59 @@ export function ResultViewerPage() {
               disabled={!deleteReason.trim() || isUpdating}
             >
               삭제
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Restore Modal (#1399) — 삭제와 같은 형식으로 사유를 받는다(감사 이력 append-only) */}
+      <Modal
+        open={restoreTargetId !== undefined}
+        onClose={handleCancelRestore}
+        title="삭제한 하자 되살리기"
+        closeOnOverlayClick={!isUpdating}
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-text-muted">
+            삭제를 되돌립니다. 되살린 하자는 다시 검수 대상이 되고 보고서에도 포함됩니다.
+          </p>
+          {errorMessage && (
+            <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
+          )}
+          <div>
+            <label htmlFor="restore-reason-textarea" className="mb-2 block text-sm font-medium text-text-default">
+              되살리는 사유
+            </label>
+            <textarea
+              id="restore-reason-textarea"
+              value={restoreReason}
+              onChange={(e) => setRestoreReason(e.target.value)}
+              placeholder="되살리는 사유를 입력해주세요 (1-500자)"
+              maxLength={500}
+              className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm"
+              rows={3}
+            />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="flex-1"
+              onClick={handleCancelRestore}
+              disabled={isUpdating}
+            >
+              취소
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              className="flex-1"
+              onClick={handleConfirmRestore}
+              disabled={!restoreReason.trim() || isUpdating}
+            >
+              되살리기
             </Button>
           </div>
         </div>
@@ -934,7 +1217,7 @@ export function ResultViewerPage() {
               onClick={handleCreateMissingDefect}
               disabled={!newDefectType || !newDefectGrade || isUpdating}
             >
-              저장
+              {isUpdating ? '저장 중...' : '저장'}
             </Button>
             <Button
               type="button"

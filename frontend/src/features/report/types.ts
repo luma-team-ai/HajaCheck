@@ -5,9 +5,14 @@ export interface ReportOverview {
   purpose: string; // 점검 목적
   facility_summary: string; // 시설물 개요
   scope: string; // 점검 범위·대상 부위
+  // 원본 서식 "1.나 점검 실시결과 현황"의 `공중이 이용하는 부위의 결함` 항목. 하자 데이터에
+  // 보도·난간 등 공중이용부위 여부를 구분하는 값이 없어 자동 판정할 수 없다(#1409) — 점검자가
+  // 직접 판정해 입력한다. 미입력이면 PDF에서 빈 값을 "없음"으로 단정하지 않고 "-"로 표기한다.
+  public_use_area_defect?: string;
 }
 
 export interface ReportSummary {
+  responsible_engineer_name?: string; // 책임기술자명(서명란 표기용, 수동 수정 가능)
   overall_opinion: string; // 종합 의견
   total_count: number; // 총 하자 수
   count_by_grade: Record<string, number>; // 등급별 개수 {"A": n, ...}
@@ -15,6 +20,10 @@ export interface ReportSummary {
 }
 
 export interface DefectDetailItem {
+  // 실제 Defect.id — ai-server가 confirmed_defects의 id를 그대로 echo한다. 프론트가 사진·bbox를
+  // 배열 인덱스가 아니라 이 값으로 매칭한다(#1379). 구버전 저장분(이 필드 도입 전 생성)엔 없을 수
+  // 있어 optional — 없으면 기존 인덱스 매칭으로 폴백한다.
+  defect_id?: number;
   defect_type: string;
   location: string;
   severity_grade: string;
@@ -71,6 +80,20 @@ export interface GenericManualSectionData {
   body: string;
 }
 
+// 위치도ㆍ전경 사진ㆍ종ㆍ평면도ㆍ현황도(#1409) — 원본 서식에서 이 섹션은 텍스트가 아니라
+// 이미지 자체가 본문이다(위치 지도, 전경 사진, 도면 스캔본). 백엔드에 이미지 업로드 API가 없고
+// ERD·마이그레이션도 추가하지 않으므로, content_json(opaque jsonb)에 이미지를 base64 data URL로
+// 직접 저장한다 — 새 엔드포인트·저장소 없이 기존 저장 경로(PATCH content)만으로 왕복된다.
+// 페이로드 크기는 업로드 시 클라이언트에서 리사이즈(resizeImageToDataUrl)해 완화한다.
+export interface LocationDrawingPhotoItem {
+  dataUrl: string; // 리사이즈된 JPEG/PNG data URL
+  caption: string; // PDF에서 `< 캡션 >`으로 표기(예: "한남대교 위치도")
+}
+
+export interface LocationDrawingPhotosSectionData {
+  images: LocationDrawingPhotoItem[];
+}
+
 export type ManualSectionType =
   | 'submission'
   | 'overview-form'
@@ -87,7 +110,11 @@ export interface ManualSection {
   id: string;
   type: ManualSectionType;
   title: string;
-  data: SubmissionSectionData | ParticipantsSectionData | GenericManualSectionData;
+  data:
+    | SubmissionSectionData
+    | ParticipantsSectionData
+    | GenericManualSectionData
+    | LocationDrawingPhotosSectionData;
 }
 
 // 편집기 카드(고정 5종) + 수동 섹션을 함께 자유 순서로 배치하기 위한 키. 고정 섹션은 이 문자열

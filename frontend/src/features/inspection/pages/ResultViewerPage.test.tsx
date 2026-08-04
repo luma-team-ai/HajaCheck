@@ -1,14 +1,14 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ApiResponse } from '../../../shared/api/types';
 import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import type { DefectRevisionRequest } from '../api/inspectionApi';
-import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, MediaResponse } from '../api/inspectionApi.types';
+import type { InspectionResponse, DefectDetailItem, DefectCreateRequest, MediaResponse, DeletedDefectItem } from '../api/inspectionApi.types';
 import { ResultViewerPage } from './ResultViewerPage';
 
 // 테스트용 목 데이터
@@ -24,6 +24,15 @@ const mockInspection: InspectionResponse = {
   reviewedCount: 1,
   totalCount: 5,
 };
+
+const deletedItemOf = (
+  overrides: Partial<DeletedDefectItem> & { defect: DefectDetailItem },
+): DeletedDefectItem => ({
+  deletedReason: '그림자를 균열로 오인',
+  deletedAt: '2026-07-23T09:30:00Z',
+  deletedByName: '오영석',
+  ...overrides,
+});
 
 const mockDefects: DefectDetailItem[] = [
   {
@@ -121,6 +130,10 @@ const testHandlers = [
     const body: ApiResponse<DefectDetailItem[]> = { success: true, data: mockDefects };
     return HttpResponse.json(body);
   }),
+  http.get('/api/inspections/:id/defects/deleted', () => {
+    const body: ApiResponse<DeletedDefectItem[]> = { success: true, data: [] };
+    return HttpResponse.json(body);
+  }),
   http.get('/api/inspections/:id/media', () => {
     const mockMedia: MediaResponse[] = [
       {
@@ -212,6 +225,9 @@ afterEach(() => {
   server.resetHandlers();
   // vitest globals 미설정 환경이라 RTL 자동 cleanup이 안 걸림 — 명시 호출 필요
   cleanup();
+  // 드래그 방향 회귀 테스트가 getBoundingClientRect를 스텁하는데(vi.spyOn), 복원 안 하면
+  // 그 뒤 테스트들도 계속 고정 500x500 사각형을 받는다.
+  vi.restoreAllMocks();
 });
 afterAll(() => server.close());
 
@@ -261,13 +277,15 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5) — jsdom은 실제 로딩을 안 하므로 직접 쏴준다.
+    fireEvent.load(screen.getByAltText('점검 이미지'));
     // id=2(박리박락, confidence 0.81)를 선택
-    fireEvent.click(screen.getByTitle(/박리박락/));
+    fireEvent.click(screen.getByTitle(/박리박락 · B등급/));
     // AI 패널에서 AI response 확인
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
 
-    // 신뢰도 threshold를 0.9로 올려 id=2를 필터에서 제외
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '0.9' } });
+    // B등급 필터를 꺼서 id=2(박리박락, B등급)를 필터에서 제외(신뢰도 슬라이더는 페이즈4에서 제거)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'B' }));
 
     // 선택이 남아있는 첫 항목(id=1, 균열)으로 자동 대체된다 — AI 패널도 재렌더
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
@@ -277,8 +295,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
-    // 신뢰도 threshold를 최대로 올려 모든 하자(최고 confidence 0.98)를 필터에서 제외
-    fireEvent.change(screen.getByRole('slider'), { target: { value: '1' } });
+    // 등급 필터를 전부 꺼서 모든 하자를 필터에서 제외(신뢰도 슬라이더는 페이즈4에서 제거)
+    for (const grade of ['A', 'B', 'C', 'D', 'E']) {
+      fireEvent.click(screen.getByRole('checkbox', { name: grade }));
+    }
 
     expect(await screen.findByText('조건에 맞는 하자가 없습니다.')).not.toBeNull();
   });
@@ -339,6 +359,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     renderPage();
     await screen.findByText('DEF-0001');
+    // id=1(CONFIRMED)을 명시적으로 선택 — 기본 선택은 미확정 우선이라(페이즈7) 이제 id=1이
+    // 자동으로 선택되지 않는다.
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+    fireEvent.click(screen.getByTitle(/균열 · C등급/));
 
     const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
     expect(button.hasAttribute('disabled')).toBe(true);
@@ -360,6 +384,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     renderPage();
     await screen.findByText('DEF-0001');
+    // id=1(RESOLVED)을 명시적으로 선택 — 기본 선택은 미확정 우선이라(페이즈7) 이제 id=1이
+    // 자동으로 선택되지 않는다.
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+    fireEvent.click(screen.getByTitle(/균열 · C등급/));
 
     const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
     expect(button.hasAttribute('disabled')).toBe(true);
@@ -411,8 +439,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await screen.findByText('DEF-0001');
     expect(await screen.findByText('이미지 1/2')).not.toBeNull();
 
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5)
+    fireEvent.load(screen.getByAltText('점검 이미지'));
     // 이미지1의 유일한 DETECTED 하자(id=2, 박리박락)를 선택 후 확정
-    fireEvent.click(screen.getByTitle(/박리박락/));
+    fireEvent.click(screen.getByTitle(/박리박락 · B등급/));
     fireEvent.click(screen.getByRole('button', { name: '이 하자 검수 확정' }));
 
     // 자동 이동하지 않는다 — 안내 배너(문구만)가 뜨고, 상단 네비게이션으로 직접 이동한다(#1255).
@@ -425,6 +455,25 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(screen.getAllByRole('button', { name: '다음 이미지 →' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: '다음 이미지 →' }));
     expect(await screen.findByText('이미지 2/2')).not.toBeNull();
+  });
+
+  // PR머신 리뷰 P2 — 확정 후 자동 이동(#1255 결정 재검토)의 핵심 동작을 직접 단언한다. 기본
+  // mockDefects는 mediaId=67 한 이미지에 DETECTED가 3건(id=1 균열/98%, id=2 박리박락/81%,
+  // id=4 철근노출/58%) 섞여 있어 별도 오버라이드 없이 재현 가능하다.
+  it('확정 후 같은 이미지에 미확정 하자가 남아있으면 다음 미확정 하자로 자동 전환된다', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+
+    // 기본 선택 = 첫 미확정 하자(id=1, 균열 C등급, confidence 98%)
+    expect(await screen.findByText('98%')).not.toBeNull();
+    expect(screen.getByText('예상 길이')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '이 하자 검수 확정' }));
+
+    // id=1 확정 → 다음 미확정(id=2, 박리박락 B등급, confidence 81%)으로 자동 전환
+    expect(await screen.findByText('81%')).not.toBeNull();
+    expect(screen.getByText('면적 비율')).not.toBeNull();
   });
 
   it('이 이미지 검수가 끝나면 오탐 삭제·등급 수정·누락 추가가 잠긴다(#1255)', async () => {
@@ -498,7 +547,39 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText('이미지 2/2')).not.toBeNull();
     // 이미지 자체(DefectOverlay)는 계속 렌더되어야 한다 — 문구로 대체되면 안 됨.
     expect(screen.getByAltText('점검 이미지')).not.toBeNull();
-    expect(screen.getByText('이 이미지에 해당하는 하자가 없습니다.')).not.toBeNull();
+    // 마지막 이미지(2/2)라 '다음 이미지' 안내는 붙지 않는다.
+    expect(screen.getByText('이 이미지의 하자가 없습니다.')).not.toBeNull();
+  });
+
+  it('하자 0건 이미지가 마지막이 아니면 다음 이미지로 가라는 안내가 붙는다', async () => {
+    // 하자 0건 이미지에서는 검수할 게 없어 버튼이 전부 비활성이라, 다음 행동을 문구로 알려야 한다.
+    // 앞에 0건 이미지(66)를 하나 더 둬서 "0건 + 마지막 아님" 조합을 만든다.
+    server.use(
+      http.get('/api/inspections/:id/media', () => {
+        const media: MediaResponse[] = [66, 67, 68].map((id) => ({
+          id,
+          inspectionId: 1,
+          fileType: 'IMAGE' as const,
+          thumbnailUrl: `/api/media/${id}/thumbnail`,
+          detailUrl: `/api/media/${id}/detail`,
+          mimeType: 'image/jpeg',
+          capturedAt: '2026-07-22T10:00:00Z',
+          gpsLat: null,
+          gpsLng: null,
+          createdAt: '2026-07-22T10:00:00Z',
+        }));
+        const body: ApiResponse<MediaResponse[]> = { success: true, data: media };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+    // 첫 이미지(66)는 하자 0건이고 뒤에 이미지가 더 있다.
+    expect(await screen.findByText('이미지 1/3')).not.toBeNull();
+    expect(
+      screen.getByText("이 이미지의 하자가 없습니다. 상단의 '다음 이미지' 버튼으로 이동하세요."),
+    ).not.toBeNull();
   });
 
   it('하자 0건 이미지에서도 누락추가 버튼이 계속 보인다(#874)', async () => {
@@ -507,7 +588,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
     fireEvent.click(screen.getByRole('button', { name: '다음 이미지 →' }));
-    await screen.findByText('이 이미지에 해당하는 하자가 없습니다.');
+    await screen.findByText('이 이미지의 하자가 없습니다.');
 
     const button = screen.getByRole('button', { name: '누락 추가' });
     expect(button.hasAttribute('disabled')).toBe(false);
@@ -530,6 +611,52 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(button.hasAttribute('disabled')).toBe(false);
   });
 
+  // #1397 — #1396으로 grade=null 하자를 처음으로 선택할 수 있게 되면서 생긴 구멍.
+  // 등급 없이 확정하면 status가 DETECTED를 벗어나 '등급 수정'까지 잠기고(영구 미분류 고착),
+  // 앱 어디에도 다른 등급 편집 UI가 없다.
+  describe('등급 미판정(grade=null) 하자', () => {
+    const ungradedOnly = [
+      { ...mockDefects[0], id: 40, grade: null, status: 'DETECTED' as const, isReviewed: false },
+    ] as DefectDetailItem[];
+
+    function useUngraded(): void {
+      server.use(
+        http.get('/api/inspections/:id/defects', () => {
+          const body: ApiResponse<DefectDetailItem[]> = { success: true, data: ungradedOnly };
+          return HttpResponse.json(body);
+        }),
+      );
+    }
+
+    it('검수 확정 버튼이 비활성화된다', async () => {
+      useUngraded();
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(
+        screen.getByRole('button', { name: '이 하자 검수 확정' }).hasAttribute('disabled'),
+      ).toBe(true);
+    });
+
+    it('등급 수정 버튼은 활성 상태로 남아 복구 경로가 열려 있다', async () => {
+      useUngraded();
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(screen.getByRole('button', { name: '등급 수정' }).hasAttribute('disabled')).toBe(false);
+    });
+
+    it('왜 확정할 수 없는지 안내 문구가 보인다', async () => {
+      useUngraded();
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(
+        await screen.findByText(/등급이 지정되지 않은 하자입니다/),
+      ).not.toBeNull();
+    });
+  });
+
   it('하자 마커 클릭 → AI 패널 요약 텍스트가 선택된 하자로 갱신된다', async () => {
     renderPage();
     await screen.findByText('DEF-0001');
@@ -537,8 +664,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     // 초기 상태: id=1(균열)의 AI 설명 표시
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
 
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5)
+    fireEvent.load(screen.getByAltText('점검 이미지'));
     // id=2(박리박락) 마커 클릭
-    const secondDefectButton = screen.getByTitle(/박리박락/);
+    const secondDefectButton = screen.getByTitle(/박리박락 · B등급/);
     fireEvent.click(secondDefectButton);
 
     // AI 패널의 설명이 id=2로 갱신됨 (같은 mock 응답 재사용)
@@ -560,8 +689,10 @@ describe('ResultViewerPage (통합 테스트)', () => {
     renderPage();
     await screen.findByText('DEF-0001');
 
+    // 박스는 이미지 로드 완료 후에만 그려진다(페이즈5)
+    fireEvent.load(screen.getByAltText('점검 이미지'));
     // id=2(박리박락) 마커 클릭 — areaRatio 미제공이라 '준비 중'으로 표시된다.
-    fireEvent.click(screen.getByTitle(/박리박락/));
+    fireEvent.click(screen.getByTitle(/박리박락 · B등급/));
 
     expect(screen.getByText('면적 비율')).not.toBeNull();
     expect(screen.getByText('준비 중')).not.toBeNull();
@@ -710,6 +841,71 @@ describe('ResultViewerPage (통합 테스트)', () => {
     });
   });
 
+  // PR머신 리뷰 P2 — "오른쪽에서 왼쪽으로 끄는 드래그에서 시작점을 잃는" 버그 픽스(고정
+  // drawStartRef + window 레벨 mousemove/mouseup)의 회귀 테스트. jsdom은 실제 레이아웃을 안 해
+  // getBoundingClientRect가 기본 all-zero라 좌표 계산이 0으로 나뉘므로, 이 테스트에서만 고정
+  // 사각형(500x500)으로 스텁한다(DefectImageViewer.test.tsx와 동일 패턴).
+  it('그리기 모드에서 오른쪽→왼쪽으로 드래그해도 시작점 기준으로 박스가 올바르게 계산된다', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 500,
+      height: 500,
+      top: 0,
+      right: 500,
+      bottom: 500,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    let capturedBody: DefectCreateRequest | undefined;
+    server.use(
+      http.post('/api/inspections/:id/defects', async ({ request }) => {
+        capturedBody = (await request.json()) as DefectCreateRequest;
+        const newDefect: DefectDetailItem = {
+          id: 999,
+          inspectionId: 1,
+          type: capturedBody.type,
+          grade: capturedBody.grade,
+          confidence: 1.0,
+          status: 'DETECTED',
+          isReviewed: false,
+          bboxX: capturedBody.bboxX ?? null,
+          bboxY: capturedBody.bboxY ?? null,
+          bboxW: capturedBody.bboxW ?? null,
+          bboxH: capturedBody.bboxH ?? null,
+          createdAt: new Date().toISOString(),
+        };
+        return HttpResponse.json({ success: true, data: newDefect }, { status: 201 });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+
+    fireEvent.click(screen.getByRole('button', { name: '누락 추가' }));
+    await screen.findByText('이미지 위에 드래그해서 하자 위치를 표시하세요.');
+    const canvas = screen.getByAltText('점검 이미지').parentElement as HTMLElement;
+
+    // 오른쪽(x=400, 80%)에서 시작해 왼쪽(x=100, 20%)으로 끈다 — 시작점(0.8)이 고정 ref로
+    // 유지돼야 최종 박스 x가 min(0.8, 0.2)=0.2, width가 abs(0.2-0.8)=0.6이 된다.
+    fireEvent.mouseDown(canvas, { clientX: 400, clientY: 100 });
+    fireEvent.mouseMove(window, { clientX: 250, clientY: 150 });
+    fireEvent.mouseMove(window, { clientX: 100, clientY: 200 });
+    fireEvent.mouseUp(window, { clientX: 100, clientY: 200 });
+
+    await screen.findByText('누락된 하자 추가');
+    const selects = screen.getAllByDisplayValue(/유형 선택|등급 선택/);
+    fireEvent.change(selects[0], { target: { value: 'CRACK' } });
+    fireEvent.change(selects[1], { target: { value: 'A' } });
+    fireEvent.click(screen.getAllByRole('button', { name: '저장' }).pop()!);
+
+    await waitFor(() => expect(capturedBody).not.toBeUndefined());
+    expect(capturedBody?.bboxX).toBeCloseTo(0.2);
+    expect(capturedBody?.bboxW).toBeCloseTo(0.6);
+  });
+
   it('모달에서 취소하면 API 호출 없이 모달이 닫힌다 (#622)', async () => {
     let postCalled = false;
     server.use(
@@ -819,6 +1015,36 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(button.hasAttribute('disabled')).toBe(false);
     // 비활성 사유 툴팁("n/m 하자 검수 확정 필요")이 남아 있으면 안 된다.
     expect(button.getAttribute('title')).toBe('');
+
+    fireEvent.click(button);
+    expect(await screen.findByText('보고서 진입점 프로브')).not.toBeNull();
+  });
+
+  it('검수 확정(confirm-review) API가 실패해도 보고서 진입점으로 이동한다 (PR #1429 P2)', async () => {
+    // 서버는 REVIEWED/REPORTED에 멱등이라 실패해도 다음 재진입 때 자연히 재시도된다 —
+    // 확정 실패를 하드 블로커로 두면 "검수 다 끝낸 회차인데 확정 API만 실패해서 보고서
+    // 화면에 영영 못 들어감"이라는 막다른 길이 생기므로 실패해도 이동은 막지 않는다.
+    const allConfirmedDefects: DefectDetailItem[] = mockDefects.map((d) => ({
+      ...d,
+      status: 'CONFIRMED' as const,
+      isReviewed: true,
+    }));
+
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: allConfirmedDefects };
+        return HttpResponse.json(body);
+      }),
+      http.post('/api/inspections/:id/confirm-review', () =>
+        HttpResponse.json({ success: false, error: { message: '다른 요청과 충돌했습니다.' } }, { status: 409 }),
+      ),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    const button = screen.getByRole('button', { name: '점검 요약' });
+    expect(button.hasAttribute('disabled')).toBe(false);
 
     fireEvent.click(button);
     expect(await screen.findByText('보고서 진입점 프로브')).not.toBeNull();
@@ -1238,6 +1464,79 @@ describe('ResultViewerPage (통합 테스트)', () => {
     await waitFor(() => {
       const updated = screen.getByAltText('점검 이미지') as HTMLImageElement;
       expect(updated.src).toContain('/api/media/68/detail');
+    });
+  });
+
+  // #1399 — 오탐 삭제 사유는 저장돼 있었지만 모든 조회가 is_deleted=false 필터라 어느 화면에서도
+  // 읽을 수 없었고, 되돌릴 방법도 없었다.
+  describe('오탐 삭제 되살리기', () => {
+    function useDeleted(items: DeletedDefectItem[]): void {
+      server.use(
+        http.get('/api/inspections/:id/defects/deleted', () => {
+          const body: ApiResponse<DeletedDefectItem[]> = { success: true, data: items };
+          return HttpResponse.json(body);
+        }),
+      );
+    }
+
+    it('삭제된 하자가 없으면 패널 자체가 보이지 않는다', async () => {
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(screen.queryByText(/삭제된 하자/)).toBeNull();
+    });
+
+    it('건수만 보이다가 펼치면 사유·삭제자가 드러난다', async () => {
+      useDeleted([deletedItemOf({ defect: { ...mockDefects[0], id: 50 } })]);
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      const toggle = await screen.findByText(/이 이미지에서 삭제된 하자 1건/);
+      // 접힌 상태에서는 사유가 노출되지 않는다.
+      expect(screen.queryByText(/그림자를 균열로 오인/)).toBeNull();
+
+      fireEvent.click(toggle);
+
+      expect(screen.getByText(/그림자를 균열로 오인/)).not.toBeNull();
+      expect(screen.getByText(/오영석/)).not.toBeNull();
+    });
+
+    it('다른 이미지에서 삭제된 하자는 섞이지 않는다', async () => {
+      // mediaId=68은 현재 보고 있는 이미지(67)가 아니다.
+      useDeleted([deletedItemOf({ defect: { ...mockDefects[0], id: 51, mediaId: 68 } })]);
+      renderPage();
+      await screen.findByText('DEF-0001');
+
+      expect(screen.queryByText(/삭제된 하자/)).toBeNull();
+    });
+
+    it('되살리기를 누르면 사유 모달이 열리고 확인 시 복구를 요청한다', async () => {
+      useDeleted([deletedItemOf({ defect: { ...mockDefects[0], id: 52 } })]);
+      let restoreBody: Record<string, unknown> | undefined;
+      server.use(
+        http.patch('/api/defects/:id', async ({ request, params }) => {
+          restoreBody = { id: params.id, ...(await request.json() as Record<string, unknown>) };
+          const body: ApiResponse<DefectDetailItem> = { success: true, data: mockDefects[0] };
+          return HttpResponse.json(body);
+        }),
+      );
+
+      renderPage();
+      await screen.findByText('DEF-0001');
+      fireEvent.click(await screen.findByText(/이 이미지에서 삭제된 하자 1건/));
+      fireEvent.click(screen.getByRole('button', { name: '되살리기' }));
+
+      // 서버가 사유를 필수로 받으므로 기본 문구가 채워진 채 열린다(한 번 눌러 끝낼 수 있게).
+      const dialog = await screen.findByRole('dialog');
+      const textarea = within(dialog).getByLabelText('되살리는 사유');
+      expect((textarea as HTMLTextAreaElement).value).toBe('오탐 판정 취소');
+
+      // 목록의 '되살리기'와 모달 확인 버튼이 같은 이름이라 모달 안으로 한정해 누른다.
+      fireEvent.click(within(dialog).getByRole('button', { name: '되살리기' }));
+
+      await waitFor(() => {
+        expect(restoreBody).toEqual({ id: '52', isDeleted: false, reason: '오탐 판정 취소' });
+      });
     });
   });
 });

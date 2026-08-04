@@ -4,6 +4,7 @@ import { mockFacilities } from '../mocks/facility.mock';
 import type {
   CreateFacilityRequest,
   Facility,
+  FacilityInspectionOverviewApiResponse,
   FacilityStatusRow,
   InspectionNotificationSettings,
   SetFacilityScheduleRequest,
@@ -281,6 +282,80 @@ export const facilityHandlers = [
     notificationSettingsByFacilityId.set(id, reqBody);
 
     const body: ApiResponse<InspectionNotificationSettings> = { success: true, data: reqBody };
+    return HttpResponse.json(body);
+  }),
+
+  // 시설물 상세 "점검 이력" 탭 실 API(#1359/HAJA-616) — 데모는 시설물 id=1만 회차 이력을 갖는다
+  // (구 프론트 로컬 목 facilityInspectionOverview.mock.ts와 동일한 데모 데이터, 실 API 전환으로 이관).
+  http.get('/api/facilities/:id/inspections', ({ params }) => {
+    const id = Number(params.id);
+    const target = facilities.find((facility) => facility.id === id);
+
+    if (!target) {
+      const failure: ApiResponse<null> = {
+        success: false,
+        data: null,
+        error: { code: 'FACILITY_NOT_FOUND', message: '시설물을 찾을 수 없습니다.' },
+      };
+      return HttpResponse.json(failure, { status: 404 });
+    }
+
+    if (id !== 1) {
+      const body: ApiResponse<FacilityInspectionOverviewApiResponse> = {
+        success: true,
+        data: { overallGrade: null, totalRounds: 0, cumulativeDefectCount: 0, unresolvedDefectCount: 0, history: [] },
+      };
+      return HttpResponse.json(body);
+    }
+
+    const body: ApiResponse<FacilityInspectionOverviewApiResponse> = {
+      success: true,
+      data: {
+        overallGrade: 'D',
+        totalRounds: 8,
+        cumulativeDefectCount: 43,
+        unresolvedDefectCount: 12,
+        history: [
+          {
+            id: 8,
+            roundNo: 8,
+            inspectionDate: '2026-06-21',
+            inspectorName: '이엔지',
+            status: '검수완료',
+            imageCount: 214,
+            defectGradeBreakdown: [
+              { grade: 'E', count: 1 },
+              { grade: 'D', count: 3 },
+              { grade: 'C', count: 8 },
+            ],
+            changeNote: '이전 회차 대비 신규 하자 +4건 · 진행성 2건',
+          },
+          {
+            id: 7,
+            roundNo: 7,
+            inspectionDate: '2025-12-10',
+            inspectorName: '내부점검',
+            status: '완료',
+            imageCount: 180,
+            defectGradeBreakdown: [
+              { grade: 'D', count: 2 },
+              { grade: 'C', count: 6 },
+            ],
+            changeNote: null,
+          },
+          {
+            id: 6,
+            roundNo: 6,
+            inspectionDate: '2025-06-15',
+            inspectorName: '이엔지',
+            status: '완료',
+            imageCount: 155,
+            defectGradeBreakdown: [{ grade: 'C', count: 5 }],
+            changeNote: null,
+          },
+        ],
+      },
+    };
     return HttpResponse.json(body);
   }),
 ];

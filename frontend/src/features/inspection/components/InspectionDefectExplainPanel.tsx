@@ -18,7 +18,15 @@ export function InspectionDefectExplainPanel({ defectType, grade, facilityType }
   });
 
   if (isLoading) {
-    return <AILoadingIndicator message="AI가 하자 원인과 조치 방안을 분석하고 있습니다..." />;
+    // 로딩 상태를 결과와 같은 박스(테두리·배경)로 감싼다(팀 QA 요청) — 예전엔 이 로딩이 일반
+    // 회색 스피너뿐이라, 누락 추가 저장 직후 이 패널이 왜 비어 보이는지(=AI가 진짜 분석 중인지)
+    // 눈에 잘 안 띄었다. 완성됐을 때의 결과 박스와 같은 모양으로 미리 보여주면 "여기서 뭔가
+    // 채워지는 중"이라는 게 더 분명해진다.
+    return (
+      <div className="rounded-xl border border-warning-soft-border bg-warning-soft-bg p-4">
+        <AILoadingIndicator message="AI가 하자 원인과 조치 방안을 분석하고 있습니다..." />
+      </div>
+    );
   }
 
   if (isError) {

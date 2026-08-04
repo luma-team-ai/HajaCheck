@@ -87,7 +87,12 @@ interface ActiveRound {
 async function findActiveRound(facilityId: number): Promise<ActiveRound | null> {
   try {
     const res = await inspectionApi.listByFacility(facilityId);
-    const activeRounds = res.data.content.filter((item) => item.status !== 'REPORTED');
+    // REVIEWED도 "완료"로 본다 — "점검 요약" 진입 시 회차 검수가 이미 확정되므로(ResultViewerPage
+    // confirmReview), 최종 보고서 확정(REPORTED) 전이라고 계속 "진행 중"으로 잡으면 검수 다 끝낸
+    // 회차를 두고도 새 회차를 만들 때마다 이 경고가 뜬다.
+    const activeRounds = res.data.content.filter(
+      (item) => item.status !== 'REPORTED' && item.status !== 'REVIEWED',
+    );
     if (activeRounds.length === 0) return null;
     return activeRounds.reduce((latest, item) => (item.roundNo > latest.roundNo ? item : latest));
   } catch {
@@ -228,12 +233,42 @@ export function InspectionCreatePage() {
   // 첨부 파일(Blob)은 sessionStorage 용량을 훌쩍 넘길 수 있어 IndexedDB에 별도 저장한다.
   // 위 복원 effect가 끝나기 전에는(hasHydratedMediaRef.current === false) 쓰지 않는다 — 마운트
   // 직후 mediaFiles 초기값([])으로 먼저 저장해버리면 복원 대상 파일을 지울 수 있다(PR 리뷰 P2).
+  // 저장은 매번 현재 mediaFiles 전체(Blob 포함)를 다시 쓴다 — 파일을 여러 번에 나눠 추가하거나
+  // 한 장씩 삭제하면 그때마다 이미 저장돼 있던 파일까지 통째로 재직렬화돼 파일 수가 많을수록
+  // 느려진다. 짧은 디바운스로 연속된 추가/삭제를 한 번의 저장으로 묶는다(형식 변경 없이 호출
+  // 빈도만 줄임 — delta 저장으로 바꾸는 근본 개선은 더 큰 구조 변경이라 범위 밖).
+  const saveDraftMediaTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  // 디바운스 대기 중인 저장이 있는지 + 그 시점의 최신 mediaFiles(언마운트 시 flush용, 아래 별도
+  // effect 참고) — PR머신 리뷰 P2: 파일 추가 직후(400ms 이내) 사이드바 이탈 등으로 언마운트되면
+  // 대기 중이던 저장이 그대로 유실됐다(취소만 하고 flush를 안 함).
+  const hasPendingDraftSaveRef = useRef(false);
+  const mediaFilesRef = useRef(mediaFiles);
+  mediaFilesRef.current = mediaFiles;
+
   useEffect(() => {
     if (hasSubmittedRef.current || !hasHydratedMediaRef.current) {
       return;
     }
-    void saveDraftMediaFiles(mediaFiles.map((entry) => entry.file));
+    clearTimeout(saveDraftMediaTimerRef.current);
+    hasPendingDraftSaveRef.current = true;
+    saveDraftMediaTimerRef.current = setTimeout(() => {
+      hasPendingDraftSaveRef.current = false;
+      void saveDraftMediaFiles(mediaFiles.map((entry) => entry.file));
+    }, 400);
+    // 이 cleanup은 mediaFiles가 바뀔 때마다도 실행되므로(디바운스 재시작) 여기서 flush하면 안 된다
+    // — 아래 별도 effect(deps [])가 "진짜 언마운트"만 담당한다.
+    return () => clearTimeout(saveDraftMediaTimerRef.current);
   }, [mediaFiles]);
+
+  // 언마운트 시 대기 중이던 저장을 즉시 flush한다(PR머신 리뷰 P2) — deps가 없어 cleanup이 정말
+  // 언마운트될 때만 실행된다. 제출 성공 후엔 초안을 이미 지웠으므로(clearDraftMediaFiles) flush하지 않는다.
+  useEffect(() => {
+    return () => {
+      if (hasPendingDraftSaveRef.current && !hasSubmittedRef.current) {
+        void saveDraftMediaFiles(mediaFilesRef.current.map((entry) => entry.file));
+      }
+    };
+  }, []);
 
   // 언마운트 시 대기 중인 "임시저장됨" 안내 타이머 정리(SideNavBar notice와 동일 패턴).
   useEffect(() => {

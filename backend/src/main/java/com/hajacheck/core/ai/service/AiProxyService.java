@@ -17,9 +17,12 @@ import com.hajacheck.core.ai.dto.RagChatAiEnvelope;
 import com.hajacheck.core.ai.dto.RagChatAiRequest;
 import com.hajacheck.core.ai.dto.RagChatRequest;
 import com.hajacheck.core.ai.dto.RagChatResponse;
+import com.hajacheck.core.ai.dto.RagDeleteAiEnvelope;
 import com.hajacheck.core.ai.dto.RagEmbedAiEnvelope;
 import com.hajacheck.core.ai.dto.RagEmbedRequest;
 import com.hajacheck.core.ai.dto.RagEmbedResponse;
+import com.hajacheck.core.ai.dto.RagEmbeddingStatusAiEnvelope;
+import com.hajacheck.core.ai.dto.RagEmbeddingStatusResponse;
 import com.hajacheck.core.ai.dto.ReportAiEnvelope;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
@@ -57,6 +60,8 @@ public class AiProxyService {
     private static final String BUSINESS_LICENSE_OCR_PATH = "/ai/business-license-ocr";
     private static final String RAG_CHAT_PATH = "/ai/rag-chat";
     private static final String RAG_EMBED_PATH = "/ai/rag-documents/embed";
+    private static final String RAG_EMBEDDING_STATUS_PATH = "/ai/rag-documents/{docId}/embedding-status";
+    private static final String RAG_DELETE_PATH = "/ai/rag-documents/{docId}";
     private static final String DETECT_DEFECTS_PATH = "/ai/detect-defects";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
 
@@ -64,6 +69,7 @@ public class AiProxyService {
     private final AiServerProperties aiServerProperties;
     private final BriefingStatsService briefingStatsService;
     private final AiProxyRateLimiter aiProxyRateLimiter;
+    private final RestClient aiServerEmbeddingStatusRestClient;
 
     /**
      * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
@@ -332,6 +338,87 @@ public class AiProxyService {
                     .body(request)
                     .retrieve()
                     .body(RagEmbedAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * RAG 문서 백그라운드 임베딩 완료 여부 확인 프록시(#1328) — RagEmbeddingCompletionPoller가 짧은
+     * 간격으로 재시도 폴링한다. read-only 조회라 rate-limit을 걸지 않는다(embedRagDocument와 동일하게
+     * 관리자 콘솔 내부 호출 경로 — 사용자 축 rate-limit 대상이 아님).
+     */
+    public ApiResponse<RagEmbeddingStatusResponse> checkEmbeddingStatus(String docId, String collection) {
+        RagEmbeddingStatusAiEnvelope envelope = callEmbeddingStatus(docId, collection);
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+
+        if (!envelope.success()) {
+            RagEmbeddingStatusAiEnvelope.ErrorBody error = envelope.error();
+            if (error == null) {
+                throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+            }
+            return ApiResponse.fail(error.code(), error.message());
+        }
+
+        if (envelope.data() == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        return ApiResponse.ok(envelope.data());
+    }
+
+    private RagEmbeddingStatusAiEnvelope callEmbeddingStatus(String docId, String collection) {
+        try {
+            return aiServerEmbeddingStatusRestClient.get()
+                    .uri(RAG_EMBEDDING_STATUS_PATH + "?target_collection={collection}", docId, collection)
+                    .headers(this::attachInternalKeyIfPresent)
+                    .retrieve()
+                    .body(RagEmbeddingStatusAiEnvelope.class);
+        } catch (ResourceAccessException e) {
+            throw mapConnectionFailure(e);
+        } catch (RestClientResponseException e) {
+            throw mapResponseStatusFailure(e);
+        } catch (RestClientException e) {
+            log.warn("AI 서버 응답 처리 실패: {}", ErrorCode.AI_INVALID_RESPONSE, e);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    /**
+     * RAG 문서 Chroma 청크 삭제 프록시(#1394) — RagDocumentService가 DB 로우·파일을 지우기 전에 먼저
+     * 호출한다. FastAPI {@code delete_document()}는 chromadb {@code where} 삭제라 매치 0건이어도
+     * 에러 없이 성공하므로(idempotent), 이 호출이 실패해도 DB/파일은 아직 건드리지 않은 상태이고
+     * 재시도하면 그대로 수렴한다(RagDocumentService.delete() javadoc 참고).
+     */
+    public void deleteRagDocumentChunks(String docId, String targetCollection) {
+        RagDeleteAiEnvelope envelope = callDeleteAiServer(docId, targetCollection);
+        if (envelope == null) {
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+        if (!envelope.success()) {
+            RagDeleteAiEnvelope.ErrorBody error = envelope.error();
+            String code = error != null ? error.code() : "UNKNOWN";
+            String message = error != null ? error.message() : null;
+            log.warn("AI 서버 RAG 문서 삭제 실패 code={} message={}", code, message);
+            throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
+        }
+    }
+
+    private RagDeleteAiEnvelope callDeleteAiServer(String docId, String targetCollection) {
+        try {
+            return aiServerRestClient.delete()
+                    .uri(uriBuilder -> uriBuilder.path(RAG_DELETE_PATH)
+                            .queryParam("target_collection", targetCollection)
+                            .build(docId))
+                    .headers(this::attachInternalKeyIfPresent)
+                    .retrieve()
+                    .body(RagDeleteAiEnvelope.class);
         } catch (ResourceAccessException e) {
             throw mapConnectionFailure(e);
         } catch (RestClientResponseException e) {

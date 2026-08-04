@@ -12,8 +12,8 @@
 - 프롬프트에 고객사 정보(시설명·위치·하자내용)가 들어가지만, LangSmith 전송은 전역 입출력
   마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)으로 차단한다 — #1240
 """
+import concurrent.futures
 import logging
-from collections import Counter
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -74,6 +74,10 @@ class ReportSummary(BaseModel):
 
 
 class DefectDetailItem(BaseModel):
+    # confirmed_defects 목록에 실린 id를 그대로 echo — 프론트가 이 값으로 실제 Defect(사진·bbox)와
+    # 재조립 없이 1:1 매칭한다(점검 회차 생성 플로우가 bbox·id를 같은 객체에 묶어두는 패턴과 동일 원칙,
+    # PR머신 P1 후속: 인덱스 기반 매칭은 detail.items 순서가 confirmed_defects와 어긋나면 깨졌었다).
+    defect_id: int
     defect_type: str
     location: str
     severity_grade: str
@@ -204,7 +208,7 @@ def _format_defects_list(confirmed_defects: list[dict]) -> str:
     lines = []
     for i, d in enumerate(confirmed_defects, start=1):
         lines.append(
-            f"{i}. 유형: {d.get('defect_type', '-')} / 위치: {d.get('location', '-')} / "
+            f"{i}. id: {d.get('id', '-')} / 유형: {d.get('defect_type', '-')} / 위치: {d.get('location', '-')} / "
             f"등급: {d.get('severity_grade', '-')} / 설명: {d.get('description', '-')}"
         )
     return _wrap_untrusted("\n".join(lines))
@@ -248,7 +252,8 @@ def _run_summary_chain(confirmed_defects: list[dict]) -> ReportSummary:
     return get_llm().with_structured_output(ReportSummary, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
 
 
-# ── detail ──
+DETAIL_CHUNK_SIZE = 15
+
 
 def _build_prompt_detail(confirmed_defects: list[dict]) -> str:
     system = (PROMPTS_DIR / "_system_base.md").read_text(encoding="utf-8")
@@ -260,10 +265,97 @@ def _build_prompt_detail(confirmed_defects: list[dict]) -> str:
     return f"{system}\n\n{filled}"
 
 
-def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
-    prompt = _build_prompt_detail(confirmed_defects)
-    # confirmed_defects(하자내용 등 회사정보)가 프롬프트에 섞이므로 캐시 TTL을 짧게 둔다(#623 P2 픽스).
+def _run_detail_chain_chunk(chunk: list[dict]) -> ReportDetail:
+    prompt = _build_prompt_detail(chunk)
     return get_llm().with_structured_output(ReportDetail, ttl=SHORT_CACHE_TTL_SECONDS).invoke(prompt)
+
+
+def _fallback_detail_item(defect: dict) -> DefectDetailItem:
+    defect_type = str(defect.get("defect_type", "") or "-").strip()
+    location = str(defect.get("location", "") or "-").strip()
+    severity_grade = str(defect.get("severity_grade", "") or "-").strip()
+    description = str(defect.get("description", "") or "-").strip()
+    return DefectDetailItem(
+        defect_id=int(defect.get("id")),
+        defect_type=defect_type,
+        location=location,
+        severity_grade=severity_grade,
+        description=description,
+        cause=(
+            "입력된 하자 유형·위치·등급 정보를 기준으로 한 보수적 원인 추정입니다. "
+            "현장 사진과 점검 기록을 함께 검토해 원인을 확정해야 합니다."
+        ),
+    )
+
+
+def _repair_detail_items(items: list[DefectDetailItem], confirmed_defects: list[dict]) -> ReportDetail:
+    confirmed_by_id = {d.get("id"): d for d in confirmed_defects}
+    valid_by_id: dict[Any, DefectDetailItem] = {}
+    dropped_count = 0
+
+    for item in items:
+        confirmed = confirmed_by_id.get(item.defect_id)
+        if confirmed is None or item.defect_id in valid_by_id:
+            dropped_count += 1
+            continue
+        if _detail_content_key(item.defect_type, item.severity_grade) != _detail_content_key(
+            confirmed.get("defect_type", ""), confirmed.get("severity_grade", "")
+        ):
+            dropped_count += 1
+            continue
+        valid_by_id[item.defect_id] = item
+
+    repaired_items: list[DefectDetailItem] = []
+    fallback_count = 0
+    for defect in confirmed_defects:
+        item = valid_by_id.get(defect.get("id"))
+        if item is None:
+            fallback_count += 1
+            item = _fallback_detail_item(defect)
+        repaired_items.append(item)
+
+    if fallback_count or dropped_count:
+        logger.warning(
+            "detail 섹션 LLM 출력 보정 — fallback=%d, dropped=%d, llm_items=%d, confirmed=%d",
+            fallback_count,
+            dropped_count,
+            len(items),
+            len(confirmed_defects),
+        )
+    return ReportDetail(items=repaired_items)
+
+
+def _run_detail_chain(confirmed_defects: list[dict]) -> ReportDetail:
+    if not confirmed_defects:
+        return ReportDetail(items=[])
+
+    if len(confirmed_defects) <= DETAIL_CHUNK_SIZE:
+        # 단일 호출 경로는 원본 그대로 반환한다 — 불일치 판정/재생성(node_detail_validation·
+        # node_detail_retry, #1379)이 이 원본을 보고 판단해야 하므로 여기서 미리 repair해 버리면
+        # 그 안전장치가 항상 "일치"로만 보게 되어 재생성도, 최종 VALIDATION_ERROR도 트리거되지
+        # 않는다(PR머신 CI 회귀 — test_detail_item_count_mismatch_returns_validation_error 등).
+        # repair는 아래 멀티청크 경로에서만 적용한다(청크 분할 자체가 개별 청크 누락을 구조적으로
+        # 유발하므로, 그 경우엔 하나 놓쳤다고 70건 전체를 재생성/실패시키는 대신 항목 단위로 보정).
+        return _run_detail_chain_chunk(confirmed_defects)
+
+    # 대용량 하자(예: 70건)는 단일 LLM 출력 토큰 한도로 인해 cut-off(예: 21건만 출력)되는 문제를 방지하기 위해
+    # 15건 단위 청크로 분할 후 병렬로 호출해 결합한다.
+    chunks = [
+        confirmed_defects[i : i + DETAIL_CHUNK_SIZE]
+        for i in range(0, len(confirmed_defects), DETAIL_CHUNK_SIZE)
+    ]
+
+    all_items: list[DefectDetailItem] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(chunks), 5)) as executor:
+        futures = [executor.submit(_run_detail_chain_chunk, chunk) for chunk in chunks]
+        for future in concurrent.futures.as_completed(futures):
+            res = future.result()
+            all_items.extend(res.items)
+
+    # confirmed_defects 순서에 맞게 id 기준 정렬
+    id_order = {d.get("id"): idx for idx, d in enumerate(confirmed_defects)}
+    all_items.sort(key=lambda item: id_order.get(item.defect_id, 999999))
+    return _repair_detail_items(all_items, confirmed_defects)
 
 
 # ── recommendation (+ RAG, vectorstore 미구현 시 "관련 근거 없음" 폴백) ──
@@ -367,18 +459,29 @@ def _detail_content_key(defect_type: str, severity_grade: str) -> tuple[str, str
 
 
 def _detail_matches_confirmed(items: list[DefectDetailItem], confirmed_defects: list[dict]) -> bool:
-    """detail.items가 confirmed_defects와 순서 무관하게 내용까지 일치하는지 검증한다(PR머신 P2).
+    """detail.items가 confirmed_defects와 id 기준으로 정확히 1:1 대응하는지 검증한다.
 
-    기존에는 `len(detail.items) != len(confirmed_defects)` 개수만 비교해, 개수는 맞지만 유형·등급이
-    뒤바뀌거나 창작된 경우(예: 실제로는 균열/B인데 박리/C로 응답)를 잡아내지 못했다. confirmed_defects에
-    안정적인 식별자(id)가 없으므로 defect_type+severity_grade 조합의 멀티셋(Counter)으로 비교한다 —
-    완벽한 항목 단위 매칭(어떤 detail item이 어떤 confirmed_defect에 대응하는지)까지는 과설계이므로 하지 않는다.
+    이전에는 confirmed_defects에 안정적인 식별자(id)가 없어 defect_type+severity_grade 조합의
+    멀티셋(Counter)으로만 비교했다 — 개수·내용은 맞아도 "어떤 detail item이 실제로 어떤 확정 하자를
+    가리키는지"는 알 수 없었고, 프론트가 이걸 배열 인덱스로 재조립하다 순서가 어긋나면(재생성 등으로
+    LLM이 순서를 바꾸면) 엉뚱한 하자의 사진·bbox가 표시되는 버그로 이어졌다(#1379). 이제 백엔드가
+    항상 실제 Defect.id를 함께 보내므로, id로 1:1 매칭하고 그 id에 대응하는 유형/등급까지 일치하는지
+    확인한다 — 없는 id를 지어내거나 중복 echo하면 그대로 불일치로 판정된다.
     """
-    detail_counter = Counter(_detail_content_key(item.defect_type, item.severity_grade) for item in items)
-    confirmed_counter = Counter(
-        _detail_content_key(d.get("defect_type", ""), d.get("severity_grade", "")) for d in confirmed_defects
-    )
-    return detail_counter == confirmed_counter
+    confirmed_by_id = {d.get("id"): d for d in confirmed_defects}
+    if len(confirmed_by_id) != len(confirmed_defects) or len(items) != len(confirmed_defects):
+        return False
+    seen_ids: set[Any] = set()
+    for item in items:
+        confirmed = confirmed_by_id.get(item.defect_id)
+        if confirmed is None or item.defect_id in seen_ids:
+            return False
+        seen_ids.add(item.defect_id)
+        if _detail_content_key(item.defect_type, item.severity_grade) != _detail_content_key(
+            confirmed.get("defect_type", ""), confirmed.get("severity_grade", "")
+        ):
+            return False
+    return True
 
 
 def _to_grounding_defects(confirmed_defects: list[dict]) -> list[GroundingDefect]:

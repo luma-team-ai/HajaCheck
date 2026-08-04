@@ -42,10 +42,17 @@ export function useInspectionResultReal(inspectionId: number) {
         queryFn: () => inspectionApi.getMedia(inspectionId).then((res) => res.data),
         enabled: isValidId,
       },
+      {
+        // 오탐 삭제된 하자(#1399) — 되살리면 일반 하자 목록에 다시 나타나야 하므로, 두 목록이
+        // 항상 같은 refetch로 함께 갱신되도록 별도 useQuery를 두지 않고 여기 묶는다.
+        queryKey: ['inspection', inspectionId, 'defects', 'deleted'],
+        queryFn: () => inspectionApi.getDeletedDefects(inspectionId).then((res) => res.data),
+        enabled: isValidId,
+      },
     ],
   });
 
-  const [inspectionQuery, defectsQuery, mediaQuery] = results;
+  const [inspectionQuery, defectsQuery, mediaQuery, deletedDefectsQuery] = results;
   const inspection = inspectionQuery.data;
   const defectsData = defectsQuery.data;
   const mediaData = mediaQuery.data;
@@ -124,6 +131,9 @@ export function useInspectionResultReal(inspectionId: number) {
           status: inspection.status,
           reviewedCount,
           totalCount,
+          // 삭제 목록은 부가 정보라 실패해도 빈 배열로 두고 뷰어 본체는 계속 뜨게 한다
+          // (isLoading/isError에 넣지 않는 이유 — 검수 흐름을 막을 이유가 없다).
+          deletedDefects: deletedDefectsQuery.data ?? [],
         }
       : null;
 
@@ -131,11 +141,17 @@ export function useInspectionResultReal(inspectionId: number) {
     data,
     isLoading,
     isError,
-    refetch: () => {
-      inspectionQuery.refetch();
-      defectsQuery.refetch();
-      mediaQuery.refetch();
-      facilityQuery.refetch();
-    },
+    // 네 쿼리를 모두 기다리는 Promise를 반환한다 — 예전엔 각 refetch()의 Promise를 버리고
+    // undefined를 반환해서, 호출부의 `await refetch()`가 즉시 통과했다(#1395). 검수·오탐 삭제
+    // 직후 목록이 갱신되기 전에 모달이 닫히고 버튼이 다시 활성화돼, 같은 하자를 한 번 더 누르면
+    // 서버가 INVALID_STATE_TRANSITION(409)을 던지고 그 원문이 사용자에게 노출됐다.
+    refetch: () =>
+      Promise.all([
+        inspectionQuery.refetch(),
+        defectsQuery.refetch(),
+        mediaQuery.refetch(),
+        deletedDefectsQuery.refetch(),
+        facilityQuery.refetch(),
+      ]).then(() => undefined),
   };
 }

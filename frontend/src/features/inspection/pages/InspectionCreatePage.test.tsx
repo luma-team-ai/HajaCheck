@@ -15,7 +15,17 @@ import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import { mediaApi } from '../api/mediaApi';
 import type { Media } from '../types';
 import { todayDateString } from '../utils/validateInspectionCreateForm';
+import { saveDraftMediaFiles } from '../utils/inspectionCreateDraftFiles';
 import { InspectionCreatePage } from './InspectionCreatePage';
+
+// jsdom엔 기본적으로 indexedDB가 없어(fake-indexeddb 전역 폴리필 미설정) 실제 구현을 그대로 쓰면
+// openDb()가 조용히 실패해(자체 try/catch로 삼킴) 호출 여부를 관찰할 수 없다. PR머신 리뷰 P2 —
+// 언마운트 flush 회귀 테스트를 위해 이 모듈만 스파이 가능한 목으로 교체한다.
+vi.mock('../utils/inspectionCreateDraftFiles', () => ({
+  saveDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+  loadDraftMediaFiles: vi.fn().mockResolvedValue([]),
+  clearDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+}));
 
 const server = setupServer(...inspectionHandlers);
 
@@ -277,7 +287,10 @@ describe('InspectionCreatePage (통합 테스트)', () => {
       http.get('/api/inspections', () => {
         const body = {
           success: true,
-          data: { content: [{ id: 900, roundNo: 2, status: 'REVIEWED' }], page: 0, totalElements: 1 },
+          // ANALYZED — 아직 검수도 안 끝난 회차라야 "진행 중" 경고 대상이다. REVIEWED는 페이즈8부터
+          // "점검 요약" 진입 시 이미 확정되므로 더 이상 이 경고 대상이 아니다(InspectionCreatePage
+          // findActiveRound).
+          data: { content: [{ id: 900, roundNo: 2, status: 'ANALYZED' }], page: 0, totalElements: 1 },
         };
         return HttpResponse.json(body);
       }),
@@ -309,6 +322,38 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     expect(createCallCount).toBe(0);
     // 취소 후에도 계속 편집 가능해야 한다(회차를 만들지 않았으므로 잠기지 않음)
     expect((screen.getByLabelText('시설물') as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  // 페이즈8 회귀 가드 — REVIEWED는 "점검 요약" 진입 시 이미 확정된 회차라, 최종 보고서(REPORTED)
+  // 전이 전이라도 더 이상 "진행 중" 경고 대상이면 안 된다.
+  it('기존 회차가 REVIEWED면 중복 회차 경고 없이 바로 생성한다', async () => {
+    let createCallCount = 0;
+    server.use(
+      http.get('/api/inspections', () => {
+        const body = {
+          success: true,
+          data: { content: [{ id: 900, roundNo: 2, status: 'REVIEWED' }], page: 0, totalElements: 1 },
+        };
+        return HttpResponse.json(body);
+      }),
+      http.post('/api/inspections', () => {
+        createCallCount += 1;
+        return HttpResponse.json({ success: true, data: null });
+      }),
+    );
+
+    renderPage();
+    await fillRequiredFields();
+    selectFiles([new File(['a'], 'a.jpg', { type: 'image/jpeg' })]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '업로드 완료 후 AI 분석 시작' }));
+    });
+
+    await waitFor(() => expect(createCallCount).toBe(1));
+    expect(
+      screen.queryByText('이미 진행 중인 2회차가 있습니다. 이어서 진행하시겠습니까, 새 회차를 만드시겠습니까?'),
+    ).toBeNull();
   });
 
   it('중복 회차 확인창에서 "계속 생성"을 누르면 정상적으로 점검을 생성한다', async () => {
@@ -439,5 +484,35 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     await screen.findByText('작성을 취소하시겠습니까? (입력 내용 임시저장됨)');
     fireEvent.click(screen.getByRole('button', { name: '나가기' }));
     await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
+  });
+
+  // PR머신 리뷰 P2 — 임시저장 디바운스(400ms) 대기 중 언마운트되면 최신 mediaFiles를 즉시
+  // flush해야 한다(안 그러면 파일 추가 직후 사이드바 이탈 시 그 변경이 조용히 유실된다).
+  // selectFiles 직후 곧바로 unmount하면 실제 경과 시간이 400ms에 한참 못 미쳐 자연스럽게
+  // "디바운스 타이머 발화 전 언마운트" 상황이 재현된다 — 가짜 타이머는 findByText 등 RTL의
+  // 내부 폴링(waitFor)과 충돌해 오히려 불필요한 복잡도를 더한다.
+  it('파일 추가 직후(디바운스 대기 중) 언마운트되면 최신 mediaFiles를 즉시 flush한다', async () => {
+    vi.mocked(saveDraftMediaFiles).mockClear();
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const router = createMemoryRouter(
+      [{ path: '/inspections/create', element: <InspectionCreatePage /> }],
+      { initialEntries: ['/inspections/create'] },
+    );
+    const { unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    await fillRequiredFields();
+    const file = new File(['a'], 'a.jpg', { type: 'image/jpeg' });
+    selectFiles([file]);
+
+    unmount();
+
+    expect(saveDraftMediaFiles).toHaveBeenCalledWith([file]);
   });
 });

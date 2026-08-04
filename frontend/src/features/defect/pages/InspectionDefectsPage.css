@@ -294,11 +294,24 @@
 }
 
 .defect-card-grid__thumb {
+  position: relative;
   display: flex;
   height: 160px;
   align-items: center;
   justify-content: center;
   background: var(--color-surface-sunken);
+}
+
+.defect-card-grid__count {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  border-radius: 9999px;
+  background: rgba(24, 24, 27, 0.72);
+  padding: 4px 9px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .defect-card-grid__thumb img {
@@ -367,6 +380,27 @@
   gap: 10px;
   color: var(--color-text-muted);
   font-size: 12px;
+}
+
+.defect-card-grid__status-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.defect-card-grid__status-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.defect-card-grid__status-summary i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .defect-card-grid__stats-divider {
@@ -442,7 +476,7 @@
 .defect-detail-modal__overlay {
   position: absolute;
   inset: 0;
-  background: rgba(24, 24, 27, 0.35);
+  background: var(--color-overlay);
 }
 
 .defect-detail-modal__panel {
@@ -459,8 +493,8 @@
   left: 100%;
   z-index: 1;
   display: inline-flex;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--color-border);
@@ -524,6 +558,9 @@
 }
 
 .defect-detail-modal__photo-tab {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
   border: 1px solid var(--color-border);
   border-radius: 9999px;
   background: var(--color-surface);
@@ -541,6 +578,12 @@
   color: #fff;
 }
 
+.defect-detail-modal__photo-tab:focus-visible,
+.defect-detail-modal__close:focus-visible {
+  outline: 3px solid var(--color-point);
+  outline-offset: 2px;
+}
+
 .defect-detail-modal__body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
@@ -556,17 +599,125 @@
   gap: 22px;
 }
 
+/* --- 이미지(3:4) + 지표 카드 좌우 배치(#1417) ---
+   하자 사진(균열 등)은 대부분 세로로 긴 형태라 4:3(가로)으로 고정하면 레터박스 여백이 크게
+   남는다(실사용 확인 — 균열 사진이 박스 폭의 60%+를 빈 여백으로 남김). 3:4(세로)로 바꿔 실제
+   사진 내용이 프레임을 꽉 채우도록 한다. .defect-image-stage/.defect-metrics는 DefectDetailPage.css에
+   정의된 공용 클래스라(하자 상세 드릴다운 FacilityDefectDetailPage.css 계열과 공유 가능성 있음),
+   여기서는 base 규칙을 건드리지 않고 .defect-detail-modal 스코프 셀렉터로만 오버라이드한다. */
+
+.defect-detail-modal__media-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+/* 진단 블럭(diagnosis-col)이 고정폭을 갖는 대신, 이미지는 남는 가로폭만큼 그대로 커진다
+   (아래 3:4 aspect-ratio가 잡혀 있어 비율은 유지된 채 커진다) — max-width 상한을 없앤다. */
+.defect-detail-modal__image-col {
+  display: flex;
+  flex: 1 1 320px;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 240px;
+}
+
+.defect-detail-modal__image-col .defect-image-stage {
+  height: auto;
+  aspect-ratio: 3 / 4;
+}
+
+.defect-detail-modal__detail-state {
+  display: flex;
+  min-height: 96px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  padding: 18px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* AI 분석 설명 + 지표 3개(신뢰도/균열 폭/균열 길이)를 하나의 블럭으로 묶는다. 이 블럭 자체가
+   카드 표면(테두리·그림자)을 갖고, 내부의 DefectExplainPanel은 자기 카드 껍데기를 벗고(아래
+   오버라이드) 지표 행과 이어진 한 표면처럼 보이게 한다. 폭은 고정에 가깝게 두고, 이미지가
+   나머지 가로폭을 전부 가져간다(.defect-detail-modal__image-col 참고). */
+.defect-detail-modal__diagnosis-col {
+  display: flex;
+  flex: 0 1 360px;
+  flex-direction: column;
+  min-width: 300px;
+  max-width: 400px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+  box-shadow: 0 2px 5px rgba(24, 24, 27, 0.08);
+  overflow: hidden;
+}
+
+.defect-detail-modal__diagnosis-col .defect-explain-panel {
+  border: none;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.defect-detail-modal__diagnosis-col .defect-metric-row {
+  display: flex;
+  gap: 1px;
+  background: var(--color-border);
+  border-top: 1px solid var(--color-border);
+}
+
+.defect-detail-modal__diagnosis-col .defect-metric-card {
+  flex: 1 1 0;
+  min-height: 64px;
+  border: none;
+  border-radius: 0;
+  background: var(--color-surface);
+  box-shadow: none;
+  padding: 14px 8px;
+}
+
+.defect-detail-modal__diagnosis-col .defect-metric-card strong { font-size: 16px; }
+
 /* --- 조치 결과 등록 폼 --- */
 
 .defect-action-form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   padding: 22px;
   border: 1px solid var(--color-border);
   border-radius: 20px;
   background: var(--color-surface);
-  box-shadow: 0 2px 5px rgba(24, 24, 27, 0.08);
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.1);
+}
+
+/* #1436: 필드 8개가 라벨 구분 없이 한 줄로 쭉 이어져 있어 전형적인 기본 폼처럼 보였다.
+   "사진"/"조치 세부정보" 두 섹션으로 나누고 옅은 상단 구분선 + eyebrow 라벨을 둬 정보를 묶는다. */
+.defect-action-form__section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.defect-action-form__section:not(:first-of-type) {
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+.defect-action-form__section-label {
+  margin: 0;
+  color: var(--color-point);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .defect-action-form h2 {
@@ -586,6 +737,11 @@
   color: var(--color-text-default);
   font-size: 13px;
   font-weight: 600;
+}
+
+.defect-action-form__label-row {
+  display: flex;
+  align-items: center;
 }
 
 .defect-action-form__field textarea,
@@ -664,6 +820,23 @@
   font-size: 11px;
   line-height: 1;
   padding: 0;
+}
+
+.defect-action-form__preview-remove:focus-visible {
+  outline: 2px solid var(--color-point);
+  outline-offset: 2px;
+}
+
+/* #1436 디자인 리뷰 P2 — 미입력 힌트 문장이 실제 빈 필드와 안 이어진다는 지적을 받아, 라벨
+   옆에 값이 채워지면 사라지는 "필수" 표시로 바꿨다. */
+.defect-action-form__required-flag {
+  margin-left: 6px;
+  border-radius: 999px;
+  background: var(--color-warning-soft-bg);
+  padding: 1px 7px;
+  color: var(--color-warning-soft-fg);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .defect-action-form__dropzone-icon {
@@ -776,5 +949,17 @@
 
   .defect-action-form__row {
     grid-template-columns: 1fr;
+  }
+
+  .defect-detail-modal__panel {
+    padding: 20px 16px 32px;
+  }
+
+  .defect-detail-modal__media-row {
+    flex-direction: column;
+  }
+
+  .defect-detail-modal__diagnosis-col {
+    max-width: none;
   }
 }

@@ -27,7 +27,7 @@ export function normalizeDefectStatus(status: unknown): DefectStatus {
 // actionPhotoUrl/actionContent/actionDate/actionAssigneeId/actionAssigneeName flat 필드로 응답한다
 // (#1182 — 조치 전/후 탭이 실 연동에서 노출되지 않던 원인). MSW mock은 테스트 편의상 이미 중첩된
 // actionResult를 그대로 내려주는 경우가 있어, 그 경우는 그대로 통과시키고 flat 필드만 온 경우에만 조립한다.
-type RawDefect = Defect & {
+type RawActionFields = {
   actionPhotoUrl?: string | null;
   actionContent?: string | null;
   actionDate?: string | null;
@@ -35,7 +35,7 @@ type RawDefect = Defect & {
   actionAssigneeName?: string | null;
 };
 
-function buildActionResult(defect: RawDefect): DefectActionResult | null {
+function buildActionResult(defect: Defect & RawActionFields): DefectActionResult | null {
   if (defect.actionResult) {
     return defect.actionResult;
   }
@@ -53,7 +53,9 @@ function buildActionResult(defect: RawDefect): DefectActionResult | null {
   };
 }
 
-export function normalizeDefect(defect: RawDefect): Defect {
+export function normalizeDefect<T extends Defect>(
+  defect: T & RawActionFields,
+): T & { status: DefectStatus; actionResult: DefectActionResult | null } {
   const status = normalizeDefectStatus(defect.status);
   const actionResult = buildActionResult(defect);
   return { ...defect, status, actionResult };

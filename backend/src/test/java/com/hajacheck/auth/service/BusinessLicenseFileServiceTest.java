@@ -129,4 +129,23 @@ class BusinessLicenseFileServiceTest {
 
         verify(fileStorage, never()).read(any());
     }
+
+    @Test
+    void 파일키_세그먼트에_현재경로_상위경로_빈경로가_있으면_거부한다() {
+        Company company = org.mockito.Mockito.mock(Company.class);
+        when(company.getBusinessRegistrationFileUrl()).thenReturn("/files/" + STORAGE_KEY);
+        when(companyRepository.findById(COMPANY_ID)).thenReturn(Optional.of(company));
+
+        for (String unsafeStorageKey : java.util.List.of(
+                "business-registration/./license.png",
+                "business-registration//license.png",
+                "business-registration/nested/../license.png")) {
+            assertThatThrownBy(() -> service.load(COMPANY_ID, USER_ID, unsafeStorageKey))
+                    .isInstanceOf(BusinessException.class)
+                    .extracting("errorCode")
+                    .isEqualTo(ErrorCode.FILE_NOT_FOUND);
+        }
+
+        verify(fileStorage, never()).read(any());
+    }
 }

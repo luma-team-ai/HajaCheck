@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
+import { AlertModal } from '../../../shared/components/Modal';
 import { DistributionBar } from '../../../shared/components/charts/DistributionBar';
 import { CHART_GRADE_COLORS } from '../../../shared/components/charts/palette';
 import { useInspectionResultReal } from '../../inspection/hooks/useInspectionResultReal';
@@ -31,8 +32,7 @@ const GRADE_BADGE_STYLE: Record<string, { bg: string; text: string }> = {
 };
 
 const GRADE_ORDER = ['A', 'B', 'C', 'D', 'E'] as const;
-
-
+const MAX_REPORT_DEFECT_COUNT = 100;
 
 // 유형별 카드 — Figma는 5종을 항상 고정 노출하므로 0건 유형도 렌더한다(AI 자동탐지는 3종이고
 // 누수·백태/도장 손상은 수동 추가로만 생기지만, 칸이 사라지면 레이아웃이 흔들린다).
@@ -54,6 +54,26 @@ function extractErrorMessage(err: unknown, fallback: string): string {
     return err.message;
   }
   return fallback;
+}
+
+// PR머신 리뷰 P3(#1437)는 문자열 완전일치 대신 error.code로 분기하라고 제안했으나, 실측 결과
+// 백엔드는 같은 code=REPORT_GENERATION_FAILED를 "일반 실패"(502, 보고서 생성에 실패했습니다.)
+// 와 "구체 사유가 있는 실패"(503, 예: AI 서버 응답이 없습니다.) 양쪽 다에 재사용한다
+// (ReportEntryPage.test.tsx의 두 테스트가 이 계약을 고정한다 — 같은 code에서 한쪽은 특정 문구
+// 노출을 요구하고 다른 쪽은 안내문 대체를 요구함). 즉 code만으로는 이 두 케이스를 구분할 수
+// 없어 code 기반 분기로 바꾸면 "AI 서버 응답이 없습니다." 같은 구체 사유가 안내문에 가려진다.
+// 백엔드가 두 케이스에 서로 다른 code를 발급하도록 계약을 바꾸기 전까지는 메시지 비교가
+// 유일한 신호라 원래 방식(정확히 일치하는 두 문자열만 안내문으로 대체)을 유지한다.
+function buildReportGenerationFailureMessage(error: unknown): string {
+  const message = extractErrorMessage(error, '');
+  if (message && !['보고서 생성에 실패했습니다.', '네트워크 오류가 발생했습니다.'].includes(message)) {
+    return message;
+  }
+  return [
+    '보고서 초안을 만들지 못했습니다.',
+    '확정 하자나 사진이 많은 점검은 AI 초안 작성에 시간이 오래 걸릴 수 있습니다.',
+    '잠시 후 다시 시도해 주세요. 같은 문제가 반복되면 점검 회차와 실패 시간을 관리자에게 전달해 주세요.',
+  ].join('\n');
 }
 
 // Figma node 180:4977 원본 아이콘 에셋을 그대로 인라인 SVG로 재현(#925 — 아이콘 12곳 누락 수정).
@@ -160,12 +180,17 @@ export function ReportEntryPage() {
     summary: true,
     details: true,
     recommendation: true,
-    opinion: false,
   });
   const [includePhoto, setIncludePhoto] = useState(true);
 
   // UI 상태
   const [isGenerating, setIsGenerating] = useState(false);
+  // 다른 보고서 화면(ReportGeneratePage)과 동일한 패턴 — 네이티브 alert() 대신 AlertModal로 통일.
+  const [alertModal, setAlertModal] = useState<{ open: boolean; title?: string; message: string }>({
+    open: false,
+    message: '',
+  });
+  const closeAlertModal = useCallback(() => setAlertModal((prev) => ({ ...prev, open: false })), []);
   const [reports, setReports] = useState<ReportSummaryResponse[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
 
@@ -207,13 +232,18 @@ export function ReportEntryPage() {
   // CONFIRMED_DEFECT_STATUSES(=DETECTED 제외 전부)와 정확히 같은 기준.
   const confirmedDefects = data?.defects.filter((d) => d.status !== 'DETECTED') ?? [];
 
+  // 등급 미판정(grade=null)은 분포에서 제외한다 — A~E 어느 칸에도 속하지 않는데, 예전엔 타입이
+  // non-null이라 그대로 인덱싱해 `null` 이라는 가짜 등급 칸이 만들어질 수 있었다(#1395).
   const gradeDistribution = confirmedDefects.reduce(
     (acc, d) => {
+      if (d.grade == null) return acc;
       acc[d.grade] = (acc[d.grade] || 0) + 1;
       return acc;
     },
     {} as Record<string, number>,
   );
+  const hasConfirmedDefects = confirmedDefects.length > 0;
+  const confirmedDefectCount = confirmedDefects.length;
 
   // 유형별 최고 등급 계산 (심각도 순: E > D > C > B > A)
   const defectTypeStats = DEFECT_TYPES.map((typeInfo) => {
@@ -249,6 +279,28 @@ export function ReportEntryPage() {
   const handleGenerateReport = useCallback(async () => {
     if (!data || data.reviewedCount !== data.totalCount || isGenerating || !hasSelectedSections) return;
 
+    if (confirmedDefectCount === 0) {
+      setAlertModal({
+        open: true,
+        title: '보고서 생성 대상 하자가 없습니다',
+        message: '확정된 하자가 없어 보고서를 생성할 수 없습니다.',
+      });
+      return;
+    }
+
+    if (confirmedDefectCount > MAX_REPORT_DEFECT_COUNT) {
+      setAlertModal({
+        open: true,
+        title: '보고서 생성 범위를 줄여 주세요',
+        message: [
+          `보고서 초안은 확정 하자 ${MAX_REPORT_DEFECT_COUNT}건까지 생성할 수 있습니다.`,
+          `현재 확정 하자는 ${confirmedDefectCount}건입니다.`,
+          '보고서에 포함할 하자를 줄이거나 점검을 나누어 다시 생성해 주세요.',
+        ].join('\n'),
+      });
+      return;
+    }
+
     setIsGenerating(true);
     try {
       const response = await reportApi.generateReportDraft(inspectionId, {
@@ -258,10 +310,14 @@ export function ReportEntryPage() {
       setActiveReportId(response.data.id);
       navigate(`/reports/${response.data.id}`);
     } catch (error) {
-      alert(extractErrorMessage(error, '보고서 생성에 실패했습니다.'));
+      setAlertModal({
+        open: true,
+        title: '보고서 생성 실패',
+        message: buildReportGenerationFailureMessage(error),
+      });
       setIsGenerating(false);
     }
-  }, [inspectionId, data, isGenerating, hasSelectedSections, selectedSectionKeys, includePhoto, navigate]);
+  }, [inspectionId, data, isGenerating, hasSelectedSections, confirmedDefectCount, selectedSectionKeys, includePhoto, navigate]);
 
   const handleEditReport = useCallback(
     (reportId: number) => {
@@ -369,44 +425,56 @@ export function ReportEntryPage() {
         <div className="rounded-[20px] border border-border bg-white p-6">
           <div className="mb-3 text-xs font-medium tracking-wide text-text-muted">등급별 분포</div>
 
-          {/* 분포 바 — 공용 DistributionBar 재사용. 다만 이 컴포넌트의 기본 범례는 "라벨 (퍼센트%)"라
-              Figma의 "A (13)"(건수) 표기와 달라서, 범례만 끄고 아래에서 직접 렌더한다. */}
-          <div className="mb-4">
-            <DistributionBar
-              ariaLabel="하자 등급별 분포"
-              height={16}
-              showLegend={false}
-              segments={GRADE_ORDER.map((grade) => ({
-                key: grade,
-                label: grade,
-                // 분자(gradeDistribution)가 확정 하자 기준이므로 분모도 맞춘다 —
-                // totalCount로 나누면 미검수분만큼 막대가 100%를 못 채운다.
-                percent: ((gradeDistribution[grade] || 0) / (confirmedDefects.length || 1)) * 100,
-                color: CHART_GRADE_COLORS[grade],
-              }))}
-            />
-          </div>
+          {hasConfirmedDefects ? (
+            // 분포 바 — 공용 DistributionBar 재사용. 다만 이 컴포넌트의 기본 범례는 "라벨 (퍼센트%)"라
+            // Figma의 "A (13)"(건수) 표기와 달라서, 범례만 끄고 아래에서 직접 렌더한다.
+            <div className="mb-4">
+              <DistributionBar
+                ariaLabel="하자 등급별 분포"
+                height={16}
+                showLegend={false}
+                segments={GRADE_ORDER.map((grade) => ({
+                  key: grade,
+                  label: grade,
+                  // 분자(gradeDistribution)가 확정 하자 기준이므로 분모도 맞춘다 —
+                  // totalCount로 나누면 미검수분만큼 막대가 100%를 못 채운다.
+                  percent: ((gradeDistribution[grade] || 0) / confirmedDefects.length) * 100,
+                  color: CHART_GRADE_COLORS[grade],
+                }))}
+              />
+            </div>
+          ) : (
+            <div
+              className="flex min-h-20 w-full items-center justify-center rounded-lg border border-dashed border-border bg-surface-muted px-4 text-sm text-text-muted"
+              role="status"
+              aria-label="하자 등급별 분포"
+            >
+              표시할 데이터가 없습니다.
+            </div>
+          )}
 
           {/* 범례 */}
-          <div className="flex flex-wrap gap-2">
-            {GRADE_ORDER.map((grade) => {
-              const count = gradeDistribution[grade] || 0;
-              return (
-                <div
-                  key={grade}
-                  className="flex items-center gap-2 rounded-full border border-border bg-surface-muted px-3 py-1.5"
-                >
+          {hasConfirmedDefects && (
+            <div className="flex flex-wrap gap-2">
+              {GRADE_ORDER.map((grade) => {
+                const count = gradeDistribution[grade] || 0;
+                return (
                   <div
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: CHART_GRADE_COLORS[grade] }}
-                  />
-                  <span className="text-xs font-medium text-black">
-                    {grade} ({count})
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+                    key={grade}
+                    className="flex items-center gap-2 rounded-full border border-border bg-surface-muted px-3 py-1.5"
+                  >
+                    <div
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: CHART_GRADE_COLORS[grade] }}
+                    />
+                    <span className="text-xs font-medium text-black">
+                      {grade} ({count})
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* 유형별 카드 — 5칸 고정 균등폭 그리드(Figma 180:5127, #925) */}
@@ -417,9 +485,14 @@ export function ReportEntryPage() {
               data-testid={`defect-type-card-${stat.type}`}
               className="flex h-[112px] flex-col justify-between rounded-[20px] border border-border bg-white p-[17px]"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-2">
                 <div className="text-sm font-medium text-text-default">{stat.label}</div>
-                {stat.maxGrade && <GradeBadge grade={stat.maxGrade} size="sm" />}
+                {stat.maxGrade && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className="text-[10px] font-medium whitespace-nowrap text-text-muted">최고 등급</span>
+                    <GradeBadge grade={stat.maxGrade} size="sm" />
+                  </div>
+                )}
               </div>
               <div className="text-3xl font-semibold text-black">{stat.count}</div>
             </div>
@@ -450,11 +523,12 @@ export function ReportEntryPage() {
             </div>
             <div className="flex flex-wrap gap-2">
               {[
-                { key: 'overview', label: '점검 개요' },
-                { key: 'summary', label: '하자 현황 요약' },
-                { key: 'details', label: '유형별 상세' },
-                { key: 'recommendation', label: '조치 권고' },
-                { key: 'opinion', label: '종합 의견' },
+                // 결과 요약에는 PDF의 "책임기술자 종합의견" 소절이 포함된다. 같은 개념을
+                // 별도 계약 키로 나누지 않고 `summary` 하나로 전송한다.
+                { key: 'overview', label: '기본현황' },
+                { key: 'summary', label: '결과 요약' },
+                { key: 'details', label: '진단 외관조사결과 기본사항' },
+                { key: 'recommendation', label: '보수ㆍ보강(안)' },
               ].map((sec) => {
                 const sectionKey = sec.key as keyof typeof sections;
                 const isSelected = sections[sectionKey];
@@ -566,10 +640,17 @@ export function ReportEntryPage() {
             <Button
               variant="secondary"
               size="md"
-              disabled={reports.length === 0}
-              onClick={() => reports.length > 0 && navigate(`/reports/${reports[0].id}?mode=export`)}
+              onClick={() =>
+                reports.length > 0
+                  ? navigate(`/reports/${reports[0].id}?mode=export`)
+                  : setAlertModal({
+                      open: true,
+                      title: '아직 생성된 보고서가 없습니다',
+                      message: "이 점검에 대해 생성된 보고서가 없습니다. 먼저 '보고서 생성 시작'으로 보고서를 만들어주세요.",
+                    })
+              }
             >
-              미리보기
+              최근 보고서 보기
             </Button>
             <Button
               variant="primary"
@@ -585,6 +666,13 @@ export function ReportEntryPage() {
           </div>
         </div>
       </div>
+
+      <AlertModal
+        open={alertModal.open}
+        title={alertModal.title}
+        message={alertModal.message}
+        onClose={closeAlertModal}
+      />
     </div>
   );
 }

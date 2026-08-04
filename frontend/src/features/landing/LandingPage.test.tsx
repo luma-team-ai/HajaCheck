@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import LandingPage from './LandingPage';
-import { publicPlanApi, type PublicPlanCatalogResponse } from './api/publicPlanApi';
+import { planApi, planQueryKeys, type PlanCatalogResponse } from '../../shared/api/planApi';
 
 afterEach(() => {
   cleanup();
@@ -57,7 +57,7 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
   });
 
   it('공개 요금제 API를 통해 요금제 카탈로그 데이터를 동적으로 받아와 렌더링한다', async () => {
-    const plans: PublicPlanCatalogResponse = {
+    const plans: PlanCatalogResponse = {
       plans: [
         {
           id: 1,
@@ -72,8 +72,8 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
         },
       ],
     };
-    vi.spyOn(publicPlanApi, 'getPlans').mockResolvedValueOnce({ data: plans } as Awaited<
-      ReturnType<typeof publicPlanApi.getPlans>
+    vi.spyOn(planApi, 'getPlans').mockResolvedValueOnce({ data: plans } as Awaited<
+      ReturnType<typeof planApi.getPlans>
     >);
 
     renderWithProviders(<LandingPage />);
@@ -85,7 +85,7 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
   });
 
   it('이미 불러온 요금제가 있으면 후속 재조회 실패에도 기존 요금제를 유지한다', async () => {
-    const plans: PublicPlanCatalogResponse = {
+    const plans: PlanCatalogResponse = {
       plans: [
         {
           id: 1,
@@ -100,14 +100,14 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
         },
       ],
     };
-    const getPlans = vi.spyOn(publicPlanApi, 'getPlans');
-    getPlans.mockResolvedValueOnce({ data: plans } as Awaited<ReturnType<typeof publicPlanApi.getPlans>>);
+    const getPlans = vi.spyOn(planApi, 'getPlans');
+    getPlans.mockResolvedValueOnce({ data: plans } as Awaited<ReturnType<typeof planApi.getPlans>>);
     getPlans.mockRejectedValueOnce(new Error('Network error'));
 
     const { queryClient } = renderWithProviders(<LandingPage />);
 
     await waitFor(() => expect(screen.getByText('₩12,345')).toBeTruthy());
-    await queryClient.invalidateQueries({ queryKey: ['publicPlans'] });
+    await queryClient.invalidateQueries({ queryKey: planQueryKeys.catalog });
 
     await waitFor(() => expect(getPlans).toHaveBeenCalledTimes(2));
     expect(screen.getByText('₩12,345')).toBeTruthy();
@@ -115,7 +115,7 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
   });
 
   it('공개 요금제 API 호출 실패 시 하드코딩 요금제가 아닌 에러 안내 메시지와 다시 시도 버튼을 렌더링한다', async () => {
-    vi.spyOn(publicPlanApi, 'getPlans').mockRejectedValueOnce(new Error('Network error'));
+    vi.spyOn(planApi, 'getPlans').mockRejectedValueOnce(new Error('Network error'));
 
     renderWithProviders(<LandingPage />);
 

@@ -51,4 +51,33 @@ describe('filterDefects', () => {
     const result = filterDefects([], 0.5, ['A', 'B']);
     expect(result).toHaveLength(0);
   });
+
+  // #1395 — 등급 미판정(grade=null)은 A~E 어디에도 속하지 않아 예전엔 모든 필터 조합에서
+  // 사라졌고, totalCount 분모에는 남아 "점검 요약"이 영구히 잠겼다.
+  describe('등급 미판정(grade=null) 하자', () => {
+    const ungraded: Defect = {
+      id: 9,
+      type: '균열',
+      grade: null,
+      status: 'DETECTED',
+      confidence: 0.8,
+      bbox: { x: 0, y: 0, width: 0.1, height: 0.1 },
+      summary: '등급 미판정 하자',
+    };
+
+    it('등급 필터를 전부 켜도 사라지지 않는다', () => {
+      const result = filterDefects([ungraded], 0, ['A', 'B', 'C', 'D', 'E']);
+      expect(result).toHaveLength(1);
+    });
+
+    it('등급 필터를 전부 꺼도 남는다(등급 축으로는 거르지 않는다)', () => {
+      const result = filterDefects([ungraded], 0, []);
+      expect(result).toHaveLength(1);
+    });
+
+    it('신뢰도 필터는 그대로 적용된다', () => {
+      expect(filterDefects([ungraded], 0.9, ['A'])).toHaveLength(0);
+      expect(filterDefects([ungraded], 0.8, ['A'])).toHaveLength(1);
+    });
+  });
 });

@@ -166,6 +166,25 @@ export interface FacilityInspectionOverview {
   history: FacilityInspectionHistoryItem[];
 }
 
+// 실 API 원본 응답(#1359/HAJA-616, backend FacilityInspectionOverviewResponse와 1:1) — additionalImageCount는
+// 백엔드에 없다(썸네일 미리보기 고정 2장 제외분은 순수 프론트 표시 계산, useFacilityInspectionOverview 참고).
+export interface FacilityInspectionOverviewApiResponse {
+  overallGrade: DefectGradeLetter | null;
+  totalRounds: number;
+  cumulativeDefectCount: number;
+  unresolvedDefectCount: number;
+  history: {
+    id: number;
+    roundNo: number;
+    inspectionDate: string;
+    inspectorName: string;
+    status: '검수완료' | '완료' | '진행중';
+    imageCount: number;
+    defectGradeBreakdown: { grade: DefectGradeLetter; count: number }[];
+    changeNote: string | null;
+  }[];
+}
+
 // 시설물 상세 하위 드릴다운 — 하자 정보 패널 + 회차 간 비교 (dev-04-02, #489). 위 dev-05-02 타입과는
 // 별개 화면(하자 드릴다운/회차비교)의 로컬 타입 — 이름 접두 Facility로 겹치지만 다른 라우트/목적.
 // openapi.yaml FacilityDetailResponse는 "계획안·미구현" 상태라 전부 MSW 목 전용이다.
@@ -203,6 +222,13 @@ export interface FacilityDefectDetail {
   status: FacilityDefectStatus;
   /** mediaId 없으면 null(HAJA-314) */
   imageUrl: string | null;
+  // #1369 — 오버레이 탭 마킹이 고정 placeholder라 항상 같은 위치에 표시되던 결함 수정. 0~1 정규화
+  // 좌표(backend DefectResponse.bboxX/Y/W/H) — 넷 중 하나라도 null이면 마킹을 표시하지 않는다
+  // (defect 기능의 DefectImageViewer.tsx와 동일한 hasBbox 가드 패턴).
+  bboxX: number | null;
+  bboxY: number | null;
+  bboxW: number | null;
+  bboxH: number | null;
 }
 
 // GET/PATCH /api/defects/{id}(*) 실 백엔드 DefectResponse(backend/.../defect/dto/DefectResponse.java)의
@@ -224,13 +250,23 @@ export interface FacilityDefectDetailResponse {
   crackWidthMm: number | null;
   crackLengthMm: number | null;
   imageUrl: string | null;
+  // #1369 — 0~1 정규화 좌표(backend DefectResponse.bboxX/Y/W/H), nullable.
+  bboxX: number | null;
+  bboxY: number | null;
+  bboxW: number | null;
+  bboxH: number | null;
   /** ISO 8601 (LocalDateTime) — 화면 표시는 YYYY-MM-DD로 절삭 */
   createdAt: string;
 }
 
+// PR머신 P1 — POST /api/ai/defect-explain 실 응답은 {cause,risk,action}이다(ai-server
+// tests/test_defect_explain.py:60,76, defect 기능의 DefectExplain과 동일 계약). 이전에 여기 있던
+// {diagnosis, recommendedAction}은 존재하지 않는 필드라 prod에서 항상 undefined로 렌더돼
+// #1350이 고치려던 "AI 설명 빈 화면"이 응답 필드명 불일치로 재발했다.
 export interface FacilityDefectAiExplanation {
-  diagnosis: string;
-  recommendedAction: string;
+  cause: string;
+  risk: string;
+  action: string;
 }
 
 // 회차 간 비교 화면 전용 타입.

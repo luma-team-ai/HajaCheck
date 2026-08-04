@@ -25,15 +25,27 @@ export function StatisticsGradeDistributionCard({ filterParams }: StatisticsGrad
     : [];
 
   return (
-    <section className="flex h-full min-h-[300px] flex-col justify-between bg-white border border-zinc-200 p-6">
-      <h3 className="text-zinc-900 text-base font-medium leading-6">등급별 분포</h3>
-      {isLoading && <LoadingSpinner />}
-      {isError && <p className="dashboard-card-status">등급별 분포를 불러오지 못했습니다.</p>}
+    <section className="flex h-full min-h-[320px] flex-col bg-white border border-zinc-200 p-6">
+      <div className="mb-6 flex items-center justify-between">
+        <h3 className="text-zinc-900 text-base font-medium leading-6">등급별 분포</h3>
+      </div>
+      {isLoading && (
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <LoadingSpinner />
+        </div>
+      )}
+      {isError && (
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <p className="dashboard-card-status">등급별 분포를 불러오지 못했습니다.</p>
+        </div>
+      )}
       {!isLoading && !isError && sorted.length === 0 && (
-        <p className="dashboard-card-status">등록된 하자 등급 데이터가 없습니다.</p>
+        <div className="my-auto flex flex-1 items-center justify-center py-8">
+          <p className="dashboard-card-status">등록된 하자 등급 데이터가 없습니다.</p>
+        </div>
       )}
       {!isLoading && !isError && sorted.length > 0 && (
-        <>
+        <div className="mt-4 flex flex-1 flex-col justify-between">
           <div className="my-auto py-2">
             <DistributionBar
               ariaLabel="하자 등급 분포 막대 그래프"
@@ -61,7 +73,7 @@ export function StatisticsGradeDistributionCard({ filterParams }: StatisticsGrad
               </li>
             ))}
           </ul>
-        </>
+        </div>
       )}
     </section>
   );

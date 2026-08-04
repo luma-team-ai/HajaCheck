@@ -23,6 +23,10 @@ public class AiServerProperties {
     // 플랫폼 관리자 모니터링(#728) ai-server 헬스체크 전용 타임아웃 — 위 readTimeoutMs(150s)를 그대로
     // 쓰면 ai-server가 느릴 때 대시보드 요청이 150초씩 멈춘다. 헬스체크는 짧게 끊고 DOWN 으로 표시한다.
     private long healthCheckTimeoutMs = 3000;
+    // RAG 임베딩 완료 확인(#1393) 전용 — embedding-status는 Chroma 메타데이터 조회뿐인 가벼운
+    // 엔드포인트라 LLM용 readTimeoutMs(150s)를 그대로 쓰면 안 된다(PR머신 리뷰 P1, 폴러/리컨사일러가
+    // 장시간 스레드를 점유하는 원인).
+    private long embeddingStatusTimeoutMs = 5000;
 
     public String getBaseUrl() {
         return baseUrl;
@@ -70,5 +74,13 @@ public class AiServerProperties {
 
     public void setHealthCheckTimeoutMs(long healthCheckTimeoutMs) {
         this.healthCheckTimeoutMs = healthCheckTimeoutMs;
+    }
+
+    public long getEmbeddingStatusTimeoutMs() {
+        return embeddingStatusTimeoutMs;
+    }
+
+    public void setEmbeddingStatusTimeoutMs(long embeddingStatusTimeoutMs) {
+        this.embeddingStatusTimeoutMs = embeddingStatusTimeoutMs;
     }
 }

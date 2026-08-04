@@ -3,10 +3,10 @@ import {
   describeDefectChange,
   getDefectRevisionStatusPresentation,
 } from '../utils/describeDefectChange';
-import type { Defect } from '../types';
+import { formatDefectActivityDateTime } from '../utils/defectFormat';
 
 type Props = {
-  defects: Defect[];
+  defects: Array<{ id: number }>;
 };
 
 // 점검 상세(카드형) 우측 "활동 기록" 사이드바 — contract.md §화면 구조 ②. ActivityHistoryPanel(하자
@@ -48,7 +48,7 @@ export function InspectionActivityPanel({ defects }: Props) {
                   <div className="defect-activity-meta">
                     <span className="inspection-activity-panel__code">{item.defectCode}</span>
                     <time dateTime={item.createdAt}>
-                      {new Date(item.createdAt).toLocaleString('ko-KR')}
+                      {formatDefectActivityDateTime(item.createdAt)}
                     </time>
                   </div>
                   {presentation && (

@@ -15,6 +15,7 @@ import type {
   AnalysisStatusResponse,
   MediaResponse,
   FacilityInspectionSummary,
+  DeletedDefectItem,
 } from './inspectionApi.types';
 
 export interface DefectRevisionRequest {
@@ -35,6 +36,9 @@ export const inspectionApi = {
   // 점검 회차별 하자 목록 조회
   getDefects: (inspectionId: number) =>
     api.get<DefectDetailItem[]>(`/inspections/${inspectionId}/defects`),
+  // 오탐 삭제된 하자 목록 — 사유·일시·삭제자 포함(#1399). 재분석 소프트삭제분은 서버가 제외한다.
+  getDeletedDefects: (inspectionId: number) =>
+    api.get<DeletedDefectItem[]>(`/inspections/${inspectionId}/defects/deleted`),
   // 점검 회차별 전체 미디어 목록 조회 (하자 유무 무관, #804)
   getMedia: (inspectionId: number) =>
     api.get<MediaResponse[]>(`/inspections/${inspectionId}/media`),
@@ -58,6 +62,9 @@ export const inspectionApi = {
     api.get<PageResponse<FacilityInspectionSummary>>('/inspections', { params: { facilityId } }),
   // 분석 결과 뷰어(useInspectionResultReal)용 — 실 GET /api/facilities/{id}(FacilityController.get)를 그대로 호출한다.
   getFacilityDetail: (id: number) => api.get<FacilityDetail>(`/facilities/${id}`),
+  // 점검 요약 진입("점검 요약" 버튼) 시 회차 검수 확정(ANALYZED→REVIEWED) — 이미 REVIEWED/REPORTED면
+  // 서버가 멱등하게 무시한다(InspectionController.confirmReview).
+  confirmReview: (inspectionId: number) => api.post<void>(`/inspections/${inspectionId}/confirm-review`),
   // AI 분석 실행/상태(dev-05-04) — 분석 시작(202 Accepted, 바로 반환) + 진행 상태 폴링.
   startAnalysis: (inspectionId: number) => api.post<void>(`/inspections/${inspectionId}/analyze`),
   getAnalysisStatus: (inspectionId: number) =>

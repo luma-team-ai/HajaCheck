@@ -64,7 +64,7 @@ class AiProxyServiceBriefingTest {
         // briefing 의 rate-limit 은 BriefingStatsService.buildStats(여기선 @Mock)에 있어 이 경로엔
         // 직접 개입하지 않지만, 생성자 의존성이라 in-memory fake 를 주입한다.
         aiProxyService = new AiProxyService(builder.build(), properties, briefingStatsService,
-                new AiProxyRateLimiter(new InMemoryRateLimiter()));
+                new AiProxyRateLimiter(new InMemoryRateLimiter()), builder.build());
     }
 
     @Test

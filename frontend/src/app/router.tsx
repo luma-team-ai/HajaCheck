@@ -573,6 +573,13 @@ export const router = createBrowserRouter([
         },
       }, // — features/mypage 내 점검 이력 / 보고서 (HAJA-366, #668)
       {
+        // #1361 — 하위 경로 없는 '/facilities' 자체는 매칭되는 라우트가 없어 주소창에 직접
+        // 입력하면 React Router 기본 404 에러 페이지가 떴다. 사이드바는 항상 하위 경로로만
+        // 이동해 평소엔 안 드러난다. /platform-admin(861-862줄)과 동일한 <Navigate> 패턴.
+        path: '/facilities',
+        element: <Navigate to="/facilities/list" replace />,
+      },
+      {
         path: '/facilities/map',
         element: (
           <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>

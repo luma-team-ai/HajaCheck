@@ -117,6 +117,7 @@ export const mockPlanQuotaUsers: PlanQuotaUser[] = [
 
 // 전체 평균 쿼터 사용률 = 유효 한도를 가진 사용자별 사용률의 평균(회사마다 한도가 다를 수 있어 #508처럼
 // 단일 공용 한도로 나눌 수 없다 — 백엔드 PlatformAdminPlanQuotaService#buildStats 와 동일 계산 방식).
+// 무제한(quotaLimit === null) 사용자는 이 평균에서 제외한다(#1407 — "사용량 ÷ 한도"가 정의되지 않음).
 function computeAverageQuotaUsagePercent(users: PlanQuotaUser[]): number {
   const percents = users
     .filter((user) => user.quotaLimit !== null && user.quotaLimit > 0)
@@ -127,7 +128,16 @@ function computeAverageQuotaUsagePercent(users: PlanQuotaUser[]): number {
   return Math.round(percents.reduce((sum, percent) => sum + percent, 0) / percents.length);
 }
 
+// 무제한 플랜 사용량 합계 — computeAverageQuotaUsagePercent 에서 제외된 사용량을 KPI 카드 2 보조
+// 텍스트로 병기하기 위한 값(#1407, PlatformAdminPlanQuotaStats#unlimitedPlanUsageTotal 과 동일 계약).
+function computeUnlimitedPlanUsageTotal(users: PlanQuotaUser[]): number {
+  return users
+    .filter((user) => user.quotaLimit === null && user.plan !== null)
+    .reduce((sum, user) => sum + user.quotaUsed, 0);
+}
+
 export const mockPlanQuotaStats: PlanQuotaStats = {
   activeUsers: mockPlanQuotaUsers.filter((user) => user.plan !== null).length,
   totalQuotaUsagePercent: computeAverageQuotaUsagePercent(mockPlanQuotaUsers),
+  unlimitedPlanUsageTotal: computeUnlimitedPlanUsageTotal(mockPlanQuotaUsers),
 };

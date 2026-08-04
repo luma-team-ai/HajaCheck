@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Defect } from '../../../inspection/types';
+import { isDrawableBbox } from '../../../inspection/utils/isDrawableBbox';
 
 /** 사진 1장 + 그 위에 얹을 하자 목록. `mediaId`가 null인 하자(수동 추가 등)는 사진별로 묶이지 않는다. */
 export interface DefectPhotoGroup {
@@ -21,15 +22,6 @@ interface DefectPhotoProps {
   fallback: React.ReactNode;
 }
 
-/** 0~1 정규화 좌표가 아닌 값은 그리지 않는다 — 백엔드가 null을 줄 수 있고(수동 추가 하자), 범위를 벗어난 값은 레이아웃을 깨뜨린다. */
-function isDrawableBbox(defect: Defect): boolean {
-  const bbox = defect.bbox;
-  if (!bbox) return false;
-  const values = [bbox.x, bbox.y, bbox.width, bbox.height];
-  if (values.some((value) => typeof value !== 'number' || !Number.isFinite(value))) return false;
-  return bbox.width > 0 && bbox.height > 0;
-}
-
 /**
  * 리포트에서 하자 박스를 얹은 사진을 그린다(#1333).
  *
@@ -39,10 +31,12 @@ function isDrawableBbox(defect: Defect): boolean {
  */
 export function DefectPhoto({ group, imageClassName = '', alt, fallback }: DefectPhotoProps) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
-  // 그룹이 바뀌면(페이지 이동·필터 변경) 이전 실패 상태를 물고 있지 않도록 재동기화한다.
+  // 그룹이 바뀌면(페이지 이동·필터 변경) 이전 로드/실패 상태를 물고 있지 않도록 재동기화한다.
   useEffect(() => {
     setFailed(false);
+    setLoaded(false);
   }, [group.imageUrl]);
 
   if (!group.imageUrl || failed) {
@@ -52,14 +46,25 @@ export function DefectPhoto({ group, imageClassName = '', alt, fallback }: Defec
   const drawable = group.defects.filter(isDrawableBbox);
 
   return (
-    <div className="relative w-fit max-w-full">
+    <div className="relative max-w-full">
+      {!loaded && (
+        <div
+          role="status"
+          aria-label={`${alt} 로딩 중`}
+          className="flex aspect-video w-full items-center justify-center rounded-md bg-surface-sunken text-xs text-text-muted"
+        >
+          이미지 로딩 중
+        </div>
+      )}
+      <div className={loaded ? 'relative w-fit max-w-full' : 'pointer-events-none absolute inset-0 h-0 w-0 overflow-hidden opacity-0'}>
       <img
         src={group.imageUrl}
         alt={alt}
+        onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
         className={`block ${imageClassName}`}
       />
-      {drawable.map((defect) => {
+      {loaded && drawable.map((defect) => {
         // highlight가 지정된 경우에만 주/조연을 나눈다 — 지정이 없으면 전부 동일 강조.
         const isMuted =
           group.highlightDefectId !== undefined && group.highlightDefectId !== defect.id;
@@ -80,6 +85,7 @@ export function DefectPhoto({ group, imageClassName = '', alt, fallback }: Defec
           />
         );
       })}
+      </div>
     </div>
   );
 }

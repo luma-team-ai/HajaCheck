@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useBlocker, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
 import { Button } from '../../../shared/components/Button';
-import { AlertModal } from '../../../shared/components/Modal';
+import { AlertModal, Modal } from '../../../shared/components/Modal';
 import { useInspectionResult } from '../../inspection/hooks/useInspectionResult';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { reportApi } from '../api/reportApi';
@@ -19,7 +20,10 @@ import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
-import { getEmptyManualSectionLabels } from '../utils/manualSectionValidation';
+import {
+  getEmptyManualSectionLabels,
+  getMissingFinalReportRequiredLabels,
+} from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
@@ -88,6 +92,11 @@ function shouldPreflightPdf(pdfUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isPdfExportLocation(pathname: string, search: string, reportId: number): boolean {
+  if (pathname !== `/reports/${reportId}`) return false;
+  return new URLSearchParams(search).get('mode') === 'export';
 }
 
 export function ReportGeneratePage() {
@@ -203,10 +212,15 @@ export function ReportGeneratePage() {
 
 
   const { data: inspectionData, isLoading: isInspectionLoading } = useInspectionResult(inspectionId);
-  // 하자 상세 항목은 defects와 같은 순서로 만들어지므로 사진도 그 순서 그대로 1:1로 넘긴다.
+  // 하자 상세 항목(content.detail.items[i])과 사진(defectPhotos[i])을 defect_id로 1:1 매칭한다.
+  // 예전엔 "AI가 defects와 같은 순서로 생성한다"는 가정만으로 배열 인덱스로 짝지었는데, AI가
+  // 재생성 등으로 순서를 바꾸면 그 가정이 깨져 엉뚱한 하자의 사진·bbox가 표시됐다(#1379) — 점검
+  // 회차 생성 플로우(DefectOverlay 등)처럼 id를 데이터에 직접 묶어 재조립하지 않는 패턴을 따른다.
+  // defect_id가 없는 구버전 저장분은 기존 인덱스 매칭으로 폴백한다.
   // 항목마다 "그 하자"가 주인공이지만, 같은 사진에 찍힌 다른 하자도 흐리게 함께 보여준다(#1333).
   const defectPhotos = useMemo<DefectPhotoGroup[]>(() => {
     const defects = inspectionData?.defects ?? [];
+    const byId = new Map<number, Defect>(defects.map((defect) => [defect.id, defect]));
     const siblingsByMediaId = new Map<number, Defect[]>();
     defects.forEach((defect) => {
       if (defect.mediaId == null) return;
@@ -214,14 +228,20 @@ export function ReportGeneratePage() {
       if (bucket) bucket.push(defect);
       else siblingsByMediaId.set(defect.mediaId, [defect]);
     });
-    return defects.map((defect) => ({
+    const toGroup = (defect: Defect): DefectPhotoGroup => ({
       mediaId: defect.mediaId ?? null,
       imageUrl: defect.imageUrl,
       defects:
         defect.mediaId == null ? [defect] : (siblingsByMediaId.get(defect.mediaId) ?? [defect]),
       highlightDefectId: defect.id,
-    }));
-  }, [inspectionData?.defects]);
+    });
+    const items = content?.detail.items ?? [];
+    return items.map((item, index) => {
+      const matched = item.defect_id != null ? byId.get(item.defect_id) : undefined;
+      const defect = item.defect_id != null ? matched : defects[index];
+      return defect ? toGroup(defect) : { mediaId: null, imageUrl: null, defects: [] };
+    });
+  }, [inspectionData?.defects, content?.detail.items]);
 
   // 부위별 사진은 사진 단위 — 같은 사진의 하자를 한 장에 모아 중복 표시를 없앤다(#1333).
   const defectPhotoGroups = useMemo(
@@ -232,8 +252,18 @@ export function ReportGeneratePage() {
   const applyReport = useCallback((data: ReportDetailResponse) => {
     setReport(data);
     if (isReportContent(data.content)) {
-      setContent(data.content);
-      setSavedContent(data.content);
+      const nextContent: ReportContent = {
+        ...data.content,
+        summary: {
+          ...data.content.summary,
+          responsible_engineer_name:
+            data.content.summary.responsible_engineer_name ??
+            data.context?.assignedInspector?.name ??
+            '',
+        },
+      };
+      setContent(nextContent);
+      setSavedContent(nextContent);
     }
   }, []);
 
@@ -251,13 +281,28 @@ export function ReportGeneratePage() {
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
   const emptyManualSectionLabels = useMemo(() => getEmptyManualSectionLabels(content), [content]);
   const hasEmptyManualSections = emptyManualSectionLabels.length > 0;
+  const missingFinalRequiredLabels = useMemo(() => getMissingFinalReportRequiredLabels(content), [content]);
+  const hasMissingFinalRequiredContent = missingFinalRequiredLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
+  const [isLeavingAfterSave, setIsLeavingAfterSave] = useState(false);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => {
+    if (!report || !dirty || isFinalized) return false;
+    const isSameLocation =
+      currentLocation.pathname === nextLocation.pathname &&
+      currentLocation.search === nextLocation.search &&
+      currentLocation.hash === nextLocation.hash;
+    if (isSameLocation) return false;
+    // 같은 보고서의 편집 ↔ 미리보기(mode=export) 전환은 같은 컴포넌트가 그대로 유지돼 content가
+    // 메모리에 남아있으므로 데이터 유실 위험이 없다 — 뒤로가기(미리보기 → 편집) 방향도 예외 처리한다.
+    const isSameReportPage = (location: typeof currentLocation) => location.pathname === `/reports/${report.id}`;
+    if (isSameReportPage(currentLocation) && isSameReportPage(nextLocation)) return false;
+    return !isPdfExportLocation(nextLocation.pathname, nextLocation.search, report.id);
+  });
 
-  // 저장되지 않은 변경이 없으면(!dirty) 최종 확정 시 생성될 것과 동일한 조건으로 미리 PDF를
-  // 렌더링해둔다 — handleFinalizeAll과 동일한 옵션을 쓰되 서버 업로드/확정은 하지 않는다(순수
-  // 클라이언트 미리보기). "PDF 미리보기" 진입 자체가 임시저장 후에만 이동하도록 가드되므로(#1338),
-  // 여기서는 확정 검증 통과 여부를 더 이상 조건으로 두지 않는다.
-  const canRenderClientPreview = Boolean(content) && !dirty;
+  // 미리보기는 확정 전 편집 중인 상태를 보기 위한 기능이라, 저장 여부·확정 검증 통과 여부와
+  // 무관하게 content만 있으면 현재(미저장 포함) 내용으로 즉석 렌더링한다. 서버에 저장된 최종
+  // PDF(report.pdfUrl)가 있으면 그쪽이 우선이며, 이 값은 그 fallback으로만 쓰인다.
+  const canRenderClientPreview = Boolean(content);
   const includeReportPhotos = content?.reportOptions?.includePhoto !== false;
 
   // useInspectionResult(useInspectionResultReal)은 매 렌더마다 새 data 객체를 만든다(메모이제이션
@@ -302,18 +347,8 @@ export function ReportGeneratePage() {
 
   // 임시저장 — "임시저장" 버튼(원 저장 버튼)뿐 아니라 PDF 미리보기 가드, 최종 확정 통합 플로우에서도
   // 재사용한다(#1338). 성공 여부를 반환해 호출부가 다음 단계 진행 여부를 판단할 수 있게 한다.
-  // notifyErrorsViaModal이 true면(미리보기/최종확정 플로우) 저장 API 실패도 AlertModal로 알린다 —
-  // 빈 섹션 검증 실패는 호출부와 무관하게 항상 모달로 알린다.
-  const handleSave = async (options?: { notifyErrorsViaModal?: boolean }): Promise<boolean> => {
+  const handleSave = async (): Promise<boolean> => {
     if (!report || !content || isSaving) return false;
-    if (hasEmptyManualSections) {
-      setAlertModal({
-        open: true,
-        title: '저장할 수 없습니다',
-        message: `내용이 비어 있는 추가 섹션이 있습니다: ${emptyManualSectionLabels.join(', ')}`,
-      });
-      return false;
-    }
     setIsSaving(true);
     try {
       const response = await reportApi.updateContent(report.id, content);
@@ -321,13 +356,27 @@ export function ReportGeneratePage() {
       return true;
     } catch (err) {
       const message = extractErrorMessage(err, '저장에 실패했습니다.');
-      if (options?.notifyErrorsViaModal) {
-        setAlertModal({ open: true, title: '저장 실패', message });
-      }
+      setAlertModal({ open: true, title: '저장 실패', message });
       return false;
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCancelLeave = () => {
+    blocker.reset?.();
+  };
+
+  const handleConfirmLeave = async () => {
+    if (isLeavingAfterSave) return;
+    setIsLeavingAfterSave(true);
+    const saved = await handleSave();
+    if (!saved) {
+      setIsLeavingAfterSave(false);
+      return;
+    }
+    flushSync(() => setIsLeavingAfterSave(false));
+    blocker.proceed?.();
   };
 
   const handleGroundingRecheck = async (): Promise<{
@@ -349,18 +398,12 @@ export function ReportGeneratePage() {
     }
   };
 
-  // "PDF 미리보기" 클릭 핸들러 — 이미 저장된 상태(또는 확정 완료)면 그대로 이동, 미저장 변경이
-  // 있으면 임시저장을 먼저 시도한 뒤에만 이동한다(#1338).
-  const handlePreviewClick = async () => {
+  // "PDF 미리보기" 클릭 핸들러 — 미리보기는 확정 전 편집 중인 내용을 보기 위한 기능이므로
+  // 저장 성공 여부와 무관하게 바로 이동한다. 임시저장 실패(예: 빈 수동 섹션)로 미리보기까지
+  // 막히면 안 된다 — 이동 경로는 blocker의 임시저장 이탈 가드 대상에서도 제외되어 있다.
+  const handlePreviewClick = () => {
     if (!report) return;
-    if (isFinalized || !dirty) {
-      navigate(`/reports/${report.id}?mode=export`);
-      return;
-    }
-    const saved = await handleSave({ notifyErrorsViaModal: true });
-    if (saved) {
-      navigate(`/reports/${report.id}?mode=export`);
-    }
+    navigate(`/reports/${report.id}?mode=export`);
   };
 
   // "최종 보고서 확정" 버튼 핸들러 — 임시저장 → 확정 검증 → PDF 생성/업로드/확정을 순차로 진행한다(#1338).
@@ -370,7 +413,7 @@ export function ReportGeneratePage() {
     if (isSaving || isRechecking || isFinalizing) return;
 
     if (dirty) {
-      const saved = await handleSave({ notifyErrorsViaModal: true });
+      const saved = await handleSave();
       if (!saved) return;
     }
 
@@ -378,7 +421,16 @@ export function ReportGeneratePage() {
       setAlertModal({
         open: true,
         title: '확정할 수 없습니다',
-        message: `내용이 비어 있는 추가 섹션이 있습니다: ${emptyManualSectionLabels.join(', ')}`,
+        message: `내용이 비어 있거나 필수값이 누락된 추가 섹션이 있습니다: ${emptyManualSectionLabels.join(', ')}`,
+      });
+      return;
+    }
+
+    if (hasMissingFinalRequiredContent) {
+      setAlertModal({
+        open: true,
+        title: '확정할 수 없습니다',
+        message: `최종 보고서 확정 전 필수 항목을 작성해 주세요: ${missingFinalRequiredLabels.join(', ')}`,
       });
       return;
     }
@@ -499,6 +551,9 @@ export function ReportGeneratePage() {
 
   // 이제 버튼 하나로 저장→검증→PDF 생성/확정을 순차 진행하므로(#1338), 아직 저장/검증 전이어도
   // 클릭 가능해야 한다. 진행 중(각 단계 loading state)에는 비활성화한다.
+  // 필수값 누락은 버튼을 죽여 이유를 숨기지 않고, 클릭 시 handleFinalizeAll이 AlertModal로
+  // "무엇이 비었는지" 알려준다(#1341 원 설계) — hasEmptyManualSections를 canFinalize에 넣어
+  // 버튼을 조용히 비활성화했던 것은 #1375/#1377에서 이 주석과 모순되게 들어간 회귀였다(#1409).
   const canFinalize = !isFinalized;
   const isFinalizeBusy = isSaving || isRechecking || isFinalizing;
   const finalizeLabel = isSaving
@@ -519,6 +574,37 @@ export function ReportGeneratePage() {
       hasPdf: Boolean(report.pdfUrl),
     }),
   }));
+  const alertModalElement = (
+    <AlertModal
+      open={alertModal.open}
+      title={alertModal.title}
+      message={alertModal.message}
+      onClose={closeAlertModal}
+    />
+  );
+  const leaveSaveModal =
+    blocker.state === 'blocked' ? (
+      <Modal
+        open
+        onClose={handleCancelLeave}
+        title="편집한 내용이 저장되지 않았습니다"
+        closeOnOverlayClick={false}
+      >
+        <div className="flex w-80 flex-col gap-6">
+          <p className="m-0 text-sm text-text-muted">
+            이 페이지를 나가기 전에 변경 내용을 임시저장합니다.
+          </p>
+          <div className="flex justify-end gap-3">
+            <Button type="button" variant="secondary" onClick={handleCancelLeave} disabled={isLeavingAfterSave}>
+              취소
+            </Button>
+            <Button type="button" variant="primary" onClick={() => void handleConfirmLeave()} disabled={isLeavingAfterSave}>
+              {isLeavingAfterSave ? '저장 중...' : '임시저장 후 나가기'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    ) : null;
 
   if (isExportMode) {
     return (
@@ -600,19 +686,19 @@ export function ReportGeneratePage() {
               </div>
             </div>
           ) : (
+            // content 자체를 아직 불러오지 못한 예외 상태(정상 로드된 보고서라면 canRenderClientPreview가
+            // content 존재 여부만 보므로 이 분기까지 오지 않는다).
             <div className="mx-auto my-6 flex w-full max-w-[860px] flex-col items-center justify-center gap-3 rounded-lg bg-surface p-8 text-center shadow-sm">
               <div className="flex max-w-md flex-col gap-3">
                 <p className="text-lg font-semibold text-text-default">아직 미리 볼 수 없습니다.</p>
-                <p className="text-sm text-text-muted">
-                  {dirty
-                    ? '편집한 내용을 아직 저장하지 않았습니다. 저장한 뒤 다시 시도해 주세요.'
-                    : '편집 화면으로 돌아가 저장한 뒤 다시 시도해 주세요.'}
-                </p>
+                <p className="text-sm text-text-muted">편집 화면으로 돌아가 다시 시도해 주세요.</p>
               </div>
             </div>
           )}
         </div>
         {finalizeError && <p className="m-0 bg-surface px-6 py-2 text-sm text-danger">{finalizeError}</p>}
+        {alertModalElement}
+        {leaveSaveModal}
       </div>
     );
   }
@@ -635,7 +721,7 @@ export function ReportGeneratePage() {
           onPreviewClick={() => void handlePreviewClick()}
           canSave={dirty}
           isSaving={isSaving}
-          onSaveClick={() => void handleSave({ notifyErrorsViaModal: true })}
+          onSaveClick={() => void handleSave()}
         />
 
       {/* grounding 검증 실패 상태 — 통과 완료 표시는 상단 단계/확정 버튼 상태로만 드러낸다. */}
@@ -676,12 +762,8 @@ export function ReportGeneratePage() {
       )}
 
       </div>
-      <AlertModal
-        open={alertModal.open}
-        title={alertModal.title}
-        message={alertModal.message}
-        onClose={closeAlertModal}
-      />
+      {alertModalElement}
+      {leaveSaveModal}
     </div>
   );
 }

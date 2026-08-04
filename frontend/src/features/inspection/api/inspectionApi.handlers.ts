@@ -198,6 +198,9 @@ export const inspectionHandlers = [
   // useAnalysisStatus 전용 테스트에서 다루므로 여기서는 202만 흉내낸다.
   http.post('/api/inspections/:id/analyze', () => new HttpResponse(null, { status: 202 })),
 
+  // 점검 요약 진입 시 회차 검수 확정(ANALYZED→REVIEWED) — ResultViewerPage "점검 요약" 버튼.
+  http.post('/api/inspections/:id/confirm-review', () => HttpResponse.json({ success: true, data: null })),
+
   // 점검 상세 조회 — useInspectionResultReal에서 사용. mockInspections 데이터를 기반으로 응답한다.
   http.get('/api/inspections/:id', ({ params }) => {
     const id = Number(params.id);

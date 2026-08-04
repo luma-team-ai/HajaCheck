@@ -27,4 +27,5 @@ export const ragDocumentApi = {
   upload: (payload: RagDocumentUploadPayload) =>
     api.post<RagDocument>('/admin/rag-documents', toRagDocumentUploadFormData(payload)),
   reEmbed: (id: number) => api.post<RagDocument>(`/admin/rag-documents/${id}/re-embed`),
+  delete: (id: number) => api.delete<void>(`/admin/rag-documents/${id}`),
 };

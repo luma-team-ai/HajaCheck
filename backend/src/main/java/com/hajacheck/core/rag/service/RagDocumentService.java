@@ -54,6 +54,7 @@ public class RagDocumentService {
     private final FileStorageService fileStorage;
     private final PdfTextExtractor pdfTextExtractor;
     private final AiProxyService aiProxyService;
+    private final RagEmbeddingCompletionPoller ragEmbeddingCompletionPoller;
 
     public List<RagDocumentResponse> list() {
         return ragDocumentRepository.findAllByOrderByCreatedAtDesc().stream()
@@ -131,33 +132,71 @@ public class RagDocumentService {
         // 비교한다 — 그대로 보내면 매번 "unknown target_collection" ValueError로 임베딩이 실패한다
         // (code-review P1). toLowerCase()로 두 값(REGULATIONS→regulations, DEFECT_KB→defect_kb)
         // 모두 정확히 매핑된다.
+        String aiCollection = targetCollection.name().toLowerCase(java.util.Locale.ROOT);
         RagEmbedRequest aiRequest = new RagEmbedRequest(
                 String.valueOf(documentId), title, sourceType.name(),
-                targetCollection.name().toLowerCase(java.util.Locale.ROOT), text,
+                aiCollection, text,
                 effectiveDate == null ? null : effectiveDate.toString(),
                 publisher,
                 authoredAt == null ? null : authoredAt.toString(),
                 verificationStatus == null ? null : verificationStatus.name());
         try {
+            // FastAPI는 청킹만 동기로 마치고 실제 임베딩 적재는 BackgroundTasks로 넘긴다(ai-server
+            // 16ffe3bb, 504 방지). 이 응답의 chunk_count는 "청킹 직후 예상 최종 청크 수"일 뿐 아직
+            // Chroma에 반영됐다는 보장이 없다 — 여기서 바로 completeEmbedding()을 호출하면 실제로는
+            // 배경 작업이 실패해도 DB만 DONE으로 마킹되는 거짓 완료가 된다(#1328). 완료 확정은
+            // RagEmbeddingCompletionPoller에 위임해 실제 Chroma 청크 수를 폴링 확인한 뒤에만 한다.
             ApiResponse<RagEmbedResponse> response = aiProxyService.embedRagDocument(aiRequest);
             if (response.success() && response.data() != null) {
-                ragDocumentWriter.completeEmbedding(documentId, response.data().chunkCount());
+                // 폴러가 25초 상한에 도달해도 완료 재확인이 가능하도록 이번 요청의 기대값을 먼저
+                // 영속한다(#1393 리뷰 2차 P2 — RagEmbeddingStaleReconciler가 이 값으로 재조회).
+                ragDocumentWriter.recordEmbedRequest(
+                        documentId, response.data().chunkCount(), response.data().embedBatchId());
+                ragEmbeddingCompletionPoller.pollUntilComplete(
+                        documentId, aiCollection, response.data().chunkCount(),
+                        response.data().embedBatchId());
             } else {
                 log.warn("RAG 문서 임베딩 실패(AI 서버 응답 실패) documentId={}", documentId);
                 ragDocumentWriter.failEmbedding(documentId);
             }
         } catch (RuntimeException e) {
-            // AI 서버 연결/타임아웃/응답형식 실패(BusinessException)뿐 아니라, completeEmbedding()의
-            // @Version 낙관적 락 충돌(OptimisticLockException) 등 그 밖의 런타임 예외도 여기서 잡아야
-            // 한다 — BusinessException만 잡던 이전 구현은 그 밖의 예외가 그대로 전파돼 문서가
-            // EMBEDDING 상태로 커밋된 채 남고, restartEmbedding()이 EMBEDDING을 거부해 관리자가
-            // 재임베딩으로도 복구할 수 없는 고착 상태를 만들었다(PR#685 리뷰 P2). 업로드 자체는
-            // 실패시키지 않고 FAILED로 남긴다(관리자가 재임베딩으로 복구, handoff §Java 구현 상세).
+            // embedRagDocument() 호출 자체(연결/타임아웃/응답형식 실패, BusinessException)가 던지는
+            // 예외만 여기서 잡는다 — 이 경우는 FastAPI 청킹 단계에서 이미 실패한 것이므로 background
+            // task 자체가 시작되지 않았을 가능성이 높다(handoff §요구 수정 사항 3). completeEmbedding()
+            // 호출은 이제 RagEmbeddingCompletionPoller의 전용 비동기 스레드에서 일어나 이 try 블록
+            // 밖이므로, 그 안의 @Version 낙관적 락 충돌 등은 폴러 자신의 책임(폴러는 그런 예외를
+            // 재시도로 흡수하고 최종적으로 failEmbedding()에 귀결한다)이다. BusinessException만 잡던
+            // 이전 구현은 그 밖의 예외가 그대로 전파돼 문서가 EMBEDDING 상태로 커밋된 채 남고,
+            // restartEmbedding()이 EMBEDDING을 거부해 관리자가 재임베딩으로도 복구할 수 없는 고착
+            // 상태를 만들었다(PR#685 리뷰 P2) — RuntimeException으로 넓게 잡는 이유는 그대로 유지.
+            // 업로드 자체는 실패시키지 않고 FAILED로 남긴다(관리자가 재임베딩으로 복구).
             // ⚠️ failEmbedding() 자체가 또 실패하는 경우(예: 그사이 동시 갱신)는 이 fallback으로도
             // 못 막는다 — 그 정도로 좁은 창은 이번 수정 범위 밖으로 남긴다.
             log.warn("RAG 문서 임베딩 실패 documentId={}", documentId, e);
             ragDocumentWriter.failEmbedding(documentId);
         }
+    }
+
+    /**
+     * RAG 문서 삭제(#1394) — ① FastAPI에 Chroma 청크 삭제를 먼저 요청하고, 성공한 뒤에만 ② DB 로우와
+     * 원본 파일을 지운다. 순서를 반대로 하면(DB부터 삭제) FastAPI 호출이 실패했을 때 DB에는 없는데
+     * Chroma에는 청크가 남아 챗봇이 존재하지 않는 문서를 근거로 계속 답변하는 상태가 된다 — 이
+     * 순서라면 ①이 실패해도 DB/파일은 아직 그대로라 관리자가 그냥 다시 삭제를 누르면 된다
+     * (delete_document()가 chromadb where 삭제라 매치 0건이어도 에러 없이 성공하는 idempotent 설계,
+     * ai-server rag_ingest.py delete_document() 참고 — 여러 번 재시도해도 결과가 수렴한다).
+     *
+     * <p>②는 RagDocumentWriter.delete()가 DB 로우 삭제를 원자 트랜잭션으로 커밋한 뒤, 그 트랜잭션이
+     * 성공했을 때만 파일을 지운다(파일 삭제 자체는 FileStorageService 계약대로 best-effort).
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void delete(Long id) {
+        RagDocument document = ragDocumentRepository.findByIdOrThrow(id);
+        String targetCollection = document.getTargetCollection().name().toLowerCase(java.util.Locale.ROOT);
+
+        aiProxyService.deleteRagDocumentChunks(String.valueOf(id), targetCollection);
+
+        String storageKey = ragDocumentWriter.delete(id);
+        fileStorage.delete(storageKey);
     }
 
     private String extractText(MultipartFile file) {

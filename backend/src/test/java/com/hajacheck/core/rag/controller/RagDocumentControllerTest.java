@@ -1,9 +1,12 @@
 package com.hajacheck.core.rag.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -18,6 +21,8 @@ import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.ai.dto.RagEmbedResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.PostgresTestSupport;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -124,8 +129,12 @@ class RagDocumentControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 업로드_플랫폼관리자_AI서버성공_201_DONE상태() throws Exception {
-        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3)));
+    void 업로드_플랫폼관리자_AI서버성공_201_EMBEDDING상태() throws Exception {
+        // #1328 — FastAPI가 청킹만 동기로 마치고 실제 임베딩은 BackgroundTasks로 넘기므로, 업로드
+        // 응답 시점에는 아직 완료를 확정하지 않는다(RagEmbeddingCompletionPoller가 비동기로 폴링해
+        // 나중에 DONE으로 전환 — 그 완료 확정 로직 자체는 RagEmbeddingCompletionPollerTest가
+        // 검증한다). 컨트롤러 계약상 응답은 이제 EMBEDDING이 정상이다.
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(3, "batch-1")));
 
         mockMvc.perform(multipart("/api/admin/rag-documents")
                         .file(pdfPart())
@@ -137,8 +146,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.title").value("시설물의 안전관리에 관한 특별법"))
-                .andExpect(jsonPath("$.data.embeddingStatus").value("DONE"))
-                .andExpect(jsonPath("$.data.chunkCount").value(3));
+                .andExpect(jsonPath("$.data.embeddingStatus").value("EMBEDDING"));
     }
 
     @Test
@@ -204,10 +212,14 @@ class RagDocumentControllerTest extends PostgresTestSupport {
     }
 
     @Test
-    void 재임베딩_플랫폼관리자_200_DONE상태로재전환() throws Exception {
+    void 재임베딩_플랫폼관리자_200_EMBEDDING상태로재전환() throws Exception {
+        // #1328 — 재임베딩 시작 직후 응답도 업로드와 동일하게 완료를 확정하지 않는다. restartEmbedding()은
+        // PENDING/DONE/FAILED에서만 허용되므로(RagDocument 참고), 업로드 직후 아직 EMBEDDING인 문서를
+        // 바로 재임베딩 대상으로 쓰면 409가 난다 — AI 서버 실패 응답으로 먼저 FAILED를 동기로 만든 뒤
+        // 그 문서를 재임베딩한다.
         when(aiProxyService.embedRagDocument(any()))
-                .thenReturn(ApiResponse.ok(new RagEmbedResponse(4)))
-                .thenReturn(ApiResponse.ok(new RagEmbedResponse(9)));
+                .thenReturn(ApiResponse.fail("VALIDATION_ERROR", "청크 분할 실패"))
+                .thenReturn(ApiResponse.ok(new RagEmbedResponse(9, "batch-1")));
 
         String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
                         .file(pdfPart())
@@ -216,6 +228,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
                         .param("targetCollection", "REGULATIONS")
                         .with(csrf()).with(authentication(authOf(platformAdminUser))))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.embeddingStatus").value("FAILED"))
                 .andReturn().getResponse().getContentAsString();
 
         Long id = extractId(uploadResponse);
@@ -223,8 +236,7 @@ class RagDocumentControllerTest extends PostgresTestSupport {
         mockMvc.perform(post("/api/admin/rag-documents/{id}/re-embed", id)
                         .with(csrf()).with(authentication(authOf(platformAdminUser))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.embeddingStatus").value("DONE"))
-                .andExpect(jsonPath("$.data.chunkCount").value(9));
+                .andExpect(jsonPath("$.data.embeddingStatus").value("EMBEDDING"));
     }
 
     @Test
@@ -246,6 +258,78 @@ class RagDocumentControllerTest extends PostgresTestSupport {
     void 재임베딩_회사관리자_403() throws Exception {
         // PR #685 리뷰 P1 회귀 테스트.
         mockMvc.perform(post("/api/admin/rag-documents/{id}/re-embed", 1L)
+                        .with(csrf()).with(authentication(authOf(adminUser))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 삭제_플랫폼관리자_200_목록에서제거() throws Exception {
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(2, "batch-1")));
+
+        String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
+                        .file(pdfPart())
+                        .param("title", "삭제 대상 문서")
+                        .param("sourceType", "LAW")
+                        .param("targetCollection", "REGULATIONS")
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long id = extractId(uploadResponse);
+
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", id)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        mockMvc.perform(post("/api/admin/rag-documents/{id}/re-embed", id)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 삭제_AI서버실패_DB에는그대로남아재시도가능() throws Exception {
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(1, "batch-1")));
+
+        String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
+                        .file(pdfPart())
+                        .param("title", "AI서버실패 문서")
+                        .param("sourceType", "LAW")
+                        .param("targetCollection", "REGULATIONS")
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long id = extractId(uploadResponse);
+
+        doThrow(new BusinessException(ErrorCode.AI_SERVER_UNREACHABLE))
+                .when(aiProxyService).deleteRagDocumentChunks(anyString(), anyString());
+
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", id)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isServiceUnavailable());
+
+        // DB/파일이 그대로 남아 재시도(=다시 삭제 호출)로 회복 가능해야 한다 — 목록조회로 확인.
+        mockMvc.perform(get("/api/admin/rag-documents").with(authentication(authOf(platformAdminUser))))
+                .andExpect(jsonPath("$.data[?(@.title == 'AI서버실패 문서')]").exists());
+    }
+
+    @Test
+    void 삭제_존재하지않는문서_404() throws Exception {
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", 999999L)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RAG_DOCUMENT_NOT_FOUND"));
+    }
+
+    @Test
+    void 삭제_일반사용자_403() throws Exception {
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", 1L)
+                        .with(csrf()).with(authentication(authOf(normalUser))))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void 삭제_회사관리자_403() throws Exception {
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", 1L)
                         .with(csrf()).with(authentication(authOf(adminUser))))
                 .andExpect(status().isForbidden());
     }

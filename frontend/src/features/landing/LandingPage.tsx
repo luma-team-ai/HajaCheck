@@ -5,7 +5,7 @@ import { useAuthStore } from '../auth/store/authStore';
 import { LandingFooter } from './components/LandingFooter';
 import { LandingHeader } from './components/LandingHeader';
 import { PARTNERS, PRICING_TIERS, formatPricingTiersFromApi } from './constants';
-import { publicPlanApi } from './api/publicPlanApi';
+import { planApi, planQueryKeys } from '../../shared/api/planApi';
 import heroVisualImage from '../../assets/brand/landing-hero-ai-scan.svg';
 import analysisViewerImage from '../../assets/brand/landing-screens/analysis-viewer.png';
 import inspectionCycleImage from '../../assets/brand/landing-screens/inspection-cycle.png';
@@ -33,8 +33,8 @@ export default function LandingPage() {
   }, [user, navigate]);
 
   const { data: planData, isError, refetch } = useQuery({
-    queryKey: ['publicPlans'],
-    queryFn: ({ signal }) => publicPlanApi.getPlans(signal).then((res) => res.data.plans),
+    queryKey: planQueryKeys.catalog,
+    queryFn: ({ signal }) => planApi.getPlans(signal).then((res) => res.data.plans),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -162,7 +162,7 @@ export default function LandingPage() {
           시설물별 점검 주기를 설정해 다음 점검 일정을 관리할 수 있습니다.
         </p>
         <div className="landing-visual landing-screen-visual">
-          <img src={analysisViewerImage} alt="분석 결과 뷰어 화면" className="landing-screen-image" loading="lazy" />
+          <img src={defectDetailImage} alt="하자 상세 화면" className="landing-screen-image" loading="lazy" />
         </div>
       </section>
 
@@ -187,20 +187,20 @@ export default function LandingPage() {
           미세한 결함
         </h2>
         <p>
-          현장 사진과 영상을 업로드하면, AI 비전 기술이 균열, 누수, 박리·박락 등{' '}
+          현장 사진과 영상을 업로드하면, AI 비전 기술이 균열, 박리·박락, 철근 노출 등{' '}
           <span className="landing-nowrap">육안으로 놓치기</span> 쉬운 하자를 자동으로
           탐지하고 등급과 위치를 확인할 수 있습니다.
         </p>
         <div className="landing-badge-row">
           <span className="landing-pill landing-pill--danger">
-            <span className="landing-pill-dot" aria-hidden="true">●</span> 크랙 심각도 High
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 균열 심각도 High
           </span>
           <span className="landing-pill landing-pill--warning">
-            <span className="landing-pill-dot" aria-hidden="true">●</span> 누수 징후 Medium
+            <span className="landing-pill-dot" aria-hidden="true">●</span> 박리·박락 위험 Medium
           </span>
         </div>
         <div className="landing-visual landing-screen-visual">
-          <img src={defectDetailImage} alt="하자 상세 화면" className="landing-screen-image" loading="lazy" />
+          <img src={analysisViewerImage} alt="분석 결과 뷰어 화면" className="landing-screen-image" loading="lazy" />
         </div>
       </section>
 

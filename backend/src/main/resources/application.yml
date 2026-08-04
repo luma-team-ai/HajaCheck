@@ -150,6 +150,12 @@ ai:
     read-timeout-ms: 150000
     # 플랫폼 관리자 모니터링(#728) ai-server 헬스체크 전용 — 위 read-timeout-ms 와 별개로 짧게 끊는다.
     health-check-timeout-ms: 3000
+    # RAG 임베딩 완료 확인(#1393, RagEmbeddingCompletionPoller/RagEmbeddingStaleReconciler) 전용 —
+    # embedding-status는 Chroma 메타데이터 조회뿐인 가벼운 엔드포인트라 LLM용 150s를 그대로 쓰면
+    # ai-server가 느려질 때(=이 기능이 대응하려는 바로 그 장애 국면) 폴러가 시도당 최대 150s씩
+    # 붙잡히고(총 최대 25분), 리컨사일러는 단일 스레드 @Scheduled 풀을 오래 점유해 다른 배치
+    # (결제·플랜 강등 등)까지 굶주리게 한다(PR머신 리뷰 P1). 헬스체크(3s)보다 조금 더 여유를 둔다.
+    embedding-status-timeout-ms: 5000
 
 # 구독 결제 주기 만료 → FREE 자동 강등 배치(#1145 / HAJA-549).
 #

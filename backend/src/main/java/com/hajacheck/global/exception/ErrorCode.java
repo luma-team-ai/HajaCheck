@@ -238,6 +238,13 @@ public enum ErrorCode {
     // 없다. 이 상태를 비교 대상으로 고르면 이전/이후 회차의 실제 하자가 전부 "신규"로 오분류된다.
     // availableCycles가 이미 걸러내지만, 클라이언트가 필터를 우회해 명시적으로 지정한 경우 방어.
     INSPECTION_COMPARISON_ROUND_NOT_ANALYZED(HttpStatus.BAD_REQUEST, "아직 분석되지 않은 회차는 비교할 수 없습니다."),
+    // 점검 요약 진입 시 회차 검수 확정(ANALYZED→REVIEWED) — 분석이 끝나기 전(CREATED/UPLOADING/
+    // ANALYZING) 상태에서는 확정할 검수 자체가 없다. REVIEWED/REPORTED는 InspectionService.confirmReview가
+    // 멱등 처리(그냥 반환)하므로 이 코드까지 오지 않는다.
+    INSPECTION_REVIEW_NOT_READY(HttpStatus.CONFLICT, "분석이 완료되지 않아 검수를 확정할 수 없습니다."),
+    // 확정되지 않은(DETECTED) 하자가 남아있으면 검수 확정을 거부 — 프론트 "점검 요약" 버튼도 같은
+    // 조건(reviewedCount === totalCount)으로 막지만, 서버도 독립적으로 재검증한다(입력 신뢰 금지).
+    INSPECTION_REVIEW_INCOMPLETE(HttpStatus.CONFLICT, "검수하지 않은 하자가 남아 있어 확정할 수 없습니다."),
 
     // 촬영 데이터(미디어) 업로드(dev-05-03)
     MEDIA_NOT_FOUND(HttpStatus.NOT_FOUND, "미디어를 찾을 수 없습니다."),

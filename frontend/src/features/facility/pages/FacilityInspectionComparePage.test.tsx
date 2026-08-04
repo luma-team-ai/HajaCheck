@@ -13,9 +13,9 @@ import { FacilityInspectionComparePage } from './FacilityInspectionComparePage';
 
 // html2canvas는 실 canvas 렌더링에 의존해 jsdom에서 재현 불가능한 브라우저 API 경계라
 // export util을 모듈 경계에서 모킹한다(react-testing.md "네트워크/외부 경계 모킹" 관용구).
-const exportComparisonReportAsPngMock = vi.fn().mockResolvedValue(undefined);
-vi.mock('../utils/exportComparisonReportAsPng', () => ({
-  exportComparisonReportAsPng: (...args: unknown[]) => exportComparisonReportAsPngMock(...args),
+const exportComparisonReportAsPdfMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../utils/exportComparisonReportAsPdf', () => ({
+  exportComparisonReportAsPdf: (...args: unknown[]) => exportComparisonReportAsPdfMock(...args),
 }));
 
 const server = setupServer(...facilityComparisonHandlers);
@@ -24,7 +24,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   cleanup();
-  exportComparisonReportAsPngMock.mockClear();
+  exportComparisonReportAsPdfMock.mockClear();
 });
 afterAll(() => server.close());
 
@@ -189,14 +189,14 @@ describe('FacilityInspectionComparePage (통합 테스트)', () => {
     expect(screen.getByText('조치완료')).not.toBeNull();
   });
 
-  it('"내보내기" 클릭 시 메인 콘텐츠 영역을 대상으로 PNG 내보내기를 호출한다', async () => {
+  it('"내보내기" 클릭 시 메인 콘텐츠 영역을 대상으로 PDF 내보내기를 호출한다', async () => {
     renderPage();
     await screen.findByText('회차 간 비교');
 
     fireEvent.click(screen.getByRole('button', { name: '내보내기' }));
 
-    expect(exportComparisonReportAsPngMock).toHaveBeenCalledTimes(1);
-    expect(exportComparisonReportAsPngMock.mock.calls[0][1]).toBe('1');
+    expect(exportComparisonReportAsPdfMock).toHaveBeenCalledTimes(1);
+    expect(exportComparisonReportAsPdfMock.mock.calls[0][1]).toBe('1');
   });
 
   // 회귀 고정 — 실 백엔드(HAJA-531/#1112)는 beforeImageUrl/afterImageUrl을 응답에서 아예 생략한다

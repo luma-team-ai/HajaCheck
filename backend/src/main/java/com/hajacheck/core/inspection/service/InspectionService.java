@@ -10,7 +10,6 @@ import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.defect.repository.DefectRepository;
 import com.hajacheck.core.defect.repository.InspectionDefectCountProjection;
 import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
-import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.service.FacilityService;
 import com.hajacheck.core.inspection.dto.InspectionCreateRequest;
 import com.hajacheck.core.inspection.dto.InspectionListFilterRequest;
@@ -61,7 +60,7 @@ public class InspectionService {
         companyScopeGuard.requireEffectiveMembership(creatorUserId, companyId);
         // 시설물 선택 검증 — 요청자 회사 소유 시설물만 회차 생성 가능.
         // FacilityService.get()이 미존재/타회사 소유 모두 FACILITY_NOT_FOUND로 던지므로 그대로 검증에 사용한다.
-        FacilityResponse facility = facilityService.get(creatorUserId, companyId, request.facilityId());
+        facilityService.get(creatorUserId, companyId, request.facilityId());
 
         // 플랜 하향으로 한도를 넘긴 시설물은 읽기 전용이다(#890) — 조회·기존 점검 이력은 그대로 두고
         // 신규 점검 생성만 막는다. 상태 컬럼 없이 "id 오름차순 한도 초과분"으로 계산 판정하므로,
@@ -73,7 +72,7 @@ public class InspectionService {
         // 담당자 배정 검증 — users.status=ACTIVE AND role IN (INSPECTOR, ADMIN) + 요청자와 동일 회사(table_design.md §inspections).
         authService.validateAssignableInspector(creatorUserId, request.assignedInspectorId());
 
-        validateInspectionDateBounds(request.inspectionDate(), facility);
+        validateInspectionDateBounds(request.inspectionDate());
 
         // 회차 채번 동시성 경쟁 방지 — 같은 시설물에 대한 동시 생성 요청을 행 잠금으로 직렬화한 뒤 max+1 을 읽는다.
         // code-reviewer P1(#1291) — "기존 최신 회차보다 이전 날짜 금지" 검증(validateInspectionDateNotBeforeLatestRound)도
@@ -295,6 +294,54 @@ public class InspectionService {
     }
 
     /**
+     * 점검 요약 진입("점검 요약" 버튼) 시점에 회차 검수를 확정한다(ANALYZED → REVIEWED) — 이전에는
+     * 이 전이가 보고서 최종 확정(ReportService.markInspectionReported)에만 묶여 있어, 보고서를
+     * 실제로 만들기 전까지는 회차가 계속 "진행 중"으로 잡혀 같은 시설물의 새 회차 생성이 매번
+     * 경고창에 걸렸다(#1291 상태 전이 테이블 주석에 이미 "전이 코드는 미구현" 상태로 예정돼 있던
+     * 자리). 검수 자체는 이미 끝났다는 사실(점검 요약 버튼이 활성화되는 조건과 동일)을 여기서
+     * 앞당겨 반영한다 — REPORTED로의 최종 전이는 그대로 보고서 확정 시점에 일어난다.
+     *
+     * <p>이미 REVIEWED/REPORTED면 멱등하게 아무것도 하지 않는다(페이지 재진입·중복 클릭 대비).
+     * ANALYZED가 아닌 그 이전 상태(분석 미완료)면 거부한다.
+     *
+     * <p>미확정 판정 기준(PR머신 리뷰 P1 정정) — status=DETECTED가 아니라 is_reviewed=false 잔존
+     * 여부로 막는다. 프론트 "점검 요약" 버튼·reviewedCount는 is_reviewed 기준인데(등급 수정만으로도
+     * true가 됨, status는 별도 changeStatus로만 바뀜), status 기준으로 막으면 등급 수정만 하고
+     * "이 하자 검수 확정" 버튼은 안 누른 정상 검수 완료 회차도 항상 거부돼 보고서 화면에 영영
+     * 진입할 수 없었다. 프론트와 같은 필드로 맞춰야 두 게이트가 항상 같은 결론을 낸다.
+     *
+     * <p>원자적 조건부 UPDATE(PR머신 리뷰 P2) — read-then-advanceTo(더티 체킹) 대신
+     * {@link InspectionRepository#confirmReviewIfAnalyzed}로 "여전히 ANALYZED일 때만" 전이한다.
+     * 하자 0건 회차에서 이 메서드가 ANALYZED를 읽은 직후(커밋 전) 다른 요청이 재분석을 원자적으로
+     * 선점(ANALYZED→ANALYZING)하면, read-then-write 방식은 그 사실을 못 보고 그대로 REVIEWED로
+     * 덮어써 방금 시작된 워커를 고아화한다 — 조건부 UPDATE가 영향 행 0건이면 그 경합이 일어난
+     * 것이므로 재시도를 요청한다(멱등 재시도 안전 — 호출부인 ResultViewerPage가 이미 재진입마다
+     * 다시 부른다).
+     */
+    @Transactional
+    public void confirmReview(Long requesterUserId, Long companyId, Long inspectionId) {
+        Inspection inspection = getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
+        if (inspection.getStatus() == InspectionStatus.REVIEWED
+                || inspection.getStatus() == InspectionStatus.REPORTED) {
+            return;
+        }
+        if (inspection.getStatus() != InspectionStatus.ANALYZED) {
+            throw new BusinessException(ErrorCode.INSPECTION_REVIEW_NOT_READY);
+        }
+        if (defectRepository.existsByInspectionIdAndDeletedFalseAndReviewedFalse(inspectionId)) {
+            throw new BusinessException(ErrorCode.INSPECTION_REVIEW_INCOMPLETE);
+        }
+        int updated = inspectionRepository.confirmReviewIfAnalyzed(
+                inspectionId, InspectionStatus.REVIEWED, InspectionStatus.ANALYZED);
+        if (updated == 0) {
+            // 사전 체크 이후 다른 요청(재분석 선점 등)이 상태를 먼저 바꿨다 — 회차 자체는 여전히
+            // 유효하니 사용자에게는 "다시 시도해 달라"는 충돌로 안내한다(재조회는 하지 않는다,
+            // 클래스 docstring 참고 — 호출부가 재진입 시 다시 부르므로 멱등하게 해소된다).
+            throw new BusinessException(ErrorCode.INSPECTION_ROUND_CONFLICT);
+        }
+    }
+
+    /**
      * ANALYZING 고착 회차를 리퍼가 시스템 배치로 복원한다(코드 리뷰 P2 10차) — @Scheduled 리퍼는
      * 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다(배치 전용, 외부 요청 경로 아님).
      * 여전히 ANALYZING일 때만 UPLOADING으로 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미
@@ -336,10 +383,13 @@ public class InspectionService {
     // 업로드해 AI 분석까지 이어지는 흐름) — 미래 날짜는 애초에 의미가 없어 전부 거부한다. PRD가
     // 사전 예약 스케줄링을 명시하지 않는 한(기존 12개월 여유폭은 "정식 정책 확정 전 임시 여유폭"
     // 이었을 뿐, 실제 예약 기능은 아니었음) 오늘까지만 허용한다.
-    private void validateInspectionDateBounds(LocalDate inspectionDate, FacilityResponse facility) {
-        if (inspectionDate.isBefore(facility.createdAt().toLocalDate())) {
-            throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
-        }
+    //
+    // 하한(시설물 등록일 이전 거부)은 팀 피드백으로 제거했다(2026-08-01) — 시설물이 시스템에
+    // "등록된" 시점과 그 시설물이 "실제로 존재하기 시작한" 시점은 다른데, 등록일을 하한으로 쓰면
+    // 최근에 등록한 시설물은 과거 점검 이력(마이그레이션·소급 입력 등)을 전혀 못 넣는다. 과거
+    // 날짜는 이제 전부 허용하고, 회차 간 시간 순서 정합성은 validateInspectionDateNotBeforeLatestRound
+    // (#1291, "기존 최신 회차보다 이전 금지")가 별도로 보장한다 — 그건 이번 변경과 무관하게 유지.
+    private void validateInspectionDateBounds(LocalDate inspectionDate) {
         if (inspectionDate.isAfter(LocalDate.now())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
         }

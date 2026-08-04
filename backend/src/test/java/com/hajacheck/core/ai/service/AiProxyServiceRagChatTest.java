@@ -58,7 +58,8 @@ class AiProxyServiceRagChatTest {
     }
 
     private AiProxyService newService(RateLimiter rateLimiter) {
-        return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter));
+        return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter),
+                builder.build());
     }
 
     @Test

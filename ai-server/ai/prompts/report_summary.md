@@ -1,5 +1,5 @@
 <!-- 보고서 "종합 의견" 섹션 (FR-5-06, report-chain-design.md §6.2) -->
-<!-- 입력 변수: {total_count}, {count_by_grade_text}, {type_breakdown_text} -->
+<!-- 입력 변수: total_count, count_by_grade_text, type_breakdown_text -->
 
 아래는 코드로 집계한 확정 하자 통계입니다. 이 수치는 이미 실측 확정된 값이므로 **절대 재계산하거나 변경하지 말고 그대로 옮겨 적으세요.**
 

@@ -5,11 +5,17 @@
   상세 배경: ai/core/hf_chat_model.py 모듈 docstring)
 - chat 모델이 CachedLLM으로 정상 감싸기
 - with_structured_output() 이 _StructuredLLM 반환
+- _StructuredLLM 재시도 폴백 3케이스(UT-28): 호출 실패 후 성공 / 파싱 실패 후 성공 /
+  전부 실패 시 마지막 예외 전파. 삼킨 실패가 로그로 남는지도 함께 확인한다.
 """
+import logging
 import os
 from unittest.mock import MagicMock, patch
 
-from ai.core.llm_client import CachedLLM, _StructuredLLM, get_llm
+import pytest
+from pydantic import BaseModel
+
+from ai.core.llm_client import CACHE_TTL_SECONDS, MAX_RETRIES, CachedLLM, _StructuredLLM, get_llm
 
 # 실제 시크릿 아님 — 테스트용 자리표시자. 리터럴을 토큰 키에 직접 대입하면
 # PR머신 시크릿 스캐너가 오탐하므로 상수로 분리(키 이름에 시크릿 키워드 없음).
@@ -126,6 +132,180 @@ def test_cache_namespace_differs_by_model_and_temperature(mock_chat_model_cls):
         diff_model_namespace = llm_diff_model._cache_namespace
         assert diff_model_namespace == "hf:other-model:latest:0.1"
         assert default_namespace != diff_model_namespace
+
+
+# ── UT-28: _StructuredLLM 재시도 폴백 ─────────────────────────────────────────
+# 캐시 동작은 test_llm_structured_cache.py가 다루므로 여기선 cache=False로 두고
+# 재시도 경로만 본다(_log_usage가 Redis를 건드리므로 _redis만 mock).
+
+
+class _UT28Schema(BaseModel):
+    field1: str
+
+
+def _response(content: str):
+    resp = MagicMock()
+    resp.content = content
+    resp.usage_metadata = {"total_tokens": 1}
+    return resp
+
+
+def _assert_no_leak(caplog, secret: str, tail_marker: str) -> None:
+    """재시도 로그에 프롬프트·응답 본문이 새지 않았는지 확인한다(PR #1383 P1 회귀 방어).
+
+    본문 문자열 부분일치만으로는 부족하다 — pydantic이 예외 메시지 안의 값을 가운데를 잘라
+    '서...균열' 형태로 축약하고, langchain은 한글을 \\uXXXX로 이스케이프해서 담기 때문에
+    '내가 고른 substring이 우연히 잘려나가면' 새고 있어도 통과한다(실제로 그렇게 통과했다).
+    그래서 문자열 대조에 더해 **exc_info 자체의 흔적**을 본다: exc_info로 예외를 넘기면
+    포매터가 반드시 'Traceback'을 찍으므로, 어떤 예외 타입·인코딩이든 이 단언에 걸린다.
+    """
+    assert "Traceback" not in caplog.text  # exc_info 재도입 시 무조건 걸리는 구조적 단언
+    assert "Failed to parse" not in caplog.text  # OutputParserException 메시지 시그니처
+    assert secret not in caplog.text
+    assert tail_marker not in caplog.text  # 축약(...)에도 살아남는 꼬리 부분
+
+
+@patch("ai.core.llm_client._redis")
+def test_structured_retries_after_llm_call_failure(mock_redis, caplog):
+    """1회차 호출이 네트워크/타임아웃 등으로 실패해도 재시도로 복구한다."""
+    chat = MagicMock()
+    chat.invoke.side_effect = [RuntimeError("HF 일시 오류"), _response('{"field1": "ok"}')]
+
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        result = _StructuredLLM(chat, _UT28Schema, cache=False).invoke("prompt")
+
+    assert result == _UT28Schema(field1="ok")
+    assert chat.invoke.call_count == 2
+    assert len(caplog.records) == 1  # 삼킨 1회차 실패가 로그로 남고, 성공한 2회차는 남기지 않는다
+    assert "구조화" in caplog.records[0].getMessage()  # 경로 라벨 — 일반 경로와 구분되어야 한다
+    assert "재시도 1/3" in caplog.records[0].getMessage()
+
+
+@patch("ai.core.llm_client._redis")
+def test_structured_retries_after_parse_failure(mock_redis, caplog):
+    """호출은 됐지만 응답이 잘려 파싱 실패한 경우(#448)도 동일하게 재시도한다."""
+    chat = MagicMock()
+    chat.invoke.side_effect = [_response("잘린 응답"), _response('{"field1": "ok"}')]
+
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        result = _StructuredLLM(chat, _UT28Schema, cache=False).invoke("prompt")
+
+    assert result == _UT28Schema(field1="ok")
+    assert chat.invoke.call_count == 2
+    assert len(caplog.records) == 1
+
+
+@patch("ai.core.llm_client._redis")
+def test_structured_raises_after_all_retries_on_schema_mismatch(mock_redis, caplog):
+    """스키마 불일치(JSON은 유효하나 필드가 다름) 응답이 계속되면 표준 폴백 = 마지막 예외 전파.
+
+    자유 텍스트를 억지로 파싱해 부분 결과를 만들어내지 않는다(NFR-24·NFR-25) — 조용한 None
+    반환·자유 텍스트 폴백은 잘못된 하자 설명이 그대로 보고서에 실리는 경로라 더 위험하다.
+    """
+    secret_like_content = '{"unexpected_field": "서울시 강남구 OO빌딩 3층 북벽 균열"}'
+    chat = MagicMock()
+    chat.invoke.return_value = _response(secret_like_content)
+
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        # PydanticOutputParser가 던지는 예외 타입은 langchain 버전에 따라 다를 수 있어 Exception으로 받는다
+        with pytest.raises(Exception):  # noqa: B017
+            _StructuredLLM(chat, _UT28Schema, cache=False).invoke("prompt")
+
+    assert chat.invoke.call_count == MAX_RETRIES + 1  # 무한 재시도 아님
+    assert len(caplog.records) == MAX_RETRIES + 1
+    assert "재시도 3/3" in caplog.records[-1].getMessage()
+    assert "OutputParserException" in caplog.text  # 실패 성격은 타입명으로 식별 가능
+
+    _assert_no_leak(caplog, secret_like_content, tail_marker="균열")
+
+
+# ── CachedLLM(일반 경로) 재시도 로깅 ─────────────────────────────────────────
+# 후속 이슈 #1386(PR #1383 P2) — _log_retry_failure는 구조화 경로와 일반 경로 양쪽에 걸려
+# 있는데 구조화 쪽만 테스트돼 커버리지가 비대칭이었다. 일반 경로도 같은 기준으로 고정한다:
+# 재시도 동작 / 경로 라벨·횟수 포맷 / 예외 메시지 원문 미노출.
+
+
+@patch("ai.core.llm_client._redis")
+def test_general_retries_after_llm_call_failure(mock_redis, caplog):
+    """일반 경로도 1회차 실패를 삼키고 재시도로 복구하며, 그 실패를 로그로 남긴다."""
+    chat = MagicMock()
+    chat.invoke.side_effect = [RuntimeError("HF 일시 오류"), _response("응답 본문")]
+
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        result = CachedLLM(chat, cache=False).invoke("prompt")
+
+    assert result == "응답 본문"
+    assert chat.invoke.call_count == 2
+    assert len(caplog.records) == 1  # 성공한 2회차는 로그를 남기지 않는다(정상 호출 노이즈 방지)
+    message = caplog.records[0].getMessage()
+    assert "일반" in message  # 경로 라벨 — 구조화 경로와 구분되어야 한다
+    assert "재시도 1/3" in message
+    assert "RuntimeError" in message  # 실패 성격은 예외 타입명으로 식별 가능
+
+
+@patch("ai.core.llm_client._redis")
+def test_general_raises_last_error_after_all_retries_without_leaking_message(mock_redis, caplog):
+    """일반 경로도 MAX_RETRIES까지 실패하면 마지막 예외를 전파하고, 예외 메시지 본문은 로그에 안 남긴다.
+
+    HF 클라이언트가 던지는 예외 메시지에는 요청 본문(프롬프트)이나 응답이 섞여 들어올 수 있다.
+    구조화 경로에서 실제로 발생했던 유출(PR #1383 P1 — OutputParserException이 응답 원문을
+    메시지에 담던 문제)과 동일한 회귀를 일반 경로에서도 차단한다.
+    """
+    secret_like_text = "서울시 강남구 OO빌딩 3층 북벽 균열"
+    chat = MagicMock()
+    chat.invoke.side_effect = RuntimeError(f"HF 500 — 요청 본문: {secret_like_text}")
+
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        with pytest.raises(RuntimeError):
+            CachedLLM(chat, cache=False).invoke("prompt")
+
+    assert chat.invoke.call_count == MAX_RETRIES + 1  # 무한 재시도 아님
+    assert len(caplog.records) == MAX_RETRIES + 1
+    assert "일반" in caplog.records[-1].getMessage()
+    assert "재시도 3/3" in caplog.records[-1].getMessage()
+    assert "RuntimeError" in caplog.text
+
+    _assert_no_leak(caplog, secret_like_text, tail_marker="북벽 균열")
+
+
+@patch("ai.core.llm_client._redis")
+def test_general_cache_hit_skips_llm_call_and_logs_nothing(mock_redis_factory, caplog):
+    """캐시 히트는 LLM을 부르지 않으므로 재시도 로그도 남지 않는다.
+
+    재시도 로깅을 넣으면서 캐시 분기가 깨지지 않았는지 함께 고정한다(같은 메서드라 회귀 위험이
+    한 덩어리다 — 이 분기는 그동안 어떤 테스트도 실행하지 않고 있었다).
+    """
+    fake_redis = MagicMock()
+    fake_redis.get.return_value = "캐시된 응답"
+    mock_redis_factory.return_value = fake_redis
+
+    chat = MagicMock()
+    with caplog.at_level(logging.WARNING, logger="ai.core.llm_client"):
+        result = CachedLLM(chat, cache=True, cache_namespace="ns").invoke("prompt")
+
+    assert result == "캐시된 응답"
+    chat.invoke.assert_not_called()
+    assert caplog.records == []
+
+
+@patch("ai.core.llm_client._redis")
+def test_general_cache_miss_stores_response_and_counts_usage(mock_redis_factory):
+    """캐시 미스면 실제 호출 후 raw 응답을 기본 TTL로 저장하고 토큰 사용량을 집계한다."""
+    fake_redis = MagicMock()
+    fake_redis.get.return_value = None
+    mock_redis_factory.return_value = fake_redis
+
+    chat = MagicMock()
+    chat.invoke.return_value = _response("응답 본문")
+
+    result = CachedLLM(chat, cache=True, cache_namespace="ns").invoke("prompt")
+
+    assert result == "응답 본문"
+    key, ttl, value = fake_redis.setex.call_args.args
+    assert key.startswith("ai:cache:ns:")
+    assert ttl == CACHE_TTL_SECONDS
+    assert value == "응답 본문"
+    fake_redis.incrby.assert_called_once()  # ai:usage:{yyyyMMdd} 집계
 
 
 if __name__ == "__main__":

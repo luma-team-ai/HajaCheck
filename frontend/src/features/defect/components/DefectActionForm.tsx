@@ -75,6 +75,10 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
   // 피드백 없이 필드가 그대로 남아있으면 사용자가 재클릭해 같은 사진을 중복 업로드하거나 의도치
   // 않게 다음 단계(조치완료)까지 가버릴 수 있다. 새 파일을 선택하면(재등록 시작) 지운다.
   const [justSavedLabel, setJustSavedLabel] = useState<string | null>(null);
+  // 이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456/#1457) — 백엔드가 groupSize>1로 응답하면 같은
+  // 이미지의 다른 하자들도 함께 갱신됐다는 뜻이라, 사용자가 "왜 다른 카드도 같이 바뀌었지" 하고
+  // 당황하지 않도록 성공 문구에 덧붙인다. groupSize<=1(단독 하자)이면 기존 문구 그대로 둔다.
+  const [justSavedGroupSize, setJustSavedGroupSize] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 업로드 드롭존 썸네일 미리보기(#969) — BusinessLicenseUpload.tsx:84-92와 동일한 단일 파일용
@@ -134,6 +138,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
     setFileError(null);
     setFile(candidate);
     setJustSavedLabel(null);
+    setJustSavedGroupSize(null);
   }
 
   function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
@@ -210,7 +215,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
       if (uploadedMediaId == null) {
         throw new Error('조치 후 사진 업로드 결과가 없습니다.');
       }
-      await submitAction({
+      const updated = await submitAction({
         actionContent: actionContent.trim(),
         actionDate,
         actionAssigneeId: assigneeId,
@@ -220,6 +225,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
       // 저장 성공 후 필드를 초기화한다(#1128 코드리뷰 P2-2) — 초기화하지 않으면 폼이 그대로 채워진
       // 채 남아 재클릭 시 같은 사진이 중복 업로드되고 사유 없이 다음 단계까지 넘어갈 수 있다.
       setJustSavedLabel(ACTION_STATUS_LABEL[targetStatus]);
+      setJustSavedGroupSize(updated.groupSize != null && updated.groupSize > 1 ? updated.groupSize : null);
       setFile(null);
       setActionContent('');
       setActionDate('');
@@ -236,139 +242,171 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
     }
   }
 
+  // 폼이 뭘 더 채워야 활성화되는지 안 보여서 "상태 저장" 버튼이 그냥 고장난 것처럼 보인다는
+  // 지적(#1436) — 버튼 스타일 자체(공용 Button, 53개 화면 공유)는 건드리지 않는다. 처음엔 버튼
+  // 아래 문장 하나로 부족 항목을 나열했는데, 디자인 리뷰에서 "그 문장이 실제 빈 필드와 공간적으로
+  // 안 이어져 있어 다시 훑어야 한다"는 지적을 받아 — 각 라벨 옆에 직접 "필수" 표시를 붙이는 방식으로
+  // 바꿨다(값이 채워지면 즉시 사라짐).
+  const isPhotoMissing = file == null;
+  const isContentMissing = actionContent.trim().length === 0;
+  const isDateMissing = actionDate.trim().length === 0;
+  const isAssigneeMissing = assigneeId === '';
+
   return (
     <form className="defect-action-form" aria-label="조치 결과 등록" onSubmit={handleSubmit}>
       <h2>조치 결과 등록</h2>
 
-      <div className="defect-action-form__field">
-        <label htmlFor="defect-action-photo">조치 후 사진 업로드 *</label>
-        <div
-          className={`defect-action-form__dropzone${isDragActive ? ' is-drag-active' : ''}${file ? ' has-preview' : ''}`}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-          onKeyDown={handleDropzoneKeyDown}
-          role="button"
-          tabIndex={0}
-        >
-          {file ? (
-            <>
-              <img
-                src={previewUrl ?? undefined}
-                alt="조치 후 사진 미리보기"
-                className="defect-action-form__preview-image"
-              />
-              <div className="defect-action-form__preview-chip">
-                <span>{file.name}</span>
-                <button
-                  type="button"
-                  className="defect-action-form__preview-remove"
-                  aria-label="선택한 사진 제거"
-                  onClick={handleRemoveFile}
-                >
-                  ✕
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <svg
-                className="defect-action-form__dropzone-icon"
-                viewBox="0 0 24 24"
-                fill="none"
-                aria-hidden="true"
-              >
-                <path
-                  d="M7 16a4 4 0 0 1-.5-7.97A5 5 0 0 1 16.9 6.02 4.5 4.5 0 0 1 17.5 15H16m-8 3 4-4m0 0 4 4m-4-4v9"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span className="defect-action-form__dropzone-text">
-                <strong>파일을 드래그하거나 클릭하여 업로드</strong>
-                <small>JPG, PNG 파일 (최대 10MB)</small>
-              </span>
-            </>
-          )}
-          <input
-            id="defect-action-photo"
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png"
-            onChange={handleFileInputChange}
-            className="sr-only"
-          />
-        </div>
-        {fileError && (
-          <p className="defect-action-form__error" role="alert">
-            {fileError}
-          </p>
-        )}
-      </div>
-
-      <div className="defect-action-form__field">
-        <label htmlFor="defect-action-content">조치 내용 *</label>
-        <textarea
-          id="defect-action-content"
-          placeholder="조치 내용을 입력해 주세요."
-          value={actionContent}
-          onChange={(event) => setActionContent(event.target.value)}
-          rows={4}
-        />
-      </div>
-
-      <div className="defect-action-form__row">
+      <div className="defect-action-form__section">
+        <p className="defect-action-form__section-label">사진</p>
         <div className="defect-action-form__field">
-          <label htmlFor="defect-action-date">조치일 *</label>
-          <input
-            id="defect-action-date"
-            type="date"
-            value={actionDate}
-            max={maxActionDate}
-            onChange={handleActionDateChange}
-          />
-        </div>
-
-        <div className="defect-action-form__field">
-          <label htmlFor="defect-action-target-status">진행상태 *</label>
-          <select
-            id="defect-action-target-status"
-            value={targetStatus}
-            disabled={statusOptions.length < 2}
-            onChange={(event) => setTargetStatus(event.target.value as 'IN_PROGRESS' | 'RESOLVED')}
+          <span className="defect-action-form__label-row">
+            <label htmlFor="defect-action-photo">조치 후 사진 업로드</label>
+            {isPhotoMissing && <span className="defect-action-form__required-flag" aria-hidden="true">필수</span>}
+          </span>
+          <div
+            className={`defect-action-form__dropzone${isDragActive ? ' is-drag-active' : ''}${file ? ' has-preview' : ''}`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={handleDropzoneKeyDown}
+            role="button"
+            tabIndex={0}
           >
-            {statusOptions.map((option) => (
-              <option key={option} value={option}>
-                {ACTION_STATUS_LABEL[option]}
+            {file ? (
+              <>
+                <img
+                  src={previewUrl ?? undefined}
+                  alt="조치 후 사진 미리보기"
+                  className="defect-action-form__preview-image"
+                />
+                <div className="defect-action-form__preview-chip">
+                  <span>{file.name}</span>
+                  <button
+                    type="button"
+                    className="defect-action-form__preview-remove"
+                    aria-label="선택한 사진 제거"
+                    onClick={handleRemoveFile}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <svg
+                  className="defect-action-form__dropzone-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M7 16a4 4 0 0 1-.5-7.97A5 5 0 0 1 16.9 6.02 4.5 4.5 0 0 1 17.5 15H16m-8 3 4-4m0 0 4 4m-4-4v9"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                <span className="defect-action-form__dropzone-text">
+                  <strong>파일을 드래그하거나 클릭하여 업로드</strong>
+                  <small>JPG, PNG 파일 (최대 10MB)</small>
+                </span>
+              </>
+            )}
+            <input
+              id="defect-action-photo"
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png"
+              onChange={handleFileInputChange}
+              className="sr-only"
+              tabIndex={-1}
+            />
+          </div>
+          {fileError && (
+            <p className="defect-action-form__error" role="alert">
+              {fileError}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="defect-action-form__section">
+        <p className="defect-action-form__section-label">조치 세부정보</p>
+
+        <div className="defect-action-form__field">
+          <span className="defect-action-form__label-row">
+            <label htmlFor="defect-action-content">조치 내용</label>
+            {isContentMissing && <span className="defect-action-form__required-flag" aria-hidden="true">필수</span>}
+          </span>
+          <textarea
+            id="defect-action-content"
+            placeholder="조치 내용을 입력해 주세요."
+            value={actionContent}
+            onChange={(event) => setActionContent(event.target.value)}
+            rows={4}
+          />
+        </div>
+
+        <div className="defect-action-form__row">
+          <div className="defect-action-form__field">
+            <span className="defect-action-form__label-row">
+              <label htmlFor="defect-action-date">조치일</label>
+              {isDateMissing && <span className="defect-action-form__required-flag" aria-hidden="true">필수</span>}
+            </span>
+            <input
+              id="defect-action-date"
+              type="date"
+              value={actionDate}
+              max={maxActionDate}
+              onChange={handleActionDateChange}
+            />
+          </div>
+
+          <div className="defect-action-form__field">
+            <label htmlFor="defect-action-target-status">진행상태 *</label>
+            <select
+              id="defect-action-target-status"
+              value={targetStatus}
+              disabled={statusOptions.length < 2}
+              onChange={(event) => setTargetStatus(event.target.value as 'IN_PROGRESS' | 'RESOLVED')}
+            >
+              {statusOptions.map((option) => (
+                <option key={option} value={option}>
+                  {ACTION_STATUS_LABEL[option]}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="defect-action-form__field">
+          <span className="defect-action-form__label-row">
+            <label htmlFor="defect-action-assignee">담당자</label>
+            {isAssigneeMissing && <span className="defect-action-form__required-flag" aria-hidden="true">필수</span>}
+          </span>
+          <select
+            id="defect-action-assignee"
+            value={assigneeId}
+            disabled={isAssigneeLoading}
+            onChange={(event) => setAssigneeId(event.target.value === '' ? '' : Number(event.target.value))}
+          >
+            <option value="">담당자를 선택하세요</option>
+            {(assignableUsers ?? []).map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.name}
               </option>
             ))}
           </select>
         </div>
       </div>
 
-      <div className="defect-action-form__field">
-        <label htmlFor="defect-action-assignee">담당자 *</label>
-        <select
-          id="defect-action-assignee"
-          value={assigneeId}
-          disabled={isAssigneeLoading}
-          onChange={(event) => setAssigneeId(event.target.value === '' ? '' : Number(event.target.value))}
-        >
-          <option value="">담당자를 선택하세요</option>
-          {(assignableUsers ?? []).map((user) => (
-            <option key={user.id} value={user.id}>
-              {user.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
       {justSavedLabel && (
         <p className="defect-action-form__success" role="status">
           {justSavedLabel}(으)로 저장되었습니다.
+          {justSavedGroupSize != null &&
+            ` (같은 이미지의 하자 ${justSavedGroupSize}건에 함께 반영됨)`}
         </p>
       )}
 

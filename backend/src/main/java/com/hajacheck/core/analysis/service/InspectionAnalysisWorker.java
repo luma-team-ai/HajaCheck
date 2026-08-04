@@ -180,7 +180,7 @@ public class InspectionAnalysisWorker {
                 // softDeleteAllForInspection(전체 비삭제 행 대상)에 휩쓸려 지워진다 — 둘 다 오답이라
                 // 같은 트랜잭션으로만 안전하다.
                 if (!oldDefectsCleared) {
-                    defectWriter.softDeleteAllForInspectionThenSave(inspectionId, toSave);
+                    defectWriter.softDeleteAllForInspectionThenSave(requesterUserId, inspectionId, toSave);
                     oldDefectsCleared = true;
                 } else {
                     defectWriter.saveAll(toSave);

@@ -54,6 +54,18 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     List<FacilityRepresentativeMediaProjection> findFirstIdsByFacilityIds(
             @Param("facilityIds") Collection<Long> facilityIds, @Param("companyId") Long companyId);
 
+    // 지도뷰/시설물 목록 썸네일 폴백 — 시설물 대표 사진이 없을 때 최신 점검의 첫 사진을 대신 보여준다.
+    // 호출부가 이미 시설물별 최신 점검 id만 넘기므로, 여기서는 inspectionId별 첫 media만 고정하면 된다.
+    @Query("""
+            select i.facilityId as facilityId, m.id as mediaId
+            from Media m
+            join Inspection i on i.id = m.inspectionId
+            where m.inspectionId in :inspectionIds
+            order by i.facilityId asc, m.id asc
+            """)
+    List<FacilityRepresentativeMediaProjection> findFirstIdsByInspectionIds(
+            @Param("inspectionIds") Collection<Long> inspectionIds);
+
     // 관리자 플랜·쿼터 관리(#507) — 멤버별 "이번 달 분석한 이미지 장수" 근사치. media 테이블에 업로더 FK가
     // 없어(point-in-time 스키마) 담당 점검자(inspections.assigned_inspector_id) 단위로 집계한다 — 한 점검을
     // 여러 사람이 함께 촬영/업로드하면 실제 기여자 분포와 다를 수 있는 근사값이며, 회사 전체 합계(KPI 카드)는
@@ -75,5 +87,17 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
         Long getInspectorId();
 
         long getMediaCount();
+    }
+
+    // 시설물 상세 "점검 이력" 탭 회차별 이미지 장수(#1359/HAJA-616) — 회차 목록을 한 번에 배치 집계.
+    @Query("select m.inspectionId as inspectionId, count(m) as cnt from Media m "
+            + "where m.inspectionId in :inspectionIds group by m.inspectionId")
+    List<InspectionMediaCountProjection> countGroupByInspectionIds(
+            @Param("inspectionIds") Collection<Long> inspectionIds);
+
+    interface InspectionMediaCountProjection {
+        Long getInspectionId();
+
+        long getCnt();
     }
 }

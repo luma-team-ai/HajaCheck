@@ -85,26 +85,38 @@ export function ReportEditorHero({
     <div className="flex flex-col gap-6">
       <h1 className="sr-only">보고서 생성 결과</h1>
 
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-h-24 w-full max-w-[660px] items-start gap-4 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg xl:flex-none">
+      <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-h-24 w-full max-w-full min-w-0 items-start gap-4 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg xl:max-w-[660px] xl:flex-1">
           <svg className="mt-0.5 h-5 w-5 shrink-0 text-warning-soft-fg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
             <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
             <path d="M10 7v4.2M10 14.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
           </svg>
-          <div className="text-sm leading-6">
+          <div className="min-w-0 text-sm leading-6">
             <p className="font-medium">{AI_DRAFT_WARNING_TITLE}</p>
-            <p className="mt-0.5 whitespace-pre-line text-warning-soft-fg">{AI_DRAFT_WARNING}</p>
+            <p className="mt-0.5 whitespace-pre-line break-words text-warning-soft-fg">{AI_DRAFT_WARNING}</p>
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2 xl:justify-end">
-          <Button onClick={onSaveClick} variant="secondary" size="md" disabled={!canSave || isSaving}>
+        <div className="flex max-w-full flex-nowrap items-center gap-2 xl:shrink-0 xl:justify-end">
+          <Button
+            onClick={onSaveClick}
+            variant="secondary"
+            size="md"
+            disabled={!canSave || isSaving}
+            className="whitespace-nowrap"
+          >
             {isSaving ? '저장 중...' : '임시저장'}
           </Button>
-          <Button onClick={onPreviewClick} variant="secondary" size="md">
+          <Button onClick={onPreviewClick} variant="secondary" size="md" className="whitespace-nowrap">
             PDF 미리보기
           </Button>
-          <Button onClick={onFinalize} variant="primary" size="md" disabled={!canFinalize || isFinalizing}>
+          <Button
+            onClick={onFinalize}
+            variant="primary"
+            size="md"
+            disabled={!canFinalize || isFinalizing}
+            className="whitespace-nowrap"
+          >
             {finalizeLabel ?? (isFinalizing ? 'PDF 생성/확정 중...' : '최종 보고서 확정')}
             <PaperPlaneIcon />
           </Button>

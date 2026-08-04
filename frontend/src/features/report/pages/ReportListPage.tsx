@@ -14,8 +14,10 @@ import { ReportVersionHistoryPanel } from '../components/ReportVersionHistoryPan
 import { isReportContent } from '../types';
 import type { ReportListFilters, ReportListItem } from '../types';
 import { buildReportPdfFileName, exportReportToPdf } from '../utils/exportReportToPdf';
+import { getMissingFinalReportRequiredLabels } from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { formatReportListTitle } from '../utils/reportListFormat';
+import { getApiErrorMessage } from '../../../shared/api/types';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -92,11 +94,10 @@ export function ReportListPage() {
     ]);
   }
 
-  function actionErrorMessage(error: unknown): string {
-    if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
-      return error.message;
-    }
-    return '처리하지 못했습니다. 다시 시도해 주세요.';
+  function actionErrorMessage(type: 'clone' | 'submit' | 'delete'): string {
+    if (type === 'clone') return '보고서를 복사하지 못했습니다.';
+    if (type === 'submit') return '보고서를 발행하지 못했습니다. 보고서 내용과 검증 상태를 확인해 주세요.';
+    return '보고서 초안을 삭제하지 못했습니다.';
   }
 
   async function handleCloneReport(row: ReportListItem) {
@@ -107,8 +108,8 @@ export function ReportListPage() {
       const response = await reportApi.cloneReport(row.id);
       await refreshReportQueries(response.data.inspectionId);
       navigate(`/reports/${response.data.id}`);
-    } catch (error) {
-      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+    } catch {
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('clone') }));
     } finally {
       setPendingAction(null);
     }
@@ -127,6 +128,10 @@ export function ReportListPage() {
         throw new Error('보고서 본문 형식이 올바르지 않습니다.');
       }
       const content = report.content;
+      const missingFinalRequiredLabels = getMissingFinalReportRequiredLabels(content);
+      if (missingFinalRequiredLabels.length > 0) {
+        throw new Error(`최종 보고서 확정 전 필수 항목을 작성해 주세요: ${missingFinalRequiredLabels.join(', ')}`);
+      }
       if (report.groundingCheckPassed !== true) {
         report = (await reportApi.groundingRecheck(row.id)).data;
         if (report.groundingCheckPassed !== true) {
@@ -147,7 +152,15 @@ export function ReportListPage() {
       await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);
       await refreshReportQueries(report.inspectionId);
     } catch (error) {
-      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+      // 위에서 던지는 Error(예: 필수 항목 누락 목록)와 reportApi 호출이 던지는 ApiError를
+      // 구분 없이 항상 일반 문구로 덮어쓰면, ReportGeneratePage의 AlertModal과 달리 이 화면은
+      // 구체적으로 뭐가 빠졌는지 사용자가 알 수 없다(PR머신 리뷰 P3, #1418). getApiErrorMessage는
+      // 두 형태(ApiError·plain Error) 모두 message를 뽑아주므로 있으면 그대로 보여주고, 없을
+      // 때만 일반 문구로 폴백한다.
+      setActionErrors((prev) => ({
+        ...prev,
+        [row.id]: getApiErrorMessage(error, actionErrorMessage('submit')),
+      }));
     } finally {
       setPendingAction(null);
     }
@@ -176,8 +189,8 @@ export function ReportListPage() {
         setActiveReport(null);
       }
       await refreshReportQueries(row.inspectionId);
-    } catch (error) {
-      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage(error) }));
+    } catch {
+      setActionErrors((prev) => ({ ...prev, [row.id]: actionErrorMessage('delete') }));
     } finally {
       setPendingAction(null);
     }

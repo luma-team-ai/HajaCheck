@@ -1,7 +1,9 @@
 package com.hajacheck.core.defect.service;
 
 import com.hajacheck.core.defect.entity.Defect;
+import com.hajacheck.core.defect.entity.DefectRevision;
 import com.hajacheck.core.defect.repository.DefectRepository;
+import com.hajacheck.core.defect.repository.DefectRevisionRepository;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -18,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class DefectWriter {
 
     private final DefectRepository defectRepository;
+    private final DefectRevisionRepository defectRevisionRepository;
 
     @Transactional
     public List<Defect> saveAll(List<Defect> defects) {
@@ -42,8 +45,20 @@ public class DefectWriter {
      * {@link #saveAll}만 쓰면 된다(이미 정리 끝).
      */
     @Transactional
-    public List<Defect> softDeleteAllForInspectionThenSave(Long inspectionId, List<Defect> newDefects) {
-        List<Defect> existing = defectRepository.findByInspectionIdAndNotDeleted(inspectionId);
+    public List<Defect> softDeleteAllForInspectionThenSave(
+            Long requesterUserId, Long inspectionId, List<Defect> newDefects) {
+        // 세대 교체 마커(#1401) — 비삭제분만 지우면 "검수자가 이미 오탐 삭제한 하자"는 그대로 남아
+        // is_deleted 이력을 유지하고, 그러면 되살리기가 그 구회차 하자를 현재 세대의 오탐 삭제와
+        // 구분하지 못해 유령 하자가 부활한다. 삭제 여부와 무관하게 **이 회차의 모든 기존 하자**에
+        // 대체 표시를 남긴다(revised_by = 재분석을 실행한 사용자).
+        List<Defect> all = defectRepository.findByInspectionId(inspectionId);
+        defectRevisionRepository.saveAll(all.stream()
+                .map(defect -> DefectRevision.record(
+                        defect.getId(), requesterUserId,
+                        DefectRevision.FIELD_REANALYSIS_SUPERSEDED, "false", "true", null))
+                .toList());
+
+        List<Defect> existing = all.stream().filter(defect -> !defect.isDeleted()).toList();
         existing.forEach(Defect::softDelete);
         defectRepository.saveAll(existing);
         return defectRepository.saveAll(newDefects);

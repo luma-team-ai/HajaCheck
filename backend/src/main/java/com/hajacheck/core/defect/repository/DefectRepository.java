@@ -142,7 +142,47 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
             + "order by d.id asc")
     List<Defect> findByInspectionIdAndNotDeleted(@Param("inspectionId") Long inspectionId);
 
+    // 오탐 삭제 목록(#1399) — 삭제된 하자 중 **검수자가 오탐으로 지운 것만** 반환한다.
+    // is_deleted=true 에는 두 종류가 섞여 있다: ⓐ 검수자 오탐 판정(DefectRevisionService#reviewDefect)
+    // ⓑ 재분석 때 DefectWriter#softDeleteAllForInspectionThenSave 가 통째로 민 구버전.
+    // ⓑ를 되살리면 이미 대체된 유령 하자가 화면·통계에 부활하므로, ⓐ의 표식인
+    // defect_revisions(field_changed='is_deleted', new_value='true') 이력 존재로 한정한다(ⓑ는 이력이 없다).
+    // 재분석 세대 교체(#1401) — 삭제 여부 무관 전체. DefectWriter 가 대체 마커를 남길 대상이다.
+    List<Defect> findByInspectionId(Long inspectionId);
+
+    // 되살리기 대상: 검수자가 오탐으로 지웠고(is_deleted 이력 존재), 아직 재분석으로 대체되지 않은 것.
+    // 대체 조건이 없으면 '전부 오탐 삭제 → 재분석' 시퀀스를 거친 구회차 삭제분이 그대로 후보로 남아
+    // 되살릴 때 유령 하자가 부활한다(#1401). JPQL은 자바 상수를 참조할 수 없어 리터럴을 쓴다 —
+    // 값 정본은 DefectRevision.FIELD_IS_DELETED / FIELD_REANALYSIS_SUPERSEDED.
+    @Query("select d from Defect d where d.inspectionId = :inspectionId and d.deleted = true "
+            + "and exists (select 1 from DefectRevision r where r.defectId = d.id "
+            + "and r.fieldChanged = 'is_deleted' and r.newValue = 'true') "
+            + "and not exists (select 1 from DefectRevision s where s.defectId = d.id "
+            + "and s.fieldChanged = 'reanalysis_superseded') "
+            + "order by d.id asc")
+    List<Defect> findDeletedByReviewer(@Param("inspectionId") Long inspectionId);
+
     // AI 재분석 fail-closed 가드(코드 리뷰 P1 5차) — ANALYZED 회차에 비삭제 하자가 하나라도 있으면
     // 재분석을 거부한다(InspectionAnalysisService.hasExistingDefects). 목록을 로딩하지 않고 존재만 확인.
     boolean existsByInspectionIdAndDeletedFalse(Long inspectionId);
+
+    // 시설물 상세 "점검 이력" 탭 미조치 건수(#1359/HAJA-616) — RESOLVED가 유일한 종결 상태이므로
+    // 그 외(DETECTED/CONFIRMED/IN_PROGRESS)는 전부 미조치로 센다.
+    long countByInspectionIdInAndDeletedFalseAndStatusNot(
+            Collection<Long> inspectionIds, DefectStatus resolvedStatus);
+
+    // 점검 요약 검수 확정 가드(InspectionService.confirmReview, PR머신 리뷰 P1 정정) — 프론트
+    // "점검 요약" 버튼 활성 조건·reviewedCount가 보는 필드는 status가 아니라 is_reviewed다
+    // (useInspectionResultReal.ts는 defect.isReviewed로 센다). Defect.review(grade)(등급 수정)는
+    // reviewed=true만 세우고 status는 그대로 두므로(status는 changeStatus로만 바뀜), status=DETECTED
+    // 존재 여부로 막으면 "등급 수정만 하고 검수 확정 버튼은 안 누른" 정상 검수 완료 회차까지
+    // 항상 거부됐다 — 프론트와 같은 기준(is_reviewed)으로 맞춘다.
+    boolean existsByInspectionIdAndDeletedFalseAndReviewedFalse(Long inspectionId);
+
+    // 이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456) — 같은 inspection_id+media_id로 확정된
+    // (CONFIRMED 이상) 비삭제 하자 전체를 id 오름차순으로 조회한다. id 오름차순 고정은 그룹 조치
+    // 등록 시 서로 다른 사용자가 같은 그룹을 동시에 제출해도 항상 같은 순서로 갱신되도록 해
+    // 교착(deadlock)을 방지하기 위함이다(DefectService#resolveActionGroup).
+    List<Defect> findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+            Long inspectionId, Long mediaId, Collection<DefectStatus> statuses);
 }

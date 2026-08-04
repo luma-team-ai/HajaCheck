@@ -6,8 +6,6 @@ import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -77,9 +75,15 @@ public class BusinessLicenseFileService {
                 || storageKey.startsWith("/") || storageKey.contains("%")) {
             return false;
         }
-        Path normalized = Paths.get(storageKey).normalize();
-        return storageKey.equals(normalized.toString())
-                && storageKey.startsWith("business-registration/");
+        if (!storageKey.startsWith("business-registration/")) {
+            return false;
+        }
+        for (String segment : storageKey.split("/", -1)) {
+            if (segment.isEmpty() || ".".equals(segment) || "..".equals(segment)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String contentType(String storageKey) {

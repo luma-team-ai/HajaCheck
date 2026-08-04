@@ -22,6 +22,7 @@ import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.global.exception.ErrorCode;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -56,6 +57,10 @@ public class DefectService {
         return PageResponse.from(page.map(DefectResponse::from));
     }
 
+    // 그룹 판정 대상 상태(v0.2, #1456) — DETECTED(검수 전)는 그룹에 포함하지 않는다.
+    private static final List<DefectStatus> GROUP_ELIGIBLE_STATUSES =
+            List.of(DefectStatus.CONFIRMED, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED);
+
     /**
      * 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 담당자는 #690과 동일 자격 조건
      * (authService.validateAssignableInspector, 활성·INSPECTOR/ADMIN·유효 승인 멤버십)으로 검증하고,
@@ -67,6 +72,12 @@ public class DefectService {
      * IN_PROGRESS/RESOLVED 두 개뿐이라 그 외(DETECTED/CONFIRMED)는 여기서 먼저 거부한다 — 실제로도
      * changeStatus()의 정방향 규칙에 걸려 대부분 막히지만, "타겟이 될 수 없는 값"이라는 의도를 명시적
      * 검증으로 남겨 둔다(요청 바디는 신뢰하지 않는다는 원칙).
+     *
+     * <p>이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456) — 요청 대상 하자(anchor)와 같은
+     * inspection_id+media_id를 가진, 확정(CONFIRMED 이상)·비삭제 하자 전체를 {@link #resolveActionGroup}
+     * 으로 묶어 동일한 값을 반복 반영한다. mediaId가 없는 하자는 그룹 크기 1(기존 단독 동작과 동일).
+     * 신규 엔티티/컬럼 없이 이 메서드 하나의 {@code @Transactional} 안에서 그룹 전체가 갱신되므로,
+     * 그룹 내 아무 하자에서나 낙관적 락(lock_version) 충돌이 나면 트랜잭션 전체가 롤백된다(부분 반영 없음).
      */
     @Transactional
     public DefectResponse registerActionResult(
@@ -78,12 +89,27 @@ public class DefectService {
                     "조치 결과 등록 불가: 진행상태는 IN_PROGRESS/RESOLVED만 지정할 수 있다 (요청 상태=%s)"
                             .formatted(targetStatus));
         }
-        Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
+        Defect anchor = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
         authService.validateAssignableInspector(userId, request.actionAssigneeId());
-        mediaRepository.findByIdAndInspectionId(request.actionMediaId(), defect.getInspectionId())
+        mediaRepository.findByIdAndInspectionId(request.actionMediaId(), anchor.getInspectionId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.MEDIA_NOT_FOUND));
 
+        List<Defect> group = resolveActionGroup(anchor);
+        for (Defect defect : group) {
+            applyActionResult(userId, defect, request, targetStatus);
+        }
+
+        String actionAssigneeName = userRepository.findById(request.actionAssigneeId())
+                .map(User::getName)
+                .orElse(null);
+        DefectResponse response = DefectResponse.from(anchor, actionAssigneeName);
+        return response.withGroupSummary(group.size(), aggregateGroupStatus(group));
+    }
+
+    // registerActionResult()의 하자 1건분 반영 로직 — 그룹 내 각 하자에 동일하게 적용한다.
+    private void applyActionResult(
+            Long userId, Defect defect, DefectActionResultRequest request, DefectStatus targetStatus) {
         DefectStatus previousStatus = defect.getStatus();
         // 조치 필드(사진/내용)는 1세트만 존재해 targetStatus=RESOLVED 2차 등록이 IN_PROGRESS 1차
         // 등록분을 덮어쓴다(#1128 코드리뷰 P2-1) — 덮어써지기 직전 값을 감사기록으로 먼저 남겨
@@ -103,6 +129,7 @@ public class DefectService {
                 targetStatus);
         // 이번 제출을 append-only 이력으로 남긴다(#1193/HAJA-569) — flat 필드(위)는 "최신 스냅샷"만
         // 유지하지만, 이 테이블은 targetStatus=IN_PROGRESS 유지 재제출을 포함해 모든 제출을 보존한다.
+        // 그룹 팬아웃(#1456)에서는 그룹 내 하자마다 로그가 1건씩 남는다(§제약 — 이력 중복 저장 트레이드오프).
         defectActionLogRepository.save(DefectActionLog.record(
                 defect.getId(), request.actionMediaId(), targetStatus, request.actionContent(),
                 request.actionDate(), request.actionAssigneeId()));
@@ -113,11 +140,46 @@ public class DefectService {
             defectRevisionRepository.save(DefectRevision.record(
                     defect.getId(), userId, "status", previousStatus.name(), defect.getStatus().name(), null));
         }
+    }
 
-        String actionAssigneeName = userRepository.findById(request.actionAssigneeId())
-                .map(User::getName)
-                .orElse(null);
-        return DefectResponse.from(defect, actionAssigneeName);
+    /**
+     * 이미지 단위 보수 작업 그룹 해석(v0.2, #1456) — mediaId가 없는 하자는 그룹 크기 1(기존 단독
+     * 하자와 동일 취급). mediaId가 있으면 같은 inspection_id+media_id로 확정된(CONFIRMED 이상)
+     * 비삭제 하자 전체를 id 오름차순으로 묶는다. id 오름차순 고정은 서로 다른 사용자가 같은 그룹을
+     * 서로 다른 하자로 동시에 제출해도 두 트랜잭션이 항상 같은 순서로 행을 갱신하도록 강제해
+     * 교착(deadlock)을 방지하기 위함이다(§쓰기 — 신규 엔티티의 단일 lock_version이 없는 대신
+     * 애플리케이션이 순서를 고정한다).
+     */
+    private List<Defect> resolveActionGroup(Defect anchor) {
+        if (anchor.getMediaId() == null) {
+            return List.of(anchor);
+        }
+        List<Defect> members = defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                anchor.getInspectionId(), anchor.getMediaId(), GROUP_ELIGIBLE_STATUSES);
+        if (members.stream().noneMatch(d -> d.getId().equals(anchor.getId()))) {
+            // anchor가 그룹 조회 조건에서 빠지는 경우(예: 방금 CONFIRMED로 전이되어 아직 커밋 전인
+            // 동시 요청)에도, 실제 조치 등록 대상은 반드시 그룹에 포함해야 한다 — id 오름차순
+            // 불변식은 유지한 채 끼워 넣는다.
+            members = new ArrayList<>(members);
+            int insertAt = 0;
+            while (insertAt < members.size() && members.get(insertAt).getId() < anchor.getId()) {
+                insertAt++;
+            }
+            members.add(insertAt, anchor);
+        }
+        return members;
+    }
+
+    // 그룹 상태 집계(v0.2, §읽기) — 전체 RESOLVED면 RESOLVED, 하나라도 조치 진행 이상(IN_PROGRESS
+    // 이상)이면 IN_PROGRESS, 그 외(전부 CONFIRMED)는 CONFIRMED. 저장하지 않고 매 호출 시 계산한다.
+    private DefectStatus aggregateGroupStatus(List<Defect> group) {
+        boolean allResolved = group.stream().allMatch(d -> d.getStatus() == DefectStatus.RESOLVED);
+        if (allResolved) {
+            return DefectStatus.RESOLVED;
+        }
+        boolean anyInProgressOrAbove = group.stream()
+                .anyMatch(d -> d.getStatus() == DefectStatus.IN_PROGRESS || d.getStatus() == DefectStatus.RESOLVED);
+        return anyInProgressOrAbove ? DefectStatus.IN_PROGRESS : DefectStatus.CONFIRMED;
     }
 
     /**

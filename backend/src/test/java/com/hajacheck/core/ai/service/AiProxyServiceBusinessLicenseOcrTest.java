@@ -50,7 +50,7 @@ class AiProxyServiceBusinessLicenseOcrTest {
         // OCR 프록시는 AiProxyRateLimiter 대상이 아니지만(자체 rate-limit 은 BusinessLicenseOcrService),
         // 생성자 의존성이라 in-memory fake 를 주입한다.
         aiProxyService = new AiProxyService(builder.build(), properties, null,
-                new AiProxyRateLimiter(new InMemoryRateLimiter()));
+                new AiProxyRateLimiter(new InMemoryRateLimiter()), builder.build());
     }
 
     @Test
