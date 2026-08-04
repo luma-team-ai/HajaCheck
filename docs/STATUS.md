@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-08-04
+> 마지막 갱신: 2026-08-05
 
 ## 인프라
 
@@ -36,6 +36,7 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **PR #1580 dev 머지 (2026-08-05)** — 균열 폭 mm 측정값이 Spring에서 유실되던 문제 수정(#1578, #1487/#1547 후속). ai-server(#1547)가 카드 기준물 자동검출로 `width_mm`을 계산해 응답에 실어도, `DetectedDefectItem`에 그 필드가 선언돼 있지 않아 `@JsonIgnoreProperties(ignoreUnknown = true)`에 의해 조용히 버려지고 `InspectionAnalysisWorker.toDefect()`도 `Defect.crackWidthMm`에 매핑하지 않아 화면엔 항상 "정보 없음"만 떴다(#1547 PR 본문에 "Spring 연결은 별도 후속 PR"로 명시된 그 스코프). `DetectedDefectItem`에 `widthMm` 필드 추가 + `toDefect()`에 `.crackWidthMm(item.widthMm())` 매핑 두 줄로 해결 — DB 컬럼(`crack_width_mm`)·DTO(`DefectResponse`/`DefectDetailItem`/`ReportDetailResponse`)·프론트(`DefectDetailModal.tsx`)는 V1 베이스라인부터 이미 준비돼 있어 프론트 코드 변경 없음. 신규 마이그레이션 없음(기존 컬럼 재사용). 회귀 테스트(카드 검출 성공/실패 케이스 동시 검증) 추가, 백엔드 전체 스위트 **2206건 0 failures**. GitHub #1578 `awaiting-promotion` 라벨 부여. **⚠️ 이미 분석 완료된 기존 데이터는 소급 반영 안 됨 — 재분석 필요.**
 - **PR #1533 dev 머지 (2026-08-04)** — 로그인 API를 화면별 3개 엔드포인트로 분리하고 **서버가 role 화이트리스트를 강제**(#1514). 기존엔 기업·플랫폼관리자·상담원 세 화면이 같은 `POST /api/auth/login`을 써서 서버가 요청 출처를 알 수 없었고, role 판정은 프론트 훅이 "이미 발급된 세션을 `logout()`으로 되돌리는" 사후 처리라 devtools로 그 logout만 막거나 curl로 직접 치면 뚫렸다. → `/api/auth/login`(ADMIN·INSPECTOR·USER) · `/api/auth/platform-admin/login`(PLATFORM_ADMIN) · `/api/auth/counselor/login`(COUNSELOR)로 분리, **인증 성공해도 role 불일치면 세션 자체를 미발급**(403 `AUTH_ROLE_NOT_ALLOWED`). 게이트를 `getSession(true)`/`changeSessionId()` **앞**에 배치한 게 핵심 — 사이에 두면 `saveContext`를 건너뛰어도 세션 회전·쿠키 발급이 이미 끝나 같은 구멍이 재현된다. 화이트리스트는 `unmodifiableSet`, 무검사 캐스트→`instanceof` fail-closed. `SecurityConfig`·소셜 로그인 무수정. 테스트 **2175건 전건 PASS**(신규 `LoginRoleGateIntegrationTest` 19 + `AuthControllerPortalRolesTest` 3), 사보타주 3회로 테스트 실효성 실증. code-reviewer·security-reviewer(opus) 각 2회 — 최종 P1 0(코드) · P2 0 · P3 1(의식적 보류). G1/G3.5/G6 전부 PASS. openapi 0.42.0-draft→0.43.0-draft bump + archive 스냅샷. 후속 #1519. **⚠️ 승격 시 #1513 동반 필수 — 아래 [다음 작업] 최상단 참조.**
 - **PR #1515 dev 머지 (2026-08-04)** — 하자 목록(`DefectListPage`)에서 필터 적용 후 점검 상세로 이동했다가 뒤로가기하면 필터·목록 상태가 기본값으로 리셋되던 버그(#1508) 수정. 필터 상태를 컴포넌트 로컬 `useState`에서 `useSearchParams`(URL 쿼리파라미터) 기반으로 전환, 필터/페이지 변경은 `replace:true`로 히스토리 엔트리를 쌓지 않게 처리. 신규 `inspectionListFiltersUrl.ts`(URL 직렬화 유틸, enum 화이트리스트로 URL 복원값 검증). 백엔드/DB 변경 없음. Self-review(직접, 서브에이전트 미사용) P1/P2 없음 — P3 1건(조건식 소소한 중복, 동작엔 무관). `tsc -b`/`eslint`/`defect` 기능 테스트(25 files·194 tests, #1508 회귀 테스트 포함) 전부 PASS. Jira HAJA-661 dev-pr-check 전환, GitHub #1508 `awaiting-promotion` 라벨 부여.
 
