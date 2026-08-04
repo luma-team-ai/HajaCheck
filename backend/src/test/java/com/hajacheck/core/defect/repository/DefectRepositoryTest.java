@@ -15,6 +15,8 @@ import com.hajacheck.core.defect.entity.DefectType;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -29,6 +31,7 @@ import org.springframework.boot.test.autoconfigure.orm.jpa.TestEntityManager;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import java.util.Optional;
 
 // 실 PG DDL(defects) 대조를 위해 Testcontainers PostgreSQL 사용.
@@ -613,5 +616,51 @@ class DefectRepositoryTest extends PostgresTestSupport {
                 defectRepository.findDistinctGradesByInspectionIds(List.of());
 
         assertThat(result).isEmpty();
+    }
+
+    private Long seedMedia(Long inspectionId) {
+        Media media = Media.builder()
+                .inspectionId(inspectionId)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("uploads/" + inspectionId + "/original.jpg")
+                .build();
+        em.persist(media);
+        em.flush();
+        return media.getId();
+    }
+
+    private Defect newDefectWithMedia(Long inspectionId, Long mediaId, DefectStatus status, boolean deleted) {
+        Defect defect = newDefect(inspectionId, DefectGrade.C, status, deleted);
+        ReflectionTestUtils.setField(defect, "mediaId", mediaId);
+        return defect;
+    }
+
+    // 이미지 단위 보수 작업 그룹 조회(v0.2, #1456) — 같은 inspection_id+media_id로 확정된(CONFIRMED
+    // 이상) 비삭제 하자만 id 오름차순으로 묶이는지, DETECTED·삭제·다른 media_id는 섞이지 않는지 검증한다.
+    @Test
+    void findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc_그룹멤버만id오름차순() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, 1);
+        Long mediaId = seedMedia(inspectionId);
+        Long otherMediaId = seedMedia(inspectionId);
+
+        Defect resolved = defectRepository.save(
+                newDefectWithMedia(inspectionId, mediaId, DefectStatus.RESOLVED, false));
+        Defect confirmed = defectRepository.save(
+                newDefectWithMedia(inspectionId, mediaId, DefectStatus.CONFIRMED, false));
+        // 그룹에서 제외돼야 하는 것들: 검수 전(DETECTED), 삭제됨, 다른 이미지(media_id)
+        defectRepository.save(newDefectWithMedia(inspectionId, mediaId, DefectStatus.DETECTED, false));
+        defectRepository.save(newDefectWithMedia(inspectionId, mediaId, DefectStatus.CONFIRMED, true));
+        defectRepository.save(newDefectWithMedia(inspectionId, otherMediaId, DefectStatus.CONFIRMED, false));
+        em.flush();
+        em.clear();
+
+        List<Defect> group = defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                inspectionId, mediaId,
+                List.of(DefectStatus.CONFIRMED, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED));
+
+        // resolved 가 confirmed 보다 먼저 저장돼 id 가 더 작으므로 id 오름차순이면 resolved 가 먼저 온다.
+        assertThat(group).extracting(Defect::getId).containsExactly(resolved.getId(), confirmed.getId());
     }
 }

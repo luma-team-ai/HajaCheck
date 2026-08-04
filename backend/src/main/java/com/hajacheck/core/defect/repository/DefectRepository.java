@@ -178,4 +178,11 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     // 존재 여부로 막으면 "등급 수정만 하고 검수 확정 버튼은 안 누른" 정상 검수 완료 회차까지
     // 항상 거부됐다 — 프론트와 같은 기준(is_reviewed)으로 맞춘다.
     boolean existsByInspectionIdAndDeletedFalseAndReviewedFalse(Long inspectionId);
+
+    // 이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456) — 같은 inspection_id+media_id로 확정된
+    // (CONFIRMED 이상) 비삭제 하자 전체를 id 오름차순으로 조회한다. id 오름차순 고정은 그룹 조치
+    // 등록 시 서로 다른 사용자가 같은 그룹을 동시에 제출해도 항상 같은 순서로 갱신되도록 해
+    // 교착(deadlock)을 방지하기 위함이다(DefectService#resolveActionGroup).
+    List<Defect> findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+            Long inspectionId, Long mediaId, Collection<DefectStatus> statuses);
 }

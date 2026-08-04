@@ -577,6 +577,90 @@ class DefectServiceTest {
         verify(defectRevisionRepository, never()).save(any());
     }
 
+    // ── 이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456) ──────────────────────────────────
+
+    @Test
+    void registerActionResult_mediaId없으면_그룹크기1_그룹상태는targetStatus와동일() {
+        // 단독 하자(그룹 조회 자체가 호출되지 않아야 함)도 응답에 groupSize=1/groupStatus를 채운다.
+        Defect defect = existingDefect(5L, DefectStatus.CONFIRMED);
+        stubActionRegistrationDeps(defect);
+
+        DefectResponse response = defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.IN_PROGRESS));
+
+        assertThat(response.groupSize()).isEqualTo(1);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        verify(defectRepository, never())
+                .findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(any(), any(), any());
+    }
+
+    @Test
+    void registerActionResult_같은mediaId그룹전체에동일값팬아웃() {
+        // 같은 inspection_id+media_id로 확정된 하자 3건을 한 번의 조치 등록으로 동시에 반영한다
+        // (§쓰기 — 팬아웃). id 오름차순 고정(잠금 순서)을 그대로 흉내내 리포지토리 스텁도 오름차순으로
+        // 반환한다.
+        Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L, inspectionId=100L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect groupMemberBefore = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(groupMemberBefore, "mediaId", 77L);
+        Defect groupMemberAfter = existingDefect(15L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(groupMemberAfter, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(groupMemberBefore, anchor, groupMemberAfter));
+        User assignee = User.builder().name("김현수").build();
+        ReflectionTestUtils.setField(assignee, "id", 200L);
+        when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+
+        DefectResponse response = defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.IN_PROGRESS));
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(groupMemberBefore.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(groupMemberAfter.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(response.groupSize()).isEqualTo(3);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        // 그룹 크기만큼 append-only 이력이 남는다(§제약 — 이력 중복 저장 트레이드오프).
+        verify(defectActionLogRepository, org.mockito.Mockito.times(3)).save(any(DefectActionLog.class));
+        verify(defectRevisionRepository, org.mockito.Mockito.times(3)).save(argThat(revision ->
+                revision.getFieldChanged().equals("status")
+                        && revision.getOldValue().equals("CONFIRMED")
+                        && revision.getNewValue().equals("IN_PROGRESS")));
+    }
+
+    @Test
+    void registerActionResult_그룹내하나전이불가하면_전체예외전파_이후멤버미반영() {
+        // id 오름차순으로 처리하므로 id=9(이미 RESOLVED, 종료 상태)가 anchor(id=10)보다 먼저 처리된다
+        // — 첫 멤버에서 예외가 나면 그 뒤 멤버(anchor 포함)는 전혀 손대지 않아야 한다(부분 반영 없음,
+        // 실제 DB에서는 @Transactional 롤백으로 N건 전체가 원복된다 — 단위 테스트는 예외가 삼켜지지
+        // 않고 그대로 전파되는지, 처리 순서상 뒤 멤버가 변경되지 않는지까지만 확인한다).
+        Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect alreadyResolved = existingDefect(9L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
+        ReflectionTestUtils.setField(alreadyResolved, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(alreadyResolved, anchor));
+
+        assertThatThrownBy(() -> defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.RESOLVED)))
+                .isInstanceOf(com.hajacheck.global.exception.DomainStateTransitionException.class);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS); // 뒤 멤버는 손대지 않음
+        verify(defectActionLogRepository, never()).save(any());
+        verify(defectRevisionRepository, never()).save(any());
+    }
+
     @Test
     void updateStatus_정상전이_다음상태로변경() {
         Defect defect = existingDefect(5L);
