@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportContent } from "../types";
 import { mockReportDetailResponse } from "../mocks/reportDetail.mock";
-import { buildReportPdfFileName, exportReportToPdf } from "./exportReportToPdf";
+import { exportReportToPdf } from "./exportReportToPdf";
 
 const mockOutput = vi.fn().mockReturnValue(new Blob(["fake-pdf-bytes"]));
 const mockAddFileToVFS = vi.fn();
@@ -891,9 +891,5 @@ describe("exportReportToPdf", () => {
     expect(options?.body).toEqual([
       ["1", "1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
     ]);
-  });
-
-  it("buildReportPdfFileName은 inspectionId와 오늘 날짜로 파일명을 만든다", () => {
-    expect(buildReportPdfFileName(42)).toMatch(/^점검보고서_42_\d{8}\.pdf$/);
   });
 });

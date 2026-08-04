@@ -376,33 +376,9 @@ async function loadPdfImage(
   }
 }
 
-// 레거시 pdfUrl 정규화(#1186/#1235) — 과거 데이터에 "localhost:8080/api/reports/..."처럼
-// 프로토콜 없이 저장된 값이 섞여 있어, fetch 전에 절대/상대 URL로 정리한다. Report.pdfUrl 컬럼을
-// 읽는 화면(ReportGeneratePage, MyReportListItem 등) 어디서든 fetch 직전 이 함수를 거쳐야 한다.
-export function normalizePdfPreviewUrl(pdfUrl: string): string {
-  const trimmed = pdfUrl.trim();
-  const candidate = /^localhost(?::\d+)?\//i.test(trimmed)
-    ? `${window.location.protocol}//${trimmed}`
-    : trimmed;
-
-  try {
-    const url = new URL(candidate, window.location.origin);
-    if (url.pathname.startsWith("/api/reports/")) {
-      return `${url.pathname}${url.search}`;
-    }
-    return url.href;
-  } catch {
-    return candidate;
-  }
-}
-
-export function buildReportPdfFileName(inspectionId: number): string {
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  return `점검보고서_${inspectionId}_${yyyy}${mm}${dd}.pdf`;
-}
+// normalizePdfPreviewUrl / buildReportPdfFileName은 features/mypage(MyReportListItem)에서도
+// 필요해져 shared/utils/reportPdf.ts로 승격됐다(#1472, feature 간 직접 import 금지 컨벤션).
+// 소비처(ReportListPage, ReportGeneratePage 등)는 재수출 없이 shared에서 바로 import한다.
 
 // 표준서식의 구성(제출문 → 결과표 → 결과 요약 → 진단 외관조사결과 기본사항 → 보수ㆍ보강(안) → 참여 기술진 명단
 // → 부위별 사진)을 따르되, 실제 순서는 편집기에서 사용자가 정한 sectionOrder를 그대로 따른다.

@@ -19,12 +19,13 @@ import {
 import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
-import { buildReportPdfFileName, exportReportToPdf, normalizePdfPreviewUrl } from '../utils/exportReportToPdf';
+import { exportReportToPdf } from '../utils/exportReportToPdf';
 import {
   getEmptyManualSectionLabels,
   getMissingFinalReportRequiredLabels,
 } from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
+import { buildReportPdfFileName, normalizePdfPreviewUrl } from '../../../shared/utils/reportPdf';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
