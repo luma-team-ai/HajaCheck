@@ -426,7 +426,7 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
   ### 조사만 하고 손대지 않은 것
   운영 DB의 **삭제된 하자 `is_reviewed=true` 20건**(4개 회사, 사람 검수 이력 0건 = 전부 옛 `softDelete` 버그 산물). 복구 시 "검수한 적 없는 하자가 검수완료로 부활"하지만 **사용자 판단으로 보류**. 판정 기준은 `is_deleted AND is_reviewed AND (grade 변경 이력 없음)` — 재조사 불필요.
 
-- **🔴 로그인 role 게이트 — BE(#1514/PR #1533) 승격 시 FE(#1513) 반드시 동반 (2026-08-04 신설)**
+- **✅ 로그인 role 게이트 — 해소 (2026-08-05 확인): FE #1513이 PR #1577로 dev 머지 완료(08-04 15:30)** — dev `authApi.ts`에 3경로(`/auth/login`·`/auth/platform-admin/login`·`/auth/counselor/login`) 배선 실측 확인. BE(#1533)·FE(#1577) 모두 dev에 있어 배치 승격 시 자동 동반. G6 체크(승격 PR diff에 `authApi.ts` 3경로 포함)는 형식적으로만 확인하면 됨. (아래 원문은 #1577 머지 전 기록 — 이력 보존용)
   - **PR #1533이 단독으로 main에 올라가면 PLATFORM_ADMIN·COUNSELOR가 어떤 화면으로도 로그인할 수 없다.** 프론트는 아직 세 화면 모두 `POST /api/auth/login` 하나만 호출한다(`frontend/src/features/auth/api/authApi.ts:51`, 세 훅 공용) → 신설 화이트리스트에서 두 role이 거부되어 403. **최상위 권한 콘솔이 잠겨 장애 대응 주체까지 막힌다.** 소셜 미보유 native 계정은 우회 경로도 없다.
   - **G6 승격 체크(검증 가능 형태)**: *승격 PR diff에 `frontend/src/features/auth/api/authApi.ts`의 로그인 3경로가 포함되어 있는가*. "#1513 동반" 같은 서술형은 확인 누락이 나기 쉬워 파일·경로 단위로 못박는다.
   - **⚠️ 영향 시점은 승격이 아니라 "dev 코드로 스택을 띄우는 순간"이다.** 팀원이 `docker-compose.oci-db.yml` 터널로 dev 브랜치를 로컬 spring에 부팅하면 그 환경에서 즉시 두 콘솔 로그인이 막힌다(#1513이 dev에 들어가기 전까지). **공지 대상 = 공유 dev DB 사용자가 아니라 "dev 브랜치로 로컬 스택을 띄우는 모든 사람"**(DB가 아니라 앱 코드 이슈). 노출 창을 줄이려면 #1513을 dev에 최대한 빨리 넣는다.
