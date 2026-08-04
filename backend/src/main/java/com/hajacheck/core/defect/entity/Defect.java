@@ -244,6 +244,13 @@ public class Defect {
      * "RESOLVED 이탈 금지" 검사(동일 상태 검사보다 우선)에 걸려 DomainStateTransitionException으로
      * 막힌다(회귀 방지). flat 필드(actionMediaId 등)는 두 경우 모두 "최신 스냅샷"으로 계속 덮어쓴다
      * (기존 계약 유지 — 이력 자체는 서비스 계층이 DefectActionLog로 별도 append한다).
+     *
+     * <p><b>⚠️ 위 "이미 RESOLVED인 하자는 막힌다"는 이 메서드를 직접 탈 때만 성립한다(#1591 P2).</b>
+     * 이미지 단위 보수 작업 그룹 팬아웃에서 건너뛰기로 판정된 멤버는 이 메서드가 아니라
+     * {@link #updateActionResultFields}로 들어와 상태 전이 없이 조치 필드만 갱신된다 — 즉 RESOLVED인
+     * 하자의 조치 필드가 <b>같은 사진의 다른 하자(anchor) 제출을 통해</b> 덮어써질 수 있다. 그렇게
+     * 하지 않으면 그룹에 RESOLVED 멤버가 하나만 있어도 그 사진의 조치 등록 자체가 영구 불가였기
+     * 때문에(#1591) 의도적으로 완화한 것이다. 상태 자체는 여전히 이 메서드를 통해서만 바뀐다.
      */
     public void registerActionResult(Long actionMediaId, String actionContent, LocalDate actionDate,
                                       Long actionAssigneeId, DefectStatus targetStatus) {

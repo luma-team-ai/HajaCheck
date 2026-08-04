@@ -126,8 +126,18 @@ public class DefectService {
      * <p>{@code skipStatusTransition} 이면 조치 필드·이력만 남기고 상태는 제자리에 둔다(#1591 P2) —
      * 상태 전이만 건너뛸 뿐 "이 사진에 조치를 등록했다"는 사실 자체는 멤버 전원에게 기록되어야 한다.
      * defect_action_logs 의 phase 는 멤버의 실제 상태가 아니라 <b>사용자가 제출한</b> targetStatus 로
-     * 남긴다 — 이 테이블은 상태 스냅샷이 아니라 제출 이력이고, 조회 API(getActionLogs)가
-     * IN_PROGRESS/RESOLVED 두 phase 로만 필터하므로 제출 phase 를 그대로 써야 화면에서 사라지지 않는다.
+     * 남긴다. 이건 트레이드오프가 아니라 사실상 강제다 — phase 컬럼 타입이 defects.status 의
+     * defect_status_type 이 아니라 <b>{@code defect_action_log_phase_type}(IN_PROGRESS/RESOLVED 2라벨,
+     * V32)</b> 이라, 건너뛴 멤버의 실제 상태(CONFIRMED)를 쓰면 DB 제약 위반이다
+     * ({@link com.hajacheck.core.defect.entity.DefectActionLog} 의 phase 필드 주석 참고). 의미상으로도
+     * 이 테이블은 상태 스냅샷이 아니라 제출 이력이고, 조회 API(getActionLogs)가 IN_PROGRESS/RESOLVED
+     * 두 phase 로만 필터하므로 제출 phase 를 그대로 써야 화면에서 사라지지도 않는다.
+     *
+     * <p><b>감사 기록의 범위 한계</b> — 아래 덮어쓰기 감사 기록은 {@code actionContent}/{@code actionMediaId}
+     * 두 필드만 남기고 {@code actionDate}/{@code actionAssigneeId} 의 이전 값은 <b>무기록으로 소실</b>된다
+     * (#1128 때부터의 기존 동작). #1591 로 건너뛴 멤버(이미 RESOLVED인 하자 포함)까지 이 경로에
+     * 도달하게 되면서 소실 범위가 넓어졌다 — 단 제출 자체는 defect_action_logs 에 append-only 로
+     * 전량 보존되므로 복원 근거는 남는다.
      */
     private void applyActionResult(
             Long userId, Defect defect, DefectActionResultRequest request, DefectStatus targetStatus,
