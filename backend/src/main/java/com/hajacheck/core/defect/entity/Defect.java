@@ -252,6 +252,28 @@ public class Defect {
         } else {
             changeStatus(targetStatus);
         }
+        applyActionResultFields(actionMediaId, actionContent, actionDate, actionAssigneeId);
+    }
+
+    /**
+     * 조치 결과의 <b>필드만</b> 반영한다 — 상태 전이는 하지 않는다(#1591 P2).
+     *
+     * <p>이미지 단위 보수 작업 그룹 팬아웃에서 {@code DefectService#shouldSkipGroupMember} 로 상태
+     * 전이를 건너뛰기로 판정된 멤버(이미 목표 상태이거나 목표보다 앞서 있거나, 목표까지 두 단계 이상
+     * 뒤처진 하자)에 쓴다. 그 멤버도 <b>같은 사진에 대한 조치 등록의 대상</b>이므로 조치 사진·내용·
+     * 조치일·담당자는 그대로 기록해야 한다 — 상태만 제자리에 둔다.
+     *
+     * <p>{@link #changeStatus}를 거치지 않으므로 {@code reviewed} 플래그도 건드리지 않는다(상태가
+     * 안 바뀌었으니 검수 여부도 그대로다).
+     */
+    public void updateActionResultFields(Long actionMediaId, String actionContent, LocalDate actionDate,
+                                          Long actionAssigneeId) {
+        requireNotDeleted("updateActionResultFields");
+        applyActionResultFields(actionMediaId, actionContent, actionDate, actionAssigneeId);
+    }
+
+    private void applyActionResultFields(Long actionMediaId, String actionContent, LocalDate actionDate,
+                                          Long actionAssigneeId) {
         this.actionMediaId = actionMediaId;
         this.actionContent = actionContent;
         this.actionDate = actionDate;
