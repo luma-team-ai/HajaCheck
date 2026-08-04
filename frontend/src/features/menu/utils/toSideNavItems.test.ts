@@ -133,6 +133,28 @@ describe('toSideNavItems', () => {
     const { items } = toSideNavItems(tree);
 
     expect(items[0].subItems?.[0].id).toBe('report-entry');
+    // activePathPattern이 시드에 없어도(leaf() 기본값 null) 하드코딩된 matchHref로 폴백해야
+    // activeInspectionId 기반 동적 href(/inspections/{id}/reports)와 router.tsx의 정적
+    // activeHref('/inspections/1/reports')가 항상 일치한다(사이드바 선택 표시 유지, #1027 회귀 방지).
+    expect(items[0].subItems?.[0].matchHref).toBe('/inspections/1/reports');
+  });
+
+  it('activePathPattern이 시드에 없어도(null) AI 분석/결과 뷰어는 하드코딩된 matchHref로 폴백한다', () => {
+    const tree: MenuTreeItem[] = [
+      group({
+        code: 'INSPECTIONS',
+        name: '점검 관리',
+        children: [
+          leaf({ code: 'INSPECTIONS_AI_ANALYSIS', name: 'AI 분석 실행/상태', path: '/inspections/create' }),
+          leaf({ code: 'INSPECTIONS_RESULT_VIEWER', name: '분석 결과 뷰어', path: '/inspections/create' }),
+        ],
+      }),
+    ];
+
+    const { items } = toSideNavItems(tree);
+
+    expect(items[0].subItems?.[0].matchHref).toBe('/inspections/ai-analysis');
+    expect(items[0].subItems?.[1].matchHref).toBe('/inspections/1/viewer');
   });
 
   it('INSPECTIONS_REPORT_ENTRY 구 목 코드도 로컬 id(report-entry)로 매핑된다', () => {
