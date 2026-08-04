@@ -6,6 +6,7 @@ import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
+import { getRagSessionId, setRagSessionId } from '../../support/utils/ragSessionId';
 import { AUTH_ME_QUERY_KEY } from '../constants';
 import { useAuthStore } from '../store/authStore';
 import type { User } from '../types';
@@ -96,6 +97,32 @@ describe('useLogout', () => {
   beforeEach(() => {
     logoutCallCount = 0;
     useAuthStore.setState({ user: mockUser });
+    setRagSessionId(77);
+  });
+
+  // #1590 — RAG 챗봇 session_id(localStorage 영속)를 로그아웃에서 지우지 않으면 공용 PC에서
+  // 다음 사용자의 첫 질의가 이전 사용자 세션으로 나가 403으로 실패한다.
+  it('로그아웃 시 RAG session_id도 정리한다', async () => {
+    const queryClient = new QueryClient();
+    renderWithProviders(queryClient);
+
+    fireEvent.click(screen.getByText('로그아웃'));
+
+    await waitFor(() => screen.getByTestId('location').textContent === '/login');
+
+    expect(getRagSessionId()).toBeNull();
+  });
+
+  it('logout API가 실패해도 RAG session_id는 정리된다', async () => {
+    server.use(http.post('/api/auth/logout', () => HttpResponse.error()));
+    const queryClient = new QueryClient();
+    renderWithProviders(queryClient);
+
+    fireEvent.click(screen.getByText('로그아웃'));
+
+    await waitFor(() => screen.getByTestId('location').textContent === '/login');
+
+    expect(getRagSessionId()).toBeNull();
   });
 
   it('로그아웃 성공 시 API 호출 + 캐시/스토어 정리 + /login으로 이동한다', async () => {

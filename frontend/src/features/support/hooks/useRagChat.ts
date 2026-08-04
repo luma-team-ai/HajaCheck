@@ -66,7 +66,9 @@ export function useRagChat() {
   useEffect(() => {
     const savedId = getRagSessionId();
     if (savedId === null) return;
-    sessionIdRef.current = savedId;
+    // 주의(#1590 P2): 여기서 sessionIdRef를 먼저 채우면 안 된다 — 복원 GET 응답이 오기 전에
+    // 사용자가 첫 질문을 보내면 (계정이 바뀐 경우) 이전 사용자의 session_id로 질의가 나가
+    // 소유자 검증 403으로 실패한다. 소유권이 확인되는 시점 = 복원 GET 성공 이후로 미룬다.
 
     let cancelled = false;
     (async () => {
@@ -74,12 +76,17 @@ export function useRagChat() {
         const res = await supportApi.getSessionMessages(savedId);
         // cancelled(언마운트) 또는 그 사이 사용자가 이미 새 메시지를 보냈으면(PR #1563 P2 픽스)
         // 복원으로 화면을 덮어쓰지 않는다 — 방금 보낸 대화는 서버에도 이미 저장돼 있으므로
-        // 다음 새로고침에서 자연히 포함된다.
+        // 다음 새로고침에서 자연히 포함된다. 이 경우 send()가 이미 새 세션을 발급받았으므로
+        // sessionIdRef도 그대로 둔다(저장된 옛 세션으로 되돌리지 않는다).
         if (cancelled || hasSentRef.current) return;
+        // 응답이 정상이면 이 세션은 현재 로그인 사용자의 것이 확실하다 — 이제 채택한다(#1590).
+        sessionIdRef.current = savedId;
         setMessages(res.data.map(toChatMessage));
       } catch {
-        // 세션 만료/삭제 등(403 등) — 에러 화면 대신 조용히 새 대화로 취급(설계 §2 지시)
-        if (cancelled) return;
+        // 세션 만료/삭제 등(403 등) — 에러 화면 대신 조용히 새 대화로 취급(설계 §2 지시).
+        // 그 사이 사용자가 이미 질의를 보내 새 세션이 발급됐다면(hasSentRef) 그 세션을 지우면
+        // 안 된다 — 지우면 방금 시작한 대화가 다음 질의에서 또 새 세션으로 갈라진다(#1590).
+        if (cancelled || hasSentRef.current) return;
         sessionIdRef.current = null;
         clearRagSessionId();
       }

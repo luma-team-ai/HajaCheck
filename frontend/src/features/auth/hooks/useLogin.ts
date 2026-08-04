@@ -5,6 +5,7 @@ import { DASHBOARD_ROUTE } from '../../../shared/constants/routes';
 import { isSafeInternalPath } from '../../../shared/utils/safeInternalPath';
 import { authApi } from '../api/authApi';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
+import { clearRagSessionId } from '../../support/utils/ragSessionId';
 import { useAuthStore } from '../store/authStore';
 import type { LoginRequest, UserResponse } from '../types';
 
@@ -29,6 +30,10 @@ export function useLogin() {
       const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
       clearActiveInspectionId();
       clearActiveReportId();
+      // 같은 이유로 RAG 챗봇 세션(localStorage 영속)도 지운다(#1590) — 계정이 바뀌었는데 이전
+      // 사용자의 session_id가 남으면 첫 질의가 소유자 검증 403으로 실패한다(백엔드가 막아
+      // 유출은 없지만 새 사용자에게 에러 배너가 뜬다).
+      clearRagSessionId();
 
       setUser(user);
       // ProtectedRoute(shared/components/ProtectedRoute.tsx)가 비로그인 접근 시 원래 목적지를

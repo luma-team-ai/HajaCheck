@@ -11,6 +11,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
+import { getRagSessionId, setRagSessionId } from '../../support/utils/ragSessionId';
 import { useAuthStore } from '../store/authStore';
 import type { User } from '../types';
 import { useLogin } from './useLogin';
@@ -92,6 +93,19 @@ describe('useLogin', () => {
   beforeEach(() => {
     useInspectionStore.getState().setActiveInspectionId(42);
     useInspectionStore.getState().setActiveReportId(7);
+    setRagSessionId(77);
+  });
+
+  // #1590 — RAG 챗봇 session_id도 localStorage 영속이라 계정이 바뀌면 지워야 한다. 남으면 새
+  // 사용자의 첫 질의가 이전 사용자의 세션으로 나가 403으로 실패한다(#1194와 같은 계약).
+  it('로그인 성공 시 이전 사용자의 RAG session_id를 지운다', async () => {
+    renderWithProviders();
+
+    fireEvent.click(screen.getByText('로그인'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/dashboard'));
+
+    expect(getRagSessionId()).toBeNull();
   });
 
   it('로그인 성공 시 이전 세션의 activeInspectionId/activeReportId를 지운다(공용 PC 크로스유저 노출 방지)', async () => {

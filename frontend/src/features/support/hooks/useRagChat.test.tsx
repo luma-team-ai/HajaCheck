@@ -340,7 +340,49 @@ describe('useRagChat (통합 테스트)', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(usersOf(result.current.messages)).toHaveLength(1);
     expect(usersOf(result.current.messages)[0].text).toBe('새로 보낸 질문');
-    // 세션이 이미 있었으므로(복원 대상 세션 7) 새로 생성하지 않는다.
-    expect(sessionCreateCount).toBe(0);
+    // #1590 — 복원 GET 응답 전에는 저장된 session_id를 채택하지 않는다(계정이 바뀌었으면 그 값이
+    // 이전 사용자 것이라 403이 난다). 그래서 이 경우 새 세션을 1회 발급받는다.
+    expect(sessionCreateCount).toBe(1);
+    // 늦게 도착한 복원 응답이 방금 발급받은 새 세션을 옛 세션(7)으로 되돌리지 않아야 한다.
+    expect(getRagSessionId()).not.toBe(7);
+  });
+
+  // #1590 P2 — 계정 전환 후 이전 사용자의 session_id가 남아 있고, 복원 GET(403)이 도착하기 전에
+  // 새 사용자가 첫 질문을 보내는 레이스. 예전에는 마운트 즉시 sessionIdRef에 옛 id를 넣어 그
+  // 질의가 403으로 실패했다(화면에 에러 배너). 이제는 새 세션으로 정상 처리돼야 한다.
+  it('복원 GET(403)이 도착하기 전에 보낸 첫 질문도 이전 사용자 세션이 아닌 새 세션으로 나간다', async () => {
+    setRagSessionId(7);
+    const sentSessionIds: Array<number | undefined> = [];
+    server.use(
+      http.get('/api/chat-sessions/:sessionId/messages', async () => {
+        await delay(80);
+        return HttpResponse.json(
+          { success: false, error: { code: 'FORBIDDEN', message: '세션 접근 불가' } },
+          { status: 403 },
+        );
+      }),
+      http.post('/api/ai/rag-chat', async ({ request }) => {
+        const body = (await request.json()) as { sessionId?: number };
+        sentSessionIds.push(body?.sessionId);
+        return HttpResponse.json({ success: true, data: mockRagAnswer, usage: { tokens: 0 } });
+      }),
+    );
+
+    const { result } = renderHook(() => useRagChat());
+
+    act(() => {
+      result.current.send('계정 전환 후 첫 질문');
+    });
+
+    await waitFor(() => expect(assistantOf(result.current.messages)).toBeDefined());
+
+    expect(result.current.error).toBeNull();
+    expect(sessionCreateCount).toBe(1);
+    expect(sentSessionIds).toHaveLength(1);
+    expect(sentSessionIds[0]).not.toBe(7);
+
+    // 늦게 도착한 403 복원 실패가 방금 발급받은 세션을 지우면 안 된다.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(getRagSessionId()).toBe(sentSessionIds[0]);
   });
 });

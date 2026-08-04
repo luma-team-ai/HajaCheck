@@ -4,6 +4,7 @@ import { authApi } from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import type { LoginRequest, UserResponse } from '../../auth/types';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
+import { clearRagSessionId } from '../../support/utils/ragSessionId';
 import type { ApiError } from '../../../shared/api/types';
 import { PLATFORM_ADMIN_ROUTE } from '../../../shared/constants/routes';
 
@@ -27,6 +28,8 @@ export function usePlatformAdminLogin() {
       const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
       clearActiveInspectionId();
       clearActiveReportId();
+      // RAG 챗봇 세션(localStorage 영속)도 같은 이유로 정리한다(#1590) — 진입점 3곳이 동일 계약.
+      clearRagSessionId();
 
       setUser(user);
       navigate(PLATFORM_ADMIN_ROUTE);

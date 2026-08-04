@@ -4,6 +4,7 @@ import { authApi } from '../api/authApi';
 import { AUTH_ME_QUERY_KEY, LOGIN_ROUTE } from '../constants';
 import { useAuthStore } from '../store/authStore';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
+import { clearRagSessionId } from '../../support/utils/ragSessionId';
 
 // 로그아웃 — SideNavBar/Header가 공유하는 단일 훅 (React_코드_컨벤션.md §0 "공통 로직 중복 금지")
 // logout API가 실패해도 클라이언트 세션(react-query 캐시·authStore)은 항상 정리한다 —
@@ -38,6 +39,9 @@ export function useLogout(redirectTo: string = LOGIN_ROUTE) {
       clearUser();
       clearActiveInspectionId();
       clearActiveReportId();
+      // 로그아웃 시 RAG 챗봇 세션(localStorage 영속)도 지운다(#1590) — 남겨두면 다음 사용자의
+      // 첫 질의가 이전 사용자의 session_id로 나가 403으로 실패한다(#1194와 같은 계약).
+      clearRagSessionId();
       navigate(redirectTo);
     }
   };
