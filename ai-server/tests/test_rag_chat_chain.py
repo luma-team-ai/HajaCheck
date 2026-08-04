@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import chromadb
 import pytest
+from chromadb.api.shared_system_client import SharedSystemClient
 from fastapi.testclient import TestClient
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
@@ -536,14 +537,24 @@ class _CharBagEmbeddings(Embeddings):
 
 @pytest.fixture
 def real_semantic_store(tmp_path):
-    """임시 디렉터리에 붙은 실제 Chroma semantic_cache 컬렉션(운영과 동일한 cosine 공간)."""
+    """임시 디렉터리에 붙은 실제 Chroma semantic_cache 컬렉션(운영과 동일한 cosine 공간).
+
+    teardown에서 chromadb의 **전역** 시스템 레지스트리(SharedSystemClient._identifier_to_system)를
+    비운다. PersistentClient는 생성한 System을 이 전역 dict에 등록해두고 스스로 해제하지 않아,
+    비우지 않으면 테스트마다 (이미 지워진 tmp_path를 가리키는) System이 프로세스 수명 내내 쌓인다.
+    누수 자체도 문제지만, 전역 상태가 테스트 간에 남아있다는 사실이 향후 플레이키 조사에서
+    노이즈가 되므로 명시적으로 끊는다.
+    """
     client = chromadb.PersistentClient(path=str(tmp_path / "chroma"))
-    return Chroma(
-        client=client,
-        collection_name=COLLECTION_SEMANTIC_CACHE,
-        embedding_function=_CharBagEmbeddings(),
-        collection_metadata={"hnsw:space": "cosine"},
-    )
+    try:
+        yield Chroma(
+            client=client,
+            collection_name=COLLECTION_SEMANTIC_CACHE,
+            embedding_function=_CharBagEmbeddings(),
+            collection_metadata={"hnsw:space": "cosine"},
+        )
+    finally:
+        SharedSystemClient.clear_system_cache()
 
 
 # A사가 먼저 물어본 질문과, 그와 매우 유사한(전역 조회라면 캐시 히트가 나는) 후속 질문.
@@ -697,6 +708,11 @@ def test_semantic_cache_check_node_is_miss_without_company_id(mock_get_vectorsto
     """노드 단위 방어 — 라우터를 우회해 직접 호출해도 company_id 없이는 전역 조회를 하지 않는다.
 
     (그래프 엣지가 나중에 바뀌어도 전역 조회가 되살아나지 않게 하는 이중 방어.)
+
+    이 테스트는 순수 함수 호출 + 데코레이터가 매번 새로 만드는 mock만 쓴다 — 모듈 전역·파일시스템·
+    네트워크·스레드 어디에도 의존하지 않으므로 원칙적으로 실행 순서와 무관하게 결정론적이다.
+    그럼에도 실패한다면 "환경 탓"으로 넘기지 말 것: 아래 단언은 실패 시 실제 호출 인자를 함께
+    출력하므로, 그 값이 곧 누가 전역 조회를 되살렸는지에 대한 증거다(#1584 조사 기록 참고).
     """
     state = {"question": "균열 보수 기준은?", "company_id": None, "cached_result": None}
 
@@ -704,7 +720,10 @@ def test_semantic_cache_check_node_is_miss_without_company_id(mock_get_vectorsto
 
     assert result["cached_result"] is None
     assert result["final_response"] is None
-    mock_get_vectorstore.assert_not_called()
+    assert mock_get_vectorstore.call_args_list == [], (
+        "company_id 없이 시맨틱 캐시 컬렉션에 접근했다(fail-closed 위반). "
+        f"호출 인자: {mock_get_vectorstore.call_args_list}"
+    )
 
 
 @patch("ai.chains.rag_chat_chain.get_vectorstore")
@@ -802,7 +821,11 @@ def test_rag_chat_with_history_skips_cache_lookup_and_write(
     """이력이 있으면 exact(Redis)·semantic(Chroma) 캐시 조회·저장을 모두 우회한다(design §4).
 
     Redis .get()/.setex() 자체가 호출되지 않아야 하고(조회 우회), 시맨틱 캐시도 조회/저장 없이
-    바로 retrieve로 간다."""
+    바로 retrieve로 간다.
+
+    company_id를 반드시 넘긴다(#1584) — 넘기지 않으면 새로 생긴 company_id None 가드가
+    skip_cache 가드를 가려버려, skip_cache 분기를 통째로 지워도 이 테스트가 통과한다.
+    즉 #1493 불변식의 회귀 검출기가 소리 없이 꺼진다."""
     mock_redis = MagicMock()
     mock_get_redis_client.return_value = mock_redis
 
@@ -821,7 +844,7 @@ def test_rag_chat_with_history_skips_cache_lookup_and_write(
     mock_get_llm.return_value = mock_llm
 
     history = [{"question": "이전 질문", "answer": "이전 답변"}]
-    response = run_rag_chat_chain("후속 질문", history=history)
+    response = run_rag_chat_chain("후속 질문", history=history, company_id=7)
 
     assert response.success is True
     assert response.data["answer"] == "후속 답변입니다."
