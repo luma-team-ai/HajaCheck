@@ -2,6 +2,10 @@ package com.hajacheck.core.ai.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -10,6 +14,8 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
 import com.hajacheck.auth.support.RateLimiter;
+import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.service.ChatSessionService;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.RagChatRequest;
 import com.hajacheck.core.ai.dto.RagChatResponse;
@@ -36,6 +42,8 @@ class AiProxyServiceRagChatTest {
 
     private static final String AI_SERVER_URL = "http://ai-server-test/ai/rag-chat";
     private static final Long USER_ID = 1L;
+    private static final Long SESSION_ID = 100L;
+    private static final Long OTHER_USER_SESSION_ID = 999L;
 
     private static final RagChatRequest REQUEST = new RagChatRequest("균열 보수 기준은 무엇인가요?");
 
@@ -43,9 +51,11 @@ class AiProxyServiceRagChatTest {
     private RestClient.Builder builder;
     private AiServerProperties properties;
     private AiProxyService aiProxyService;
+    private ChatSessionService chatSessionService;
 
     @BeforeEach
     void setUp() {
+        chatSessionService = mock(ChatSessionService.class);
         properties = new AiServerProperties();
         properties.setBaseUrl("http://ai-server-test");
         properties.setInternalKey("test-internal-key");
@@ -59,7 +69,7 @@ class AiProxyServiceRagChatTest {
 
     private AiProxyService newService(RateLimiter rateLimiter) {
         return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter),
-                builder.build());
+                builder.build(), chatSessionService);
     }
 
     @Test
@@ -212,5 +222,69 @@ class AiProxyServiceRagChatTest {
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_INVALID_RESPONSE));
+    }
+
+    // ---- 세션 소유 검증(#1467/HAJA-647) ----
+
+    @Test
+    void ragChat_sessionId없음_세션검증생략_기존단발질의그대로() {
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"답변","sources":[]}}
+                                """));
+
+        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, REQUEST);
+
+        assertThat(response.success()).isTrue();
+        // sessionId 가 없으면 세션 조회 자체를 하지 않는다(기존 호출 경로 회귀 없음).
+        verifyNoInteractions(chatSessionService);
+        mockServer.verify();
+    }
+
+    @Test
+    void ragChat_sessionId있음_소유자일치_검증통과후AI서버호출() {
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"답변","sources":[]}}
+                                """));
+
+        ApiResponse<RagChatResponse> response =
+                aiProxyService.ragChat(USER_ID, new RagChatRequest("후속 질문입니다", SESSION_ID));
+
+        assertThat(response.success()).isTrue();
+        // 소유 검증은 RAG 유형까지 확인해야 한다(다른 유형 세션 재사용 차단).
+        verify(chatSessionService).getOwnedSession(USER_ID, SESSION_ID, ChatSessionType.RAG);
+        mockServer.verify();
+    }
+
+    @Test
+    void ragChat_타인세션id_403_CHAT_SESSION_FORBIDDEN_AI서버호출없음() {
+        // 핵심 보안 요건: 타인 소유 세션 식별자를 실어 보내면 FastAPI 호출·과금 전에 403으로 중단된다.
+        doThrow(new BusinessException(ErrorCode.CHAT_SESSION_FORBIDDEN))
+                .when(chatSessionService).getOwnedSession(USER_ID, OTHER_USER_SESSION_ID, ChatSessionType.RAG);
+
+        assertThatThrownBy(() ->
+                aiProxyService.ragChat(USER_ID, new RagChatRequest("남의 세션 훔쳐보기", OTHER_USER_SESSION_ID)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.CHAT_SESSION_FORBIDDEN));
+        mockServer.verify(); // 기대치 없음 = FastAPI 호출이 전혀 없어야 통과
+    }
+
+    @Test
+    void ragChat_RAG아닌세션유형_403_CHAT_SESSION_FORBIDDEN_AI서버호출없음() {
+        doThrow(new BusinessException(ErrorCode.CHAT_SESSION_FORBIDDEN))
+                .when(chatSessionService).getOwnedSession(USER_ID, SESSION_ID, ChatSessionType.RAG);
+
+        assertThatThrownBy(() ->
+                aiProxyService.ragChat(USER_ID, new RagChatRequest("상담 세션 재사용", SESSION_ID)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.CHAT_SESSION_FORBIDDEN));
+        mockServer.verify();
     }
 }

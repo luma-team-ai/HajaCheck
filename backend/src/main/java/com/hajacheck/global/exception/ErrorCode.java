@@ -264,6 +264,11 @@ public enum ErrorCode {
     MEDIA_DETAIL_GENERATION_BUSY(HttpStatus.SERVICE_UNAVAILABLE,
             "상세 이미지 생성 요청이 많아 잠시 후 다시 시도해 주세요."),
 
+    // 채팅 세션(chat_sessions) — RAG 챗봇 대화 맥락(#1467/HAJA-647)
+    // 미존재/타인 소유/세션 유형 불일치를 하나의 403으로 통일한다 — 세션 존재 여부를 흘리지 않기 위함
+    // (COUNSEL_TICKET_FORBIDDEN·PLAN_FORBIDDEN 관례와 정합, cross-user IDOR 방지).
+    CHAT_SESSION_FORBIDDEN(HttpStatus.FORBIDDEN, "채팅 세션에 대한 권한이 없습니다."),
+
     // 상담(counsel) — 시나리오 챗봇 + 상담원 연결(FR-7, #20/HAJA-33)
     COUNSEL_SESSION_ASSIGNMENT_CONFLICT(HttpStatus.CONFLICT, "이미 상담 세션이 배정된 티켓입니다."),
     // 시나리오 노드 미존재.
