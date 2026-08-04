@@ -151,7 +151,7 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
     const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
     expect(select.value).toBe('RESOLVED');
     expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
-      '해결됨',
+      '조치완료',
       '조치중(으)로 되돌리기',
     ]);
 
@@ -194,13 +194,13 @@ describe('DefectActionForm — 진행상태 select(#1128, "다른 상태로 변�
     // 역행 옵션이 함께 있으므로 더 이상 disabled 고정 select가 아니다(#1556).
     expect(select.disabled).toBe(false);
     const optionLabels = Array.from(select.options).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['조치중', '탐지됨(으)로 되돌리기', '해결됨(으)로 되돌리기']);
+    expect(optionLabels).toEqual(['조치중', '신규(으)로 되돌리기', '조치완료(으)로 되돌리기']);
   });
 
   // #1193/HAJA-569 — IN_PROGRESS 단계에서 조치중 사진을 시간차를 두고 여러 번 등록할 수 있어야
   // 하므로, 더 이상 "조치완료"로 고정되지 않고 두 옵션 중 사용자가 고른다. 기본값은 실수로 바로
   // 완료 처리되지 않도록 "조치중"(유지)이다.
-  it('IN_PROGRESS 상태에서는 정방향(조치중/조치완료) 옵션과 역행 옵션(신규/확인됨으로 되돌리기)이 함께 노출되며 기본값은 "조치중"이다', () => {
+  it('IN_PROGRESS 상태에서는 정방향(조치중/조치완료) 옵션과 역행 옵션(신규/검수확정으로 되돌리기)이 함께 노출되며 기본값은 "조치중"이다', () => {
     renderForm('IN_PROGRESS');
 
     const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
@@ -210,8 +210,8 @@ describe('DefectActionForm — 진행상태 select(#1128, "다른 상태로 변�
     expect(optionLabels).toEqual([
       '조치중',
       '조치완료',
-      '탐지됨(으)로 되돌리기',
-      '확인됨(으)로 되돌리기',
+      '신규(으)로 되돌리기',
+      '검수확정(으)로 되돌리기',
     ]);
   });
 

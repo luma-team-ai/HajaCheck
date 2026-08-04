@@ -772,6 +772,52 @@ class DefectServiceTest {
     }
 
     @Test
+    void updateStatus_그룹멤버가이미목표상태면건너뛰고나머지는반영된다() {
+        // #1562 P2 — 그룹 내 진행 속도가 서로 달라 한 멤버가 이미 목표 상태에 도달해 있어도,
+        // changeStatus()의 "동일 상태 재전이 거부"에 걸려 그룹 전체 요청이 실패하면 안 된다.
+        Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect alreadyAtTarget = existingDefect(9L, 100L, 5L, DefectStatus.IN_PROGRESS, 1, null);
+        ReflectionTestUtils.setField(alreadyAtTarget, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(alreadyAtTarget, anchor));
+
+        DefectResponse response =
+                defectService.updateStatus(USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, null);
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(alreadyAtTarget.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS); // 변화 없이 유지(건너뜀)
+        assertThat(response.groupSize()).isEqualTo(2);
+        // 건너뛴 멤버는 이력도 남기지 않는다 — 실제 변경이 없었으므로.
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+    }
+
+    @Test
+    void updateStatus_anchor자신이이미목표상태면기존처럼거부된다() {
+        // anchor는 사용자가 직접 고른 대상이므로, 이미 목표 상태인 경우는 그룹 팬아웃과 무관하게
+        // changeStatus()의 기존 거부를 그대로 표면화한다(#1562 P2 — 그룹 멤버만 건너뛴다).
+        // id 오름차순 처리 순서상 anchor(id=10)가 groupMember(id=15)보다 먼저 처리되도록 구성해,
+        // anchor에서 예외가 나면 뒤 멤버는 전혀 손대지 않는지까지 확인한다.
+        Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect groupMember = existingDefect(15L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(groupMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(anchor, groupMember));
+
+        assertThatThrownBy(() -> defectService.updateStatus(
+                USER_ID, COMPANY_ID, 10L, DefectStatus.IN_PROGRESS, null))
+                .isInstanceOf(com.hajacheck.global.exception.DomainStateTransitionException.class);
+        assertThat(groupMember.getStatus()).isEqualTo(DefectStatus.CONFIRMED); // id 오름차순상 먼저 처리돼도 안전
+    }
+
+    @Test
     void getRevisions_본인소유_이력페이지반환() {
         Defect defect = existingDefect(5L);
         when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(defect));

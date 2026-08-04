@@ -296,6 +296,11 @@ public class DefectService {
      * changeStatus()의 정방향/역행 판정을 독립적으로 받으므로, 그룹 내 하자마다 실제 결과(사유
      * 필요 여부 등)가 다를 수 있다 — 그중 하나라도 거부되면 트랜잭션 전체가 롤백된다(부분 반영 없음,
      * registerActionResult와 동일 원칙).
+     *
+     * <p>anchor가 아닌 그룹 멤버가 이미 목표 상태이면 건너뛴다(#1562 P2) — changeStatus()는 동일
+     * 상태 재전이를 항상 거부하므로, 그대로 반영하면 그룹 내 하자마다 진행 속도가 달라 이미 목표
+     * 상태에 도달한 멤버가 하나만 있어도 그룹 전체 요청이 실패했다. anchor 자신이 이미 목표 상태인
+     * 경우는 사용자가 직접 고른 대상이므로 기존과 동일하게 changeStatus()의 거부를 그대로 표면화한다.
      */
     @Transactional
     public DefectResponse updateStatus(
@@ -306,6 +311,10 @@ public class DefectService {
 
         List<Defect> group = resolveActionGroup(anchor);
         for (Defect defect : group) {
+            boolean isAnchor = defect.getId().equals(anchor.getId());
+            if (!isAnchor && defect.getStatus() == status) {
+                continue;
+            }
             DefectStatus previousStatus = defect.getStatus();
             defect.changeStatus(status, reason);
             defectRevisionRepository.save(DefectRevision.record(
