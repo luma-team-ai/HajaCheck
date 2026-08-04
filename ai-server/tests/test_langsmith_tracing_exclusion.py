@@ -185,7 +185,9 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch)
             "애초에 호출을 안 해서인지 구분할 수 없어 검증이 무효화된다"
         )
 
-        _wait_for_flush(captured_ocr)
+        # 억제(no-op) 검증이라 데이터가 영영 안 온다 — settle 대기(0.4s)만 짧게 주면 충분하고,
+        # 나머지 케이스(대조군 등)처럼 8s 풀타임을 소진할 필요가 없다(PR #1557 P3).
+        _wait_for_flush(captured_ocr, timeout=1.5)
 
     # OCR 체인은 tracing_context(enabled=False)로 감싸져 있으므로 페이로드가 **완전히 비어있어야 한다**
     ocr_payload = b"".join(captured_ocr)
