@@ -75,6 +75,10 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
   // 피드백 없이 필드가 그대로 남아있으면 사용자가 재클릭해 같은 사진을 중복 업로드하거나 의도치
   // 않게 다음 단계(조치완료)까지 가버릴 수 있다. 새 파일을 선택하면(재등록 시작) 지운다.
   const [justSavedLabel, setJustSavedLabel] = useState<string | null>(null);
+  // 이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456/#1457) — 백엔드가 groupSize>1로 응답하면 같은
+  // 이미지의 다른 하자들도 함께 갱신됐다는 뜻이라, 사용자가 "왜 다른 카드도 같이 바뀌었지" 하고
+  // 당황하지 않도록 성공 문구에 덧붙인다. groupSize<=1(단독 하자)이면 기존 문구 그대로 둔다.
+  const [justSavedGroupSize, setJustSavedGroupSize] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 업로드 드롭존 썸네일 미리보기(#969) — BusinessLicenseUpload.tsx:84-92와 동일한 단일 파일용
@@ -134,6 +138,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
     setFileError(null);
     setFile(candidate);
     setJustSavedLabel(null);
+    setJustSavedGroupSize(null);
   }
 
   function handleFileInputChange(event: ChangeEvent<HTMLInputElement>) {
@@ -210,7 +215,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
       if (uploadedMediaId == null) {
         throw new Error('조치 후 사진 업로드 결과가 없습니다.');
       }
-      await submitAction({
+      const updated = await submitAction({
         actionContent: actionContent.trim(),
         actionDate,
         actionAssigneeId: assigneeId,
@@ -220,6 +225,7 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
       // 저장 성공 후 필드를 초기화한다(#1128 코드리뷰 P2-2) — 초기화하지 않으면 폼이 그대로 채워진
       // 채 남아 재클릭 시 같은 사진이 중복 업로드되고 사유 없이 다음 단계까지 넘어갈 수 있다.
       setJustSavedLabel(ACTION_STATUS_LABEL[targetStatus]);
+      setJustSavedGroupSize(updated.groupSize != null && updated.groupSize > 1 ? updated.groupSize : null);
       setFile(null);
       setActionContent('');
       setActionDate('');
@@ -399,6 +405,8 @@ export function DefectActionForm({ defectId, inspectionId, status, actionResult,
       {justSavedLabel && (
         <p className="defect-action-form__success" role="status">
           {justSavedLabel}(으)로 저장되었습니다.
+          {justSavedGroupSize != null &&
+            ` (같은 이미지의 하자 ${justSavedGroupSize}건에 함께 반영됨)`}
         </p>
       )}
 
