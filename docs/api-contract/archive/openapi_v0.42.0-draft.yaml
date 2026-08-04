@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.43.0-draft"
+  version: "0.42.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -31,21 +31,6 @@ info:
         {id}/resolve` 성공 시) `CounselTicketResponse` 를 수신한다.
     - **브로커**: 인메모리 심플 브로커(`/topic`, `/queue`), 애플리케이션 목적지 prefix `/app`, 사용자 목적지
       prefix `/user`.
-
-
-    2026-08-04 로그인 API를 화면별로 분리해 서버가 role을 강제(#1514) — 기업(`POST /api/auth/login`,
-    경로 유지)에 더해 `POST /api/auth/platform-admin/login`·`POST /api/auth/counselor/login` 2개를
-    신설했다. 각 엔드포인트는 허용 role 화이트리스트(기업=ADMIN/INSPECTOR/USER · 플랫폼=PLATFORM_ADMIN ·
-    상담원=COUNSELOR)를 강제하며, 불일치는 **403 `AUTH_ROLE_NOT_ALLOWED`(신규 ErrorCode)** 로 거절하고
-    **세션을 발급하지 않는다**(role 게이트가 세션 고정 방어보다 앞에 있어 세션 생성·ID 회전 자체가
-    일어나지 않는다 — 403 응답의 세션으로 `GET /api/users/me` 를 호출해도 401). 이전에는 세 화면이 같은
-    엔드포인트를 쓰고 role 판정이 프론트의 사후 `logout` 이라 curl 로 직접 치면 세션이 그대로 남았다.
-    ⚠️ 자격증명 실패는 **기존 401 `AUTH_INVALID_CREDENTIALS` 그대로**다(role 게이트보다 먼저 걸린다) —
-    403은 "올바른 비밀번호를 이미 아는" 요청만 도달하므로 계정 열거 단서로서의 실익이 없고, 잘못된 탭에
-    입력한 사용자에게 "비밀번호가 틀렸습니다"로 오안내하지 않기 위한 의도된 트레이드오프다.
-    소셜 로그인(`/api/auth/oauth2/{provider}`)은 이번 분리 대상이 아니다 — 소셜 신규 가입은
-    role=USER/status=WAITING 고정이고 PLATFORM_ADMIN/COUNSELOR 계정은 소셜 식별자가 없어 그 경로에
-    도달할 수 없다.
 
 
     2026-07-30 플랫폼 관리자 날짜별 상담 목록 계약화(#1168, PR #1205 dev 머지 반영) — GET
@@ -807,16 +792,10 @@ paths:
 
   /api/auth/login:
     post:
-      summary: 기업 화면 로그인 (email/password)
+      summary: 자체(기업 email/password) 로그인
       description: >
-        기업 화면(/login) 전용(#1514). loginId(=email)/password 로 인증. 성공 시 세션 쿠키(SESSION) 발급.
-
-        허용 role = **ADMIN / INSPECTOR / USER**. PLATFORM_ADMIN·COUNSELOR 계정은 자격증명이 맞아도
-        403 AUTH_ROLE_NOT_ALLOWED 로 거절되며 **세션이 발급되지 않는다**(세션 생성·ID 회전 자체가
-        일어나지 않아, 실패 응답의 세션으로 GET /api/users/me 를 호출해도 401).
-
-        인증 실패는 계정 열거 방지를 위해 id/pw/미존재/잠금 구분 없이 401 AUTH_INVALID_CREDENTIALS 로
-        통일하며, role 게이트보다 먼저 걸린다(비밀번호를 모르면 403을 볼 수 없다).
+        loginId(=email)/password 로 인증. 성공 시 세션 쿠키(SESSION) 발급.
+        실패는 계정 열거 방지를 위해 id/pw/미존재/잠금 구분 없이 401 AUTH_INVALID_CREDENTIALS 로 통일.
       tags: [auth]
       requestBody:
         required: true
@@ -831,71 +810,6 @@ paths:
               schema: { $ref: "#/components/schemas/UserApiResponse" }
         "401":
           description: 인증 실패 (AUTH_INVALID_CREDENTIALS)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "403":
-          description: 이 화면으로는 로그인할 수 없는 role (AUTH_ROLE_NOT_ALLOWED) — 세션 미발급
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-
-  /api/auth/platform-admin/login:
-    post:
-      summary: 플랫폼 관리자 화면 로그인 (email/password)
-      description: >
-        플랫폼 관리자 화면(/platform-admin/login) 전용(#1514). 허용 role = **PLATFORM_ADMIN** 만.
-        그 외 role 은 자격증명이 맞아도 403 AUTH_ROLE_NOT_ALLOWED 로 거절되며 **세션이 발급되지 않는다**.
-        요청/성공 응답 스키마와 인증 실패(401) 정책은 POST /api/auth/login 과 동일하다.
-      tags: [auth]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/LoginRequest" }
-      responses:
-        "200":
-          description: 로그인 성공
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/UserApiResponse" }
-        "401":
-          description: 인증 실패 (AUTH_INVALID_CREDENTIALS)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "403":
-          description: 이 화면으로는 로그인할 수 없는 role (AUTH_ROLE_NOT_ALLOWED) — 세션 미발급
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-
-  /api/auth/counselor/login:
-    post:
-      summary: 상담원 콘솔 로그인 (email/password)
-      description: >
-        상담원 콘솔(/counsel-console/login) 전용(#1514). 허용 role = **COUNSELOR** 만.
-        그 외 role 은 자격증명이 맞아도 403 AUTH_ROLE_NOT_ALLOWED 로 거절되며 **세션이 발급되지 않는다**.
-        요청/성공 응답 스키마와 인증 실패(401) 정책은 POST /api/auth/login 과 동일하다.
-      tags: [auth]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/LoginRequest" }
-      responses:
-        "200":
-          description: 로그인 성공
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/UserApiResponse" }
-        "401":
-          description: 인증 실패 (AUTH_INVALID_CREDENTIALS)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "403":
-          description: 이 화면으로는 로그인할 수 없는 role (AUTH_ROLE_NOT_ALLOWED) — 세션 미발급
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
