@@ -21,9 +21,13 @@ describe('대시보드 action 경로', () => {
     expect(inspectionDefectsPath(192, 908)).toBe('/inspections/192/defects?defectId=908');
   });
 
-  // SideNavBar(shared, 미터치) href와 router.tsx의 라우트 등록이 여기 정의된 같은 값을 참조해야
-  // #478 유형(라우트-메뉴 불일치)이 재발하지 않는다.
-  it('#478: AI 주간 브리핑 경로/앵커 id는 SideNavBar href("/dashboard/ai-weekly-briefing")와 일치한다', () => {
+  // router.tsx의 라우트 등록과 DashboardPage.tsx의 스크롤 판정이 여기 정의된 같은 값을 참조해야
+  // #478 유형(라우트-앵커 불일치)이 재발하지 않는다.
+  //
+  // #1538: 이전 문구는 "SideNavBar href와 일치한다"였으나, 사이드바 메뉴 항목은 이제 존재하지 않는다
+  // (서버 menus·SideNavBar 폴백 양쪽에서 제거 — #1522 결정). 사이드바를 근거로 삼던 단언이 링크 부재를
+  // 잡지 못하고 오히려 "링크가 있다"는 오해를 남겼으므로, 실제로 이 값을 쓰는 두 곳으로 근거를 바꾼다.
+  it('#478: AI 주간 브리핑 경로/앵커 id는 라우트·스크롤 판정이 공유하는 값으로 고정된다', () => {
     expect(AI_WEEKLY_BRIEFING_PATH).toBe('/dashboard/ai-weekly-briefing');
     expect(AI_WEEKLY_BRIEFING_ANCHOR_ID).toBe('ai-weekly-briefing-card');
   });
