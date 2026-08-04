@@ -9,8 +9,8 @@
 - detail 섹션의 items 개수 대조는 grounding 공통 모듈의 범위 밖이므로 이 파일에서 별도로 검증한다 (design §5-4)
 - recommendation 섹션의 RAG 조회(ai.core.vectorstore.get_vectorstore)는 LangChain Chroma 기반으로 구현됨.
   실패 시(0건 검색과 동일하게) legal_basis를 "관련 근거 없음"으로 고정하고 체인 전체는 정상 진행한다
-- 프롬프트에 고객사 정보(시설명·위치·하자내용)가 들어가지만, LangSmith 전송은 전역 입출력
-  마스킹(LANGSMITH_HIDE_INPUTS/HIDE_OUTPUTS)으로 차단한다 — #1240
+- 프롬프트에 고객사 정보(시설명·위치·하자내용)가 들어가지만, 트레이싱을 켜면 원문이 그대로
+  LangSmith로 전송된다 — #1534, 재봉님 승인으로 마스킹 제거
 """
 import concurrent.futures
 import logging
