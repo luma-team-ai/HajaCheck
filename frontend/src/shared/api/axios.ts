@@ -9,6 +9,7 @@ import {
   PLATFORM_ADMIN_PATH_PREFIX,
 } from '../constants/authPaths';
 import { useInspectionStore } from '../../features/inspection/store/inspectionStore';
+import { clearRagSessionId } from '../../features/support/utils/ragSessionId';
 import type { ApiError, ApiResponse } from './types';
 
 // 세션 탐지용 요청(getMe 등)은 401을 "미로그인"이라는 정상 신호로 받으므로 전역 하드 리다이렉트에서
@@ -67,6 +68,9 @@ api.interceptors.response.use(
       const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
       clearActiveInspectionId();
       clearActiveReportId();
+      // RAG 챗봇 session_id도 같은 이유로 함께 지운다(#1590) — 이 401 강제 로그아웃은 로그인
+      // 3진입점·useLogout과 동일한 "이전 사용자 잔여 상태 정리" 계약을 지키는 5번째 지점이다.
+      clearRagSessionId();
       window.location.href = redirectTarget; // 401 일괄 처리
     }
     const apiError: ApiError = {
