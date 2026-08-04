@@ -54,7 +54,10 @@ export function ReportListTable({
   pendingAction = null,
   actionErrors = {},
 }: Props) {
-  const [openMenu, setOpenMenu] = useState<{ id: number; anchor: { top: number; left: number } } | null>(null);
+  const [openMenu, setOpenMenu] = useState<{
+    id: number;
+    anchor: { top: number; left: number; openUpward?: boolean };
+  } | null>(null);
 
   useEffect(() => {
     if (!openMenu) return undefined;
@@ -161,14 +164,17 @@ export function ReportListTable({
             onClick={(event) => {
               event.stopPropagation();
               const rect = event.currentTarget.getBoundingClientRect();
+              const ESTIMATED_MENU_HEIGHT = 175;
+              const openUpward = rect.bottom + ESTIMATED_MENU_HEIGHT > window.innerHeight;
               setOpenMenu((current) =>
                 current?.id === row.id
                   ? null
                   : {
                       id: row.id,
                       anchor: {
-                        top: rect.bottom + 4,
-                        left: Math.max(8, rect.right - 128),
+                        top: openUpward ? rect.top - 4 : rect.bottom + 4,
+                        left: Math.max(8, Math.min(rect.right - 128, window.innerWidth - 136)),
+                        openUpward,
                       },
                     },
               );
