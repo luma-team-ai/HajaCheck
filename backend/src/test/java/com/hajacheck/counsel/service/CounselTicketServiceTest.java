@@ -532,6 +532,24 @@ class CounselTicketServiceTest {
     }
 
     @Test
+    void 배정_성공시_상담원에게도_배정알림() {
+        // #1506 — 사용자에게만 보내던 걸 상담원 콘솔도 받아야 "연결됨"이 즉시 반영된다.
+        CounselTicket ticket = waitingTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+        when(userRepository.existsById(COUNSELOR_ID)).thenReturn(true);
+        when(counselorSkillRepository.existsById(new CounselorSkillId(COUNSELOR_ID, CounselType.ANALYSIS_RESULT)))
+                .thenReturn(true);
+        when(chatSessionRepository.save(any(ChatSession.class)))
+                .thenAnswer(inv -> withId((ChatSession) inv.getArgument(0), 700L));
+        when(ticketRepository.saveAndFlush(any(CounselTicket.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.assignToCounselor(TICKET_ID, COUNSELOR_ID);
+
+        verify(messagingTemplate).convertAndSendToUser(
+                eq(String.valueOf(COUNSELOR_ID)), eq("/queue/counsel/assigned"), any(Object.class));
+    }
+
+    @Test
     void 배정_이미진행중티켓_409_ASSIGNMENT_CONFLICT() {
         CounselTicket ticket = waitingTicket();
         ReflectionTestUtils.setField(ticket, "status", CounselTicketStatus.IN_PROGRESS);
@@ -600,6 +618,25 @@ class CounselTicketServiceTest {
     }
 
     @Test
+    void 종료_성공시_상담원에게_종료알림과_대기열갱신브로드캐스트() {
+        // #1506 — 사용자만 알던 종료 사실을 담당 상담원 콘솔도 실시간으로 받아야 한다.
+        // 진입 시점에 ticket.resolve()가 IN_PROGRESS만 허용하므로 counselorId는 항상 non-null.
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+        when(chatSessionRepository.findById(700L)).thenReturn(Optional.of(withId(
+                ChatSession.start(USER_ID, ChatSessionType.COUNSEL), 700L)));
+        when(ticketRepository.saveAndFlush(any(CounselTicket.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.resolve(TICKET_ID, COUNSELOR_ID, false);
+
+        verify(messagingTemplate).convertAndSendToUser(
+                eq(String.valueOf(USER_ID)), eq("/queue/counsel/ended"), any(Object.class));
+        verify(messagingTemplate).convertAndSendToUser(
+                eq(String.valueOf(COUNSELOR_ID)), eq("/queue/counsel/ended"), any(Object.class));
+        verify(messagingTemplate).convertAndSend(eq("/topic/counsel-queue"), eq("TICKET_RESOLVED"));
+    }
+
+    @Test
     void 종료_티켓소유고객본인_성공() {
         CounselTicket ticket = inProgressTicket();
         when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
@@ -631,6 +668,64 @@ class CounselTicketServiceTest {
         CounselTicketResponse response = service.leaveOffline(TICKET_ID, USER_ID);
 
         assertThat(response.status()).isEqualTo(CounselTicketStatus.OFFLINE_LEFT);
+    }
+
+    @Test
+    void 이탈_담당상담원배정된_상태에서는_상담원에게_종료알림과_대기열갱신브로드캐스트() {
+        // #1506 — 이전엔 leaveOffline이 아무에게도 알리지 않아 상담원 콘솔이 이탈 사실을 몰랐다.
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.saveAndFlush(any(CounselTicket.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.leaveOffline(TICKET_ID, USER_ID);
+
+        verify(messagingTemplate).convertAndSendToUser(
+                eq(String.valueOf(COUNSELOR_ID)), eq("/queue/counsel/ended"), any(Object.class));
+        verify(messagingTemplate).convertAndSend(eq("/topic/counsel-queue"), eq("TICKET_RESOLVED"));
+    }
+
+    @Test
+    void 이탈_담당상담원없는_WAITING상태에서는_상담원알림_생략() {
+        CounselTicket ticket = waitingTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+        when(ticketRepository.saveAndFlush(any(CounselTicket.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.leaveOffline(TICKET_ID, USER_ID);
+
+        verify(messagingTemplate, never()).convertAndSendToUser(anyString(), anyString(), any(Object.class));
+        verify(messagingTemplate).convertAndSend(eq("/topic/counsel-queue"), eq("TICKET_RESOLVED"));
+    }
+
+    // ── getTicket(#1506) ──
+
+    @Test
+    void 티켓조회_당사자_상태반환() {
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+
+        CounselTicketResponse response = service.getTicket(TICKET_ID, USER_ID, false);
+
+        assertThat(response.status()).isEqualTo(CounselTicketStatus.IN_PROGRESS);
+    }
+
+    @Test
+    void 티켓조회_비당사자_404_TICKET_NOT_FOUND() {
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+
+        assertThatThrownBy(() -> service.getTicket(TICKET_ID, 999L, false))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_TICKET_NOT_FOUND);
+    }
+
+    @Test
+    void 티켓조회_PLATFORM_ADMIN은_비당사자여도_조회허용() {
+        CounselTicket ticket = inProgressTicket();
+        when(ticketRepository.findById(TICKET_ID)).thenReturn(Optional.of(ticket));
+
+        CounselTicketResponse response = service.getTicket(TICKET_ID, 999L, true);
+
+        assertThat(response.status()).isEqualTo(CounselTicketStatus.IN_PROGRESS);
     }
 
     @Test
