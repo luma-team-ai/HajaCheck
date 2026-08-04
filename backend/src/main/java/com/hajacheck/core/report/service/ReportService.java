@@ -423,6 +423,10 @@ public class ReportService {
         }
         if (status == InspectionStatus.REVIEWED) {
             inspectionService.advanceStatus(editedByUserId, companyId, inspection.id(), InspectionStatus.REPORTED);
+            // #1497/HAJA-656 — REPORTED로 실제 전이될 때만(재확정 시 재호출은 이 if에 다시 들어오지
+            // 않아 자연히 멱등) 그 회차의 실제 점검일 기준으로 다음 점검일을 재계산한다.
+            facilityService.recalculateNextInspectionDueAt(
+                    editedByUserId, companyId, inspection.facilityId(), inspection.inspectionDate());
         }
     }
 
