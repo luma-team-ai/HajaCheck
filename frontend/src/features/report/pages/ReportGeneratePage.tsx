@@ -261,16 +261,6 @@ export function ReportGeneratePage() {
   }, [applyReport, reportQuery.data]);
 
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
-  // dirty는 저장 즉시 false로 꺼지는 순간 신호라, Step B("작성자 확인")가 저장 직후 꺼지는 걸
-  // 막기 위해 "이 보고서를 보는 동안 한 번이라도 편집했는가"를 별도로 기억한다. 다른 보고서로
-  // 이동하면(parsedReportId 변경) 리셋한다.
-  const [hasEverEdited, setHasEverEdited] = useState(false);
-  useEffect(() => {
-    setHasEverEdited(false);
-  }, [parsedReportId]);
-  useEffect(() => {
-    if (dirty) setHasEverEdited(true);
-  }, [dirty]);
   const emptyManualSectionLabels = useMemo(() => getEmptyManualSectionLabels(content), [content]);
   const hasEmptyManualSections = emptyManualSectionLabels.length > 0;
   const missingFinalRequiredLabels = useMemo(() => getMissingFinalReportRequiredLabels(content), [content]);
