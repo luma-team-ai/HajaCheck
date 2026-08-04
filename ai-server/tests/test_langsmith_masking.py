@@ -927,8 +927,12 @@ def _smoke_rag_chat(fake_llm):
     doc = MagicMock()
     doc.page_content = SENSITIVE_INPUT
     doc.metadata = {"source": "하자판정기준.pdf", "page": 1}
+    fake_semantic_store = MagicMock()
+    fake_semantic_store.similarity_search_with_score.return_value = []  # 시맨틱 캐시 미스 — 검색·LLM 경로로 진입시킨다
     with patch("ai.chains.rag_chat_chain.get_llm", return_value=fake_llm), patch(
         "ai.chains.rag_chat_chain.get_redis_client", return_value=fake_redis
+    ), patch(
+        "ai.chains.rag_chat_chain.get_vectorstore", return_value=fake_semantic_store
     ), patch("ai.chains.rag_chat_chain.hybrid_search", return_value=[doc]):
         run_rag_chat_chain(SENSITIVE_INPUT)
 

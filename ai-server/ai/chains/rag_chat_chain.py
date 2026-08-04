@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Literal, Optional, TypedDict
 
+from langchain_core.documents import Document
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
@@ -25,12 +27,18 @@ from ai.core.hybrid_search import hybrid_search
 from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
 from ai.core.prompt_safety import wrap_untrusted
 from ai.core.schemas import AIErrorCode, AIResponse, RagAnswerData, SourceCitation
-from ai.core.vectorstore import COLLECTION_REGULATIONS
+from ai.core.vectorstore import COLLECTION_REGULATIONS, COLLECTION_SEMANTIC_CACHE, get_vectorstore
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 RAG_CHAT_TOP_K = 4  # 설계 §4.1 초안값
 RAG_CHAT_CACHE_PREFIX = "ai:cache:rag-chat"
+
+# 시맨틱 캐시 유사도 임계값 — langchain_chroma.similarity_search_with_score는 distance(작을수록 유사)를
+# 반환하고, 컬렉션이 hnsw:space=cosine이므로 distance = 1 - cosine_similarity. 따라서
+# score <= (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD)일 때 hit으로 판정한다.
+SEMANTIC_CACHE_SIMILARITY_THRESHOLD = float(os.getenv("SEMANTIC_CACHE_THRESHOLD", "0.95"))
+# TODO(#1462 후속 이슈): 실측 기반 threshold 튜닝 필요. 현재는 법규 QA 도메인 오탐 리스크 때문에 보수적으로 높게 설정한 초기값.
 
 
 class RagChatState(TypedDict):
@@ -153,7 +161,46 @@ def _node_cache_check(state: RagChatState) -> RagChatState:
 
 
 def _route_after_cache(state: RagChatState) -> Literal["end", "retrieve"]:
-    """캐시 후 라우터 — 캐시 히트면 END, 미스면 retrieve 노드로."""
+    """캐시 후 라우터 — 캐시 히트면 END, 미스면 semantic_cache_check 노드로.
+
+    반환값 리터럴("end"/"retrieve")은 기존 그대로 유지 — 그래프 엣지 매핑에서
+    "retrieve" 라벨을 semantic_cache_check 노드로 연결한다(호출부 조건부 엣지 dict 참조)."""
+    return "end" if state["cached_result"] is not None else "retrieve"
+
+
+def _node_semantic_cache_check(state: RagChatState) -> RagChatState:
+    """시맨틱 캐시(2차) 조회 노드 — exact-match(Redis) 미스 시에만 진입.
+
+    Chroma semantic_cache 컬렉션에서 질문과 가장 유사한 과거 질문을 검색해, distance가
+    임계값 이하면 hit으로 판정하고 저장된 answer_json을 cached_result/final_response에 세팅한다.
+    노드 함수 내에서 get_vectorstore()를 런타임 호출(모듈 top-level 금지 — @patch 호환성 유지,
+    Redis 클라이언트와 동일 컨벤션).
+
+    파싱 실패 시 miss로 안전하게 폴백한다(캐시 오염으로 전체 요청이 죽지 않도록).
+    """
+    vectorstore = get_vectorstore(COLLECTION_SEMANTIC_CACHE)
+    results = vectorstore.similarity_search_with_score(state["question"], k=1)
+
+    cached_result = None
+    if results:
+        doc, score = results[0]
+        if score <= (1 - SEMANTIC_CACHE_SIMILARITY_THRESHOLD):
+            try:
+                cached_result = json.loads(doc.metadata["answer_json"])
+            except (KeyError, json.JSONDecodeError, TypeError):
+                cached_result = None
+
+    final_response = AIResponse.ok(cached_result) if cached_result is not None else None
+
+    return {
+        **state,
+        "cached_result": cached_result,
+        "final_response": final_response,
+    }
+
+
+def _route_after_semantic_cache(state: RagChatState) -> Literal["end", "retrieve"]:
+    """시맨틱 캐시 후 라우터 — 히트면 END, 미스면 retrieve 노드로."""
     return "end" if state["cached_result"] is not None else "retrieve"
 
 
@@ -222,6 +269,27 @@ def _node_cache_write(state: RagChatState) -> RagChatState:
     }
 
 
+def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
+    """시맨틱 캐시(2차) 저장 노드 — cache_write(exact) 직후, grounded=true 경로에서만 진입한다
+    (no_result 경로는 그래프 구조상 이 노드를 거치지 않으므로 별도 분기 불필요).
+
+    질문 원문을 page_content로, RagAnswerData 직렬화 결과를 metadata["answer_json"]으로 저장.
+    노드 함수 내에서 get_vectorstore()를 런타임 호출(테스트 patch 호환).
+    """
+    answer_data = RagAnswerData(
+        answer=state["llm_answer"].answer,
+        sources=state["sources"]
+    )
+    vectorstore = get_vectorstore(COLLECTION_SEMANTIC_CACHE)
+    vectorstore.add_documents([
+        Document(
+            page_content=state["question"],
+            metadata={"answer_json": answer_data.model_dump_json()},
+        )
+    ])
+    return state
+
+
 def _node_no_result(state: RagChatState) -> RagChatState:
     """근거 없음 응답 노드 — 검색 0건(_route_after_retrieve) 또는 검색은 됐지만 무관함
     (_route_after_answer, grounded=false) 두 경로에서 모두 진입한다.
@@ -245,19 +313,28 @@ _graph = StateGraph(RagChatState)
 
 # 노드 등록
 _graph.add_node("cache_check", _node_cache_check)
+_graph.add_node("semantic_cache_check", _node_semantic_cache_check)
 _graph.add_node("retrieve", _node_retrieve)
 _graph.add_node("answer", _node_answer)
 _graph.add_node("build_sources", _node_build_sources)
 _graph.add_node("cache_write", _node_cache_write)
+_graph.add_node("semantic_cache_write", _node_semantic_cache_write)
 _graph.add_node("no_result", _node_no_result)
 
 # 진입점 및 엣지
 _graph.set_entry_point("cache_check")
 
-# cache_check 후 조건부 분기
+# cache_check(exact) 후 조건부 분기 — 미스면 semantic_cache_check로(1차/2차 계층 구조)
 _graph.add_conditional_edges(
     "cache_check",
     _route_after_cache,
+    {"end": END, "retrieve": "semantic_cache_check"}
+)
+
+# semantic_cache_check 후 조건부 분기 — 미스면 retrieve로
+_graph.add_conditional_edges(
+    "semantic_cache_check",
+    _route_after_semantic_cache,
     {"end": END, "retrieve": "retrieve"}
 )
 
@@ -277,7 +354,8 @@ _graph.add_conditional_edges(
 
 # 무조건 엣지 (재시도 없음, 선형 흐름)
 _graph.add_edge("build_sources", "cache_write")
-_graph.add_edge("cache_write", END)
+_graph.add_edge("cache_write", "semantic_cache_write")
+_graph.add_edge("semantic_cache_write", END)
 _graph.add_edge("no_result", END)
 
 # compile

@@ -15,6 +15,7 @@ from ai.core.embeddings import get_embeddings
 
 COLLECTION_REGULATIONS = "regulations"
 COLLECTION_DEFECT_KB = "defect_kb"
+COLLECTION_SEMANTIC_CACHE = "semantic_cache"
 
 # docker-compose 볼륨(chroma_data:/app/chroma_data)과 일치 — 로컬 실행 시 오버라이드
 DEFAULT_CHROMA_PERSIST_DIR = "/app/chroma_data"
@@ -36,7 +37,7 @@ def get_vectorstore(collection: str) -> Chroma:
     similarity_search(query, k=N) / add_texts() / add_documents() 등
     LangChain VectorStore 인터페이스를 제공한다.
     """
-    if collection not in (COLLECTION_REGULATIONS, COLLECTION_DEFECT_KB):
+    if collection not in (COLLECTION_REGULATIONS, COLLECTION_DEFECT_KB, COLLECTION_SEMANTIC_CACHE):
         raise ValueError(f"unknown collection: {collection}")
     # BGE 계열 임베딩은 코사인 유사도 기준으로 학습됨 — chromadb 기본(L2)과 다르므로 명시
     return Chroma(
