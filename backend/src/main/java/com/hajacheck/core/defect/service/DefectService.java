@@ -273,29 +273,47 @@ public class DefectService {
     }
 
     /**
-     * 하자 활동 기록 타임라인 조회(HAJA-314) — findByIdAndCompanyId로 회사 범위를 먼저 검증해
-     * cross-company IDOR을 차단한 뒤에만 defect_revisions를 조회한다(get()과 동일 원칙).
+     * 하자 활동 기록 타임라인 조회(HAJA-314, 이미지 단위 그룹 확장 #1556) — findByIdAndCompanyId로
+     * 회사 범위를 먼저 검증해 cross-company IDOR을 차단한 뒤(get()과 동일 원칙), anchor와 같은
+     * 이미지 단위 그룹({@link #resolveActionGroup}) 전체의 이력을 함께 조회한다. mediaId가 없는
+     * 하자는 그룹 크기 1이라 기존 단건 조회와 동일하게 동작한다.
      */
     public PageResponse<DefectRevisionResponse> getRevisions(
             Long userId, Long companyId, Long defectId, Pageable pageable) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
-        defectRepository.findByIdAndCompanyId(defectId, companyId)
+        Defect anchor = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
-        Page<DefectRevision> page = defectRevisionRepository.findByDefectIdOrderByCreatedAtDesc(defectId, pageable);
+        List<Long> groupIds = resolveActionGroup(anchor).stream().map(Defect::getId).toList();
+        Page<DefectRevision> page =
+                defectRevisionRepository.findByDefectIdInOrderByCreatedAtDesc(groupIds, pageable);
         return PageResponse.from(page.map(DefectRevisionResponse::from));
     }
 
+    /**
+     * 강제 상태 전이("다른 상태로 변경", HAJA-349/#630) — 이미지 단위 보수 작업 그룹 팬아웃
+     * (registerActionResult와 동일한 {@link #resolveActionGroup} 재사용, #1556)을 적용해, 그룹 내
+     * 모든 하자에 동일한 status/reason을 반영한다. 각 하자는 자신의 현재 상태를 기준으로
+     * changeStatus()의 정방향/역행 판정을 독립적으로 받으므로, 그룹 내 하자마다 실제 결과(사유
+     * 필요 여부 등)가 다를 수 있다 — 그중 하나라도 거부되면 트랜잭션 전체가 롤백된다(부분 반영 없음,
+     * registerActionResult와 동일 원칙).
+     */
     @Transactional
     public DefectResponse updateStatus(
             Long revisedByUserId, Long companyId, Long defectId, DefectStatus status, String reason) {
         companyScopeGuard.requireEffectiveMembership(revisedByUserId, companyId);
-        Defect defect = defectRepository.findByIdAndCompanyId(defectId, companyId)
+        Defect anchor = defectRepository.findByIdAndCompanyId(defectId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DEFECT_NOT_FOUND));
-        DefectStatus previousStatus = defect.getStatus();
-        defect.changeStatus(status, reason);
-        defectRevisionRepository.save(DefectRevision.record(
-                defect.getId(), revisedByUserId, "status", previousStatus.name(), status.name(), reason));
-        return DefectResponse.from(defect);
+
+        List<Defect> group = resolveActionGroup(anchor);
+        for (Defect defect : group) {
+            DefectStatus previousStatus = defect.getStatus();
+            defect.changeStatus(status, reason);
+            defectRevisionRepository.save(DefectRevision.record(
+                    defect.getId(), revisedByUserId, "status", previousStatus.name(), status.name(), reason));
+        }
+
+        DefectResponse response = DefectResponse.from(anchor);
+        return response.withGroupSummary(group.size(), aggregateGroupStatus(group));
     }
 
 }

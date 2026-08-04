@@ -43,7 +43,7 @@ class DefectTest {
     }
 
     @Test
-    void changeStatus_사유없는건너뛰기와동일상태는거부하고해결상태는이탈불가() {
+    void changeStatus_사유없는건너뛰기와동일상태는거부() {
         Defect detected = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).grade(DefectGrade.C).build();
         assertThatThrownBy(() -> detected.changeStatus(DefectStatus.IN_PROGRESS))
@@ -53,10 +53,24 @@ class DefectTest {
 
         Defect resolved = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.95).status(DefectStatus.RESOLVED).build();
-        assertThatThrownBy(() -> resolved.changeStatus(DefectStatus.IN_PROGRESS, "재검토 필요"))
-                .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> resolved.changeStatus(null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void changeStatus_해결상태도사유가있으면조치중으로되돌릴수있다() {
+        // HAJA-26 3차(#1556) — RESOLVED는 더 이상 이탈 불가한 종료 상태가 아니다. RESOLVED의
+        // 정방향 다음 단계는 없으므로(expectedNext == null) 이탈은 항상 역행/건너뛰기로 취급돼
+        // 다른 역행 전이와 동일하게 사유가 있어야만 허용된다.
+        Defect resolved = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
+                .confidence(0.95).status(DefectStatus.RESOLVED).build();
+
+        assertThatThrownBy(() -> resolved.changeStatus(DefectStatus.IN_PROGRESS))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(resolved.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+
+        resolved.changeStatus(DefectStatus.IN_PROGRESS, "재검토 필요");
+        assertThat(resolved.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
     }
 
     @Test
