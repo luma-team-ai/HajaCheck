@@ -4,6 +4,11 @@ spring:
     username: sa
     password:
     driver-class-name: org.h2.Driver
+    hikari:
+      # 테스트 컨텍스트는 단일 스레드로 도는데 기본 풀(10)을 그대로 쓰면, 스프링 컨텍스트가 하나 늘 때마다
+      # 커넥션 10개가 더 잡혀 Testcontainers PG 의 max_connections(기본 100)를 금세 넘긴다
+      # ("FATAL: sorry, too many clients already" → 컨텍스트 로드 실패). 테스트엔 3이면 충분하다.
+      maximum-pool-size: 3
   # 테스트는 기본적으로 Flyway를 끈다(#359). PostgresTestSupport 기반 @SpringBootTest는 스키마를
   # withInitScript(db/HajaCheck_script.sql)로 미리 만들고 Hibernate validate로만 대조하므로 Flyway가
   # 다시 개입할 필요가 없다 — 켜두면 baseline-on-migrate로 V1은 건너뛰고 V2(plans 시드, ON CONFLICT DO
@@ -65,3 +70,12 @@ hajacheck:
   membership:
     seed-guard:
       enabled: false
+
+# AI 서버 — 테스트에서는 절대 실제 호출이 나가면 안 된다(#1469 2차 리뷰 P2).
+# application.yml 기본값(localhost:8000)을 그대로 쓰면, ai-server 를 띄워둔 개발자 머신에서는 회원가입
+# 통합테스트가 진짜 OCR 을 돌려 결과가 환경마다 달라지고(테스트 깨짐) 요청당 최대 15s 가 붙는다.
+# 127.0.0.1:1 은 즉시 connection-refused 라 어떤 환경에서도 동일하게 실패한다.
+# ⚠️ 대조 결과 자체를 검증하는 테스트는 이 값에 의존하지 말고 AiProxyService 를 스텁할 것.
+ai:
+  server:
+    base-url: http://127.0.0.1:1

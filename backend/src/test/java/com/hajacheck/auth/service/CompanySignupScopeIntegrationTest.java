@@ -39,6 +39,12 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 import com.hajacheck.support.PngTestFixtures;
+import com.hajacheck.core.ai.dto.BusinessLicenseOcrResponse;
+import com.hajacheck.core.ai.service.AiProxyService;
+import com.hajacheck.global.common.ApiResponse;
+import org.junit.jupiter.api.BeforeEach;
+import org.mockito.Mockito;
+import org.springframework.boot.test.mock.mockito.MockBean;
 
 /**
  * 가입 직후 <b>회사 스코프가 실제로 열리는지</b>를 실 PostgreSQL(Testcontainers)에서 검증한다(#1324).
@@ -61,6 +67,13 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
 
     @Autowired
     private CompanySignupService companySignupService;
+    /**
+     * ⚠️ AI 서버는 반드시 스텁한다(#1469 2차 리뷰 P2) — 실호출을 두면 결과가 환경에 따라 달라져
+     * ai-server 를 띄운 개발자 머신에서 테스트가 깨지고, 검증 대상(판정 라벨의 jsonb 영속)이 아니라
+     * "그 환경에서 AI 가 죽어 있었다"는 우연을 고정하게 된다.
+     */
+    @MockBean
+    private AiProxyService aiProxyService;
     @Autowired
     private CompanyScopeGuard companyScopeGuard;
     @Autowired
@@ -76,7 +89,23 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
     @PersistenceContext
     private EntityManager entityManager;
 
+    @BeforeEach
+    void stubOcr() {
+        // 업로드 픽스처(진짜 PNG)의 OCR 결과가 입력 사업자번호와 일치하도록 고정 → licenseOcrOutcome=MATCH.
+        // 사업자번호는 테스트마다 다르므로 요청된 값을 그대로 되돌려주는 대신, 각 테스트가 쓰는 번호를
+        // 인식했다고 가정하기 어려워 여기서는 "인식 실패가 아닌 일치" 시나리오만 필요하므로 아래
+        // signup() 이 호출 직전에 번호별로 다시 스텁한다.
+        Mockito.reset(aiProxyService);
+    }
+
     private CompanySignupResponse signup(String email, String brn, String companyName) {
+        // 대조가 MATCH 로 떨어지도록, 이 요청의 사업자번호를 그대로 인식한 것처럼 스텁한다.
+        Mockito.when(aiProxyService.ocrBusinessLicenseForCrossCheck(Mockito.anyString()))
+                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse(brn, companyName, "대표자", "2020-01-01")));
+        return doSignup(email, brn, companyName);
+    }
+
+    private CompanySignupResponse doSignup(String email, String brn, String companyName) {
         MockMultipartFile file = new MockMultipartFile(
                 "businessRegistrationFile", "brn.png", MediaType.IMAGE_PNG_VALUE, PngTestFixtures.realPng());
         return companySignupService.signup(new CompanySignupRequest(
@@ -166,9 +195,9 @@ class CompanySignupScopeIntegrationTest extends PostgresTestSupport {
 
         // 사업자등록증 대조 판정(#1469)도 같은 이유로 영속된다 — 이 대조 역시 판정 불가일 때는
         // fail-open 으로 승인되므로, 라벨이 없으면 "대조를 실제로 해본 회사"를 사후에 구분할 수 없다.
-        // 테스트 프로파일에는 AI 서버가 없어 호출이 즉시 실패 → OCR_FAILED(fail-open) 가 나온다
-        // (국세청 키가 없어 ntsOutcome=SKIPPED 가 나오는 것과 같은 구조의 조건).
-        assertThat(raw.get("licenseOcrOutcome").asText()).isEqualTo("OCR_FAILED");
+        // AI 를 스텁해 MATCH 를 만들었으므로 그 라벨이 그대로 jsonb 에 적재돼야 한다
+        // (환경에 따라 값이 달라지면 이 계약을 검증한 게 아니다 — 2026-08-04 2차 리뷰 P2).
+        assertThat(raw.get("licenseOcrOutcome").asText()).isEqualTo("MATCH");
 
         // 개인정보(사업자번호·대표자명·이메일)는 절대 남기지 않는다. 부분 문자열 검사 대신 **키 집합을
         // 고정**한다 — 값에 담긴 숫자가 우연히 겹쳐 깨지지 않고(ntsCheckedAt 의 나노초가 사업자번호와

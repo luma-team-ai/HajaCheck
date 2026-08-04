@@ -12,6 +12,7 @@ import com.hajacheck.auth.dto.SignupStatusResponse;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.support.BusinessLicenseUploadValidator;
 import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.auth.support.FileStorageService.StoredFile;
 import com.hajacheck.auth.support.TokenNamespaces;
@@ -78,9 +79,9 @@ public class CompanySignupService {
 
     /**
      * 회원가입: ①이메일/사업자번호 선검사(조기 409) ②국세청 진위확인(확정 불량이면 차단)
-     * ③사업자등록증 ↔ 입력 사업자번호 대조(확정 불일치면 차단, #1469) ④파일 저장(트랜잭션 밖 IO)
-     * ⑤User+Company(VERIFIED·APPROVED)+오너 멤버십+Consents 원자저장(writer) ⑥가입상태 토큰 발급
-     * ⑦마스킹 응답.
+     * ③업로드 파일 사전 검증(선언↔실제 타입 일치·디코딩 가능성) ④사업자등록증 ↔ 입력 사업자번호 대조
+     * (확정 불일치면 차단, #1469) ⑤파일 저장(트랜잭션 밖 IO) ⑥User+Company(VERIFIED·APPROVED)+오너
+     * 멤버십+Consents 원자저장(writer) ⑦가입상태 토큰 발급 ⑧마스킹 응답.
      *
      * <p>응답 {@code status} 는 #1324 부터 항상 {@code APPROVED} 다 — 승인 대기 단계가 없다.
      */
@@ -105,26 +106,30 @@ public class CompanySignupService {
             throw new BusinessException(ErrorCode.AUTH_BUSINESS_VERIFICATION_FAILED);
         }
 
-        // ③ 사업자등록증 ↔ 입력 사업자번호 대조(#1469). 진위확인은 "입력한 3필드가 실재하고 서로
+        // ③ 업로드 파일 사전 검증 — 선언 Content-Type ↔ 실제 매직바이트 일치 + 이미지 디코딩 가능성.
+        //    ⚠️ 반드시 대조(④)보다 먼저다: 대조는 선언 타입을 보지 않고 저장(⑤)은 선언 타입을 쓰므로,
+        //    둘이 어긋나면 "대조는 MATCH 통과 → 저장에서 400 → 회사 행 없음 → 무한 반복"으로 전역 캡만
+        //    태우는 루프가 성립한다(2026-08-04 2차 리뷰). 자세한 근거는 밸리데이터 javadoc 참조.
+        BusinessLicenseUploadValidator.validate(request.businessRegistrationFile());
+
+        // ④ 사업자등록증 ↔ 입력 사업자번호 대조(#1469). 진위확인은 "입력한 3필드가 실재하고 서로
         //    일치하는가"만 보므로, 남의 등록증을 올리고 실재하는 제3자 정보를 수기 입력하면 통과했다 —
         //    업로드 파일과 입력값의 연결을 여기서 검사한다.
-        //    ⚠️ 파일 저장(아래 ④)보다 반드시 먼저다: 차단 시 파일을 저장하지 않아 보상삭제 경로를 타지
+        //    ⚠️ 파일 저장(아래 ⑤)보다 반드시 먼저다: 차단 시 파일을 저장하지 않아 보상삭제 경로를 타지
         //    않고 고아 파일도 남지 않는다.
-        //    fail-open 은 "대조를 해봤는데 판정할 수 없었다"에만 적용한다(2026-08-04 리뷰 P1) —
-        //    대조를 아예 수행하지 못한 경우(캡 소진)까지 통과시키면 캡을 태우는 것만으로 게이트가 꺼진다.
         //    (BusinessLicenseCrossCheckService 는 예외를 위로 던지지 않는다 — 판정은 반환값으로만 온다.)
         BusinessLicenseCrossCheckOutcome licenseCrossCheck = businessLicenseCrossCheckService.crossCheck(
                 request.businessRegistrationFile(), normalizedBrn);
         blockIfLicenseCrossCheckFailed(licenseCrossCheck);
 
-        // ④ 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
+        // ⑤ 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
         //    ⚠️ 대조 단계에서 같은 MultipartFile 을 이미 한 번 읽었다(getBytes/getInputStream) —
         //    스프링의 MultipartFile 구현은 재읽기가 가능하지만, 회귀 시 조용히 빈 파일이 저장되므로
         //    "대조 통과 후 파일이 정상 저장된다"를 테스트로 고정해 둔다(CompanySignupServiceTest).
         StoredFile stored = fileStorage.store(request.businessRegistrationFile(), FILE_CATEGORY,
                 fileStorageProperties.getAllowedContentTypes(), fileStorageProperties.getMaxSizeBytes());
 
-        // ⑤ 원자저장(회사 VERIFIED+APPROVED, 오너 멤버십 포함) — 실패 시 파일 보상삭제.
+        // ⑥ 원자저장(회사 VERIFIED+APPROVED, 오너 멤버십 포함) — 실패 시 파일 보상삭제.
         Company company;
         try {
             String passwordHash = passwordEncoder.encode(request.password());
@@ -163,13 +168,13 @@ public class CompanySignupService {
         log.info("기업 가입 자동승인(#1324) — companyId={}, 국세청 진위확인 결과={}, 등록증 대조 결과={}",
                 company.getId(), verification, licenseCrossCheck);
 
-        // ⑥ 가입 상태 토큰(장기, peek 용) — 값은 companyId.
+        // ⑦ 가입 상태 토큰(장기, peek 용) — 값은 companyId.
         String signupToken = tokenStore.issue(
                 TokenNamespaces.SIGNUP_STATUS,
                 company.getId().toString(),
                 authProperties.getSignupStatusTtl());
 
-        // ⑦ 마스킹 응답.
+        // ⑧ 마스킹 응답.
         return CompanySignupResponse.from(company, email, signupToken);
     }
 
@@ -258,22 +263,25 @@ public class CompanySignupService {
      * 사업자등록증 대조 판정이 차단 사유면 예외로 변환한다(#1469).
      *
      * <ul>
-     *   <li>{@code MISMATCH}·{@code BRN_ATTEMPT_EXCEEDED} → 400 {@code AUTH_BUSINESS_LICENSE_MISMATCH}.
-     *       시도 한도 초과를 같은 코드로 응답하는 건 의도적이다 — 공격자에게 어느 방어에 걸렸는지
-     *       알려줄 이유가 없고, 사용자에게도 "등록증과 입력값이 맞지 않는다"는 안내가 그대로 옳다.</li>
-     *   <li>{@code RATE_LIMITED} → 429 {@code AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE}. "대조를 하지
-     *       못했다"를 통과로 처리하면 캡을 태우는 것만으로 게이트가 꺼지므로 재시도를 유도한다.</li>
-     *   <li>나머지(판정 불가)는 fail-open 통과.</li>
+     *   <li>{@code MISMATCH} → 400 {@code AUTH_BUSINESS_LICENSE_MISMATCH}(확정 불일치).</li>
+     *   <li>{@code BRN_ATTEMPT_EXCEEDED}·{@code RASTERIZE_BUSY} → 429
+     *       {@code AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE}. <b>중립 문구</b>로 분리한 이유:
+     *       ①정보 은닉 이득이 0 이다(시도 한도 초과는 AI 호출 없이 수 ms, 진짜 불일치는 OCR 왕복 수 초라
+     *       응답 시간만으로 구분된다) ②합치면 정상 사용자만 "등록증 번호가 다릅니다"라는 사실과 다른
+     *       안내를 받는다 — AI 장애 중 몇 번 시도한 사용자가 대표적이다(2026-08-04 2차 리뷰).</li>
+     *   <li>{@code RATE_LIMITED}(전역 캡 소진)는 <b>차단하지 않는다</b>. 전역 축은 모든 가입자가 공유하므로
+     *       막는 순간 공격자가 캡을 태우는 것만으로 기업 가입을 전면 정지시킬 수 있다(DoS 킬스위치).
+     *       그 시간 동안 게이트가 꺼져 있었다는 사실은 {@code log.error} 경보로 남는다.</li>
+     *   <li>나머지(판정 불가)도 fail-open 통과.</li>
      * </ul>
      */
     private static void blockIfLicenseCrossCheckFailed(BusinessLicenseCrossCheckOutcome outcome) {
         switch (outcome) {
-            case MISMATCH, BRN_ATTEMPT_EXCEEDED ->
-                    throw new BusinessException(ErrorCode.AUTH_BUSINESS_LICENSE_MISMATCH);
-            case RATE_LIMITED ->
+            case MISMATCH -> throw new BusinessException(ErrorCode.AUTH_BUSINESS_LICENSE_MISMATCH);
+            case BRN_ATTEMPT_EXCEEDED, RASTERIZE_BUSY ->
                     throw new BusinessException(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE);
             default -> {
-                // MATCH·OCR_NO_BRN·OCR_FAILED·SKIPPED_UNSUPPORTED_TYPE — 판정 불가는 가입을 막지 않는다.
+                // MATCH·OCR_NO_BRN·OCR_FAILED·SKIPPED_UNSUPPORTED_TYPE·RATE_LIMITED — 가입을 막지 않는다.
             }
         }
     }

@@ -32,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
+import com.hajacheck.core.media.support.PdfFirstPageRasterizer;
 
 /**
  * BusinessLicenseCrossCheckService 단위테스트(#1469 / HAJA-650).
@@ -70,7 +71,7 @@ class BusinessLicenseCrossCheckServiceTest {
         fileStorageProperties = new FileStorageProperties();
 
         service = new BusinessLicenseCrossCheckService(
-                aiProxyService, rateLimiter, authProperties, fileStorageProperties);
+                aiProxyService, rateLimiter, authProperties, fileStorageProperties, new PdfFirstPageRasterizer());
     }
 
     private static MultipartFile pngFile() {
@@ -201,16 +202,34 @@ class BusinessLicenseCrossCheckServiceTest {
     }
 
     @Test
-    void 대조_렌더픽셀_상한초과_PDF는_AI호출없이_SKIPPED_카운터도_미소모() {
-        // 페이지 상자가 비정상적으로 큰 PDF — 200DPI 로 렌더하면 픽셀 상한(50MP)을 넘는다.
-        // 렌더 자체를 하지 않으므로 캡 카운터도 소모하지 않아야 한다.
+    void 대조_렌더픽셀_상한초과_PDF는_AI호출없이_SKIPPED_다만_캡은_소모한다() {
+        // 페이지 상자가 비정상적으로 큰 PDF(14400pt 는 PDF 사양상 합법) — 200DPI 로 렌더하면 렌더 픽셀
+        // 상한(12MP)을 넘어 거부된다.
+        // ⚠️ 이미지와 달리 PDF 는 캡을 <b>먼저</b> 획득한 뒤 파싱한다 — "페이지 수·상자 크기 확인"이
+        // 이미 전체 객체그래프 파싱이라 싼 사전 검사가 아니기 때문이다(2차 리뷰 P1-3 ⑤). 그 대가로
+        // 손상 PDF 도 시도 1회를 소모하는데, 이를 reset 으로 보상하지는 않는다(전역 축 자기소진 부활).
         MultipartFile huge = new MockMultipartFile("businessRegistrationFile", "huge.pdf",
-                "application/pdf", PngTestFixtures.realPdf(1, new PDRectangle(20_000f, 20_000f)));
+                "application/pdf", PngTestFixtures.realPdf(1, new PDRectangle(14_400f, 14_400f)));
 
         assertThat(service.crossCheck(huge, INPUT_BRN))
                 .isEqualTo(BusinessLicenseCrossCheckOutcome.SKIPPED_UNSUPPORTED_TYPE);
         verifyNoInteractions(aiProxyService);
-        assertThat(remainingGlobal()).isEqualTo(limit().getGlobalLimit());
+        assertThat(remainingGlobal())
+                .as("PDF 는 캡 획득 후 파싱하므로 1회 소모된다")
+                .isEqualTo(limit().getGlobalLimit() - 1);
+    }
+
+    @Test
+    void 대조_임베디드_이미지폭탄_PDF도_OOM없이_결론이_난다() {
+        // 캔버스는 A4 로 작지만 그 안에 초대형 이미지를 넣은 PDF — 캔버스 픽셀 추정으로는 못 잡는 벡터라
+        // 서브샘플링·시간/동시 상한이 없으면 요청 1건으로 힙이 날아간다(2차 리뷰 P1-3 ②③).
+        MultipartFile bomb = new MockMultipartFile("businessRegistrationFile", "bomb.pdf",
+                "application/pdf", PngTestFixtures.pdfWithEmbeddedImage(6_000, 6_000));
+        stubOcrBrn("1234567890");
+
+        assertThat(service.crossCheck(bomb, INPUT_BRN))
+                .isIn(BusinessLicenseCrossCheckOutcome.MATCH,
+                        BusinessLicenseCrossCheckOutcome.SKIPPED_UNSUPPORTED_TYPE);
     }
 
     // ---------- OCR_NO_BRN (인식/기준값을 신뢰할 수 없음 → 통과) ----------
@@ -375,27 +394,52 @@ class BusinessLicenseCrossCheckServiceTest {
     }
 
     @Test
-    void 대조_MATCH하면_시도카운터가_해제되어_정상사용자는_막히지_않는다() {
-        // 잘못된 사진으로 몇 번 튕긴 뒤 올바른 등록증으로 성공한 사용자는 다음 시도가 막히면 안 된다.
-        when(aiProxyService.ocrBusinessLicenseForCrossCheck(any()))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("999-88-77665", "x", "y", "z")))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("999-88-77665", "x", "y", "z")))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1234567890", "x", "y", "z")))
-                .thenReturn(ApiResponse.ok(new BusinessLicenseOcrResponse("1234567890", "x", "y", "z")));
+    void 대조_MATCH는_카운터를_되돌리지_않는다() {
+        // ⚠️ 계약 변경(2026-08-04 2차 리뷰): 예전엔 MATCH 시 reset 했으나 제거했다. 무인증 경로에서
+        // 카운터를 지우면(RateLimiter#reset javadoc 경고) 공격자가 MATCH 를 내는 요청으로 좁은 축을
+        // 계속 세탁하며 전역 캡만 태우는 루프가 성립한다. 가입에 성공하면 그 번호는 중복검사로 잠기므로
+        // reset 자체가 불필요하다.
+        stubOcrBrn("1234567890");
+        for (int i = 0; i < limit().getBrnLimit(); i++) {
+            assertThat(service.crossCheck(pngFile(), INPUT_BRN)).isEqualTo(BusinessLicenseCrossCheckOutcome.MATCH);
+        }
 
-        assertThat(service.crossCheck(pngFile(), INPUT_BRN)).isEqualTo(BusinessLicenseCrossCheckOutcome.MISMATCH);
-        assertThat(service.crossCheck(pngFile(), INPUT_BRN)).isEqualTo(BusinessLicenseCrossCheckOutcome.MISMATCH);
-        assertThat(service.crossCheck(pngFile(), INPUT_BRN)).isEqualTo(BusinessLicenseCrossCheckOutcome.MATCH);
-        // MATCH 로 카운터가 해제됐으므로 4번째도 BRN_ATTEMPT_EXCEEDED 가 아니어야 한다.
-        assertThat(service.crossCheck(pngFile(), INPUT_BRN)).isEqualTo(BusinessLicenseCrossCheckOutcome.MATCH);
+        assertThat(service.crossCheck(pngFile(), INPUT_BRN))
+                .isEqualTo(BusinessLicenseCrossCheckOutcome.BRN_ATTEMPT_EXCEEDED);
+    }
+
+    @Test
+    void 대조_우리쪽_장애_OCR_FAILED는_시도카운터를_되돌린다() {
+        // AI 서버가 죽어 있는 동안 몇 번 시도했다는 이유로 그 회사의 가입이 막히면 안 된다(2차 리뷰 P2).
+        when(aiProxyService.ocrBusinessLicenseForCrossCheck(any()))
+                .thenThrow(new BusinessException(ErrorCode.AI_SERVER_UNREACHABLE));
+
+        for (int i = 0; i < limit().getBrnLimit() + 3; i++) {
+            assertThat(service.crossCheck(pngFile(), INPUT_BRN))
+                    .as("우리 쪽 장애가 사용자 시도 예산을 태우면 안 된다")
+                    .isEqualTo(BusinessLicenseCrossCheckOutcome.OCR_FAILED);
+        }
+    }
+
+    @Test
+    void 대조_OCR_NO_BRN은_되돌리지_않는다() {
+        // 여기까지 보상하면 "인식 안 되는 이미지로 무한 시도"라는 세탁 경로가 열린다.
+        stubOcrBrn(null);
+        for (int i = 0; i < limit().getBrnLimit(); i++) {
+            assertThat(service.crossCheck(pngFile(), INPUT_BRN))
+                    .isEqualTo(BusinessLicenseCrossCheckOutcome.OCR_NO_BRN);
+        }
+
+        assertThat(service.crossCheck(pngFile(), INPUT_BRN))
+                .isEqualTo(BusinessLicenseCrossCheckOutcome.BRN_ATTEMPT_EXCEEDED);
     }
 
     // ---------- 전역 캡 — 이제 통과가 아니라 차단 ----------
 
     @Test
     void 대조_분당캡_소진시_AI호출없이_RATE_LIMITED() {
-        // ⚠️ 계약 변경(2026-08-04 리뷰 P1): 예전엔 fail-open 통과였다. 지금은 "대조를 수행하지 못함"이라
-        // 호출부가 429 로 반려한다 — 캡을 태우는 것만으로 게이트가 꺼지면 안 되기 때문.
+        // RATE_LIMITED 는 fail-open(가입 통과)이다 — 전역 축을 막으면 공격자가 캡을 태워 기업 가입을
+        // 전면 정지시킬 수 있기 때문(2026-08-04 2차 리뷰에서 429 차단안을 되돌렸다).
         stubOcrBrn("1234567890");
         int globalLimit = limit().getGlobalLimit();
         // 사업자번호 축에 걸리지 않게 매번 다른 번호로 전역 캡만 소진시킨다.

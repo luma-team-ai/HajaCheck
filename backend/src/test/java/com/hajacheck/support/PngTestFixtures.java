@@ -8,7 +8,10 @@ import java.util.zip.CRC32;
 import javax.imageio.ImageIO;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 
 /**
  * 업로드 파일 테스트 픽스처 모음.
@@ -27,6 +30,13 @@ import org.apache.pdfbox.pdmodel.common.PDRectangle;
 public final class PngTestFixtures {
 
     private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
+
+    /**
+     * 임베디드 이미지 폭탄 PDF 캐시 — 이 픽스처를 만드는 것 자체가 수십 MB 버퍼를 잡으므로(테스트 JVM
+     * 힙이 넉넉하지 않다) 같은 크기를 여러 테스트가 재사용하도록 한 번만 만든다.
+     */
+    private static final java.util.Map<String, byte[]> EMBEDDED_IMAGE_PDF_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     private PngTestFixtures() {
     }
@@ -51,6 +61,40 @@ public final class PngTestFixtures {
         try (PDDocument document = new PDDocument()) {
             for (int i = 0; i < pageCount; i++) {
                 document.addPage(new PDPage(pageSize));
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            document.save(out);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /**
+     * <b>임베디드 이미지 폭탄</b> PDF — 페이지 캔버스는 A4 로 작지만 그 안에 {@code width×height} 이미지
+     * XObject 를 그린다. 균일색이라 압축되면 파일은 작지만, 서브샘플링 없이 렌더하면 원본 해상도로
+     * 전량 디코드되어 힙을 통째로 먹는다(#1469 2차 리뷰 P1의 공격 벡터).
+     */
+    public static byte[] pdfWithEmbeddedImage(int width, int height) {
+        String cacheKey = width + "x" + height;
+        byte[] cached = EMBEDDED_IMAGE_PDF_CACHE.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
+        byte[] built = buildPdfWithEmbeddedImage(width, height);
+        EMBEDDED_IMAGE_PDF_CACHE.put(cacheKey, built);
+        return built;
+    }
+
+    private static byte[] buildPdfWithEmbeddedImage(int width, int height) {
+        try (PDDocument document = new PDDocument()) {
+            PDPage page = new PDPage(PDRectangle.A4);
+            document.addPage(page);
+            // 균일색(전부 0) 이미지 — PDF 안에서는 압축되어 수십 KB 수준으로 줄어든다.
+            BufferedImage huge = new BufferedImage(width, height, BufferedImage.TYPE_BYTE_GRAY);
+            PDImageXObject image = LosslessFactory.createFromImage(document, huge);
+            try (PDPageContentStream content = new PDPageContentStream(document, page)) {
+                content.drawImage(image, 0, 0, PDRectangle.A4.getWidth(), PDRectangle.A4.getHeight());
             }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             document.save(out);

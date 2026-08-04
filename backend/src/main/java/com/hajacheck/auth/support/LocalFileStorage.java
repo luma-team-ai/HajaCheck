@@ -37,6 +37,13 @@ import org.springframework.web.multipart.MultipartFile;
  * <p>일부 호출부는 이미 상위에서 {@code ImageSignatureValidator} 로 같은 검사를 한다
  * ({@code CounselAttachmentService} 등) — 중복이지만 <b>의도된 다층 방어</b>다. 상위 검사가 빠진 경로가
  * 하나라도 생기면 그 즉시 구멍이 되기 때문에, 저장 계층은 호출부를 신뢰하지 않는다.
+ *
+ * <p>⚠️ <b>허용목록에 새 MIME 타입을 추가할 때는 {@link DetectedFileType} 에 시그니처를,
+ * {@code CONTENT_TYPE_EXTENSIONS} 에 확장자를 반드시 함께 추가할 것.</b> 빠뜨리면 그 타입의 업로드가
+ * 전부 {@code FILE_INVALID_TYPE} 로 실패한다(예: {@code video/mp4} 를 media-upload 허용목록에만 넣는
+ * 경우 — {@code application.yml} 이 "영상은 후속 PR 범위"라고 예고해 둔 지뢰다). 그 실수는
+ * {@code UploadContentTypeStartupValidator} 가 <b>기동 실패</b>로 잡아준다 — 런타임에 사용자 업로드가
+ * 조용히 깨지는 것보다 배포 시점에 크게 터지는 편이 낫다.
  */
 @Slf4j
 @Component

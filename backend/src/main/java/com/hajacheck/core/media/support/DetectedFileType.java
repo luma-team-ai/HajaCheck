@@ -27,7 +27,7 @@ public enum DetectedFileType {
     PDF("application/pdf", new byte[] {0x25, 0x50, 0x44, 0x46, 0x2D});
 
     /** 판별에 필요한 최대 헤더 길이(PNG 시그니처 8바이트가 최장). */
-    public static final int HEADER_LENGTH = 8;
+    public static final int HEADER_LENGTH = 1024;
 
     private final String mimeType;
     private final byte[] magic;
@@ -41,13 +41,20 @@ public enum DetectedFileType {
         return mimeType;
     }
 
-    /** 헤더 바이트로 실제 타입을 판별한다. 아는 3종이 아니면 {@link Optional#empty()}. */
+    /**
+     * 헤더 바이트로 실제 타입을 판별한다. 아는 3종이 아니면 {@link Optional#empty()}.
+     *
+     * <p>래스터 이미지 2종은 <b>오프셋 0 고정</b>으로 대조한다(선행 바이트를 허용하면 위조 여지만 커진다).
+     * PDF 만 {@link #HEADER_LENGTH} 창 안에서 {@code %PDF-} 를 <b>탐색</b>한다 — 사양상 헤더 앞에 선행
+     * 바이트·BOM 이 올 수 있고 PDFBox 도 앞부분을 스캔해 파싱하므로, 선두 고정으로 대조하면 "PDFBox 는
+     * 읽는데 우리 저장은 거부"하는 불일치가 생겨 정상 PDF 업로드가 400 이 된다(2026-08-04 리뷰 P2).
+     */
     public static Optional<DetectedFileType> detect(byte[] header) {
         if (header == null) {
             return Optional.empty();
         }
         return Arrays.stream(values())
-                .filter(type -> startsWith(header, type.magic))
+                .filter(type -> type == PDF ? contains(header, type.magic) : startsWith(header, type.magic))
                 .findFirst();
     }
 
@@ -67,6 +74,23 @@ public enum DetectedFileType {
         } catch (IOException e) {
             return Optional.empty();
         }
+    }
+
+    /** {@code data} 안 어디에든 {@code needle} 이 있는지(선행 바이트 허용 — PDF 전용). */
+    private static boolean contains(byte[] data, byte[] needle) {
+        for (int offset = 0; offset + needle.length <= data.length; offset++) {
+            boolean matched = true;
+            for (int i = 0; i < needle.length; i++) {
+                if (data[offset + i] != needle[i]) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean startsWith(byte[] data, byte[] prefix) {

@@ -48,6 +48,7 @@ import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.support.InMemoryRateLimiter;
 import com.hajacheck.support.PngTestFixtures;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.hajacheck.core.media.support.PdfFirstPageRasterizer;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -83,8 +84,10 @@ class CompanySignupServiceTest {
 
     @BeforeEach
     void setUp() {
+        // ⚠️ 진짜 PNG 여야 한다 — 저장 전 검증(BusinessLicenseUploadValidator)이 선언 Content-Type ↔
+        // 실제 매직바이트 일치와 디코딩 가능성을 대조보다 먼저 확인한다.
         file = new MockMultipartFile(
-                "businessRegistrationFile", "brn.png", "image/png", "PNG".getBytes());
+                "businessRegistrationFile", "brn.png", "image/png", PngTestFixtures.realPng());
         when(policyProperties.getTermsVersion()).thenReturn("1.0");
         when(policyProperties.getPrivacyVersion()).thenReturn("1.0");
         when(authProperties.getSignupStatusTtl()).thenReturn(Duration.ofDays(30));
@@ -486,29 +489,25 @@ class CompanySignupServiceTest {
     }
 
     @Test
-    void signup_등록증대조_RATE_LIMITED_429차단_파일저장안함() {
-        // ⚠️ 계약 변경(2026-08-04 리뷰 P1): 예전엔 fail-open 통과였다. 캡 소진은 "대조를 아예 수행하지
-        // 못했다"는 뜻이라, 통과시키면 공격자가 캡을 태우는 것만으로 게이트를 끌 수 있다 → 429 재시도 유도.
-        when(userRepository.existsByEmail(anyString())).thenReturn(false);
-        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+    void signup_등록증대조_전역캡소진_RATE_LIMITED는_failopen_가입성공() {
+        // ⚠️ 계약(2026-08-04 2차 리뷰에서 429 차단안을 되돌림): 전역 축은 모든 가입자가 공유하므로 막으면
+        // 공격자가 캡을 태우는 것만으로 그날 기업 가입을 전면 정지시킬 수 있다(DoS 킬스위치).
+        // 게이트가 꺼져 있었다는 사실은 log.error 경보와 아래 감사 라벨로 남는다.
+        stubHappyPathStorage();
         when(businessLicenseCrossCheckService.crossCheck(any(), anyString()))
                 .thenReturn(BusinessLicenseCrossCheckOutcome.RATE_LIMITED);
 
-        assertThatThrownBy(() -> service.signup(request()))
-                .isInstanceOf(BusinessException.class)
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE));
-        assertThat(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE.getStatus())
-                .isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
+        CompanySignupResponse response = service.signup(request());
 
-        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
-        verify(fileStorage, never()).delete(anyString());
+        assertThat(response.status()).isEqualTo("APPROVED");
+        assertThat(capturedOcrRaw()).contains("\"licenseOcrOutcome\":\"RATE_LIMITED\"");
     }
 
     @Test
-    void signup_등록증대조_시도한도초과_MISMATCH와_같은코드로_차단_파일저장안함() {
-        // 같은 사업자번호로 반복 실패해 시도 한도를 넘긴 경우(자기소진 봉쇄, 리뷰 P1) —
-        // 공격자에게 어느 방어에 걸렸는지 알려주지 않기 위해 MISMATCH 와 동일 코드로 응답한다.
+    void signup_등록증대조_시도한도초과_429중립문구로_차단_파일저장안함() {
+        // 같은 사업자번호로 반복 실패해 시도 한도를 넘긴 경우(자기소진 봉쇄) — MISMATCH(400)와 <b>다른</b>
+        // 코드로 응답한다. 합치면 AI 장애 중 몇 번 시도한 정상 사용자가 "등록증 번호가 다릅니다"라는
+        // 사실과 다른 안내를 받고, 공격자는 응답 시간으로 어차피 구분한다(2차 리뷰 P2).
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
         when(businessLicenseCrossCheckService.crossCheck(any(), anyString()))
@@ -516,10 +515,68 @@ class CompanySignupServiceTest {
 
         assertThatThrownBy(() -> service.signup(request()))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.AUTH_BUSINESS_LICENSE_MISMATCH));
+                        .isEqualTo(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE));
+        assertThat(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE.getStatus())
+                .isEqualTo(org.springframework.http.HttpStatus.TOO_MANY_REQUESTS);
 
         verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
         verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void signup_PDF래스터화_동시상한포화_429차단_파일저장안함() {
+        // 렌더 슬롯 포화는 "대조를 수행하지 못함"이라 통과시키면 공격자가 슬롯을 점유해 위조 PDF 를
+        // 통과시키는 직접적 우회가 된다. 피해는 PDF 경로·초 단위로 국소적이라 여기는 막는 쪽이 맞다.
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+        when(businessLicenseCrossCheckService.crossCheck(any(), anyString()))
+                .thenReturn(BusinessLicenseCrossCheckOutcome.RASTERIZE_BUSY);
+
+        assertThatThrownBy(() -> service.signup(request()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.AUTH_BUSINESS_LICENSE_CHECK_UNAVAILABLE));
+
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
+    }
+
+    @Test
+    void signup_선언ContentType과_실제바이트가_다르면_대조전에_거부된다() {
+        // 대조는 선언 타입을 보지 않고 저장은 선언 타입을 쓰므로, 이 검증이 없으면 "대조 MATCH 통과 →
+        // 저장 400 → 회사 행 없음 → 무한 반복"으로 전역 캡만 태우는 루프가 성립한다(2차 리뷰 P1).
+        MultipartFile disguised = new MockMultipartFile(
+                "businessRegistrationFile", "brn.pdf", "application/pdf", PngTestFixtures.realPng());
+        CompanySignupRequest request = new CompanySignupRequest(
+                "haja@check.com", "pass1234", "(주)하자체크", "123-45-67890",
+                "김민수", LocalDate.of(2020, 1, 1), "서울시 강남구", "101호", true, true, disguised);
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+
+        assertThatThrownBy(() -> service.signup(request))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FILE_INVALID_TYPE));
+
+        // AI 호출도, 저장도 없어야 한다.
+        verify(businessLicenseCrossCheckService, never()).crossCheck(any(), anyString());
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
+    }
+
+    @Test
+    void signup_손상된_이미지는_증빙으로_저장되지_않는다() {
+        // FF D8 FF + 쓰레기 = 시그니처는 JPEG 지만 열리지 않는 파일. 증빙으로 남으면 나중에 사람이
+        // 등록증을 열람할 때 신뢰할 수 없다(2차 리뷰 P2-7①).
+        byte[] brokenJpeg = new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55};
+        MultipartFile broken = new MockMultipartFile(
+                "businessRegistrationFile", "brn.jpg", "image/jpeg", brokenJpeg);
+        CompanySignupRequest request = new CompanySignupRequest(
+                "haja@check.com", "pass1234", "(주)하자체크", "123-45-67890",
+                "김민수", LocalDate.of(2020, 1, 1), "서울시 강남구", "101호", true, true, broken);
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+
+        assertThatThrownBy(() -> service.signup(request))
+                .isInstanceOf(BusinessException.class);
+
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
     }
 
     @Test
@@ -553,7 +610,8 @@ class CompanySignupServiceTest {
         when(aiProxyService.ocrBusinessLicenseForCrossCheck(anyString())).thenReturn(ApiResponse.ok(
                 new BusinessLicenseOcrResponse("123-45-67890", "(주)하자체크", "김민수", "2020-01-01")));
         BusinessLicenseCrossCheckService realCrossCheck = new BusinessLicenseCrossCheckService(
-                aiProxyService, new InMemoryRateLimiter(), new AuthProperties(), new FileStorageProperties());
+                aiProxyService, new InMemoryRateLimiter(), new AuthProperties(), new FileStorageProperties(),
+                new PdfFirstPageRasterizer());
         CompanySignupService serviceWithRealCrossCheck = new CompanySignupService(
                 userRepository, companyRepository, accountWriter, ntsBusinessVerifyClient, realCrossCheck,
                 fileStorage, fileStorageProperties, tokenStore, passwordEncoder, policyProperties, authProperties);
