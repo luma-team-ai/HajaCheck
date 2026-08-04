@@ -34,6 +34,10 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
   // 최신화되지 않는다). 그래서 티켓을 열 때마다 서버에서 최신 상태를 1회 조회해 종료 판정의
   // 소스로 쓴다(#1506이 useChatBot에 넣은 REST 백필과 동일 패턴).
   const [latestTicket, setLatestTicket] = useState<CounselTicketSummaryResponse | null>(null);
+  // 위 조회가 끝나기 전까지는 종료 여부가 "미확정"이다(#1590 리뷰 P3) — 이 창에서 isEnded=false로
+  // 단정하면 종료된 티켓인데도 "상담 종료" 버튼·입력창이 잠깐 열렸다가 닫힌다(그 사이 전송하면
+  // 서버가 거부). 소비자가 확정 전까지 조작을 잠글 수 있도록 함께 노출한다.
+  const [endedPending, setEndedPending] = useState(false);
 
   useEffect(() => {
     if (ticketId === null) {
@@ -85,9 +89,13 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
   // 입력창이 다시 열린다(전송하면 서버가 거부).
   useEffect(() => {
     setLatestTicket(null);
-    if (ticketId === null) return;
+    if (ticketId === null) {
+      setEndedPending(false);
+      return;
+    }
 
     let cancelled = false;
+    setEndedPending(true);
     counselApi
       .getTicket(ticketId)
       .then((res) => {
@@ -95,6 +103,9 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
       })
       .catch(() => {
         // 조회 실패는 조용히 무시 — 종료 판정은 소켓(onEnded)과 호출부의 ticket 스냅샷으로 폴백된다.
+      })
+      .finally(() => {
+        if (!cancelled) setEndedPending(false);
       });
     return () => {
       cancelled = true;
@@ -143,5 +154,7 @@ export function useCounselorTicketThread(ticketId: number | null, onEnded: () =>
     resolve,
     endedTicket,
     isEnded: endedTicket !== null,
+    // 확정 전 창(#1590 리뷰 P3) — 소켓으로 이미 종료를 받았으면 확정된 것이므로 pending이 아니다.
+    endedPending: endedPending && remoteEndedTicket === null,
   };
 }
