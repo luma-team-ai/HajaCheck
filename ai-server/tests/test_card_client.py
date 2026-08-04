@@ -203,6 +203,72 @@ class TestCrackMMIntegration:
         assert width_mm is None
 
 
+class TestCrackDetectionsIntegration:
+    """`_crack_detections()` 통합 테스트 — 카드검출→mm환산 연결부 회귀 방지 (#1547 P1 재발 방지).
+
+    measure_crack_width_mm 내부 CV 알고리즘은 TestCrackMMIntegration이 이미 검증하므로 여기선
+    mock으로 대체하고, _crack_detections가 그 함수에 "올바른 인자"를 넘기는지만 검증한다 —
+    스케일 공식 방향과 레터박스 크기 전달이 실제로 둘 다 틀렸었다(#1547).
+    """
+
+    @patch("ai.core.crack_mm_measurement.measure_crack_width_mm")
+    @patch("ai.core.card_client.detect_card")
+    @patch("ai.chains.defect_detection_chain.predict_crack_probability")
+    @patch("ai.chains.defect_detection_chain.get_crack_model")
+    def test_scale_and_input_size_passed_correctly(
+        self, mock_get_model, mock_predict, mock_detect_card, mock_measure
+    ):
+        """비정사각(세로) 사진 기준 — 스케일 공식 방향 + crack_input_size 고정값 + 패딩제거 마스크 검증."""
+        from ai.chains.defect_detection_chain import _crack_detections, CRACK_INPUT_SIZE
+        from ai.core.unet_client import CrackPrediction
+        from ai.core.card_client import CardDetectionResult, CARD_LONG_MM
+
+        # 세로 사진(2296x4080) — height가 max라 letterbox content_height=640, content_width=360
+        # (정사각 이미지로 테스트하면 content_width가 우연히 640이 돼 이 버그가 안 잡힌다)
+        w_orig, h_orig = 2296, 4080
+        image = Image.new("RGB", (w_orig, h_orig), color="white")
+
+        content_height, content_width = 640, 360  # _letterbox_layout(2296,4080)과 일치
+        top, left = 0, (640 - content_width) // 2
+        probability = np.zeros((640, 640), dtype=np.float32)
+        # 콘텐츠 영역 내부에 마스크 블록(30x30 — MIN_CRACK_COMPONENT_AREA_RATIO 통과용)
+        probability[300:330, left + 100:left + 130] = 0.9
+
+        mock_get_model.return_value = MagicMock()
+        mock_predict.return_value = CrackPrediction(
+            probability=probability,
+            content_top=top, content_left=left,
+            content_height=content_height, content_width=content_width,
+        )
+        mock_detect_card.return_value = CardDetectionResult(
+            long_px=300.0, short_px=189.0, confidence=0.8, method="bbox"
+        )
+        mock_measure.return_value = 2.0  # 반환값 자체는 안 씀 — 호출 인자만 검증 대상
+
+        _crack_detections(image)
+
+        assert mock_measure.called, "카드가 검출됐는데 measure_crack_width_mm이 호출되지 않음"
+        call = mock_measure.call_args
+        _, passed_mask, passed_scale = call.args
+        passed_input_size = call.kwargs["crack_input_size"]
+
+        # ① 스케일 공식 방향 — CARD_LONG_MM/long_px여야 함(역방향이면 (long_px/85.6)^2배 틀어짐)
+        expected_scale = CARD_LONG_MM / 300.0
+        assert passed_scale == pytest.approx(expected_scale, rel=0.01), (
+            f"스케일 공식이 뒤집힌 것으로 보임: {passed_scale} (기대: {expected_scale})"
+        )
+        # ② crack_input_size는 content_width(360)가 아니라 항상 고정 640(레터박스 캔버스 크기)
+        assert passed_input_size == CRACK_INPUT_SIZE == 640, (
+            f"crack_input_size가 content_width로 잘못 전달됨: {passed_input_size}"
+        )
+        # ③ 마스크는 패딩 제거된 content 크기(640x360)여야 함 — 패딩 포함 640x640 그대로면
+        #    원본해상도 리사이즈 시 좌표가 어긋난다
+        assert passed_mask.shape == (content_height, content_width), (
+            f"패딩이 안 잘린 마스크가 그대로 전달됨: {passed_mask.shape} "
+            f"(기대: {(content_height, content_width)})"
+        )
+
+
 class TestThresholdGuard:
     """0.7mm 가드 로직."""
 

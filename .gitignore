@@ -35,6 +35,8 @@ ai-server/__pycache__/
 ai-server/chroma_data/
 ai-server/models/*.onnx
 ai-server/models/*.pt
+ai-server/*.pt
+ai-server/weights/
 ai-server/eval_results/
 
 # --- frontend (Node/Vite) ---

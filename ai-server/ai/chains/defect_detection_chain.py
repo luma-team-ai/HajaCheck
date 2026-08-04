@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from ai.core.grading import compute_crack_grade, compute_grade
 from ai.core.unet_client import (
+    CRACK_INPUT_SIZE,
     CRACK_MASK_THRESHOLD,
     get_crack_model,
     predict_crack_probability,
@@ -300,7 +301,7 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
     import cv2
     import numpy as np
 
-    from ai.core.card_client import detect_card
+    from ai.core.card_client import CARD_LONG_MM, detect_card
     from ai.core.crack_mm_measurement import measure_crack_width_mm
 
     model = get_crack_model()
@@ -318,17 +319,22 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
     # 카드 검출 및 mm 환산 시도
     card_result = detect_card(image)
     if card_result:
-        card_scale_mm_per_px = card_result.long_px / 85.6  # CARD_LONG_MM = 85.6
+        # mm/px(카드 실제 크기 ÷ 카드 픽셀 길이) — px/mm과 방향 반대이니 헷갈리지 말 것(#1547 P1).
+        card_scale_mm_per_px = CARD_LONG_MM / card_result.long_px
         # ponytail: 원본 BGR 이미지로 변환 (메모리 효율성, 608px 입력은 경량)
         image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
         for detection in detections:
             if detection.type == "CRACK" and detection.width_px is not None:
-                # 원본 해상도의 U-Net 마스크로 재측정
+                # 원본 해상도의 U-Net 마스크로 재측정. content_probability(패딩 이미 제거됨, line
+                # 310)를 넘긴다 — prediction.probability(패딩 포함 640x640 전체)를 그대로 넘기면
+                # measure_crack_width_mm의 원본해상도 리사이즈가 패딩까지 같이 늘려 좌표가 어긋난다
+                # (#1547 P1). crack_input_size도 content_width가 아니라 항상 고정값 640이어야 한다
+                # (레터박스 캔버스 크기 자체이지, 콘텐츠 크기가 아님 — 비정사각 사진에서 다르다).
                 width_mm = measure_crack_width_mm(
                     image_bgr,
-                    prediction.probability,
+                    content_probability,
                     card_scale_mm_per_px,
-                    crack_input_size=width,  # 640 (CRACK_INPUT_SIZE)
+                    crack_input_size=CRACK_INPUT_SIZE,
                     crack_mask_threshold=CRACK_MASK_THRESHOLD,
                 )
                 # 0.7mm 이상만 기록 (미만은 신뢰도 부족)
