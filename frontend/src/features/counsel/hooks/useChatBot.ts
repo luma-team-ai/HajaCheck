@@ -82,6 +82,29 @@ export function useChatBot(initialCategory?: string) {
     onTyping: handleTyping,
   });
 
+  // #1506 — 소켓 연결(재연결 포함) 시점에 REST로 최신 티켓 상태를 백필한다. WS push(onAssigned/onEnded)를
+  // 놓쳐도(연결 전에 상담원이 배정했거나 순간 끊김 등) "연결됨" 표시가 확정적으로 맞아진다.
+  useEffect(() => {
+    if (!connected || activeTicket === null) return;
+    if (activeTicket.status === 'RESOLVED' || activeTicket.status === 'OFFLINE_LEFT') return;
+
+    let cancelled = false;
+    counselApi
+      .getTicket(activeTicket.id)
+      .then((res) => {
+        if (!cancelled) setActiveTicket(res.data);
+      })
+      .catch(() => {
+        // 백필 실패는 조용히 무시 — WS push가 정상 도착하면 어차피 최신화된다.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // activeTicket 전체가 아니라 id만 의존성으로 둔다 — 이 effect 자체가 setActiveTicket으로 그 객체를
+    // 갱신하므로, 객체 전체를 넣으면 매 갱신마다 재요청이 도는 루프가 생긴다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, activeTicket?.id]);
+
   const endCounsel = useCallback(async () => {
     if (activeTicket === null) return;
     setEnding(true);
