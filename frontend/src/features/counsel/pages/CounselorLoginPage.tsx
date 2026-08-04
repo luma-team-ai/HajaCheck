@@ -32,7 +32,7 @@ export function CounselorLoginPage() {
   const currentUser = useAuthStore((state) => state.user);
   const { login, isPending, error } = useCounselorLogin();
 
-  // 회원가입 외 인증 폼과 동일하게 마운트 시 CSRF 쿠키를 프라이밍한다(POST /auth/login 전 필요).
+  // 회원가입 외 인증 폼과 동일하게 마운트 시 CSRF 쿠키를 프라이밍한다(로그인 POST 전 필요).
   useCsrfPrime();
 
   // AuthGate가 부트스트랩에서 authStore.user를 이미 복원해두므로, 이미 COUNSELOR로 로그인된
