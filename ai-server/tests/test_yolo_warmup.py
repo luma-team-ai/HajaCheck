@@ -24,6 +24,26 @@ def test_warmup_defect_models_calls_loader_in_thread():
     mock_load.assert_called_once()
 
 
+def test_load_defect_models_sync_includes_card_model():
+    """카드 검출 모델(YOLO-World + CLIP)도 워밍업 대상이어야 한다(#1547 머신 검수 P1).
+
+    빠지면 첫 균열 탐지 요청이 가중치 24.7MB + CLIP ViT-B/32 338MB 콜드스타트를 그대로 떠안는다 —
+    기존 3종을 미리 로드하는 이유(#701)와 같은 실패 모드다. `_load_defect_models_sync`는 함수
+    내부에서 지연 임포트하므로 원본 모듈 속성을 패치해야 한다(실제 다운로드 차단 겸용).
+    """
+    with patch("ai.core.card_client.warmup_card_model") as mock_card, \
+         patch("ai.core.unet_client.get_crack_model") as mock_crack, \
+         patch("ai.core.yolo_client.get_yolo_model") as mock_yolo, \
+         patch("ai.core.embeddings.get_embeddings") as mock_embeddings:
+        main._load_defect_models_sync()
+
+    mock_card.assert_called_once()
+    # 기존 워밍업 대상이 카드 추가로 밀려나지 않았는지 함께 고정한다.
+    mock_crack.assert_called_once()
+    assert mock_yolo.call_count == 2
+    mock_embeddings.assert_called_once()
+
+
 def test_warmup_defect_models_swallows_loader_exception():
     # 워밍업 실패(네트워크 장애·체크포인트 없음 등)로 앱 기동 자체가 죽으면 안 된다 —
     # 첫 실제 분석 요청이 get_yolo_model()/get_crack_model()의 지연 로드 경로로 재시도한다.

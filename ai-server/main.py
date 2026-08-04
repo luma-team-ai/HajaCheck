@@ -57,6 +57,7 @@ def _load_defect_models_sync() -> None:
     # 지연 임포트 — ultralytics/huggingface_hub/segmentation_models_pytorch는 무거운 의존성이라
     # 모듈 최상단에서 임포트하면 main.py를 import하는 모든 테스트(TestClient 미사용 포함)가 그
     # 비용을 진다.
+    from ai.core.card_client import warmup_card_model
     from ai.core.embeddings import get_embeddings
     from ai.core.unet_client import get_crack_model
     from ai.core.yolo_client import get_yolo_model
@@ -66,19 +67,27 @@ def _load_defect_models_sync() -> None:
     get_crack_model()
     get_yolo_model("SPALLING")
     get_yolo_model("REBAR_EXPOSURE")
+
+    # 카드 검출(#1487, #1547 머신 검수 P1) — YOLO-World 가중치 24.7MB + set_classes()가 받는
+    # CLIP ViT-B/32 338MB. 균열이 검출된 사진에서만 타는 부가 경로지만 콜드스타트 비용은 위
+    # 3종보다 오히려 크므로 동일하게 미리 로드한다.
+    warmup_card_model()
     
     # bge-m3 임베딩 모델 워밍업 추가 (첫 RAG 호출 시 콜드스타트 지연 방지)
     get_embeddings()
 
 
 async def _warmup_defect_models() -> None:
-    """하자 탐지 모델 3종을 앱 기동 시 백그라운드로 미리 로드한다(코드 리뷰 P2, 사용자 확인 완료).
+    """하자 탐지 모델(크랙 U-Net·YOLO 2종·카드 검출)을 앱 기동 시 백그라운드로 미리 로드한다
+    (코드 리뷰 P2, 사용자 확인 완료).
 
-    get_crack_model()/get_yolo_model()은 각각 `@lru_cache`라 최초 호출이 HF Hub 체크포인트
-    다운로드(콜드스타트, 네트워크·캐시 상태에 따라 수 분)를 동반한다. 미리 로드해두지 않으면 배포
-    직후 첫 실제 분석 요청이 이 다운로드를 그대로 떠안고, 그 시간이 백엔드 하트비트 임계값(InspectionAnalysisService.
-    STUCK_HEARTBEAT_THRESHOLD, 5분)을 넘기면 정상 진행 중인 잡을 고착으로 오판해 이중 워커 실행까지
-    이어질 수 있다(#701 코드 리뷰).
+    get_crack_model()/get_yolo_model()/warmup_card_model()은 각각 `@lru_cache`라 최초 호출이
+    체크포인트 다운로드(콜드스타트, 네트워크·캐시 상태에 따라 수 분)를 동반한다. 미리 로드해두지
+    않으면 배포 직후 첫 실제 분석 요청이 이 다운로드를 그대로 떠안고, 그 시간이 백엔드 하트비트
+    임계값(InspectionAnalysisService.STUCK_HEARTBEAT_THRESHOLD)을 넘기면 정상 진행 중인 잡을
+    고착으로 오판해 이중 워커 실행까지 이어질 수 있다(#701 코드 리뷰).
+    (이 문서의 임계값은 한때 "5분"으로 적혀 있었으나 실제 상수는 15분이다 — #1547 검수에서
+    이 stale 값이 리뷰 판단을 오도해 정정. 값 자체는 백엔드가 진실 소스이니 그쪽을 볼 것.)
 
     `/health`나 다른 엔드포인트를 막지 않도록 백그라운드 태스크로 돌린다(_purge_llm_cache_loop와
     동일 패턴) — 컨테이너 헬스체크 start_period(20s)를 모델 다운로드 시간에 맞춰 늘릴 필요가 없다.
