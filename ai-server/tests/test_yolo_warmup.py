@@ -10,8 +10,10 @@
 않았다(PR #973 P3 리뷰).
 """
 import asyncio
-from unittest.mock import patch
+import contextlib
+from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 import main
@@ -63,22 +65,112 @@ def test_card_warmup_failure_does_not_block_embedding_warmup():
     mock_embeddings.assert_called_once()
 
 
-def test_embedding_warmup_runs_before_card_warmup():
-    """순서 자체를 고정한다 — 개별 try/except만 있고 순서가 되돌아가면, 카드 워밍업이 예외 없이
-    **오래 매달리는** 경우(느린 대용량 다운로드)에 임베딩 워밍업이 그만큼 밀린다. 위 테스트는
-    예외 케이스만 잡으므로 이 테스트가 나머지 절반을 고정한다."""
+@pytest.mark.parametrize(
+    "failing_target",
+    [
+        "ai.core.unet_client.get_crack_model",
+        "ai.core.yolo_client.get_yolo_model",
+        "ai.core.card_client.warmup_card_model",
+    ],
+)
+def test_any_defect_model_failure_does_not_block_embedding_warmup(failing_target):
+    """#1594 코드리뷰 P2 — 카드만 격리해선 부족하다. 그 앞의 U-Net/YOLO 3종도 런타임 HF Hub
+    다운로드 경로라(unet_client.py·yolo_client.py) 하나만 던져도 `_warmup_defect_models()`의
+    바깥 핸들러까지 튕겨 뒤에 있던 `get_embeddings()`가 통째로 실행되지 않는다 — 이슈 3번이
+    지적한 실패 모드가 "카드" → "U-Net/YOLO"로 이름만 바뀐 채 남아 있던 상태다.
+
+    임베딩 워밍업을 맨 앞으로 올렸으므로, **어떤** 하자 모델이 실패해도 이미 끝나 있어야 한다.
+    (crack/yolo는 여전히 무방비라 예외가 밖으로 전파될 수 있다 — 그건 `_warmup_defect_models()`가
+    잡는다. 여기서 검증하는 것은 "임베딩이 그 전에 실행됐는가"다.)
+    """
+    defect_targets = {
+        "ai.core.unet_client.get_crack_model": MagicMock(),
+        "ai.core.yolo_client.get_yolo_model": MagicMock(),
+        "ai.core.card_client.warmup_card_model": MagicMock(),
+    }
+    defect_targets[failing_target].side_effect = RuntimeError("체크포인트 다운로드 실패")
+    mock_embeddings = MagicMock()
+
+    with contextlib.ExitStack() as stack:
+        for target, mock in defect_targets.items():
+            stack.enter_context(patch(target, mock))
+        stack.enter_context(patch("ai.core.embeddings.get_embeddings", mock_embeddings))
+        # crack/yolo는 개별 격리가 없어 예외가 밖으로 나간다 — 그건 _warmup_defect_models()가 잡는다.
+        with contextlib.suppress(RuntimeError):
+            main._load_defect_models_sync()
+
+    assert mock_embeddings.call_count == 1, (
+        f"{failing_target} 실패로 임베딩 워밍업이 실행되지 않았다 — "
+        "get_embeddings()가 하자 모델 로드보다 뒤에 있다는 뜻이다(#1594 코드리뷰 P2 회귀)"
+    )
+
+
+def test_embedding_warmup_runs_before_every_defect_model():
+    """순서 자체를 고정한다 — 개별 try/except만 있고 순서가 되돌아가면, 앞선 모델이 예외 없이
+    **오래 매달리는** 경우(느린 대용량 다운로드)에 임베딩 워밍업이 그만큼 밀린다.
+
+    이전 버전은 `embeddings ↔ card`만 기록해 crack/yolo가 앞에 있는 것을 검출하지 못했다
+    (코드리뷰 P2) — 네 개를 모두 기록해 임베딩이 **맨 앞**임을 고정한다.
+    """
     call_order = []
 
     with patch(
-        "ai.core.card_client.warmup_card_model", side_effect=lambda: call_order.append("card")
-    ), patch("ai.core.unet_client.get_crack_model"), patch(
-        "ai.core.yolo_client.get_yolo_model"
-    ), patch(
         "ai.core.embeddings.get_embeddings", side_effect=lambda: call_order.append("embeddings")
+    ), patch(
+        "ai.core.unet_client.get_crack_model", side_effect=lambda: call_order.append("crack")
+    ), patch(
+        "ai.core.yolo_client.get_yolo_model", side_effect=lambda _t: call_order.append("yolo")
+    ), patch(
+        "ai.core.card_client.warmup_card_model", side_effect=lambda: call_order.append("card")
     ):
         main._load_defect_models_sync()
 
-    assert call_order == ["embeddings", "card"]
+    assert call_order[0] == "embeddings", (
+        f"임베딩 워밍업이 맨 앞이 아니다 — 실제 순서: {call_order}. 앞선 하자 모델이 실패하면 "
+        "RAG 첫 호출이 콜드스타트를 떠안는다(#1594)"
+    )
+    assert call_order == ["embeddings", "crack", "yolo", "yolo", "card"]
+
+
+def test_semantic_cache_retention_loop_runs_enforce_retention():
+    """#1594 코드리뷰 P2 — 보존 정책이 **쓰기 경로에서만** 돌면 트래픽 저조·exact 캐시만 히트·
+    개인회원만 접속하는 기간에 정리가 멈춰, 조회 필터가 가려줄 뿐 질문 원문 평문이 디스크에
+    무기한 남는다. "TTL이 곧 평문 보존 상한"이라는 설계 판단은 주기 실행이 있어야 성립한다.
+
+    `asyncio.sleep`을 가로채 첫 주기만 돌리고 루프를 끊는다(실제 1시간을 기다리지 않는다).
+    """
+    calls = []
+
+    async def _fake_sleep(_seconds):
+        if calls:  # 두 번째 주기 진입 시 루프 종료
+            raise asyncio.CancelledError
+        return None
+
+    with patch("ai.core.semantic_cache.enforce_retention", side_effect=lambda: calls.append(1)), \
+         patch("main.asyncio.sleep", _fake_sleep):
+        with contextlib.suppress(asyncio.CancelledError):
+            asyncio.run(main._semantic_cache_retention_loop())
+
+    assert calls == [1]
+
+
+def test_lifespan_starts_semantic_cache_retention_loop():
+    """lifespan에 루프가 실제로 등록되는지 — 함수만 있고 기동에 안 붙으면 아무 효과가 없다.
+
+    MagicMock이 아니라 실제 코루틴 함수로 대체한다 — mock의 반환값을 코루틴으로 세팅하면
+    lifespan이 태스크를 취소할 때 그 코루틴이 await되지 않아 RuntimeWarning이 남는다.
+    """
+    started = []
+
+    async def _fake_loop():
+        started.append(1)
+        await asyncio.Event().wait()  # 취소될 때까지 대기(실제 루프와 동일하게 장수명)
+
+    with patch("main._semantic_cache_retention_loop", _fake_loop):
+        with TestClient(main.app) as client:
+            assert client.get("/health").status_code == 200
+
+    assert started == [1], "lifespan이 시맨틱 캐시 보존 정책 주기 루프를 기동하지 않았다"
 
 
 def test_warmup_defect_models_swallows_loader_exception():
