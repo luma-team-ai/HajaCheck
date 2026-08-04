@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import chetRobotIcon from '../../../assets/brand/chet-robot.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { ChatInputBox } from '../../../shared/components/ChatInputBox/ChatInputBox';
@@ -197,8 +197,18 @@ function ChatBotLogItem({
       return (
         <div className="flex items-start gap-2.5">
           <BotAvatar />
-          <div className="max-w-[560px] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border bg-white px-5 py-4 text-sm font-medium text-primary">
-            {entry.text}
+          <div className="flex max-w-[560px] flex-col items-start gap-2">
+            <div className="whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border bg-white px-5 py-4 text-sm font-medium text-primary">
+              {entry.text}
+            </div>
+            {entry.actionRoute && entry.actionLabel && (
+              <Link
+                to={entry.actionRoute}
+                className="rounded-full border border-point px-4 py-2 text-sm font-medium text-point transition-colors hover:bg-point/5"
+              >
+                {entry.actionLabel}
+              </Link>
+            )}
           </div>
         </div>
       );
@@ -218,7 +228,11 @@ function ChatBotLogItem({
               key={button.id}
               type="button"
               onClick={() => onSelect(button)}
-              className="rounded-full border border-border bg-white px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-surface-sunken"
+              className={
+                button.leadsToCounselor
+                  ? 'rounded-full border border-point bg-white px-4 py-2 text-sm font-medium text-point transition-colors hover:bg-point/5'
+                  : 'rounded-full border border-border bg-white px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-surface-sunken'
+              }
             >
               {button.buttonLabel}
             </button>

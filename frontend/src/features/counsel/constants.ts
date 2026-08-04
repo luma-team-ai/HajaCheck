@@ -53,3 +53,30 @@ export const COUNSELOR_NAV_ITEM: SideNavItem = {
   href: '/counsel-console/queue',
   icon: supportIcon,
 };
+
+// 시나리오 안내문 바로가기 버튼(#1434) — 백엔드/DB 무변경. bot_scenarios 시드(V17)에 안내 문구는
+// "[X > Y]" 경로로 있지만 그 경로로 바로 이동하는 버튼이 없어, 해당 노드 id를 프론트에서 알아보고
+// CTA 버튼을 덧붙인다. id=9는 안내 문구 자체가 실제 기능(토스페이먼츠는 "저장된 카드 정보 직접
+// 변경"이 없고 결제 내역 조회/플랜 변경만 가능)과 달라 문구도 함께 교체한다. 전체 22개 노드 중
+// "[X > Y]" 경로 안내가 있는 노드 7개 전수 확인(2026-08-03 DB 조회) — 나머지는 최상위 카테고리
+// 노드이거나 상담원 확인이 필요한 사안이라 대상 아님. DB 시드가 바뀌면 이 매핑도 함께 갱신해야
+// 한다(동기화 보장 장치 없음 — 소수 노드 한정 특례로 채택).
+export type ScenarioActionOverride = {
+  responseText?: string;
+  actionRoute: string;
+  actionLabel: string;
+};
+
+export const SCENARIO_ACTION_OVERRIDES: Record<number, ScenarioActionOverride> = {
+  5: { actionRoute: '/mypage/inspections', actionLabel: '완료된 점검 보기' },
+  8: { actionRoute: '/mypage/plan', actionLabel: '요금제 관리 보기' },
+  9: {
+    responseText: '[마이페이지 > 결제 정보]에서 결제 내역을 확인하거나 플랜을 변경하실 수 있습니다.',
+    actionRoute: '/mypage/plan',
+    actionLabel: '내 플랜',
+  },
+  10: { actionRoute: '/admin/users', actionLabel: '팀 관리 보기' },
+  11: { actionRoute: '/inspections/create', actionLabel: '새 점검 등록하기' },
+  12: { actionRoute: '/defects/list', actionLabel: '하자 관리 보기' },
+  13: { actionRoute: '/reports', actionLabel: '보고서 보기' },
+};
