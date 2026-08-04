@@ -316,6 +316,12 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
 
     detections = _crack_mask_to_detections(content_mask, content_probability, dark_ratio, scale=scale)
 
+    # 균열이 하나도 없으면 카드 검출 자체를 건너뛴다 — width_mm은 CRACK detection에만 붙는
+    # 부가 정보인데, 고비용 YOLO-World 추론(imgsz=2048, 실패 시 2x2 타일 재검출로 요청당 최대
+    # 5회)을 균열 없는 사진(대다수)에서 매번 돌 이유가 없다(#1547 P2).
+    if not detections:
+        return detections
+
     # 카드 검출 및 mm 환산 시도 — width_mm은 부가 정보(설계상 미검출 시 None)라, 이 호출이
     # 던지는 예외가 균열 탐지 자체를 무너뜨리면 안 된다. _crack_detections는 상위 detect_defects의
     # 유형별 try/except(카드 예외 없이도 존재)로 감싸여 있어, 여기서 예외가 새면 이미 구한 균열
@@ -328,18 +334,28 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
     if card_result:
         # mm/px(카드 실제 크기 ÷ 카드 픽셀 길이) — px/mm과 방향 반대이니 헷갈리지 말 것(#1547 P1).
         card_scale_mm_per_px = CARD_LONG_MM / card_result.long_px
-        # ponytail: 원본 BGR 이미지로 변환 (메모리 효율성, 608px 입력은 경량)
+        # 원본 해상도 BGR 변환 — measure_crack_width_mm의 BLACKHAT 재측정 입력(축소본이 아니라
+        # 원본을 그대로 쓰는 것이 B안의 핵심).
         image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+        content_h, content_w = content_probability.shape
         for detection in detections:
             if detection.type == "CRACK" and detection.width_px is not None:
-                # 원본 해상도의 U-Net 마스크로 재측정. content_probability(패딩 이미 제거됨, line
-                # 310)를 넘긴다 — prediction.probability(패딩 포함 640x640 전체)를 그대로 넘기면
-                # measure_crack_width_mm의 원본해상도 리사이즈가 패딩까지 같이 늘려 좌표가 어긋난다
-                # (#1547 P1). crack_input_size도 content_width가 아니라 항상 고정값 640이어야 한다
-                # (레터박스 캔버스 크기 자체이지, 콘텐츠 크기가 아님 — 비정사각 사진에서 다르다).
+                # detection 자신의 bbox 영역만 남긴 마스크로 측정한다 — 이미지 전체
+                # content_probability를 그대로 넘기면 measure가 내부에서 "가장 큰 연결요소"
+                # 하나만 재므로, 분리된 균열이 여러 개일 때 모든 detection에 같은(가장 큰
+                # 균열의) 폭이 들어가는 정합성 버그가 된다(#1547 P2). bbox는 콘텐츠 좌표
+                # 정규화값이라 원복 시 ±2px 여유를 둔다(반올림 오차 방어).
+                x0 = max(0, int(detection.bbox_x * content_w) - 2)
+                y0 = max(0, int(detection.bbox_y * content_h) - 2)
+                x1 = min(content_w, int((detection.bbox_x + detection.bbox_w) * content_w) + 2)
+                y1 = min(content_h, int((detection.bbox_y + detection.bbox_h) * content_h) + 2)
+                scoped_probability = np.zeros_like(content_probability)
+                scoped_probability[y0:y1, x0:x1] = content_probability[y0:y1, x0:x1]
+                # content_probability는 패딩 제거본, crack_input_size는 고정 640(레터박스 캔버스
+                # 크기 — 비정사각 사진에서 콘텐츠 폭과 다르다)이어야 좌표가 맞는다(#1547 P1).
                 width_mm = measure_crack_width_mm(
                     image_bgr,
-                    content_probability,
+                    scoped_probability,
                     card_scale_mm_per_px,
                     crack_input_size=CRACK_INPUT_SIZE,
                     crack_mask_threshold=CRACK_MASK_THRESHOLD,

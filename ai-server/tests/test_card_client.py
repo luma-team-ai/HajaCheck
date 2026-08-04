@@ -309,6 +309,82 @@ class TestCrackDetectionsIntegration:
         )
 
 
+    @patch("ai.core.card_client.detect_card")
+    @patch("ai.chains.defect_detection_chain.predict_crack_probability")
+    @patch("ai.chains.defect_detection_chain.get_crack_model")
+    def test_no_crack_skips_card_detection(
+        self, mock_get_model, mock_predict, mock_detect_card
+    ):
+        """균열이 하나도 없으면 고비용 카드 검출 자체를 건너뛰어야 함(#1547 P2)."""
+        from ai.chains.defect_detection_chain import _crack_detections
+        from ai.core.unet_client import CrackPrediction
+
+        image = Image.new("RGB", (2296, 4080), color="white")
+        mock_get_model.return_value = MagicMock()
+        mock_predict.return_value = CrackPrediction(
+            probability=np.zeros((640, 640), dtype=np.float32),  # 균열 없음
+            content_top=0, content_left=140, content_height=640, content_width=360,
+        )
+
+        detections = _crack_detections(image)
+
+        assert detections == []
+        assert not mock_detect_card.called, (
+            "균열 0건인데 카드 검출이 실행됨 — YOLO-World 추론 낭비 가드 미작동"
+        )
+
+    @patch("ai.core.card_client.detect_card")
+    @patch("ai.chains.defect_detection_chain.predict_crack_probability")
+    @patch("ai.chains.defect_detection_chain.get_crack_model")
+    def test_multiple_cracks_get_individual_width_mm(
+        self, mock_get_model, mock_predict, mock_detect_card
+    ):
+        """분리된 균열 2개는 각자 자기 폭의 width_mm을 받아야 함(#1547 P2 정합성 버그 회귀 고정).
+
+        전체 마스크를 그대로 measure에 넘기면 내부의 최대-연결요소 선택 때문에 모든 detection이
+        가장 큰 균열의 폭을 복사받는다 — detection별 bbox 스코핑으로 각자 측정하는지 검증한다.
+        """
+        from ai.chains.defect_detection_chain import _crack_detections
+        from ai.core.unet_client import CrackPrediction
+        from ai.core.card_client import CardDetectionResult
+
+        # 세로 사진 2296x4080, content 640x360, content_scale = 4080/640 = 6.375
+        w_orig, h_orig = 2296, 4080
+        img = np.full((h_orig, w_orig, 3), 200, dtype=np.uint8)
+        # 균열 A(가늘게, 두께 20px): 원본 y 640~660, x 380~1020
+        img[640:660, 380:1020, :] = 0
+        # 균열 B(굵게, 두께 40px): 원본 y 2550~2590, x 380~1020
+        img[2550:2590, 380:1020, :] = 0
+        image = Image.fromarray(img[:, :, ::-1])  # BGR->RGB
+
+        # content 좌표(6.375분의 1)로 마스크 블록 — A: rows 100~103 / B: rows 400~403
+        probability = np.zeros((640, 640), dtype=np.float32)
+        left = (640 - 360) // 2
+        probability[100:103, left + 60:left + 160] = 0.9
+        probability[400:403, left + 60:left + 160] = 0.9
+
+        mock_get_model.return_value = MagicMock()
+        mock_predict.return_value = CrackPrediction(
+            probability=probability,
+            content_top=0, content_left=left, content_height=640, content_width=360,
+        )
+        # long_px=300 -> scale = 85.6/300 = 0.2853 mm/px
+        mock_detect_card.return_value = CardDetectionResult(
+            long_px=300.0, short_px=189.0, confidence=0.8, method="bbox"
+        )
+
+        detections = _crack_detections(image)
+        cracks = [d for d in detections if d.type == "CRACK" and d.width_mm is not None]
+        assert len(cracks) == 2, f"균열 2건 모두 width_mm이 있어야 함: {detections}"
+
+        widths = sorted(d.width_mm for d in cracks)
+        # A ≈ 20px*0.285 ≈ 5.5mm / B ≈ 40px*0.285 ≈ 10.7mm — 같은 값 복사면 ratio 1.0
+        assert widths[1] / widths[0] >= 1.4, (
+            f"분리된 두 균열의 width_mm이 사실상 동일({widths}) — "
+            "전체 마스크 최대-연결요소 폭이 복사된 것(P2 버그 재발)"
+        )
+
+
 class TestThresholdGuard:
     """0.7mm 가드 로직."""
 

@@ -106,7 +106,12 @@ def _attempt_detection(model, img: "np.ndarray", img_area: float, conf_min: floa
     import cv2
     import numpy as np
 
-    results = model.predict(img, conf=conf_min, imgsz=YOLO_WORLD_IMGSZ, verbose=False)
+    # model.predict 직접 호출 금지 — lru_cache로 프로세스 전역 공유되는 인스턴스라 동시 호출 시
+    # 내부 predictor 상태가 오염된다. yolo_client.predict(_predict_lock 직렬화)를 재사용한다
+    # (#1547 P2, yolo_client.py에서 확정된 컨벤션과 동일).
+    from ai.core.yolo_client import predict as yolo_predict
+
+    results = yolo_predict(model, source=img, conf=conf_min, imgsz=YOLO_WORLD_IMGSZ, verbose=False)
     boxes_data = [(float(b.conf), *map(int, b.xyxy[0].tolist())) for b in results[0].boxes]
 
     if not boxes_data:
@@ -151,6 +156,8 @@ def _attempt_detection_tiled(model, img: "np.ndarray", img_area: float, conf_min
     import cv2
     import numpy as np
 
+    from ai.core.yolo_client import predict as yolo_predict  # 직렬화 — _attempt_detection 주석 참고
+
     h_img, w_img = img.shape[:2]
     all_boxes = []
     tile_h, tile_w = int(h_img * 0.575), int(w_img * 0.575)
@@ -158,7 +165,7 @@ def _attempt_detection_tiled(model, img: "np.ndarray", img_area: float, conf_min
     for oy in [0, int(h_img * 0.425)]:
         for ox in [0, int(w_img * 0.425)]:
             tile = img[oy:min(oy + tile_h, h_img), ox:min(ox + tile_w, w_img)]
-            results = model.predict(tile, conf=conf_min, imgsz=YOLO_WORLD_IMGSZ, verbose=False)
+            results = yolo_predict(model, source=tile, conf=conf_min, imgsz=YOLO_WORLD_IMGSZ, verbose=False)
             for b in results[0].boxes:
                 x1, y1, x2, y2 = map(int, b.xyxy[0].tolist())
                 all_boxes.append((float(b.conf), x1 + ox, y1 + oy, x2 + ox, y2 + oy))
