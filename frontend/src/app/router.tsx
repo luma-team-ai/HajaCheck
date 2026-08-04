@@ -419,6 +419,12 @@ export const router = createBrowserRouter([
     path: '/invite-code',
     // 로그인은 됐지만 company_id가 없는 상태(소셜 최초 로그인)라 AppShell(사이드바) 밖,
     // ProtectedRoute만으로 감싼 독립 화면 — CompanySignupPendingPage와 동일한 스탠드얼론 패턴.
+    //
+    // allowedRoles를 걸지 않는 이유(#1513): 여기는 status=WAITING 온보딩 경로라 통과 대상 집합이
+    // 기업 셸(COMPANY_DASHBOARD_ROLES)과 다르다 — ProtectedRoute가 WAITING 사용자를 어느 보호
+    // 라우트에서든 이 화면으로 밀어 넣으므로, role 가드를 덧대면 그 강제 이동과 서로 튕긴다.
+    // 결제 콜백 두 라우트도 같은 이유(아래). 실제 권한 차단은 서버가 한다 — 초대코드 redeem은
+    // WAITING이 아니면 코드를 소비하기 전에 거절하고, 결제 조회는 세션 사용자 스코프로만 동작한다.
     element: (
       <ProtectedRoute>
         <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
@@ -432,6 +438,8 @@ export const router = createBrowserRouter([
     // 토스페이먼츠 결제창(외부 페이지)에서 successUrl로 돌아오는 착지점 — AppShell(사이드바) 밖,
     // ProtectedRoute만으로 감싼 독립 화면(InviteCodePage와 동일한 스탠드얼론 패턴, handoff §3
     // "두 라우트 모두 인증 필요 영역에 배치"). 비로그인 진입 시 기존 가드 흐름 그대로 /login으로.
+    // allowedRoles 미지정 이유는 /invite-code 주석 참조(#1513) — 결제 조회·승인은 서버가 세션
+    // 사용자 스코프로만 처리하므로 role 가드가 없어도 남의 결제가 노출되지 않는다.
     element: (
       <ProtectedRoute>
         <Suspense fallback={<LoadingSpinner className="flex items-center justify-center gap-2 py-6 min-h-[50vh]" />}>
@@ -458,8 +466,12 @@ export const router = createBrowserRouter([
     //
     // allowedRoles(#1513): 이 셸은 기업회원 대시보드 전용이다. 서버가 로그인 단계에서 포털을 갈라
     // 놓았지만(POST /api/auth/login은 ADMIN/INSPECTOR/USER만 허용), 이미 세션을 가진 PLATFORM_ADMIN·
-    // COUNSELOR가 주소창으로 /dashboard에 직접 들어오는 경로는 라우터가 막아야 한다. 거부 대상은
-    // ProtectedRoute가 resolveRoleHomeRoute로 각자 콘솔에 돌려보낸다(대시보드 고정이면 무한 루프).
+    // COUNSELOR가 주소창으로 /dashboard에 직접 들어오면 자기 콘솔이 아닌 화면을 보게 된다. 거부
+    // 대상은 ProtectedRoute가 resolveRoleHomeRoute로 각자 콘솔에 돌려보낸다(대시보드 고정이면 무한 루프).
+    //
+    // ⚠️ 이 가드는 UX(오작동 화면 방지)용이다. 실제 데이터 차단은 각 API의 서버 인가가 하며,
+    // 이 가드를 지워도 데이터는 새지 않아야 정상이다(authStore의 role은 클라이언트 값이라 위조 가능).
+    // 새 화면을 만들 때 "라우터에 allowedRoles를 걸었으니 서버 검사는 생략"은 성립하지 않는다.
     element: (
       <ProtectedRoute allowedRoles={COMPANY_DASHBOARD_ROLES}>
         <AppShellRoute />
@@ -863,7 +875,8 @@ export const router = createBrowserRouter([
   },
   {
     // 플랫폼 관리자 콘솔 전용 셸 — 일반 사용자 AppShellRoute와 별개(#535). PlatformAdminRoute가
-    // 미인증→/platform-admin/login, role≠PLATFORM_ADMIN→/dashboard로 부모 단계에서 차단한다.
+    // 미인증→/platform-admin/login, role≠PLATFORM_ADMIN→role별 홈(resolveRoleHomeRoute)으로
+    // 부모 단계에서 차단한다(#1513 — 예전엔 /dashboard 고정이라 상담원이 2홉을 돌았다).
     element: (
       <PlatformAdminRoute>
         <PlatformAdminShellRoute />
@@ -950,7 +963,8 @@ export const router = createBrowserRouter([
   }, // — features/platform-admin (#535). 각 메뉴 실 기능은 후속 이슈.
   {
     // 상담원 콘솔 전용 셸 — 일반 사용자 AppShellRoute·PlatformAdminShellRoute와 별개(#1001, HAJA-495).
-    // CounselorRoute가 미인증→/counsel-console/login, role≠COUNSELOR→/dashboard로 부모 단계에서 차단한다.
+    // CounselorRoute가 미인증→/counsel-console/login, role≠COUNSELOR→role별 홈
+    // (resolveRoleHomeRoute)으로 부모 단계에서 차단한다(#1513 — 예전엔 /dashboard 고정).
     element: (
       <CounselorRoute>
         <CounselorShellRoute />

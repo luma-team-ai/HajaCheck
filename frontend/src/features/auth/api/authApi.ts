@@ -54,12 +54,16 @@ export const authApi = {
   // 정확히 고르면 된다(예전처럼 로그인 후 role을 보고 logout()으로 되돌리는 사후 처리는 필요 없다).
   // 화면 ↔ 엔드포인트 대응을 여기서 어기면 그 화면 로그인이 통째로 403이 되므로, 각 화면 테스트가
   // "자기 경로로 POST 하는지"를 고정한다.
-  /** 기업회원 로그인(/login) — ADMIN·INSPECTOR·USER 허용 */
+  // jsdoc 표기 규약: `{화면 경로}(SPA 라우트) 전용 — POST {API 경로}, {허용 role}`.
+  // 둘을 명시적으로 구분한다 — 상담원만 화면 경로와 API 경로가 크게 다른데(/counsel-console/login
+  // vs /auth/counselor/login), 한쪽만 적어두면 후속 작업자가 "불일치"로 오인해 엔드포인트 쪽을
+  // 화면 경로에 맞추는 회귀를 낼 수 있다(이 파일의 경로 레코더 테스트가 막으려는 바로 그 회귀).
+  /** 기업회원 로그인 화면(/login) 전용 — POST /auth/login, ADMIN·INSPECTOR·USER 허용 */
   login: (body: LoginRequest) => api.post<UserResponse>('/auth/login', body),
-  /** 플랫폼 관리자 로그인(/platform-admin/login) — PLATFORM_ADMIN 허용 */
+  /** 플랫폼 관리자 로그인 화면(/platform-admin/login) 전용 — POST /auth/platform-admin/login, PLATFORM_ADMIN 허용 */
   platformAdminLogin: (body: LoginRequest) =>
     api.post<UserResponse>('/auth/platform-admin/login', body),
-  /** 상담원 로그인(/counsel-console/login) — COUNSELOR 허용 */
+  /** 상담원 로그인 화면(/counsel-console/login) 전용 — POST /auth/counselor/login, COUNSELOR 허용 */
   counselorLogin: (body: LoginRequest) => api.post<UserResponse>('/auth/counselor/login', body),
   logout: () => api.post('/auth/logout'),
   // 세션 확인(부트스트랩 AuthGate·로그인 화면 마운트 시 CSRF 프리밍) — 401은 미로그인으로 간주(호출부에서 무시).

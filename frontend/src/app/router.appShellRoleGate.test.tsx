@@ -6,7 +6,6 @@
 import type { ReactElement } from 'react';
 import type { RouteObject } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ProtectedRoute } from '../shared/components/ProtectedRoute';
 import { COMPANY_DASHBOARD_ROLES } from '../shared/constants/roles';
 
 afterEach(() => {
@@ -44,7 +43,10 @@ describe('기업 대시보드 셸 role 가드(#1513)', () => {
       expect(shellRoute).toBeDefined();
 
       const element = shellRoute?.element as ReactElement<{ allowedRoles?: readonly string[] }>;
-      expect(element.type).toBe(ProtectedRoute);
+      // 컴포넌트 동일성(=== ProtectedRoute)이 아니라 이름으로 비교한다 — 이 파일은 vi.resetModules()
+      // 후 './router'를 재임포트할 수 있어(다른 DEV 스텁으로 테스트를 추가하는 순간) router가 새
+      // 모듈 인스턴스의 ProtectedRoute를 갖게 되고, 정적 import한 참조와의 === 비교가 깨진다.
+      expect((element.type as { name?: string }).name).toBe('ProtectedRoute');
       expect(element.props.allowedRoles).toEqual(COMPANY_DASHBOARD_ROLES);
 
       router.dispose();
