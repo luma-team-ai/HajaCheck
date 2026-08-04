@@ -109,6 +109,29 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
     expect(screen.queryByText("적용된 필터:")).toBeNull();
   });
 
+  // 시설물 상세 "점검 이력"의 "결과 보기" 딥링크(#1359 후속) — facilityId/roundNoMin/roundNoMax
+  // 쿼리로 진입하면 그 값이 초기 필터로 반영되어 해당 회차 점검만 표시돼야 한다.
+  it("URL 쿼리(facilityId/roundNoMin/roundNoMax)로 진입하면 해당 회차 점검만 필터링해 보여준다", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/defects/list?facilityId=1&roundNoMin=3&roundNoMax=3"]}>
+          <Routes>
+            <Route path="/defects/list" element={<DefectListPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const table = await screen.findByRole("table");
+    expect(within(table).getByText("강남 오피스타워 A동")).not.toBeNull();
+    expect(within(table).queryByText("한강대교 북단")).toBeNull();
+    expect(within(table).queryByText("판교 테크노밸리 B동")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "점검회차: 3회차 필터 제거" }),
+    ).not.toBeNull();
+  });
+
   it("점검 상세보기 링크가 각 행에 렌더링된다", async () => {
     renderPage();
     const table = await screen.findByRole("table");

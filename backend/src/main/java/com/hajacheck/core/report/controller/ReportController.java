@@ -56,12 +56,14 @@ public class ReportController {
     public ResponseEntity<ApiResponse<PageResponse<CompanyReportListItemResponse>>> listCompanyReports(
             @AuthenticationPrincipal LoginUser loginUser,
             @RequestParam(required = false) Long facilityId,
+            @RequestParam(required = false) Integer roundNo,
             @RequestParam(required = false) ReportStatus status,
             @RequestParam(required = false, defaultValue = "") String query,
             @RequestParam(required = false, defaultValue = "ALL") String period,
             @PageableDefault(size = 10, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.ok(reportService.listCompanyReports(
-                loginUser.getUserId(), loginUser.getCompanyId(), facilityId, status, query, period, pageable)));
+                loginUser.getUserId(), loginUser.getCompanyId(), facilityId, roundNo, status, query, period,
+                pageable)));
     }
 
     @Operation(summary = "회사 보고서 요약", description = "회사 보고서 KPI를 조회한다")

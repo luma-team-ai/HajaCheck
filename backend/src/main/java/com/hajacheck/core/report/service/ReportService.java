@@ -185,14 +185,15 @@ public class ReportService {
     }
 
     public PageResponse<CompanyReportListItemResponse> listCompanyReports(
-            Long userId, Long companyId, Long facilityId, ReportStatus status, String query, String period,
-            Pageable pageable) {
+            Long userId, Long companyId, Long facilityId, Integer roundNo, ReportStatus status, String query,
+            String period, Pageable pageable) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         List<ReportStatus> statuses = status == null
                 ? List.of(ReportStatus.DRAFT, ReportStatus.FINALIZED) : List.of(status);
         LocalDateTime from = reportPeriodStart(period);
         Page<Report> page = reportRepository.findCompanyPage(companyId, statuses,
-                facilityId == null ? -1L : facilityId, query == null ? "" : query.trim(), from, pageable);
+                facilityId == null ? -1L : facilityId, roundNo == null ? -1 : roundNo,
+                query == null ? "" : query.trim(), from, pageable);
         List<Long> inspectionIds = page.getContent().stream().map(Report::getInspectionId).toList();
         Map<Long, Map<String, Long>> distributions = gradeDistribution(inspectionIds);
         return PageResponse.from(page.map(report -> CompanyReportListItemResponse.from(report,

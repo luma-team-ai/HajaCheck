@@ -216,7 +216,7 @@ class ReportRepositoryTest extends PostgresTestSupport {
         em.clear();
 
         var page = reportRepository.findCompanyPage(
-                companyId(ownerId), List.of(ReportStatus.DRAFT), -1L, "", FAR_PAST, PageRequest.of(0, 10));
+                companyId(ownerId), List.of(ReportStatus.DRAFT), -1L, -1, "", FAR_PAST, PageRequest.of(0, 10));
         var summary = reportRepository.summarizeCompany(
                 companyId(ownerId), ReportStatus.FINALIZED, ReportStatus.DRAFT, FAR_PAST);
 
@@ -224,5 +224,25 @@ class ReportRepositoryTest extends PostgresTestSupport {
         assertThat(page.getTotalElements()).isEqualTo(1);
         assertThat(summary.getTotalCount()).isEqualTo(1);
         assertThat(summary.getDraftCount()).isEqualTo(1);
+    }
+
+    // 시설물 상세 "점검 이력" → 보고서 딥링크(#1359 후속) — 같은 시설물의 다른 회차 보고서가
+    // roundNo 필터에 섞여 들어오지 않는지 검증한다.
+    @Test
+    void findCompanyPage_roundNo지정시_해당회차보고서만반환() {
+        Long ownerId = seedOwner("owner-round-filter@haja.com");
+        Long facilityId = seedFacility(ownerId, "회차필터빌딩");
+        Long round1InspectionId = seedInspection(facilityId, ownerId, ownerId, 1);
+        Long round2InspectionId = seedInspection(facilityId, ownerId, ownerId, 2);
+        Report round1Report = reportRepository.save(Report.draft(round1InspectionId, 1, "{}", ownerId));
+        reportRepository.save(Report.draft(round2InspectionId, 1, "{}", ownerId));
+        em.flush();
+        em.clear();
+
+        var page = reportRepository.findCompanyPage(
+                companyId(ownerId), List.of(ReportStatus.DRAFT), -1L, 1, "", FAR_PAST, PageRequest.of(0, 10));
+
+        assertThat(page.getContent()).extracting(Report::getId).containsExactly(round1Report.getId());
+        assertThat(page.getTotalElements()).isEqualTo(1);
     }
 }

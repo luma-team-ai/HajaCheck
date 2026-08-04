@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { TableFooterPagination } from '../../../shared/components/TableFooterPagination/TableFooterPagination';
 import { Modal } from '../../../shared/components/Modal';
 import { Button } from '../../../shared/components/Button';
@@ -25,10 +25,26 @@ const DEFAULT_PAGE_SIZE = 10;
 // 보고서 목록/이력 관리(#463) — 사이드바 "보고서" 최상위 메뉴 첫 항목. 회사 스코프 전체 보고서를
 // 시설물/상태/기간/검색으로 필터링하고, 행 단위로 버전 이력을 확인하거나 선택 항목을 일괄
 // 내보내기(PDF)할 수 있다. hybrid에서는 실 API를 우선 사용하고 미구현 목록/요약만 훅에서 폴백한다.
+// URL 쿼리(facilityId/roundNo)로 진입 시 초기 필터를 그 값으로 좁힌다(#1359 후속 —
+// 시설물 상세 "점검 이력"의 "보고서" 버튼 딥링크). 값이 없거나 숫자가 아니면 무시하고 무필터로 시작한다.
+function initialFiltersFromSearchParams(searchParams: URLSearchParams): ReportListFilters {
+  const facilityId = Number(searchParams.get('facilityId'));
+  const roundNo = Number(searchParams.get('roundNo'));
+  return {
+    page: 0,
+    size: DEFAULT_PAGE_SIZE,
+    facilityId: Number.isFinite(facilityId) && facilityId > 0 ? facilityId : undefined,
+    roundNo: Number.isFinite(roundNo) && roundNo > 0 ? roundNo : undefined,
+  };
+}
+
 export function ReportListPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [filters, setFilters] = useState<ReportListFilters>({ page: 0, size: DEFAULT_PAGE_SIZE });
+  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = useState<ReportListFilters>(() =>
+    initialFiltersFromSearchParams(searchParams),
+  );
   // 현재 페이지 rows만 보관하면 페이지를 넘기는 순간 이전 선택 항목의 PDF가
   // 일괄 내보내기 대상에서 사라진다. 선택 시 행 스냅샷을 id로 보존한다.
   const [selectedRowsById, setSelectedRowsById] = useState<Map<number, ReportListItem>>(

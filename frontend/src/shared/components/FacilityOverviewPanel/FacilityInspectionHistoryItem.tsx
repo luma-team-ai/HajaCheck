@@ -17,6 +17,10 @@ type Props = {
   item: FacilityOverviewHistoryItem;
   /** 최신 회차만 진하게 표시하고 썸네일/변화 메모/결과 링크까지 펼친다(Figma dev mode 마크업 기준) */
   expanded: boolean;
+  /** "결과 보기" 클릭(#1359 후속) — 넘기지 않으면 버튼이 비활성 처리된다 */
+  onViewResult?: (item: FacilityOverviewHistoryItem) => void;
+  /** "보고서" 클릭(#1359 후속) — 넘기지 않으면 버튼이 비활성 처리된다 */
+  onViewReport?: (item: FacilityOverviewHistoryItem) => void;
 };
 
 function formatDefectSummary(item: FacilityOverviewHistoryItem): string {
@@ -28,7 +32,7 @@ function formatDefectSummary(item: FacilityOverviewHistoryItem): string {
 }
 
 // 시설물 상세/점검(회차) 생성 화면이 공유하는 점검 이력 타임라인 항목(shared — 두 feature가 동일 UI를 쓴다).
-export function FacilityInspectionHistoryItem({ item, expanded }: Props) {
+export function FacilityInspectionHistoryItem({ item, expanded, onViewResult, onViewReport }: Props) {
   return (
     <div className={`relative flex flex-col gap-4 ${expanded ? '' : 'opacity-60'}`}>
       <span
@@ -85,10 +89,20 @@ export function FacilityInspectionHistoryItem({ item, expanded }: Props) {
           )}
 
           <div className="flex items-center gap-4">
-            <button type="button" className="cursor-pointer border-none bg-none p-0 text-base font-medium text-zinc-900 underline">
+            <button
+              type="button"
+              disabled={!onViewResult}
+              onClick={() => onViewResult?.(item)}
+              className="cursor-pointer border-none bg-none p-0 text-base font-medium text-zinc-900 underline disabled:cursor-not-allowed disabled:text-neutral-400"
+            >
               결과 보기
             </button>
-            <button type="button" className="cursor-pointer border-none bg-none p-0 text-base font-medium text-zinc-900 underline">
+            <button
+              type="button"
+              disabled={!onViewReport}
+              onClick={() => onViewReport?.(item)}
+              className="cursor-pointer border-none bg-none p-0 text-base font-medium text-zinc-900 underline disabled:cursor-not-allowed disabled:text-neutral-400"
+            >
               보고서
             </button>
           </div>
