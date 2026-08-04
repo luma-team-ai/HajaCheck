@@ -54,15 +54,15 @@ def _log_usage(tokens: int) -> None:
 def _log_retry_failure(path: str, attempt: int, error: Exception) -> None:
     """재시도 루프에서 삼킨 실패를 남긴다 — 이전에는 전부 조용히 흡수돼 마지막 예외만 보였다.
 
-    ⚠️ 프롬프트·응답 본문은 절대 로그에 넣지 않는다(시설명·위치·하자내용 등이 섞여 있고,
-    LangSmith 마스킹 정책과 같은 기준을 로그에도 적용). 남기는 건 경로·시도 횟수·예외 타입뿐.
+    ⚠️ 프롬프트·응답 본문은 절대 로그에 넣지 않는다(PRD §5 개인정보 로그 평문 금지 원칙).
+    남기는 건 경로·시도 횟수·예외 타입뿐.
 
     예외 객체를 exc_info/str로 넘기지 않는 이유(PR머신 P1): langchain_core의
     PydanticOutputParser는 파싱 실패 시 OutputParserException의 **메시지 안에 파싱 대상 LLM 응답
     원문을 통째로** 담는다("Failed to parse X from completion {원문}. Got: ..." — 실측 확인).
-    따라서 exc_info를 넘기면 마스킹 의도와 정반대로 응답 본문이 로그에 그대로 남는다. 예외 타입명만
-    남겨도 실패 성격(파싱 실패/타임아웃/HTTP 오류) 구분에는 충분하고, 마지막 시도 실패는 어차피
-    호출부로 raise되므로 상세는 그쪽에서 다룬다.
+    따라서 exc_info를 넘기면 로그에 응답 본문이 평문으로 남는다. 예외 타입명만 남겨도 실패 성격
+    (파싱 실패/타임아웃/HTTP 오류) 구분에는 충분하고, 마지막 시도 실패는 어차피 호출부로 raise되므로
+    상세는 그쪽에서 다룬다.
     """
     logger.warning(
         "LLM %s 호출 실패 — 재시도 %d/%d (%s)",
