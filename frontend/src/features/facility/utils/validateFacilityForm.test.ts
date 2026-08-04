@@ -8,11 +8,12 @@ import {
 } from './validateFacilityForm';
 
 describe('validateFacilityForm', () => {
-  it('name과 type이 비어있으면 필수 에러를 반환한다', () => {
+  it('name과 type과 address가 비어있으면 필수 에러를 반환한다(#1546)', () => {
     const errors = validateFacilityForm(FACILITY_FORM_INITIAL_VALUES);
 
     expect(errors.name).toBe('시설물명을 입력해 주세요.');
     expect(errors.type).toBe('시설물 유형을 선택해 주세요.');
+    expect(errors.address).toBe('주소를 입력해 주세요.');
     expect(hasFacilityFormErrors(errors)).toBe(true);
   });
 
@@ -21,6 +22,7 @@ describe('validateFacilityForm', () => {
       ...FACILITY_FORM_INITIAL_VALUES,
       name: '강남 오피스타워 A동',
       type: '건물',
+      address: '서울시 강남구',
     });
 
     expect(hasFacilityFormErrors(errors)).toBe(false);

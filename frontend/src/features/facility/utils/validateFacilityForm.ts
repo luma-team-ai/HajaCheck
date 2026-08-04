@@ -52,7 +52,7 @@ function joinAddress(address: string, addressDetail: string): string {
   return [address.trim(), addressDetail.trim()].filter(Boolean).join(' ');
 }
 
-// 백엔드 계약(name/type 필수, 각 필드 길이·범위 제약)과 1:1 — API 왕복 없이 즉시 피드백 제공
+// 백엔드 계약(name/type/address 필수, 각 필드 길이·범위 제약)과 1:1 — API 왕복 없이 즉시 피드백 제공(#1546)
 export function validateFacilityForm(values: FacilityFormValues): FacilityFormErrors {
   const errors: FacilityFormErrors = {};
 
@@ -68,7 +68,9 @@ export function validateFacilityForm(values: FacilityFormValues): FacilityFormEr
     errors.type = `시설물 유형은 ${MAX_TYPE_LENGTH}자 이하로 입력해 주세요.`;
   }
 
-  if (joinAddress(values.address, values.addressDetail).length > MAX_ADDRESS_LENGTH) {
+  if (!values.address.trim()) {
+    errors.address = '주소를 입력해 주세요.';
+  } else if (joinAddress(values.address, values.addressDetail).length > MAX_ADDRESS_LENGTH) {
     errors.address = `주소(상세주소 포함)는 ${MAX_ADDRESS_LENGTH}자 이하로 입력해 주세요.`;
   }
 

@@ -12,6 +12,16 @@ import { facilityHandlers, resetFacilityMockStore } from '../api/facilityApi.han
 import { facilityMediaHandlers, resetFacilityMediaMockStore } from '../api/facilityMediaApi.handlers';
 import { FacilityListPage } from './FacilityListPage';
 
+const { openPostcodeSearchMock } = vi.hoisted(() => ({
+  openPostcodeSearchMock: vi.fn(),
+}));
+
+// 다음(카카오) 우편번호 팝업은 실제 외부 스크립트를 로드하므로(#1546 — 주소 필수화로 이 흐름을
+// 반드시 거쳐야 등록이 성공한다) FacilityFormModal.test.tsx와 동일하게 훅 자체를 모킹한다.
+vi.mock('../hooks/useFacilityPostcodeSearch', () => ({
+  useFacilityPostcodeSearch: () => ({ openPostcodeSearch: openPostcodeSearchMock }),
+}));
+
 const server = setupServer(...facilityHandlers, ...facilityMediaHandlers);
 
 // jsdom은 URL.createObjectURL/revokeObjectURL을 구현하지 않으므로 대표 사진 선택을 시뮬레이션하는
@@ -67,6 +77,12 @@ function fillRequiredFields(name: string) {
   // #731 — 유형 옵션이 조합형 12종으로 확장돼 단순 '건물'은 더 이상 유효한 <option>이 아니다.
   fireEvent.change(screen.getByLabelText(/시설물 유형/), {
     target: { value: '건물-정기-4개월' },
+  });
+  // #1546 — 주소도 필수화됐으므로 모킹된 우편번호 검색 흐름으로 채운다.
+  fireEvent.click(screen.getByRole('button', { name: '주소검색' }));
+  const onComplete = openPostcodeSearchMock.mock.calls.at(-1)?.[0] as (address: string) => void;
+  act(() => {
+    onComplete('서울시 강남구');
   });
 }
 

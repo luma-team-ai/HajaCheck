@@ -43,6 +43,16 @@ afterEach(() => {
   openPostcodeSearchMock.mockReset();
 });
 
+// "주소검색" 버튼을 클릭하고, 모킹된 openPostcodeSearch에 전달된 onComplete 콜백을 호출해
+// 도로명주소가 채워진 것처럼 시뮬레이션한다.
+function searchAndFillAddress(address: string) {
+  fireEvent.click(screen.getByRole('button', { name: '주소검색' }));
+  const onComplete = openPostcodeSearchMock.mock.calls.at(-1)?.[0] as (address: string) => void;
+  act(() => {
+    onComplete(address);
+  });
+}
+
 function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText(/시설물명/), {
     target: { value: '강남 오피스타워 A동' },
@@ -53,16 +63,8 @@ function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText(/시설물 유형/), {
     target: { value: '건물-정기-4개월' },
   });
-}
-
-// "주소검색" 버튼을 클릭하고, 모킹된 openPostcodeSearch에 전달된 onComplete 콜백을 호출해
-// 도로명주소가 채워진 것처럼 시뮬레이션한다.
-function searchAndFillAddress(address: string) {
-  fireEvent.click(screen.getByRole('button', { name: '주소검색' }));
-  const onComplete = openPostcodeSearchMock.mock.calls.at(-1)?.[0] as (address: string) => void;
-  act(() => {
-    onComplete(address);
-  });
+  // #1546 — 주소도 필수화됐으므로 "필수 필드 채우기" 헬퍼에 포함한다.
+  searchAndFillAddress('서울시 강남구');
 }
 
 describe('FacilityFormModal', () => {
@@ -376,6 +378,7 @@ describe('FacilityFormModal', () => {
     fireEvent.change(screen.getByLabelText(/시설물 유형/), {
       target: { value: '건물-정밀-24개월' },
     });
+    searchAndFillAddress('서울시 강남구');
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '등록하기' }));

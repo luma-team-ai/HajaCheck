@@ -18,7 +18,7 @@ import java.time.LocalDate;
 public record FacilityUpdateRequest(
         @NotBlank @Size(max = 200) String name,
         @NotBlank @Size(max = 20) String type,
-        @Size(max = 300) String address,
+        @NotBlank @Size(max = 300) String address,
         @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,
         @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude,
         // 1900 ~ 현재연도+1. 상한이 동적이라 @Max 로 표현 불가 → 커스텀 제약(#351).
