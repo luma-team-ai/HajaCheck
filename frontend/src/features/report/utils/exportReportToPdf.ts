@@ -181,6 +181,17 @@ function formatPhotoCaption(image: ReportPdfImage): string {
 }
 
 /**
+ * 텍스트 내 "(등급 E)", "(E등급)", "(E)" 표기를 원본 보고서 양식 관례(소문자 단일 글자 "(e)")로 정규화한다.
+ */
+export function normalizeGradeInText(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/\(등급\s*([A-Ea-e])\)/gi, ' ($1)')
+    .replace(/\(([A-Ea-e])\s*등급\)/gi, ' ($1)')
+    .replace(/\s*\(([A-Z])\)/g, (_, g) => ` (${g.toLowerCase()})`);
+}
+
+/**
  * jspdf-autotable의 CellHookData 중 실제로 쓰는 필드만 뽑은 최소 타입 — jspdf-autotable을
  * 동적 import(`await import('jspdf-autotable')`)로 쓰고 있어 정적 타입을 끌어오지 않는다.
  * 사진 표에서 셀이 실제로 어느 페이지·좌표에 그려졌는지(자동 페이지분할 이후 값)를 읽어
@@ -666,7 +677,7 @@ export async function exportReportToPdf(
           ? content.detail.items.map((item) => [
               toMemberGrade(item.severity_grade),
               item.defect_type || "-",
-              item.description || "-",
+              normalizeGradeInText(item.description || "-"),
               item.cause || "-",
             ])
           : [["-", "-", "확인된 결함이 없습니다.", "-"]],
@@ -706,7 +717,7 @@ export async function exportReportToPdf(
       body:
         content.recommendation.items.length > 0
           ? content.recommendation.items.map((item) => [
-              item.target || "-",
+              normalizeGradeInText(item.target || "-"),
               item.method || "-",
               item.priority || "-",
               legalBasisLabel(item.legal_basis, item.legal_basis_verified),
