@@ -12,6 +12,7 @@ import com.hajacheck.auth.dto.SignupStatusResponse;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.support.BusinessLicenseUploadValidator;
 import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.auth.support.FileStorageService.StoredFile;
 import com.hajacheck.auth.support.TokenNamespaces;
@@ -75,9 +76,10 @@ public class CompanySignupService {
     private final AuthProperties authProperties;
 
     /**
-     * 회원가입: ①이메일/사업자번호 선검사(조기 409) ②국세청 진위확인(확정 불량이면 차단) ③파일 저장
-     * (트랜잭션 밖 IO) ④User+Company(VERIFIED·APPROVED)+오너 멤버십+Consents 원자저장(writer)
-     * ⑤가입상태 토큰 발급 ⑥마스킹 응답.
+     * 회원가입: ①이메일/사업자번호 선검사(조기 409) ②국세청 진위확인(확정 불량이면 차단)
+     * ③업로드 파일 사전 검증(선언↔실제 타입 일치·디코딩 가능성) ④파일 저장(트랜잭션 밖 IO)
+     * ⑤User+Company(VERIFIED·APPROVED)+오너 멤버십+Consents 원자저장(writer) ⑥가입상태 토큰 발급
+     * ⑦마스킹 응답.
      *
      * <p>응답 {@code status} 는 #1324 부터 항상 {@code APPROVED} 다 — 승인 대기 단계가 없다.
      */
@@ -102,11 +104,15 @@ public class CompanySignupService {
             throw new BusinessException(ErrorCode.AUTH_BUSINESS_VERIFICATION_FAILED);
         }
 
-        // ③ 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
+        // ③ 업로드 파일 사전 검증(#1488) — 선언 Content-Type ↔ 실제 매직바이트 일치 + 이미지 디코딩
+        //    가능성. 클라이언트가 자유롭게 바꿀 수 있는 Content-Type 헤더만 믿고 분기하지 않는다.
+        BusinessLicenseUploadValidator.validate(request.businessRegistrationFile());
+
+        // ④ 파일 저장(트랜잭션 밖). 검증 실패는 FILE_* 로 던진다.
         StoredFile stored = fileStorage.store(request.businessRegistrationFile(), FILE_CATEGORY,
                 fileStorageProperties.getAllowedContentTypes(), fileStorageProperties.getMaxSizeBytes());
 
-        // ④ 원자저장(회사 VERIFIED+APPROVED, 오너 멤버십 포함) — 실패 시 파일 보상삭제.
+        // ⑤ 원자저장(회사 VERIFIED+APPROVED, 오너 멤버십 포함) — 실패 시 파일 보상삭제.
         Company company;
         try {
             String passwordHash = passwordEncoder.encode(request.password());
@@ -145,13 +151,13 @@ public class CompanySignupService {
         log.info("기업 가입 자동승인(#1324) — companyId={}, 국세청 진위확인 결과={}",
                 company.getId(), verification);
 
-        // ⑤ 가입 상태 토큰(장기, peek 용) — 값은 companyId.
+        // ⑥ 가입 상태 토큰(장기, peek 용) — 값은 companyId.
         String signupToken = tokenStore.issue(
                 TokenNamespaces.SIGNUP_STATUS,
                 company.getId().toString(),
                 authProperties.getSignupStatusTtl());
 
-        // ⑥ 마스킹 응답.
+        // ⑦ 마스킹 응답.
         return CompanySignupResponse.from(company, email, signupToken);
     }
 
