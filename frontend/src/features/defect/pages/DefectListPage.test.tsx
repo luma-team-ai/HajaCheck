@@ -13,7 +13,7 @@ import {
   within,
 } from "@testing-library/react";
 import { setupServer } from "msw/node";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import {
   afterAll,
   afterEach,
@@ -45,8 +45,21 @@ afterEach(() => {
 });
 afterAll(() => server.close());
 
-// 목록→점검 상세(카드형) 이동을 검증하기 위해
-// /inspections/:id/defects에 마커를 렌더링하는 스텁 라우트를 둔다.
+// 목록→점검 상세(카드형) 이동을 검증하기 위해 /inspections/:id/defects에 마커를 렌더링하는 스텁
+// 라우트를 둔다. "뒤로가기" 버튼은 navigate(-1)로 브라우저 뒤로가기를 흉내내 #1508 회귀 테스트에서
+// 쓴다(필터 적용 후 이 라우트로 이동했다가 뒤로가기했을 때 목록 필터가 유지되는지 검증).
+function InspectionDetailStub() {
+  const navigate = useNavigate();
+  return (
+    <div>
+      점검 상세 스텁
+      <button type="button" onClick={() => navigate(-1)}>
+        뒤로가기
+      </button>
+    </div>
+  );
+}
+
 function renderPage(): void {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -59,7 +72,7 @@ function renderPage(): void {
           <Route path="/defects/list" element={<DefectListPage />} />
           <Route
             path="/inspections/:id/defects"
-            element={<div>점검 상세 스텁</div>}
+            element={<InspectionDetailStub />}
           />
         </Routes>
       </MemoryRouter>
@@ -201,6 +214,43 @@ describe("DefectListPage — 목록 보기 탭(점검 단위, HAJA-393/394)", ()
       expect(within(table).getByText("한강대교 북단")).not.toBeNull();
       expect(within(table).queryByText("강남 오피스타워 A동")).toBeNull();
     });
+  });
+
+  it("필터 적용 후 점검 상세로 이동했다가 뒤로가기하면 필터·목록 상태가 유지된다(#1508 회귀)", async () => {
+    renderPage();
+    await screen.findByRole("table");
+
+    fireEvent.change(screen.getByLabelText("AI 자연어 검색"), {
+      target: { value: "지난 두 달간의 1회차 점검 알려줘" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "AI 검색 실행" }));
+
+    await waitFor(() => {
+      const table = screen.getByRole("table");
+      expect(within(table).getByText("한강대교 북단")).not.toBeNull();
+      expect(within(table).queryByText("강남 오피스타워 A동")).toBeNull();
+    });
+
+    const filteredTable = screen.getByRole("table");
+    const rows = within(filteredTable).getAllByRole("row");
+    fireEvent.click(rows[1]); // rows[0]은 헤더 행
+    await screen.findByText("점검 상세 스텁");
+
+    fireEvent.click(screen.getByRole("button", { name: "뒤로가기" }));
+
+    // 필터 칩이 남아있고, 목록도 리셋된 무필터 결과가 아니라 이전 필터 결과 그대로 보여야 한다.
+    expect(
+      await screen.findByRole("button", {
+        name: "점검일: 2026-05-28 ~ 2026-07-28 필터 제거",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "점검회차: 1회차 필터 제거" }),
+    ).not.toBeNull();
+
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("한강대교 북단")).not.toBeNull();
+    expect(within(table).queryByText("강남 오피스타워 A동")).toBeNull();
   });
 
   it("AI 필터를 적용한 뒤 내보내면 해당 필터 결과의 하자만 PDF에 포함한다", async () => {

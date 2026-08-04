@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "../../../shared/components/Button";
 import { TableFooterPagination } from "../../../shared/components/TableFooterPagination";
 import { fetchFilteredDefectsForExport } from "../api/defectApi";
@@ -7,6 +8,10 @@ import { InspectionTable } from "../components/InspectionTable";
 import { useInspections } from "../hooks/useInspections";
 import type { InspectionListFilters } from "../types";
 import { exportDefectsToPdf } from "../utils/exportDefectsToPdf";
+import {
+  buildInspectionListSearchParams,
+  parseInspectionListFilters,
+} from "../utils/inspectionListFiltersUrl";
 import "./DefectListPage.css";
 
 const DEFAULT_SIZE = 10;
@@ -22,10 +27,11 @@ const DEFAULT_SIZE = 10;
 // DefectStatusReasonModal/useDefectActionBoard)와 DefectFilterBar는 삭제하지 않고 참조만 제거한다 —
 // #630을 별도 라우트로 분리할지 완전 폐기할지는 후속 이슈에서 결정(이번 세션 범위 밖).
 export function DefectListPage() {
-  const [inspectionFilters, setInspectionFilters] = useState<InspectionListFilters>({
-    page: 0,
-    size: DEFAULT_SIZE,
-  });
+  // 필터·페이지는 URL 쿼리파라미터가 단일 진실이다(#1508) — 컴포넌트 로컬 state로 두면 점검 상세로
+  // 이동했다가 뒤로가기할 때 페이지가 재마운트되며 기본값으로 리셋되던 문제가 있었다. URL을 쓰면
+  // 브라우저가 뒤로가기 시 URL을 복원해줘서 필터·페이지·조회 결과가 함께 복원된다.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const inspectionFilters = useMemo(() => parseInspectionListFilters(searchParams), [searchParams]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -43,12 +49,19 @@ export function DefectListPage() {
 
   const canExport = totalElements > 0;
 
+  // 필터 변경은 새 히스토리 엔트리를 쌓지 않고 현재 엔트리를 갱신한다(replace) — 그래야 점검 상세로
+  // 이동했다가 뒤로가기 한 번으로 곧장 마지막 필터 상태로 돌아온다(필터 변경 한 번마다 별도 뒤로가기
+  // 스텝이 쌓이는 걸 방지).
+  const handleFiltersChange = (nextFilters: InspectionListFilters) => {
+    setSearchParams(buildInspectionListSearchParams(nextFilters), { replace: true });
+  };
+
   const handleInspectionPageChange = (page: number) => {
-    setInspectionFilters((prev) => ({ ...prev, page: page - 1 }));
+    handleFiltersChange({ ...inspectionFilters, page: page - 1 });
   };
 
   const handleInspectionPageSizeChange = (nextSize: number) => {
-    setInspectionFilters((prev) => ({ ...prev, size: nextSize, page: 0 }));
+    handleFiltersChange({ ...inspectionFilters, size: nextSize, page: 0 });
   };
 
   // "내보내기"는 선택 여부·현재 페이지와 무관하게 현재 필터에 해당하는 모든 점검의 하자를 모아
@@ -113,7 +126,7 @@ export function DefectListPage() {
 
         <InspectionFilterBar
           filters={inspectionFilters}
-          onChange={setInspectionFilters}
+          onChange={handleFiltersChange}
         />
       </header>
 
