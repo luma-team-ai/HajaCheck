@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
+import com.hajacheck.support.PngTestFixtures;
 
 class LocalFileStorageTest {
 
@@ -55,6 +56,48 @@ class LocalFileStorageTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_INVALID_TYPE));
     }
 
+    // ---------- 매직바이트 검증(#1488) ----------
+
+    @Test
+    void store_ContentType만_png로_위조한_임의바이트_FILE_INVALID_TYPE() {
+        // 화이트리스트만 대조하던 시절엔 그대로 저장돼, .png 로 저장된 파일의 내용이 임의 바이트일 수
+        // 있었다(형식을 속여 상위 검사를 건너뛰는 우회의 발판). 저장 계층은 호출부를 신뢰하지 않는다.
+        MockMultipartFile fake = new MockMultipartFile(
+                "businessRegistrationFile", "a.png", "image/png", "NOT-A-REAL-PNG".getBytes());
+
+        assertThatThrownBy(() -> storage.store(fake, "business-registration",
+                        properties.getAllowedContentTypes(), properties.getMaxSizeBytes()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_INVALID_TYPE));
+    }
+
+    @Test
+    void store_실제JPEG를_png로_선언하면_FILE_INVALID_TYPE() {
+        // 화이트리스트에 둘 다 있어도, 선언과 실제가 어긋나면 저장하지 않는다(확장자가 내용과 불일치).
+        MockMultipartFile mismatched = new MockMultipartFile(
+                "businessRegistrationFile", "a.png", "image/png", PngTestFixtures.realJpeg());
+
+        assertThatThrownBy(() -> storage.store(mismatched, "business-registration",
+                        properties.getAllowedContentTypes(), properties.getMaxSizeBytes()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_INVALID_TYPE));
+    }
+
+    @Test
+    void store_ContentType만_pdf로_위조한_이미지_FILE_INVALID_TYPE() {
+        MockMultipartFile disguised = new MockMultipartFile(
+                "businessRegistrationFile", "a.pdf", "application/pdf", PngTestFixtures.realPng());
+
+        assertThatThrownBy(() -> storage.store(disguised, "business-registration",
+                        properties.getAllowedContentTypes(), properties.getMaxSizeBytes()))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_INVALID_TYPE));
+    }
+
+    @Test
+    void storeBytes_시그니처불일치_FILE_INVALID_TYPE() {
+        assertThatThrownBy(() -> storage.storeBytes("THUMBDATA".getBytes(), "image/jpeg",
+                        "inspection-media-thumb", List.of("image/jpeg"), 1_000_000L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode()).isEqualTo(ErrorCode.FILE_INVALID_TYPE));
+    }
+
     @Test
     void store_용량초과_FILE_TOO_LARGE() {
         properties.setMaxSizeBytes(4L);
@@ -70,7 +113,7 @@ class LocalFileStorageTest {
     void store_정상_UUID랜덤명_baseDir내부_확장자는contentType기준() throws IOException {
         // 원본 파일명은 evil.exe(악성) 이지만 contentType 이 image/png → 확장자는 .png 로만 결정.
         MockMultipartFile file = new MockMultipartFile(
-                "businessRegistrationFile", "evil.exe", "image/png", "PNGDATA".getBytes());
+                "businessRegistrationFile", "evil.exe", "image/png", PngTestFixtures.realPng());
 
         StoredFile stored = storage.store(file, "business-registration",
                 properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
@@ -85,13 +128,13 @@ class LocalFileStorageTest {
         Path saved = tempDir.resolve(stored.storageKey());
         assertThat(Files.exists(saved)).isTrue();
         assertThat(saved.normalize().startsWith(tempDir.toAbsolutePath().normalize())).isTrue();
-        assertThat(Files.readAllBytes(saved)).isEqualTo("PNGDATA".getBytes());
+        assertThat(Files.readAllBytes(saved)).isEqualTo(PngTestFixtures.realPng());
     }
 
     @Test
     void store_카테고리에경로조작문자_새니타이즈되어baseDir내부저장() throws IOException {
         MockMultipartFile file = new MockMultipartFile(
-                "businessRegistrationFile", "a.pdf", "application/pdf", "PDF".getBytes());
+                "businessRegistrationFile", "a.pdf", "application/pdf", PngTestFixtures.realPdf());
 
         StoredFile stored = storage.store(file, "../../etc",
                 properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
@@ -120,7 +163,7 @@ class LocalFileStorageTest {
     @Test
     void delete_저장된파일_삭제됨() {
         MockMultipartFile file = new MockMultipartFile(
-                "businessRegistrationFile", "a.png", "image/png", "X".getBytes());
+                "businessRegistrationFile", "a.png", "image/png", PngTestFixtures.realPng());
         StoredFile stored = storage.store(file, "business-registration",
                 properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
         Path saved = tempDir.resolve(stored.storageKey());
@@ -141,12 +184,12 @@ class LocalFileStorageTest {
 
     @Test
     void storeBytes_정상_저장후읽으면동일바이트() {
-        StoredFile stored = storage.storeBytes("THUMBDATA".getBytes(), "image/jpeg", "inspection-media-thumb",
+        StoredFile stored = storage.storeBytes(PngTestFixtures.realJpeg(), "image/jpeg", "inspection-media-thumb",
                 List.of("image/jpeg"), 1_000_000L);
 
         assertThat(stored.storageKey()).startsWith("inspection-media-thumb/");
         assertThat(stored.storageKey()).endsWith(".jpg");
-        assertThat(storage.read(stored.storageKey())).isEqualTo("THUMBDATA".getBytes());
+        assertThat(storage.read(stored.storageKey())).isEqualTo(PngTestFixtures.realJpeg());
     }
 
     @Test
