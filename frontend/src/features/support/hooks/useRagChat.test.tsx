@@ -10,7 +10,7 @@ import { SUPPORT_DEV_TRIGGER, supportHandlers } from '../api/supportApi.handlers
 import { mockRagAnswer } from '../mocks/support.mock';
 import type { ChatSessionMessageResponse } from '../types';
 import { getRagSessionId, setRagSessionId } from '../utils/ragSessionId';
-import { RAG_NO_RESULT_TEXT, useRagChat } from './useRagChat';
+import { RAG_NO_RESULT_TEXT, RAG_RESTORE_WAIT_TIMEOUT_MS, useRagChat } from './useRagChat';
 
 const server = setupServer(...supportHandlers);
 
@@ -340,12 +340,44 @@ describe('useRagChat (통합 테스트)', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(usersOf(result.current.messages)).toHaveLength(1);
     expect(usersOf(result.current.messages)[0].text).toBe('새로 보낸 질문');
-    // #1590 — 복원 GET 응답 전에는 저장된 session_id를 채택하지 않는다(계정이 바뀌었으면 그 값이
-    // 이전 사용자 것이라 403이 난다). 그래서 이 경우 새 세션을 1회 발급받는다.
-    expect(sessionCreateCount).toBe(1);
-    // 늦게 도착한 복원 응답이 방금 발급받은 새 세션을 옛 세션(7)으로 되돌리지 않아야 한다.
-    expect(getRagSessionId()).not.toBe(7);
+    // 세션이 이미 있었으므로(복원 대상 세션 7) 새로 생성하지 않는다 — #1590 이후에도 유지되는
+    // 계약이다. runQuery가 복원 GET을 기다렸다가 200(=내 세션 확인)이면 그 세션을 그대로 쓴다.
+    expect(sessionCreateCount).toBe(0);
+    expect(getRagSessionId()).toBe(7);
   });
+
+  // #1590 — 복원 GET이 이례적으로 지연되면 질의가 막히면 안 된다(상한). 이때는 새 세션으로
+  // 진행하고, 뒤늦게 도착한 복원 200이 그 세션을 옛 세션으로 되돌리지 않아야 한다.
+  it('복원 GET이 상한(RAG_RESTORE_WAIT_TIMEOUT_MS)을 넘기면 기다리지 않고 새 세션으로 질의한다', async () => {
+    setRagSessionId(7);
+    server.use(
+      http.get('/api/chat-sessions/:sessionId/messages', async () => {
+        await delay(RAG_RESTORE_WAIT_TIMEOUT_MS + 1500);
+        const data: ChatSessionMessageResponse[] = [];
+        return HttpResponse.json({ success: true, data });
+      }),
+    );
+
+    const { result } = renderHook(() => useRagChat());
+
+    act(() => {
+      result.current.send('상한 초과 시에도 답을 받아야 하는 질문');
+    });
+
+    await waitFor(() => expect(assistantOf(result.current.messages)).toBeDefined(), {
+      timeout: RAG_RESTORE_WAIT_TIMEOUT_MS + 2000,
+    });
+    expect(result.current.error).toBeNull();
+    expect(sessionCreateCount).toBe(1);
+    const committedId = getRagSessionId();
+    expect(committedId).not.toBe(7);
+
+    // 뒤늦게 도착한 복원 200이 이미 쓰고 있는 세션을 덮어쓰지 않아야 한다.
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    expect(getRagSessionId()).toBe(committedId);
+    expect(usersOf(result.current.messages)).toHaveLength(1);
+    // 상한(3초) + 늦은 복원 도착까지 기다리므로 기본 testTimeout(5초)보다 길게 잡는다.
+  }, 15000);
 
   // #1590 P2 — 계정 전환 후 이전 사용자의 session_id가 남아 있고, 복원 GET(403)이 도착하기 전에
   // 새 사용자가 첫 질문을 보내는 레이스. 예전에는 마운트 즉시 sessionIdRef에 옛 id를 넣어 그
