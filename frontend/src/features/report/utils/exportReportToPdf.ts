@@ -188,7 +188,7 @@ export function normalizeGradeInText(text: string): string {
   return text
     .replace(/\(등급\s*([A-Ea-e])\)/gi, ' ($1)')
     .replace(/\(([A-Ea-e])\s*등급\)/gi, ' ($1)')
-    .replace(/\s*\(([A-Z])\)/g, (_, g) => ` (${g.toLowerCase()})`);
+    .replace(/\s*\(([A-E])\)/g, (_, g) => ` (${g.toLowerCase()})`);
 }
 
 /**
