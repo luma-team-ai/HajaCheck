@@ -114,21 +114,15 @@ export function CounselHistoryPage() {
             )}
             {!ticketsLoading && !ticketsError && (
               <>
-                {inProgressTickets.length > 0 && (
-                  <TicketSection label="상담 중" tickets={inProgressTickets} selectedId={selectedId} onSelect={selectTicket} />
-                )}
                 {waitingTickets.length > 0 && (
                   <TicketSection label="배정 대기중" tickets={waitingTickets} selectedId={selectedId} onSelect={selectTicket} />
                 )}
-                {endedTickets.length > 0 &&
-                  endedTickets.map((ticket) => (
-                    <TicketCard
-                      key={ticket.id}
-                      ticket={ticket}
-                      selected={ticket.id === selectedId}
-                      onSelect={() => selectTicket(ticket.id)}
-                    />
-                  ))}
+                {inProgressTickets.length > 0 && (
+                  <TicketSection label="상담 중" tickets={inProgressTickets} selectedId={selectedId} onSelect={selectTicket} />
+                )}
+                {endedTickets.length > 0 && (
+                  <TicketSection label="종료" tickets={endedTickets} selectedId={selectedId} onSelect={selectTicket} />
+                )}
               </>
             )}
           </div>
