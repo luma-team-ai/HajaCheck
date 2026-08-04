@@ -167,7 +167,7 @@ describe('PhotosSectionPreview', () => {
     expect(screen.getByText('하자 1건')).toBeTruthy();
   });
 
-  it('부위별 사진이 10장 이상이면 9장 단위로 페이지네이션한다', () => {
+  it('결함 사진이 10장 이상이면 9장 단위로 페이지네이션한다', () => {
     const groups = Array.from({ length: 10 }, (_, index) =>
       groupDefectsByMedia([
         defect(index + 1, index + 1, { x: 0.1, y: 0.1, width: 0.1, height: 0.1 }),
@@ -179,10 +179,10 @@ describe('PhotosSectionPreview', () => {
     expect(screen.getByText('1')).toBeTruthy();
     expect(screen.getByText('/ 2')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: '부위별 사진 다음 페이지' }));
+    fireEvent.click(screen.getByRole('button', { name: '결함 사진 다음 페이지' }));
 
     expect(screen.getAllByRole('img')).toHaveLength(1);
     expect(screen.getByText('2')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '부위별 사진 다음 페이지' }).hasAttribute('disabled')).toBe(true);
+    expect(screen.getByRole('button', { name: '결함 사진 다음 페이지' }).hasAttribute('disabled')).toBe(true);
   });
 });

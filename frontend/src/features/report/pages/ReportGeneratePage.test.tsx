@@ -932,6 +932,28 @@ describe('ReportGeneratePage', () => {
     expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
   });
 
+  // 임시저장 직후 dirty=false로 꺼지고, PATCH 목 핸들러(138~141행)가 실제 백엔드처럼
+  // groundingCheckPassed를 null로 리셋한다 — 예전엔 이 두 조건이 모두 거짓이 되어 "작성자 확인"이
+  // 다시 "AI 분류"로 되돌아갔다. hasEverEdited로 저장 후에도 유지되는지 검증한다.
+  it('편집 후 임시저장해도 작성자 확인 단계가 AI 분류로 되돌아가지 않는다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const authorStep = screen.getByText('작성자 확인').closest('li');
+    const aiStep = screen.getByText('AI 분류').closest('li');
+    expect(authorStep).not.toBeNull();
+    expect(aiStep).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '수정된 점검 목적' } });
+    expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
+
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
+    await waitFor(() => expect(updateReportCallCount).toBe(1));
+
+    expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
+    expect(within(aiStep!).getByText('A').className).toContain('bg-primary');
+  });
+
   it('진단 외관조사결과 기본사항 등급 필터 pills(전체, A, B, C, D, E)가 항상 렌더링된다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');

@@ -168,7 +168,9 @@ const SUMMARY_SUBSECTION_TYPES = new Set<string>([
  */
 function formatPhotoCaption(image: ReportPdfImage): string {
   const type = image.defectType || "부위";
-  const gradeSuffix = image.grade ? `(${image.grade}등급)` : "";
+  // 원본 양식은 등급을 "등급 E"가 아니라 소문자 단일 글자(a~d)로만 표기한다(§가. 진단
+  // 외관조사결과 상태평가 컬럼과 동일 관례, #1499 후속) — 사진 캡션도 그 표기를 따른다.
+  const gradeSuffix = image.grade ? ` (${image.grade.toLowerCase()})` : "";
   const summary = (image.summary ?? "").trim();
   if (!summary) return `${type}${gradeSuffix}`;
   const truncated =
@@ -176,6 +178,17 @@ function formatPhotoCaption(image: ReportPdfImage): string {
       ? `${summary.slice(0, PHOTO_CAPTION_SUMMARY_MAX)}…`
       : summary;
   return `${type}${gradeSuffix} — ${truncated}`;
+}
+
+/**
+ * 텍스트 내 "(등급 E)", "(E등급)", "(E)" 표기를 원본 보고서 양식 관례(소문자 단일 글자 "(e)")로 정규화한다.
+ */
+export function normalizeGradeInText(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/\(등급\s*([A-Ea-e])\)/gi, ' ($1)')
+    .replace(/\(([A-Ea-e])\s*등급\)/gi, ' ($1)')
+    .replace(/\s*\(([A-Z])\)/g, (_, g) => ` (${g.toLowerCase()})`);
 }
 
 /**
@@ -635,22 +648,24 @@ export async function exportReportToPdf(
     // 이 바를 별도 autoTable로 분리하면 jsPDF-autotable이 페이지 넘김 시 자동 반복시키는
     // `head`에 포함되지 않아, 표가 여러 페이지에 걸칠 때 첫 페이지에만 나오고 사라진다(한글
     // "표 제목 줄 자동 반복" 관용구와 어긋남). 아래 컬럼 헤더 행과 같은 표의 `head` 첫 행으로
-    // 합쳐서 페이지마다 함께 반복되게 한다 — colSpan은 6개 컬럼을 3:3으로 나눠 원본의
+    // 합쳐서 페이지마다 함께 반복되게 한다 — colSpan은 4개 컬럼을 2:2로 나눠 원본의
     // "라벨:값" 2분할을 근사한다(정확한 폭 비율은 원본과 다를 수 있으나 순수 장식용 바라 무관).
+    // "연번"·"결함발생 부재"(구조부재명 데이터가 없어 시설물 주소가 대신 흘러들어오던 컬럼)는
+    // 원본 양식에 없거나 채울 데이터가 없어 뺐다(#1499) — 남은 4개 컬럼(상태평가·결함종류·
+    // 조사 결과·추정 원인) 중 상태평가·결함종류만 원본과 의미가 겹치고 나머지 둘은 우리 전용
+    // 보충 정보다.
     autoTable(doc, {
       ...tableDefaults,
       startY: y,
       head: [
         [
-          { content: "상태평가 결과 및 보수ㆍ보강", colSpan: 3 },
+          { content: "상태평가 결과 및 보수ㆍ보강", colSpan: 2 },
           {
             content: `상태평가 결과 : ${worstGrade(content.summary.count_by_grade)}`,
-            colSpan: 3,
+            colSpan: 2,
           },
         ],
         [
-          "연번",
-          "결함발생 부재",
           "상태\n평가",
           "결함종류",
           "조사 결과",
@@ -659,23 +674,21 @@ export async function exportReportToPdf(
       ],
       body:
         content.detail.items.length > 0
-          ? content.detail.items.map((item, index) => [
-              String(index + 1),
-              item.location || "-",
+          ? content.detail.items.map((item) => [
               toMemberGrade(item.severity_grade),
               item.defect_type || "-",
-              item.description || "-",
+              normalizeGradeInText(item.description || "-"),
               item.cause || "-",
             ])
-          : [["-", "-", "-", "-", "확인된 결함이 없습니다.", "-"]],
-      // 좁은 열은 원본처럼 9pt로 강등한다.
+          : [["-", "-", "확인된 결함이 없습니다.", "-"]],
+      // 좁은 열은 원본처럼 9pt로 강등한다. 앞 2컬럼 합(0+1)은 병합 헤더 "상태평가 결과 및
+      // 보수ㆍ보강"(13자)이 한 줄에 들어가야 하는 최소 폭 — 컬럼 제거 전 3컬럼 합(11+26+12=49)에서
+      // 줄바꿈 없이 표시되던 걸 실측 확인했으므로 그 폭(49)을 그대로 유지한다(#1499 후속).
       columnStyles: {
-        0: { cellWidth: 11, halign: "center", fontSize: FONT_SIZE.tableNarrow },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 12, halign: "center" },
-        3: { cellWidth: 24 },
-        4: { cellWidth: "auto" },
-        5: { cellWidth: 38 },
+        0: { cellWidth: 15, halign: "center", fontSize: FONT_SIZE.tableNarrow },
+        1: { cellWidth: 34 },
+        2: { cellWidth: "auto" },
+        3: { cellWidth: 44 },
       },
     });
     return lastTableY();
@@ -690,28 +703,31 @@ export async function exportReportToPdf(
     // 보수ㆍ보강(안) 표는 소절 제목을 따로 달지 않는다 — 블록 제목이 이미 `보수ㆍ보강(안)`이라
     // 소절까지 같은 이름을 붙이면 같은 문구가 연달아 두 번 나온다.
     let y = blockTitle(label, startY, nested);
+    // "연번"은 레퍼런스 양식에 없는 장식용 번호라 뺐다(#1499 후속) — 나머지(대상 부위·
+    // 보수ㆍ보강(안)·조치 우선순위·적용 근거)는 이 섹션 자체가 레퍼런스와 완전히 같은 표
+    // 구조는 아니지만("주요 보수·보강"은 우선순위별 불릿 목록, 상세 표의 보수ㆍ보강(안)은
+    // 부재별 인라인 컬럼), "적용 근거"(법률 환각 방지 검증)는 사용자 확인 결과 레퍼런스에
+    // 없어도 HajaCheck 고유 기능으로 유지하기로 함.
     autoTable(doc, {
       ...tableDefaults,
       startY: y,
       head: [
-        ["연번", "대상 부위", "보수ㆍ보강(안)", "조치\n우선순위", "적용 근거"],
+        ["대상 부위", "보수ㆍ보강(안)", "조치\n우선순위", "적용 근거"],
       ],
       body:
         content.recommendation.items.length > 0
-          ? content.recommendation.items.map((item, index) => [
-              String(index + 1),
-              item.target || "-",
+          ? content.recommendation.items.map((item) => [
+              normalizeGradeInText(item.target || "-"),
               item.method || "-",
               item.priority || "-",
               legalBasisLabel(item.legal_basis, item.legal_basis_verified),
             ])
-          : [["-", "-", "권고 조치가 없습니다.", "-", "-"]],
+          : [["-", "권고 조치가 없습니다.", "-", "-"]],
       columnStyles: {
-        0: { cellWidth: 11, halign: "center", fontSize: FONT_SIZE.tableNarrow },
-        1: { cellWidth: 30 },
-        2: { cellWidth: "auto" },
-        3: { cellWidth: 18, halign: "center", fontSize: FONT_SIZE.tableNarrow },
-        4: { cellWidth: 44 },
+        0: { cellWidth: 30 },
+        1: { cellWidth: "auto" },
+        2: { cellWidth: 18, halign: "center", fontSize: FONT_SIZE.tableNarrow },
+        3: { cellWidth: 44 },
       },
     });
 
@@ -1064,7 +1080,7 @@ export async function exportReportToPdf(
           cursorY,
           nested,
         );
-      else cursorY = renderPhotosBlock(`${marker} 부위별 사진`, cursorY);
+      else cursorY = renderPhotosBlock(`${marker} 결함 사진`, cursorY);
       return;
     }
 

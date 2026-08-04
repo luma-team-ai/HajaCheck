@@ -7,7 +7,7 @@ const FIXED_SECTION_LABELS: Record<(typeof FIXED_SECTION_KEYS)[number], string> 
   summary: '결과 요약',
   detail: '진단 외관조사결과 기본사항',
   recommendation: '보수ㆍ보강(안)',
-  photos: '부위별 사진',
+  photos: '결함 사진',
 };
 
 export const MANUAL_SECTION_LABELS = {

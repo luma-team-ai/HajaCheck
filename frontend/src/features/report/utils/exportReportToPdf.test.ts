@@ -525,7 +525,7 @@ describe("exportReportToPdf", () => {
     expect(options?.body).toEqual([["추가된 이미지가 없습니다."]]);
   });
 
-  it("부위별 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다", async () => {
+  it("결함 사진도 다른 섹션과 동등하게 sectionOrder로 자유롭게 재배치된다", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === "/api/media/1/thumbnail") {
         return Promise.resolve({
@@ -558,11 +558,11 @@ describe("exportReportToPdf", () => {
 
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     // 맨 앞으로 옮겼으니 1번, 기본현황은 그 다음(2번)이 된다 — 고정 마지막 자리가 아니다.
-    expect(renderedText).toContain("1. 부위별 사진");
+    expect(renderedText).toContain("1. 결함 사진");
     expect(renderedText).toContain("2. 기본현황");
   });
 
-  it("사진이 0장이면 sectionOrder에 있어도 부위별 사진 섹션과 번호를 만들지 않는다", async () => {
+  it("사진이 0장이면 sectionOrder에 있어도 결함 사진 섹션과 번호를 만들지 않는다", async () => {
     const content = makeContent({
       sectionOrder: [
         "photos",
@@ -578,7 +578,7 @@ describe("exportReportToPdf", () => {
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     expect(
       renderedText.some(
-        (text) => typeof text === "string" && text.includes("부위별 사진"),
+        (text) => typeof text === "string" && text.includes("결함 사진"),
       ),
     ).toBe(false);
     // 사진 섹션이 통째로 빠지므로 기본현황이 1번을 그대로 유지한다(번호에 구멍이 생기지 않음).
@@ -652,11 +652,12 @@ describe("exportReportToPdf", () => {
     const options = findTableOptions(
       (candidate) =>
         Array.isArray(candidate.head) &&
-        (candidate.head as string[][])[1]?.includes("결함발생 부재"),
+        (candidate.head as string[][])[1]?.includes("결함종류"),
     );
-    expect(options?.body).toEqual([
-      ["1", "1층 벽체", "c", "균열", "설명", "원인"],
-    ]);
+    // "연번"·"결함발생 부재"(구조부재명 데이터가 없어 시설물 주소를 대신 표시해왔던 컬럼)는
+    // 원본 양식에 없거나 채울 데이터가 없어 뺐다(#1499) — 상태평가·결함종류·조사 결과·추정
+    // 원인 4개 컬럼만 남는다.
+    expect(options?.body).toEqual([["c", "균열", "설명", "원인"]]);
   });
 
   it("등급별 건수에서 최악 등급을 상태평가 결과로 표기한다", async () => {
@@ -676,13 +677,13 @@ describe("exportReportToPdf", () => {
     const options = findTableOptions(
       (candidate) =>
         Array.isArray(candidate.head) &&
-        (candidate.head as string[][])[1]?.includes("결함발생 부재"),
+        (candidate.head as string[][])[1]?.includes("결함종류"),
     );
     const barRow = (options?.head as { content: string }[][])[0];
     expect(barRow[1].content).toBe("상태평가 결과 : d");
   });
 
-  it("점검 축소본을 부위별 사진 표 안에 안전하게 배치한다(자동 페이지분할되는 autoTable 셀)", async () => {
+  it("점검 축소본을 결함 사진 표 안에 안전하게 배치한다(자동 페이지분할되는 autoTable 셀)", async () => {
     vi.mocked(fetch).mockImplementation((input) => {
       if (String(input) === "/api/media/1/thumbnail") {
         return Promise.resolve({
@@ -807,8 +808,9 @@ describe("exportReportToPdf", () => {
 
     const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
+    // 원본 양식 관례(소문자 단일 글자)를 따라 "등급 A"가 아니라 "a"로 표기한다(#1499 후속).
     expect(captionRow[0].content).toBe(
-      "< 균열(A등급) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >",
+      "< 균열 (a) — 구조물의 내부 응력 집중 또는 외부 충격에 의해 발생했을 가능성이 있으며… >",
     );
   });
 
@@ -866,7 +868,7 @@ describe("exportReportToPdf", () => {
 
     const photoOptions = findPhotoTableOptions();
     const captionRow = (photoOptions?.body as { content: string }[][])[1];
-    expect(captionRow[0].content).toBe("< 균열(B등급) >");
+    expect(captionRow[0].content).toBe("< 균열 (b) >");
     expect(captionRow[0].content).not.toContain("외");
   });
 
@@ -876,7 +878,7 @@ describe("exportReportToPdf", () => {
     const renderedText = mockText.mock.calls.map(([text]) => text).flat();
     expect(
       renderedText.some(
-        (text) => typeof text === "string" && text.startsWith("부위별 사진"),
+        (text) => typeof text === "string" && text.startsWith("결함 사진"),
       ),
     ).toBe(false);
     expect(mockAddImage).not.toHaveBeenCalled();
@@ -919,8 +921,9 @@ describe("exportReportToPdf", () => {
         Array.isArray(candidate.head) &&
         (candidate.head as string[][])[0]?.includes("적용 근거"),
     );
+    // "연번"은 레퍼런스 양식에 없어 뺐다(#1499 후속).
     expect(options?.body).toEqual([
-      ["1", "1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
+      ["1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
     ]);
   });
 });
