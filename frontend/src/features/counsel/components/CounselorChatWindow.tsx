@@ -3,6 +3,7 @@ import counselorIcon from '../../../assets/brand/support-fab-icon.svg';
 import defaultAvatarIcon from '../../../assets/brand/sidenav-default-avatar.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { ChatInputBox } from '../../../shared/components/ChatInputBox/ChatInputBox';
+import { ChatSystemMessage } from '../../../shared/components/ChatSystemMessage/ChatSystemMessage';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { TypingIndicatorBubble } from '../../../shared/components/TypingIndicatorBubble/TypingIndicatorBubble';
 import { CATEGORY_LABEL } from '../constants';
@@ -38,7 +39,13 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
     resolving,
     resolveError,
     resolve,
+    remoteEndedTicket,
   } = useCounselorTicketThread(threadTicketId, onResolved);
+
+  // #1506 — 고객이 원격으로 종료했거나(remoteEndedTicket), 이미 종료된 티켓을 목록에서 클릭해 들어온
+  // 경우(ticket.status가 RESOLVED/OFFLINE_LEFT) 둘 다 같은 "종료" UI로 묶는다.
+  const isEnded =
+    remoteEndedTicket !== null || ticket?.status === 'RESOLVED' || ticket?.status === 'OFFLINE_LEFT';
 
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -47,7 +54,7 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
     // jsdom(vitest)에는 scrollIntoView가 없어(Element.prototype 미구현) 테스트 환경에서 호출 시
     // TypeError로 렌더 자체가 실패한다 — 실제 브라우저에서만 존재하는 메서드라 방어적으로 호출.
     scrollRef.current?.scrollIntoView?.({ block: 'end' });
-  }, [messages, customerTyping]);
+  }, [messages, customerTyping, isEnded]);
 
   function handleSend() {
     const content = draft.trim();
@@ -105,23 +112,27 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
                 <span className="text-xs text-text-muted">#{ticket.ticketNumber}</span>
               )}
             </div>
-            <span className="flex items-center gap-1.5 text-xs font-medium text-info">
+            <span
+              className={`flex items-center gap-1.5 text-xs font-medium ${isEnded ? 'text-text-muted' : 'text-info'}`}
+            >
               <span
-                className={`size-1.5 rounded-full ${connected ? 'bg-info' : 'bg-text-muted'}`}
+                className={`size-1.5 rounded-full ${isEnded ? 'bg-text-muted' : connected ? 'bg-info' : 'bg-text-muted'}`}
                 aria-hidden="true"
               />
-              {connected ? '연결됨' : '연결 중...'}
+              {isEnded ? '상담종료' : connected ? '연결됨' : '연결 중...'}
             </span>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void resolve()}
-          disabled={resolving}
-          className="shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          {resolving ? '종료 중...' : '상담 종료'}
-        </button>
+        {!isEnded && (
+          <button
+            type="button"
+            onClick={() => void resolve()}
+            disabled={resolving}
+            className="shrink-0 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {resolving ? '종료 중...' : '상담 종료'}
+          </button>
+        )}
       </div>
 
       {resolveError && <p className="mx-6 mt-2 text-xs text-red-600">{resolveError}</p>}
@@ -169,6 +180,7 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
             );
           })}
         {customerTyping && <TypingIndicatorBubble />}
+        {isEnded && <ChatSystemMessage text="고객이 상담을 종료했습니다." tone="ended" />}
         <div ref={scrollRef} />
       </div>
 
@@ -177,7 +189,7 @@ export function CounselorChatWindow({ ticketId, ticket, claiming, onClaim, onRes
           value={draft}
           onChange={handleDraftChange}
           onSubmit={handleSend}
-          disabled={!connected}
+          disabled={!connected || isEnded}
           placeholder="메시지를 입력하세요"
         />
       </div>

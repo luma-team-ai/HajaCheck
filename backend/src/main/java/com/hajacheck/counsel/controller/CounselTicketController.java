@@ -180,6 +180,18 @@ public class CounselTicketController {
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
+    @Operation(summary = "상담 티켓 단건 조회(#1506)",
+            description = "WS 재연결 등으로 놓친 상태 변경을 REST로 백필하기 위한 폴백. 당사자(사용자 본인/담당 상담원) 또는 PLATFORM_ADMIN만.")
+    @GetMapping("/{id}")
+    public ResponseEntity<ApiResponse<CounselTicketResponse>> getTicket(
+            @PathVariable Long id,
+            @AuthenticationPrincipal LoginUser loginUser) {
+        boolean platformAdmin = loginUser.getRole() == Role.PLATFORM_ADMIN;
+        CounselTicketResponse response =
+                counselTicketService.getTicket(id, loginUser.getUserId(), platformAdmin);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
     @Operation(summary = "상담 종료", description = "담당 상담원 본인·티켓 소유 고객 본인·PLATFORM_ADMIN 이 상담을 종료한다.")
     @PostMapping("/{id}/resolve")
     public ResponseEntity<ApiResponse<CounselTicketResponse>> resolve(
