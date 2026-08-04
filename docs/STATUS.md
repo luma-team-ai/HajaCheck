@@ -36,6 +36,7 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **PR #1533 dev 머지 (2026-08-04)** — 로그인 API를 화면별 3개 엔드포인트로 분리하고 **서버가 role 화이트리스트를 강제**(#1514). 기존엔 기업·플랫폼관리자·상담원 세 화면이 같은 `POST /api/auth/login`을 써서 서버가 요청 출처를 알 수 없었고, role 판정은 프론트 훅이 "이미 발급된 세션을 `logout()`으로 되돌리는" 사후 처리라 devtools로 그 logout만 막거나 curl로 직접 치면 뚫렸다. → `/api/auth/login`(ADMIN·INSPECTOR·USER) · `/api/auth/platform-admin/login`(PLATFORM_ADMIN) · `/api/auth/counselor/login`(COUNSELOR)로 분리, **인증 성공해도 role 불일치면 세션 자체를 미발급**(403 `AUTH_ROLE_NOT_ALLOWED`). 게이트를 `getSession(true)`/`changeSessionId()` **앞**에 배치한 게 핵심 — 사이에 두면 `saveContext`를 건너뛰어도 세션 회전·쿠키 발급이 이미 끝나 같은 구멍이 재현된다. 화이트리스트는 `unmodifiableSet`, 무검사 캐스트→`instanceof` fail-closed. `SecurityConfig`·소셜 로그인 무수정. 테스트 **2175건 전건 PASS**(신규 `LoginRoleGateIntegrationTest` 19 + `AuthControllerPortalRolesTest` 3), 사보타주 3회로 테스트 실효성 실증. code-reviewer·security-reviewer(opus) 각 2회 — 최종 P1 0(코드) · P2 0 · P3 1(의식적 보류). G1/G3.5/G6 전부 PASS. openapi 0.42.0-draft→0.43.0-draft bump + archive 스냅샷. 후속 #1519. **⚠️ 승격 시 #1513 동반 필수 — 아래 [다음 작업] 최상단 참조.**
 - **PR #1515 dev 머지 (2026-08-04)** — 하자 목록(`DefectListPage`)에서 필터 적용 후 점검 상세로 이동했다가 뒤로가기하면 필터·목록 상태가 기본값으로 리셋되던 버그(#1508) 수정. 필터 상태를 컴포넌트 로컬 `useState`에서 `useSearchParams`(URL 쿼리파라미터) 기반으로 전환, 필터/페이지 변경은 `replace:true`로 히스토리 엔트리를 쌓지 않게 처리. 신규 `inspectionListFiltersUrl.ts`(URL 직렬화 유틸, enum 화이트리스트로 URL 복원값 검증). 백엔드/DB 변경 없음. Self-review(직접, 서브에이전트 미사용) P1/P2 없음 — P3 1건(조건식 소소한 중복, 동작엔 무관). `tsc -b`/`eslint`/`defect` 기능 테스트(25 files·194 tests, #1508 회귀 테스트 포함) 전부 PASS. Jira HAJA-661 dev-pr-check 전환, GitHub #1508 `awaiting-promotion` 라벨 부여.
 
 - **PR #1509 dev 머지 (2026-08-04)** — 하자 상세 모달 이미지 상자가 와이드 화면(1920폭)에서 aspect-ratio(3:4)만으로 1110px까지 커지던 문제에 `max-height:480px` 캡핑 추가 + 등급 칩(A~E) 색상 코드 적용(`features/map` GRADE_COLOR와 동일 값 로컬 재정의). 이슈/Jira 미연동(ad-hoc UI 폴리싱, 별도 이슈 없음). Self-review(직접, 서브에이전트 미사용) P1/P2 없음 — P3 2건: C등급 칩 흰 텍스트 WCAG 대비 미달(기존 `GradeBadge` 패턴 재사용분, 이번 PR 신규 유발 아님) · 등급 색상 렌더링 테스트 부재. `npm run build` PASS, 라이브 프로덕션에서 실측 버그 케이스로 max-height 동작 확인.
@@ -378,6 +379,12 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 다음 작업
 
+- **🔴 로그인 role 게이트 — BE(#1514/PR #1533) 승격 시 FE(#1513) 반드시 동반 (2026-08-04 신설)**
+  - **PR #1533이 단독으로 main에 올라가면 PLATFORM_ADMIN·COUNSELOR가 어떤 화면으로도 로그인할 수 없다.** 프론트는 아직 세 화면 모두 `POST /api/auth/login` 하나만 호출한다(`frontend/src/features/auth/api/authApi.ts:51`, 세 훅 공용) → 신설 화이트리스트에서 두 role이 거부되어 403. **최상위 권한 콘솔이 잠겨 장애 대응 주체까지 막힌다.** 소셜 미보유 native 계정은 우회 경로도 없다.
+  - **G6 승격 체크(검증 가능 형태)**: *승격 PR diff에 `frontend/src/features/auth/api/authApi.ts`의 로그인 3경로가 포함되어 있는가*. "#1513 동반" 같은 서술형은 확인 누락이 나기 쉬워 파일·경로 단위로 못박는다.
+  - **⚠️ 영향 시점은 승격이 아니라 "dev 코드로 스택을 띄우는 순간"이다.** 팀원이 `docker-compose.oci-db.yml` 터널로 dev 브랜치를 로컬 spring에 부팅하면 그 환경에서 즉시 두 콘솔 로그인이 막힌다(#1513이 dev에 들어가기 전까지). **공지 대상 = 공유 dev DB 사용자가 아니라 "dev 브랜치로 로컬 스택을 띄우는 모든 사람"**(DB가 아니라 앱 코드 이슈). 노출 창을 줄이려면 #1513을 dev에 최대한 빨리 넣는다.
+  - **하위호환 shim(구 경로에 전 role 허용) 금지** — #1514가 막은 구멍을 그대로 복원한다(양 리뷰어 동의).
+  - #1513 프론트 범위: `authApi`에 3경로 배선 → 각 훅이 자기 엔드포인트 호출 · `logout()` 사후 처리 패턴 제거(서버가 세션을 안 주므로 불필요) · 403 `AUTH_ROLE_NOT_ALLOWED` 안내 문구 · `LoginPage` 기존세션 fallback을 role별 홈으로 · `router.tsx` AppShell role 가드(+`ProtectedRoute` 거부 이동지를 role별 홈으로 — `DASHBOARD_ROUTE` 고정이면 무한 루프). 워크트리 `hajacheck-frontend-1513`에 1차 작업분(`resolveRoleHomeRoute` 등)이 **미커밋·미검증** 보존됨.
 - **🔴 결제(토스페이먼츠 샌드박스) 승격 전제 — BE·FE 반드시 같은 배치 (2026-07-27 신설)**
   - **#1016(BE)·#1030(FE)를 따로 승격하면 프로덕션 결제 UI가 깨진다.** #1016이 `POST /api/me/plan/checkout`을 제거하므로 BE만 먼저 가면 마이페이지 플랜 업그레이드가 404, FE만 먼저 가면 없는 API를 호출한다.
   - **arm1 `.env` 토스 키 3종 주입 완료**(2026-07-27, `VITE_TOSS_CLIENT_KEY`·`TOSS_SECRET_KEY`·`TOSS_SECURITY_KEY`, 백업 `.env.bak.20260727-toss`). compose 가드는 **소프트 `:-`** — 미설정이어도 배포는 성공하고 **결제 진입점만 502**가 된다(결제는 부가기능이라 키 누락으로 전체 배포를 죽이지 않는 선택, `BUSINESS_REGISTRATION_API_KEY` 선례와 정합).
