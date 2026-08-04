@@ -221,6 +221,13 @@ public enum ErrorCode {
     // 시설물(facility)
     // 미존재/타인 소유 모두 이 코드로 통일 응답 — 리소스 존재 여부 열거(cross-owner IDOR) 방지.
     FACILITY_NOT_FOUND(HttpStatus.NOT_FOUND, "시설물을 찾을 수 없습니다."),
+    // 보고서 생성(#1479) — 시설물 주소가 비어 있으면 ConfirmedDefectTextFactory가 만드는 location이
+    // 빈 문자열이 되어 ai-server의 ConfirmedDefectInput.location(min_length=1)이 422를 던지고,
+    // 그 4xx가 AI_REQUEST_REJECTED(400, "AI 서버가 요청을 거부했습니다")로 뭉뚱그려져 원인을 알 수 없다.
+    // 근본 수정(주소 @NotBlank화)은 기존 무주소 시설물에 소급 영향을 주므로 채택하지 않고, 대신 보고서
+    // 생성 시점에 명확한 원인으로 사전 차단한다.
+    FACILITY_ADDRESS_MISSING(HttpStatus.BAD_REQUEST,
+            "시설물 주소가 없어 보고서를 생성할 수 없습니다. 시설물 정보에서 주소를 입력해주세요."),
 
     // 점검 회차(inspection) — dev-05-02
     INSPECTION_NOT_FOUND(HttpStatus.NOT_FOUND, "점검 회차를 찾을 수 없습니다."),

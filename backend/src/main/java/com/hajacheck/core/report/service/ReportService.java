@@ -53,6 +53,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 /**
  * 점검 결과 기반 AI 보고서 생성·조회·편집·확정(#446 / HAJA-283).
@@ -113,6 +114,12 @@ public class ReportService {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         InspectionResponse inspection = inspectionService.getInspection(userId, companyId, inspectionId);
         FacilityResponse facility = facilityService.get(userId, companyId, inspection.facilityId());
+        // #1479 — 시설물 주소가 비어 있으면 AI 서버 호출 전에 명확히 차단한다. 그대로 넘기면
+        // ai-server가 location(min_length=1) 위반으로 422를 던지고 그게 AI_REQUEST_REJECTED(400,
+        // "AI 서버가 요청을 거부했습니다")로 뭉뚱그려져 사용자가 원인을 알 수 없게 된다.
+        if (!StringUtils.hasText(facility.address())) {
+            throw new BusinessException(ErrorCode.FACILITY_ADDRESS_MISSING);
+        }
 
         List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
                 inspectionId, CONFIRMED_DEFECT_STATUSES);
