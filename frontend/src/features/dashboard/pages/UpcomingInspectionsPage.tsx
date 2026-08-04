@@ -1,7 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import '../../../shared/styles/layout.css';
 import { AiBriefingCard } from '../components/AiBriefingCard';
-import { PendingPriorityCard } from '../components/PendingPriorityCard';
 import { UpcomingInspectionCard } from '../components/UpcomingInspectionCard';
 import { DASHBOARD_COLOR_CLASS } from '../colors';
 import { INSPECTION_NEW_PATH } from '../constants';
@@ -80,7 +79,6 @@ export function UpcomingInspectionsPage() {
         </div>
 
         <div className="flex flex-col gap-4 min-w-0">
-          <PendingPriorityCard />
           <AiBriefingCard />
         </div>
       </div>
