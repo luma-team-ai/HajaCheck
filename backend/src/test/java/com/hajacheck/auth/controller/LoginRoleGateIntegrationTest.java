@@ -24,6 +24,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -34,12 +35,22 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p><b>이 클래스가 고정하는 핵심 계약은 "403 이 나온다"가 아니라 "세션이 남지 않는다"</b> 다.
  * role 게이트를 {@code changeSessionId()} 뒤에 두면 403 은 그대로 나오면서도 회전된 세션이 남아
- * 같은 구멍이 형태만 바꿔 재현되므로, 차단 케이스마다
- * ① 403 + AUTH_ROLE_NOT_ALLOWED,
- * ② 그 세션으로 {@code GET /api/users/me} 재호출 시 401,
- * ③ 세션 ID 무회전(=세션 고정 방어에 도달하지 않았음) + SecurityContext 미저장,
- * ④ lastLoginAt 미갱신(로그인 성공이 아님)
- * 을 함께 검증한다.
+ * 같은 구멍이 형태만 바꿔 재현된다. 그래서 차단 케이스마다 아래 넷을 함께 검증한다.
+ *
+ * <p><b>⚠️ 어느 단언이 무엇을 잡는지 — 하나도 "중복"이 아니다(지우지 말 것).</b>
+ * <ul>
+ *   <li><b>① 세션 미생성</b> (세션을 <b>주입하지 않은</b> 요청의 {@code getSession(false)} == null):
+ *       {@code getSession(true)} 가 게이트 <b>앞</b>으로 새는 회귀를 잡는 <b>유일한</b> 단언이다.
+ *       openapi 가 계약한 "세션 생성 자체가 일어나지 않는다"의 근거가 여기뿐이다. 아래 ②③은 세션을
+ *       미리 주입하므로 "새 세션이 안 생긴다"를 증명하지 못한다.</li>
+ *   <li><b>② 세션 ID 무회전</b> + SecurityContext 미저장: 게이트가 {@code changeSessionId()} <b>뒤</b>로
+ *       밀리는 회귀를 잡는 <b>유일한</b> 단언이다. 즉 실행 순서 계약을 실질적으로 고정하는 건 ②다.</li>
+ *   <li><b>③ 그 세션으로 {@code GET /api/users/me} → 401</b>: {@code saveContext} 미호출을 잡는다.
+ *       <b>순서 회귀는 잡지 못한다</b> — 게이트를 {@code changeSessionId()} 뒤로 옮겨도 saveContext 를
+ *       건너뛰므로 ③은 그대로 통과한다(실측). 대신 "차단된 사용자가 손에 쥔 쿠키로는 아무것도 못 한다"는
+ *       최종 사용자 관점의 계약을 고정한다.</li>
+ *   <li><b>④ lastLoginAt 미갱신</b>: 로그인 성공 부수효과가 실패 경로로 새지 않음을 잡는다.</li>
+ * </ul>
  *
  * <p>실 시큐리티 필터체인·세션 저장·EntryPoint 를 그대로 태워야 하므로 @SpringBootTest + MockMvc
  * (AuthControllerTest 와 동일한 이유·구성 — 슬라이스는 oauth2Login 필터 때문에 취약).
@@ -79,9 +90,27 @@ class LoginRoleGateIntegrationTest extends PostgresTestSupport {
     }
 
     /**
-     * 차단 케이스 공통 검증 — 403 + 세션 미발급(후속 /api/users/me 401) + 세션 ID 무회전 + lastLoginAt 미갱신.
+     * 차단 케이스 공통 검증 — 클래스 javadoc 의 단언 ①~④ 를 모두 수행한다.
+     * 세션 유무 두 상황을 각각 태워야 ①(미생성)과 ②(무회전)를 동시에 고정할 수 있다.
      */
     private void assertBlockedWithoutSession(String loginPath, User user) throws Exception {
+        // ── 상황 A: 세션이 없는 상태로 들어온 요청 → 세션이 "생성조차" 되지 않아야 한다 ──
+        // .session(...) 을 주지 않는 것이 이 블록의 전부다. 주는 순간 ① 은 증명 불가가 된다.
+        MvcResult noSessionResult = mockMvc.perform(post(loginPath).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginBody(user.getEmail())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("AUTH_ROLE_NOT_ALLOWED"))
+                .andReturn();
+
+        // ① 게이트가 getSession(true) 보다 앞이라는 유일한 증거.
+        // (CSRF 는 CookieCsrfTokenRepository 라 세션을 만들지 않으므로, 세션이 생겼다면 로그인 경로가 만든 것이다.)
+        assertThat(noSessionResult.getRequest().getSession(false))
+                .as("차단 경로는 세션을 생성조차 하지 않는다")
+                .isNull();
+
+        // ── 상황 B: 이미 익명 세션이 있던 요청 → 그 세션이 인증 세션으로 승격되지 않아야 한다 ──
         MockHttpSession session = new MockHttpSession();
         String sessionIdBeforeLogin = session.getId();
 
@@ -89,19 +118,22 @@ class LoginRoleGateIntegrationTest extends PostgresTestSupport {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(loginBody(user.getEmail())))
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("AUTH_ROLE_NOT_ALLOWED"));
 
-        // ③ 세션 고정 방어(changeSessionId)에 도달조차 하지 않았다 = 게이트가 그 앞에 있다.
-        assertThat(session.getId()).isEqualTo(sessionIdBeforeLogin);
-        assertThat(session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY)).isNull();
+        // ② 세션 고정 방어(changeSessionId)에 도달조차 하지 않았다 = 게이트가 그 앞에 있다.
+        assertThat(session.getId())
+                .as("차단 경로는 세션 ID 를 회전시키지 않는다(게이트가 changeSessionId 앞)")
+                .isEqualTo(sessionIdBeforeLogin);
+        assertThat(session.getAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY))
+                .as("차단 경로는 SecurityContext 를 세션에 저장하지 않는다")
+                .isNull();
 
-        // ② 403 응답에서 받은 세션을 그대로 다시 써도 인증된 세션이 아니다(핵심 증명).
+        // ③ 403 응답에서 받은 세션을 그대로 다시 써도 인증된 세션이 아니다.
         mockMvc.perform(get("/api/users/me").session(session))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
 
-        // ④ 로그인 성공이 아니므로 lastLoginAt 은 갱신되지 않는다.
+        // ④ 로그인 성공이 아니므로 lastLoginAt 은 갱신되지 않는다(두 번 시도한 뒤에도).
         assertThat(user.getLastLoginAt()).isNull();
     }
 
