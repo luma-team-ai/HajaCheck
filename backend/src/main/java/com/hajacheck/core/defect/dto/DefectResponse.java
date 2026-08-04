@@ -34,6 +34,13 @@ import java.time.LocalDateTime;
  * 이름이다. 신규 컬럼이 아니라 팀 결정으로 기존 Facility 필드를 재사용한 값이라 defects 테이블과
  * 무관하다. actionAssigneeName과 동일하게 Long id만 엔티티에 있으므로 서비스 계층에서 조회해
  * {@link #from(Defect, String, String)}로 채운다 — 목록({@link #from(Defect)})은 N+1 방지를 위해 조회하지 않는다.
+ *
+ * <p>groupSize/groupStatus(이미지 단위 보수 작업 v0.2, #1456)는 신규 저장 컬럼이 아니라 조치 등록
+ * ({@code PATCH /api/defects/{id}/action}) 응답에서만 계산돼 채워지는 값이다 — 같은
+ * inspection_id+media_id로 확정된(CONFIRMED 이상) 비삭제 하자 그룹의 크기와, 그 그룹 전체를
+ * 대상으로 집계한 상태(전체 RESOLVED→RESOLVED, 일부 진행 이상→IN_PROGRESS, 그 외 CONFIRMED)다.
+ * 목록/상세 등 다른 조회 경로는 계산하지 않고 null로 남긴다({@link #from(Defect)} 등 기존 팩토리는
+ * 변경 없음, {@link #withGroupSummary(int, DefectStatus)}로만 채운다).
  */
 public record DefectResponse(
         Long id,
@@ -63,7 +70,9 @@ public record DefectResponse(
         LocalDate actionDate,
         Long actionAssigneeId,
         String actionAssigneeName,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        Integer groupSize,
+        DefectStatus groupStatus
 ) {
     public static DefectResponse from(Defect defect) {
         return from(defect, null, null);
@@ -103,7 +112,17 @@ public record DefectResponse(
                 defect.getActionDate(),
                 defect.getActionAssigneeId(),
                 actionAssigneeName,
-                defect.getCreatedAt()
+                defect.getCreatedAt(),
+                null,
+                null
         );
+    }
+
+    public DefectResponse withGroupSummary(int groupSize, DefectStatus groupStatus) {
+        return new DefectResponse(
+                id, inspectionId, facilityId, facilityName, facilityType, location, assigneeName, foundCycle,
+                type, typeLabel, grade, status, confidence, reviewed, bboxX, bboxY, bboxW, bboxH,
+                crackWidthMm, crackLengthMm, imageUrl, previousDefectId, actionPhotoUrl, actionContent,
+                actionDate, actionAssigneeId, actionAssigneeName, createdAt, groupSize, groupStatus);
     }
 }
