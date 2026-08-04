@@ -51,4 +51,31 @@ describe('InspectionCycleStepper', () => {
     expect(screen.getByRole('button', { name: '1년' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('button', { name: '3개월' }).getAttribute('aria-pressed')).toBe('false');
   });
+
+  // #1507/HAJA-659 — PRD 스펙(≤120개월)·백엔드 검증(@Max(120))과 일치하는지 회귀 고정.
+  it('최댓값(120)에서는 + 버튼이 비활성화된다', () => {
+    const onChange = vi.fn();
+    render(<InspectionCycleStepper months={120} onChange={onChange} />);
+
+    const incrementButton = screen.getByLabelText('주기 1개월 증가') as HTMLButtonElement;
+    expect(incrementButton.disabled).toBe(true);
+  });
+
+  it('119에서 + 버튼을 누르면 120까지 증가한다(60에서 막히지 않는다)', () => {
+    const onChange = vi.fn();
+    render(<InspectionCycleStepper months={119} onChange={onChange} />);
+
+    fireEvent.click(screen.getByLabelText('주기 1개월 증가'));
+
+    expect(onChange).toHaveBeenCalledWith(120);
+  });
+
+  it('직접 입력으로 120을 초과한 값을 넣으면 120으로 clamp된다', () => {
+    const onChange = vi.fn();
+    render(<InspectionCycleStepper months={100} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText('점검 주기(개월)'), { target: { value: '150' } });
+
+    expect(onChange).toHaveBeenCalledWith(120);
+  });
 });
