@@ -240,7 +240,9 @@ describe("ReportContentEditor", () => {
     );
 
     screen.getAllByRole("img").forEach((img) => fireEvent.load(img));
-    expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(10);
+    // "전체" 탭도 등급 필터와 동일하게 카드 자신의 하자 하나로만 스코프한다(#1499) —
+    // 페이지당 카드 2장 × 카드별 박스 1개.
+    expect(container.querySelectorAll(BOX_SELECTOR)).toHaveLength(2);
 
     for (const filterGrade of grades) {
       fireEvent.click(
