@@ -322,7 +322,7 @@ class FacilityControllerTest extends PostgresTestSupport {
 
     private FacilityCreateRequest createRequestWith(Integer builtYear, Integer inspectionCycleMonths) {
         return new FacilityCreateRequest(
-                "검증빌딩", "BUILDING", null, null, null, builtYear, null, inspectionCycleMonths, null,
+                "검증빌딩", "BUILDING", "서울시 강남구", null, null, builtYear, null, inspectionCycleMonths, null,
                 null, null, null);
     }
 
@@ -344,7 +344,7 @@ class FacilityControllerTest extends PostgresTestSupport {
     void 시설물등록_초기등급메모포함_201_응답에반영() throws Exception {
         User owner = saveUser("owner11@haja.com");
         FacilityCreateRequest request = new FacilityCreateRequest(
-                "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
+                "테스트빌딩", "BUILDING", "서울시 강남구", null, null, null, null, null, null,
                 FacilityInitialGrade.C, null, "1층 로비 CCTV 점검 필요");
 
         mockMvc.perform(post("/api/facilities")
@@ -363,7 +363,7 @@ class FacilityControllerTest extends PostgresTestSupport {
         User owner = saveUser("owner13@haja.com");
         User notAssignable = saveUser("stranger2@haja.com");
         FacilityCreateRequest request = new FacilityCreateRequest(
-                "테스트빌딩", "BUILDING", null, null, null, null, null, null, null,
+                "테스트빌딩", "BUILDING", "서울시 강남구", null, null, null, null, null, null,
                 null, notAssignable.getId(), null);
 
         mockMvc.perform(post("/api/facilities")
