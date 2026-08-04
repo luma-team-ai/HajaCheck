@@ -968,9 +968,9 @@ describe('ReportGeneratePage', () => {
     expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
   });
 
-  // 임시저장 직후 dirty=false로 꺼지고, PATCH 목 핸들러(138~141행)가 실제 백엔드처럼
-  // groundingCheckPassed를 null로 리셋한다 — 예전엔 이 두 조건이 모두 거짓이 되어 "작성자 확인"이
-  // 다시 "AI 분류"로 되돌아갔다. hasEverEdited로 저장 후에도 유지되는지 검증한다.
+  // Step B("작성자 확인")는 hasContent 하나로만 결정되므로 임시저장으로 dirty=false가 되어도
+  // 서버가 groundingCheckPassed를 null로 리셋해도 activetation 상태가 흔들리지 않는다.
+  // (이전 구현의 hasEverEdited 의존성을 제거하고 단순화한 회귀 시나리오)
   it('편집 후 임시저장해도 작성자 확인 단계가 AI 분류로 되돌아가지 않는다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');

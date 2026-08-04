@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReportContent } from "../types";
 import { mockReportDetailResponse } from "../mocks/reportDetail.mock";
-import { exportReportToPdf } from "./exportReportToPdf";
+import { exportReportToPdf, normalizeGradeInText } from "./exportReportToPdf";
 
 const mockOutput = vi.fn().mockReturnValue(new Blob(["fake-pdf-bytes"]));
 const mockAddFileToVFS = vi.fn();
@@ -224,9 +224,8 @@ describe("exportReportToPdf", () => {
       JSON.stringify(candidate.body).includes("중대한 결함 등"),
     );
     expect(options?.body).toEqual([
-      // C등급뿐이라 중대한 결함은 없음, 공중이용부위는 판정 근거가 없어 빈칸.
+      // C등급뿐이라 중대한 결함은 없음, 공중이용부위는 미입력이라 행 자체를 생략한다.
       ["중대한 결함 등", "없음"],
-      ["공중이 이용하는\n부위의 결함", "-"],
       // 목록 표기는 문서 전체가 `ㆍ` 하나로 통일된다(`-`/`1)`/`//` 혼용 금지).
       [
         "점검 주요결과",
@@ -252,6 +251,35 @@ describe("exportReportToPdf", () => {
       ]),
     );
   });
+
+  it("공중이 이용하는 부위의 결함이 미입력이면 해당 행을 렌더링하지 않는다", async () => {
+    const content = makeContent();
+
+    // undefined인 경우
+    await exportReportToPdf({
+      ...content,
+      overview: { ...content.overview, public_use_area_defect: undefined },
+    });
+
+    const optionsUndefined = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    const bodyUndefined = JSON.stringify(optionsUndefined?.body ?? []);
+    expect(bodyUndefined).not.toContain("공중이 이용하는");
+
+    // 공백만 있는 경우
+    await exportReportToPdf({
+      ...content,
+      overview: { ...content.overview, public_use_area_defect: "   " },
+    });
+
+    const optionsBlank = findTableOptions((candidate) =>
+      JSON.stringify(candidate.body).includes("중대한 결함 등"),
+    );
+    const bodyBlank = JSON.stringify(optionsBlank?.body ?? []);
+    expect(bodyBlank).not.toContain("공중이 이용하는");
+  });
+
 
   it("결과 요약은 소절 없이 `책임기술자 종합의견` 표 하나로 렌더링하고 하단에 서명란을 붙인다", async () => {
     await exportReportToPdf(makeContent(), {
@@ -925,5 +953,39 @@ describe("exportReportToPdf", () => {
     expect(options?.body).toEqual([
       ["1층 벽체", "보수", "중", "관련 근거 없음 (미검증)"],
     ]);
+  });
+});
+
+// normalizeGradeInText 정규식 범위를 고정한다.
+// 이 테스트가 없으면 [A-E] 범위가 [A-Z]로 복귀하거나 [A-D]로 축소돼도 감지되지 않는다.
+describe("normalizeGradeInText", () => {
+  it("(등급 X) 표기를 소문자 단일 글자 (x) 로 정규화한다", () => {
+    expect(normalizeGradeInText("(등급 A)")).toBe(" (a)");
+    expect(normalizeGradeInText("(등급 C)")).toBe(" (c)");
+    expect(normalizeGradeInText("(등급 E)")).toBe(" (e)");
+  });
+
+  it("(X등급) 표기를 소문자 단일 글자 (x) 로 정규화한다", () => {
+    expect(normalizeGradeInText("(A등급)")).toBe(" (a)");
+    expect(normalizeGradeInText("(E등급)")).toBe(" (e)");
+  });
+
+  it("독립 (X) 표기를 소문자로 정규화한다 — 모든 하자 등급 A~E를 커버한다", () => {
+    for (const grade of ["A", "B", "C", "D", "E"]) {
+      expect(normalizeGradeInText(`(${grade})`)).toBe(` (${grade.toLowerCase()})`);
+    }
+  });
+
+  it("등급 범위 밖의 대문자 괄호 표기 (F), (X), (Z) 는 변환하지 않는다", () => {
+    expect(normalizeGradeInText("(F)")).toBe("(F)");
+    expect(normalizeGradeInText("(X)")).toBe("(X)");
+    expect(normalizeGradeInText("(Z)")).toBe("(Z)");
+  });
+
+  it("이미 소문자인 (a)~(e)는 그대로 유지한다", () => {
+    for (const grade of ["a", "b", "c", "d", "e"]) {
+      const input = ` (${grade})`;
+      expect(normalizeGradeInText(input)).toBe(input);
+    }
   });
 });
