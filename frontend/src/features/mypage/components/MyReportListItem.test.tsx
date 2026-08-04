@@ -68,4 +68,44 @@ describe('MyReportListItem', () => {
     expect(button).toHaveProperty('disabled', true);
     expect(button.getAttribute('title')).toBe('다운로드 가능한 PDF가 없습니다');
   });
+
+  // 레거시 pdfUrl(프로토콜 없는 "localhost:8080/..." 포맷, #1186/#1235)도 정규화를 거쳐
+  // 같은 origin의 /api 경로로 fetch해야 한다 — code-reviewer P2 픽스(#1464).
+  it('레거시 localhost 포맷 pdfUrl은 정규화된 경로로 fetch해 다운로드한다', async () => {
+    let requestedPath: string | null = null;
+    server.use(
+      http.get('/api/reports/1/pdf/legacy.pdf', ({ request }) => {
+        requestedPath = new URL(request.url).pathname;
+        return HttpResponse.arrayBuffer(new ArrayBuffer(8));
+      }),
+    );
+    const createObjectURLSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:http://localhost/fake');
+    const revokeObjectURLSpy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+
+    renderItem({ ...baseReport, pdfUrl: 'localhost:8080/api/reports/1/pdf/legacy.pdf' });
+
+    fireEvent.click(screen.getByRole('button', { name: /다운로드/ }));
+
+    await waitFor(() => {
+      expect(requestedPath).toBe('/api/reports/1/pdf/legacy.pdf');
+    });
+
+    createObjectURLSpy.mockRestore();
+    revokeObjectURLSpy.mockRestore();
+  });
+
+  // 다운로드 fetch가 실패하면(네트워크 오류·non-2xx) 조용히 무시하지 않고 AlertModal로
+  // 사용자에게 실패를 알려야 한다 — code-reviewer P2 픽스(#1464).
+  it('다운로드 fetch가 실패하면 AlertModal로 실패를 알린다', async () => {
+    server.use(http.get('/api/reports/1/pdf/mock.pdf', () => HttpResponse.error()));
+
+    renderItem(baseReport);
+
+    fireEvent.click(screen.getByRole('button', { name: /다운로드/ }));
+
+    expect(
+      await screen.findByText('PDF 다운로드에 실패했습니다. 잠시 후 다시 시도해주세요.'),
+    ).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '다운로드 실패' })).toBeTruthy();
+  });
 });
