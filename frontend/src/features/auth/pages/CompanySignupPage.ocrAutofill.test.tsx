@@ -125,7 +125,7 @@ describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () =
     );
   });
 
-  it('이미 입력된 필드는 OCR 결과로 덮어쓰지 않고, 빈 필드만 채운다', async () => {
+  it('이미 입력된 필드도 OCR 결과가 있으면 덮어쓴다(#1468)', async () => {
     renderPage();
 
     fireEvent.change(screen.getByLabelText('사업자등록번호'), { target: { value: '9999999999' } });
@@ -134,12 +134,14 @@ describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () =
     await waitFor(() => {
       expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
     });
-    // 사용자가 이미 입력한 사업자등록번호는 OCR 응답으로 덮어써지지 않는다.
-    expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe('9999999999');
+    // 사업자등록증은 원본 증빙이므로 수기 입력값이라도 OCR 인식값으로 갱신된다(#1468).
+    expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+      MOCK_OCR_BUSINESS_NUMBER,
+    );
   });
 
-  // #600 — 개업일자도 기존 3필드와 동일한 "빈 필드만 채움" 규칙을 따라야 한다.
-  it('이미 입력된 개업일자는 OCR 결과로 덮어쓰지 않는다(#600)', async () => {
+  // #600, #1468로 정책 전환 — 개업일자도 다른 3필드와 동일하게 수기 입력 여부와 무관하게 갱신된다.
+  it('이미 입력된 개업일자도 OCR 결과가 있으면 덮어쓴다(#1468)', async () => {
     renderPage();
 
     fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: '2020-01-01' } });
@@ -148,7 +150,9 @@ describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () =
     await waitFor(() => {
       expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
     });
-    expect((screen.getByLabelText('개업일자') as HTMLInputElement).value).toBe('2020-01-01');
+    expect((screen.getByLabelText('개업일자') as HTMLInputElement).value).toBe(
+      MOCK_OCR_BUSINESS_START_DATE,
+    );
   });
 
   // #600 — OCR이 개업일자를 인식하지 못해 null을 주면 다른 필드는 채워지되 개업일자는
@@ -349,6 +353,34 @@ describe('CompanySignupPage — 사업자등록증 OCR 자동채움(#587)', () =
     );
     expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
   });
+
+  // #1468 재현 시나리오 — 수기로 4필드를 모두 먼저 채운 뒤 이미지를 업로드하면, 기존 정책(#587)
+  // 에서는 "인식된 정보가 없어요"로 떠서 OCR이 실패한 것처럼 보였다. 새 정책에서는 4필드 모두
+  // OCR 값으로 갱신되고 성공 피드백이 떠야 한다.
+  it('수기로 4필드를 모두 입력한 뒤 이미지를 업로드하면 4필드가 모두 OCR 값으로 갱신된다(#1468)', async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText('사업자등록번호'), { target: { value: '9999999999' } });
+    fireEvent.change(screen.getByLabelText('상호명'), { target: { value: '수기입력상호' } });
+    fireEvent.change(screen.getByLabelText('대표자명'), { target: { value: '수기입력대표' } });
+    fireEvent.change(screen.getByLabelText('개업일자'), { target: { value: '2020-01-01' } });
+
+    fireEvent.change(screen.getByLabelText('사업자등록증'), { target: { files: [pngFile()] } });
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+        MOCK_OCR_BUSINESS_NUMBER,
+      );
+    });
+    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
+    expect((screen.getByLabelText('대표자명') as HTMLInputElement).value).toBe(
+      MOCK_OCR_REPRESENTATIVE_NAME,
+    );
+    expect((screen.getByLabelText('개업일자') as HTMLInputElement).value).toBe(
+      MOCK_OCR_BUSINESS_START_DATE,
+    );
+    expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
+  });
 });
 
 describe('CompanySignupPage — OCR 결과 피드백·자동채움 배지(#748)', () => {
@@ -460,7 +492,7 @@ describe('CompanySignupPage — OCR 결과 피드백·자동채움 배지(#748)'
     expect(screen.getAllByText('자동인식')).toHaveLength(3);
   });
 
-  it('이미 값이 채워진 필드는 OCR로 새로 채워지지 않으므로 배지가 붙지 않는다', async () => {
+  it('이미 값이 채워진 필드도 OCR 결과가 있으면 갱신되어 배지가 붙는다(#1468)', async () => {
     renderPage();
 
     fireEvent.change(screen.getByLabelText('사업자등록번호'), { target: { value: '9999999999' } });
@@ -471,14 +503,18 @@ describe('CompanySignupPage — OCR 결과 피드백·자동채움 배지(#748)'
         MOCK_OCR_COMPANY_NAME,
       );
     });
-    // 4필드 중 사용자가 이미 입력한 사업자등록번호를 제외한 3필드만 자동채움됐다.
-    expect(screen.getAllByText('자동인식')).toHaveLength(3);
-    expect(screen.getByText('✓ 3개 항목이 자동입력됐어요')).not.toBeNull();
+    // 수기로 미리 입력했던 사업자등록번호도 OCR 값으로 갱신되며 4필드 모두 배지가 붙는다(#1468).
+    expect((screen.getByLabelText('사업자등록번호') as HTMLInputElement).value).toBe(
+      MOCK_OCR_BUSINESS_NUMBER,
+    );
+    expect(screen.getAllByText('자동인식')).toHaveLength(4);
+    expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
   });
 
   // 리뷰어 P2 픽스 — OCR 왕복(수백 ms+) 동안 사용자가 필드를 수정하면, 판정(배지·카운트)이
-  // "파일 선택 시점"이 아니라 "응답 도착 시점의 실제 write 결과"를 따라가야 한다.
-  it('OCR 진행 중 빈 필드에 사용자가 직접 입력하면, 응답 도착 후에도 사용자 값이 유지되고 배지가 붙지 않는다(P2)', async () => {
+  // "파일 선택 시점"이 아니라 "응답 도착 시점의 실제 write 결과"를 따라가야 한다. #1468 정책
+  // 전환으로 응답 도착 시점에 사용자가 입력해 둔 값이라도 OCR 값이 있으면 갱신된다.
+  it('OCR 진행 중 빈 필드에 사용자가 직접 입력해도, 응답 도착 시 OCR 값으로 갱신되고 배지가 붙는다(#1468)', async () => {
     server.use(
       http.post('/api/auth/business-license/ocr', async () => {
         await new Promise((resolve) => setTimeout(resolve, 50));
@@ -513,11 +549,11 @@ describe('CompanySignupPage — OCR 결과 피드백·자동채움 배지(#748)'
       );
     });
 
-    // 상호명은 응답 도착 시점에 이미 사용자 입력값이 있었으므로 OCR값으로 덮어써지지 않는다
-    // (functional updater가 응답 시점의 최신 prev를 본다) — 그리고 배지도 붙지 않아야 한다.
-    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe('사용자입력상호');
-    expect(screen.getAllByText('자동인식')).toHaveLength(3); // 사업자등록번호·대표자명·개업일자만
-    expect(screen.getByText('✓ 3개 항목이 자동입력됐어요')).not.toBeNull();
+    // 응답 도착 시점에 사용자 입력값이 있었더라도 OCR 값이 있으면 갱신된다(#1468) — 4필드 모두
+    // 자동인식 배지가 붙는다.
+    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(MOCK_OCR_COMPANY_NAME);
+    expect(screen.getAllByText('자동인식')).toHaveLength(4);
+    expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
   });
 
   it('OCR 진행 중 이미 값이 있던 필드를 사용자가 비우면, 응답 도착 시 그 필드도 자동채움되고 배지가 붙는다(P2)', async () => {
@@ -563,9 +599,10 @@ describe('CompanySignupPage — OCR 결과 피드백·자동채움 배지(#748)'
   });
 });
 
-// 이미지 교체 시 OCR 자동인식 값 갱신(#879) — "빈 필드만 채운다"였던 규칙을 "OCR이 채운
-// 필드(autoFilledFields)는 새 OCR 결과로 갱신한다"로 확장. 사용자가 직접 수정한 값은
-// 여전히 절대 덮어쓰지 않는다.
+// 이미지 교체 시 OCR 자동인식 값 갱신(#879, #1468로 정책 재확장) — "빈 필드만 채운다"였던
+// 규칙을 "OCR이 채운 필드(autoFilledFields)는 새 OCR 결과로 갱신한다"로 확장(#879)했다가,
+// #1468에서 다시 "OCR이 값을 준 필드는 수기 입력·직접 수정 여부와 무관하게 항상 갱신"으로
+// 넓혔다(사업자등록증은 원본 증빙이므로 인식값이 신뢰값).
 describe('CompanySignupPage — 이미지 교체 시 OCR 자동인식 값 갱신(#879)', () => {
   const REFILL_BUSINESS_NUMBER = '2223334445';
   const REFILL_COMPANY_NAME = '(주)교체후상호';
@@ -639,7 +676,7 @@ describe('CompanySignupPage — 이미지 교체 시 OCR 자동인식 값 갱신
     expect(screen.getByText('✓ 4개 항목이 자동입력됐어요')).not.toBeNull();
   });
 
-  it('사용자가 직접 수정한 필드는 이미지 B 업로드 후에도 그대로 유지된다', async () => {
+  it('사용자가 직접 수정한 필드도 이미지 B 업로드 후에는 B의 OCR 값으로 갱신된다(#1468)', async () => {
     mockSequentialOcrResponses(
       {
         businessRegistrationNumber: MOCK_OCR_BUSINESS_NUMBER,
@@ -665,7 +702,8 @@ describe('CompanySignupPage — 이미지 교체 시 OCR 자동인식 값 갱신
       );
     });
 
-    // 사용자가 상호명을 직접 수정 — 배지가 사라지고, 이후 이미지 교체로도 덮어써지면 안 된다.
+    // 사용자가 상호명을 직접 수정 — 배지는 일시적으로 사라지지만, #1468 정책에서는 이후 이미지
+    // 교체 시 B의 OCR 값으로 다시 갱신되고 배지도 다시 붙는다.
     fireEvent.change(screen.getByLabelText('상호명'), { target: { value: '사용자가 고친 상호명' } });
     expect(screen.getAllByText('자동인식')).toHaveLength(3);
 
@@ -676,9 +714,9 @@ describe('CompanySignupPage — 이미지 교체 시 OCR 자동인식 값 갱신
       );
     });
 
-    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe('사용자가 고친 상호명');
-    // 갱신된 3필드(브랜드·대표자명·개업일자)만 배지 유지, 상호명은 여전히 배지 없음.
-    expect(screen.getAllByText('자동인식')).toHaveLength(3);
+    expect((screen.getByLabelText('상호명') as HTMLInputElement).value).toBe(REFILL_COMPANY_NAME);
+    // 4필드 모두 B의 OCR 값으로 갱신되며 배지가 다시 붙는다(상호명 포함).
+    expect(screen.getAllByText('자동인식')).toHaveLength(4);
   });
 
   it('갱신으로 진위확인 대상 필드 값이 바뀌면 진위확인 결과가 무효화된다', async () => {

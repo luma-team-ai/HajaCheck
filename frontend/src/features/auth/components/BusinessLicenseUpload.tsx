@@ -236,8 +236,8 @@ export function BusinessLicenseUpload({
 
       <p className="m-0 text-xs text-text-muted">
         JPG, PNG 파일은 업로드 시 사업자등록번호·상호명·대표자명·개업일자가 자동으로
-        채워집니다(자동채움 후에도 직접 수정 가능). PDF는 자동인식을 지원하지 않아 아래 항목을
-        직접 입력해 주세요.
+        채워집니다. 직접 입력한 값도 업로드 시 자동인식 값으로 갱신됩니다(자동채움 후에도 직접
+        수정 가능). PDF는 자동인식을 지원하지 않아 아래 항목을 직접 입력해 주세요.
       </p>
 
       {isLightboxOpen && previewUrl && (
