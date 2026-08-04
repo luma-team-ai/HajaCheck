@@ -875,6 +875,33 @@ class DefectServiceTest {
     }
 
     @Test
+    void updateStatus_동일상태그룹에사유있는건너뛰기_anchor만전이된다() {
+        // #1583 (b)안의 의도된 팬아웃 축소를 고정한다 — 그룹 전원이 CONFIRMED인 사진에서 "다른 상태로
+        // 변경 → 조치완료(사유 기재)"를 하면, dev에서는 형제도 함께 RESOLVED가 됐지만 이제 anchor만
+        // 전이된다(형제는 목표 기준 두 단계 뒤처짐). 조치 기록(actionContent) 없는 형제를 완료 처리하지
+        // 않는 것이 #1583의 취지이므로 의도된 동작이다 — "그룹 팬아웃이 안 먹는 버그"로 오인해
+        // 되돌리지 말 것.
+        Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect sibling = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(sibling, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(sibling, anchor));
+
+        DefectResponse response = defectService.updateStatus(
+                USER_ID, COMPANY_ID, 10L, DefectStatus.RESOLVED, "현장 재확인 결과 조치 완료로 정정");
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(sibling.getStatus()).isEqualTo(DefectStatus.CONFIRMED); // 함께 완료되지 않는다
+        assertThat(sibling.getActionContent()).isNull(); // 조치 기록 없는 채 완료 처리되지 않았음
+        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+        assertThat(response.groupSize()).isEqualTo(2);
+    }
+
+    @Test
     void registerActionResult_updateStatus의그룹스킵규칙에영향받지않는다() {
         // #1583 무회귀 확인 — 스킵 규칙은 updateStatus 전용이다. registerActionResult는 그룹 전원에게
         // 조치 결과를 그대로 반영하며, 뒤처진 멤버(CONFIRMED)를 RESOLVED로 미는 건너뛰기 전이는

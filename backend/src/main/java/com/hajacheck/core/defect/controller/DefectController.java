@@ -73,8 +73,11 @@ public class DefectController {
                     + "조치완료(RESOLVED)에서의 이탈도 같은 규칙을 따른다 — 정방향 다음 단계가 없으므로 "
                     + "항상 사유가 필요하고, 사유가 있으면 되돌릴 수 있다(#1556). 현재 상태와 동일한 상태를 "
                     + "요청하면 409(INVALID_STATE_TRANSITION)로 거부된다. "
-                    + "같은 사진(mediaId)의 하자들은 한 그룹으로 함께 전이되지만, 이미 목표 상태이거나 "
-                    + "목표보다 앞서 있거나 두 단계 이상 뒤처진 멤버는 건드리지 않는다(#1583)")
+                    + "신규(DETECTED)에서 벗어나려면 등급이 먼저 확정돼 있어야 한다(없으면 400 INVALID_INPUT, #1397). "
+                    + "같은 사진(mediaId)의 하자들은 한 그룹으로 함께 전이된다 — 단 앞으로 진행시키는 요청에서는 "
+                    + "정방향 한 단계로 따라올 수 있는 멤버만 전이되고, 이미 목표 상태이거나 목표보다 앞서 있거나 "
+                    + "두 단계 이상 뒤처진 멤버는 건드리지 않는다(#1583). 반대로 되돌리는 요청은 앞선 멤버도 함께 "
+                    + "되돌린다(이미 목표 상태인 멤버는 제외, #1556)")
     @PatchMapping("/{id}/status")
     public ResponseEntity<ApiResponse<DefectResponse>> updateStatus(
             @AuthenticationPrincipal LoginUser loginUser,
