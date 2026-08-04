@@ -32,6 +32,11 @@ public enum ErrorCode {
     AUTH_INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "아이디 또는 비밀번호가 올바르지 않습니다."),
     // 정지 계정 명시 응답용(예약) — 로그인 경로는 위 통일 정책을 따른다.
     AUTH_ACCOUNT_SUSPENDED(HttpStatus.FORBIDDEN, "정지된 계정입니다."),
+    // 화면(포털)별 로그인 엔드포인트의 role 화이트리스트 불일치(#1514) — 자격증명은 맞지만 그 화면으로는
+    // 로그인할 수 없는 계정. 위 "로그인 실패 401 통일"의 의도된 예외다: 여기 도달하려면 이미 올바른
+    // 비밀번호를 알아야 하므로 계정 열거 단서로서의 실익이 없고, 잘못된 탭에 입력한 사용자에게
+    // "비밀번호가 올바르지 않습니다"로 오안내하지 않는 UX를 택했다(#1514 설계 결정).
+    AUTH_ROLE_NOT_ALLOWED(HttpStatus.FORBIDDEN, "이 화면으로는 로그인할 수 없는 계정입니다."),
 
     // 기업 인증(회원가입·아이디/비밀번호 찾기) — 검증 실패는 절대 401 금지(400/404/409만).
     AUTH_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
