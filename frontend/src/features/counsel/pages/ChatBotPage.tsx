@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import chetRobotIcon from '../../../assets/brand/chet-robot.svg';
 import { ChatAvatar } from '../../../shared/components/ChatAvatar/ChatAvatar';
 import { ChatInputBox } from '../../../shared/components/ChatInputBox/ChatInputBox';
+import { ChatSystemMessage } from '../../../shared/components/ChatSystemMessage/ChatSystemMessage';
 import { TypingIndicatorBubble } from '../../../shared/components/TypingIndicatorBubble/TypingIndicatorBubble';
 import { MessageBubble } from '../components/ConversationPanel';
 import type { ChatBotLogEntry } from '../hooks/useChatBot';
@@ -29,6 +30,7 @@ export function ChatBotPage() {
     retry,
     activeTicket,
     messages,
+    systemNotices,
     sendMessage,
     sendTyping,
     counselorTyping,
@@ -41,7 +43,7 @@ export function ChatBotPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     bottomRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
-  }, [log, loading, connecting, error, messages, counselorTyping]);
+  }, [log, loading, connecting, error, messages, counselorTyping, systemNotices]);
 
   const [draft, setDraft] = useState('');
   function handleSend() {
@@ -110,8 +112,16 @@ export function ChatBotPage() {
             {/* 상담원 연결 후 실시간 대화(#1000 후속) — 이전엔 "내 상담 이력에서 확인하기" 링크로
                 다른 페이지로 보냈으나, 이미 연결된 상담을 그 자리에서 이어갈 수 있어야 한다는
                 피드백에 따라 챗봇 로그 바로 아래에서 실제 메시지를 주고받는다. */}
+            {/* #1506 — 배정은 항상 실시간 대화 시작 전에, 종료는 항상 대화가 끝난 뒤에 일어나므로
+                별도 타임스탬프 병합 없이 kind로 순서를 고정한다. */}
+            {systemNotices
+              .filter((notice) => notice.kind === 'assigned')
+              .map((notice) => <ChatSystemMessage key={notice.id} text={notice.text} />)}
             {activeTicket && messages.map((message) => <MessageBubble key={message.id} message={message} />)}
             {counselorTyping && <TypingIndicatorBubble />}
+            {systemNotices
+              .filter((notice) => notice.kind === 'ended')
+              .map((notice) => <ChatSystemMessage key={notice.id} text={notice.text} tone="ended" />)}
           </div>
 
           {error && (
