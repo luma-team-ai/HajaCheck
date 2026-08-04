@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Defect } from '../../../inspection/types';
 import { isDrawableBbox } from '../../../inspection/utils/isDrawableBbox';
 
@@ -32,11 +32,20 @@ interface DefectPhotoProps {
 export function DefectPhoto({ group, imageClassName = '', alt, fallback }: DefectPhotoProps) {
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   // 그룹이 바뀌면(페이지 이동·필터 변경) 이전 로드/실패 상태를 물고 있지 않도록 재동기화한다.
   useEffect(() => {
     setFailed(false);
     setLoaded(false);
+  }, [group.imageUrl]);
+
+  // 브라우저 캐시 등으로 컴포넌트 마운트 전 이미지가 이미 로드 완료(complete)되었을 때
+  // onLoad 이벤트가 누락되는 현상 방지
+  useEffect(() => {
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      setLoaded(true);
+    }
   }, [group.imageUrl]);
 
   if (!group.imageUrl || failed) {
@@ -56,8 +65,9 @@ export function DefectPhoto({ group, imageClassName = '', alt, fallback }: Defec
           이미지 로딩 중
         </div>
       )}
-      <div className={loaded ? 'relative w-fit max-w-full' : 'pointer-events-none absolute inset-0 h-0 w-0 overflow-hidden opacity-0'}>
+      <div className={loaded ? 'relative w-fit max-w-full' : 'pointer-events-none absolute inset-0 -z-10 opacity-0'}>
       <img
+        ref={imgRef}
         src={group.imageUrl}
         alt={alt}
         onLoad={() => setLoaded(true)}
