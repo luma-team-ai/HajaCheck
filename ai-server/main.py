@@ -8,6 +8,15 @@ from fastapi import FastAPI
 
 load_dotenv()
 
+from ai.core.langsmith_pii_scrub import install_pii_scrub_anonymizer  # noqa: E402
+
+# LangSmith 트레이스 PII 정규식 스크럽(#1585) — 첫 트레이스가 만들어지기 전에 anonymizer를
+# 선점 설치해야 효과가 있다. 라우터(체인 임포트로 이어짐) 임포트보다 반드시 먼저 호출한다.
+# 여기서 try/except로 감싸지 않는 이유 — 함수 자체가 내부에서 모든 예외를 삼키고
+# logger.exception만 남기는 fail-safe 계약이다(설치 실패가 앱 기동을 막으면 안 된다).
+# 그 계약은 test_langsmith_pii_scrub.py의 install fail-safe 테스트가 고정한다.
+install_pii_scrub_anonymizer()
+
 from routers.ai_router import router as ai_router  # noqa: E402 — load_dotenv() 이후 임포트 필요
 from routers.nl_search_router import router as nl_search_router  # noqa: E402
 
