@@ -107,6 +107,17 @@ def _get_yolo_world_model():
     return model
 
 
+def warmup_card_model() -> None:
+    """카드 검출 모델을 기동 시 미리 로드한다 — main.py `_load_defect_models_sync` 전용(#1547).
+
+    `_get_yolo_world_model()`은 `@lru_cache`라 최초 호출이 가중치 다운로드(24.7MB)와
+    `set_classes()`의 CLIP ViT-B/32 로드(338MB)를 그대로 떠안는다. 하자 탐지 모델 3종을
+    워밍업하는 이유(#701)와 동일하게, 첫 균열 탐지 요청이 이 비용을 물지 않도록 미리 끝내둔다.
+    (모듈 비공개 로더를 main.py가 직접 부르지 않도록 공개 진입점을 둔다.)
+    """
+    _get_yolo_world_model()
+
+
 def _attempt_detection(model, img: "np.ndarray", img_area: float, conf_min: float, min_side: float) -> dict | None:
     """YOLO-World로 카드 검출 시도."""
     import cv2
