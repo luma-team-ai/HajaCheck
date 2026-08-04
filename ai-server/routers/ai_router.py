@@ -465,9 +465,17 @@ def rag_documents_delete(doc_id: str, target_collection: str) -> AIResponse:
     DB 로우·원본 파일을 지우기 전에 먼저 호출한다. delete_document()는 chromadb {@code where} 삭제라
     doc_id에 매치되는 청크가 없어도(이미 삭제됐거나 애초에 없던 경우) 에러 없이 조용히 성공한다 —
     Spring이 실패 후 재시도해도 여러 번 안전하게 수렴하는 idempotent 엔드포인트다.
+
+    ⚠️ 삭제도 `document_ingest_lock(doc_id)`으로 감싼다(#1412 P2) — 재임베딩 배경 태스크
+    (`_run_ingest_background`)가 같은 락 안에서 ingest_document()+delete_stale_chunks()를 수행하는데,
+    삭제만 락 밖에서 돌면 "삭제가 현재 청크를 지운 직후 배경 ingest가 새 청크를 다시 써 넣어"
+    DB 로우는 없는데 Chroma에는 doc_id 청크가 남는 고아 청크가 생긴다(챗봇이 삭제된 문서를 근거로
+    답변하는 사용자 노출 오동작). 락을 잡으면 삭제는 진행 중인 재임베딩이 끝난 뒤 실행되어
+    최종 상태가 항상 "청크 0개"로 수렴한다.
     """
     try:
-        delete_document(doc_id, target_collection)
+        with document_ingest_lock(doc_id):
+            delete_document(doc_id, target_collection)
     except ValueError as e:
         # target_collection이 regulations/defect_kb가 아닌 경우 — /ai/rag-documents/embed와 동일 패턴.
         return AIResponse.fail(AIErrorCode.VALIDATION_ERROR, str(e))

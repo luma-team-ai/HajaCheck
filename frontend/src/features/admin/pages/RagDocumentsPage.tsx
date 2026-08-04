@@ -33,6 +33,7 @@ export function RagDocumentsPage() {
     deleteDocument,
     pendingId: deletePendingId,
     error: deleteError,
+    resetError: resetDeleteError,
   } = useDeleteRagDocument();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -40,13 +41,25 @@ export function RagDocumentsPage() {
   // 삭제 확인 대상 — null이면 확인 모달 닫힘(파괴적 액션이라 클릭 즉시 삭제하지 않는다, #1394).
   const [deleteTarget, setDeleteTarget] = useState<RagDocument | null>(null);
 
+  // react-query의 mutation.error는 다음 mutate까지 유지된다 — 모달을 열고 닫을 때마다 초기화하지
+  // 않으면 문서 A의 삭제 실패 에러가 아직 시도도 안 한 문서 B의 모달에 그대로 노출된다(#1412 P2).
+  function openDeleteModal(document: RagDocument) {
+    resetDeleteError();
+    setDeleteTarget(document);
+  }
+
+  function closeDeleteModal() {
+    resetDeleteError();
+    setDeleteTarget(null);
+  }
+
   async function handleConfirmDelete() {
     if (!deleteTarget) {
       return;
     }
     try {
       await deleteDocument(deleteTarget.id);
-      setDeleteTarget(null);
+      closeDeleteModal();
     } catch {
       // 에러는 deleteError로 모달 안에 표시한다 — 모달을 닫지 않아 재시도(idempotent 삭제) 가능.
     }
@@ -130,7 +143,7 @@ export function RagDocumentsPage() {
           // reEmbedError로 표시된다(RagDocumentUploadForm과 동일 패턴, code-review P1).
           onReEmbed={(id) => void reEmbed(id).catch(() => {})}
           reEmbedPendingId={reEmbedPendingId}
-          onDelete={(document) => setDeleteTarget(document)}
+          onDelete={(document) => openDeleteModal(document)}
           deletePendingId={deletePendingId}
         />
 
@@ -154,7 +167,7 @@ export function RagDocumentsPage() {
 
       <Modal
         open={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
+        onClose={closeDeleteModal}
         title="RAG 문서 삭제"
         closeOnOverlayClick={deletePendingId === undefined}
       >
@@ -178,7 +191,7 @@ export function RagDocumentsPage() {
             <Button
               type="button"
               variant="secondary"
-              onClick={() => setDeleteTarget(null)}
+              onClick={closeDeleteModal}
               disabled={deletePendingId !== undefined}
             >
               취소

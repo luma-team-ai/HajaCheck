@@ -8,6 +8,7 @@
 // 클라이언트 검증만 확인하고, 실제 제출 성공 경로는 다루지 않는다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -82,6 +83,44 @@ describe('RagDocumentsPage (통합 테스트)', () => {
 
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(screen.getByText('균열 하자 보수 지침')).toBeTruthy();
+  });
+
+  // #1412 P2 — react-query의 mutation.error는 다음 mutate까지 유지되므로, 모달 열기/닫기에서
+  // resetError()를 호출하지 않으면 문서 A의 삭제 실패 에러가 아직 시도도 안 한 문서 B의 모달에
+  // 그대로 노출된다. (이 케이스도 삭제가 실패해 목록이 변하지 않으므로 비파괴적이다.)
+  it('문서 A 삭제 실패 후 문서 B의 삭제 모달을 열면 이전 에러가 남아 있지 않다', async () => {
+    server.use(
+      http.delete('/api/admin/rag-documents/:id', () =>
+        HttpResponse.json({ message: '삭제에 실패했습니다' }, { status: 500 }),
+      ),
+    );
+    renderPage();
+
+    // 문서 A 삭제 시도 → 실패 에러가 모달에 표시된다.
+    const rowA = (await screen.findByText('균열 하자 보수 지침')).closest('tr');
+    if (!rowA) {
+      throw new Error('문서 행을 찾을 수 없습니다');
+    }
+    fireEvent.click(within(rowA).getByRole('button', { name: '삭제' }));
+    const dialogA = await screen.findByRole('dialog');
+    fireEvent.click(within(dialogA).getByRole('button', { name: '삭제' }));
+    expect(await within(dialogA).findByRole('alert')).toBeTruthy();
+
+    // 취소로 모달을 닫고, 문서 B의 삭제 모달을 연다.
+    fireEvent.click(within(dialogA).getByRole('button', { name: '취소' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    const rowB = screen.getByText('시설물의 안전관리에 관한 특별법').closest('tr');
+    if (!rowB) {
+      throw new Error('문서 행을 찾을 수 없습니다');
+    }
+    fireEvent.click(within(rowB).getByRole('button', { name: '삭제' }));
+    const dialogB = await screen.findByRole('dialog');
+
+    expect(within(dialogB).getByText(/시설물의 안전관리에 관한 특별법/)).toBeTruthy();
+    expect(within(dialogB).queryByRole('alert')).toBeNull();
+
+    fireEvent.click(within(dialogB).getByRole('button', { name: '취소' }));
   });
 
   it('파일을 고르기 전엔 제목 등 메타데이터 입력·제출 버튼이 보이지 않는다(Figma 디자인 — 드롭존만 노출)', async () => {

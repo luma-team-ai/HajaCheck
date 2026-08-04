@@ -3,13 +3,21 @@
 실제 HuggingFace 임베딩 모델/디스크 Chroma를 쓰지 않고 get_vectorstore()만 모킹해 add_texts() 호출
 인자(메타데이터 필드 정확성)를 검증한다(handoff §AI-server 테스트 지시 그대로).
 """
+import threading
+import time
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 
-from ai.core.rag_ingest import delete_document, delete_stale_chunks, ingest_document
+from ai.core.rag_ingest import (
+    delete_document,
+    delete_stale_chunks,
+    document_ingest_lock,
+    ingest_document,
+)
 from ai.core.vectorstore import COLLECTION_DEFECT_KB, COLLECTION_REGULATIONS
 from main import app
+from routers.ai_router import _run_ingest_background
 
 client = TestClient(app)
 
@@ -453,3 +461,101 @@ def test_embedding_status_옛배치와새배치가섞여있으면None(mock_get_v
     )
 
     assert res.json()["data"]["embed_batch_id"] is None
+
+
+# ── 삭제 ↔ 재임베딩 doc_id 락 직렬화 (#1412 P2) ──
+
+def test_delete_endpoint가_재임베딩락_해제까지_대기했다가_실행된다():
+    """재임베딩 배경 태스크가 document_ingest_lock(doc_id)을 보유한 동안 DELETE가 블록되는지 검증.
+
+    락이 없으면 삭제가 재임베딩 중간에 끼어들어 "삭제 → 재임베딩이 새 청크 재삽입"이 되어
+    DB 로우 없이 Chroma에만 남는 고아 청크가 생긴다(#1412). 락을 잡으면 삭제는 항상
+    재임베딩이 끝난 뒤 실행되어 최종 상태가 청크 0개로 수렴한다.
+    """
+    doc_id = "lock-race-1"
+    events: list[str] = []
+    events_guard = threading.Lock()
+    chroma_chunks: set[str] = set()
+
+    ingest_started = threading.Event()
+    ingest_may_finish = threading.Event()
+    delete_called = threading.Event()
+
+    def fake_ingest(*args, **kwargs):
+        # 재임베딩이 청크를 다시 써 넣는 구간(락 안) — 이 사이 삭제가 끼어들면 고아 청크가 남는다.
+        ingest_started.set()
+        ingest_may_finish.wait(timeout=5)
+        chroma_chunks.update({f"{doc_id}_0", f"{doc_id}_1"})
+        with events_guard:
+            events.append("ingest")
+        return 2
+
+    def fake_delete_stale(*args, **kwargs):
+        with events_guard:
+            events.append("delete_stale")
+
+    def fake_delete_document(called_doc_id, collection):
+        delete_called.set()
+        chroma_chunks.clear()
+        with events_guard:
+            events.append("delete")
+
+    with patch("routers.ai_router.ingest_document", side_effect=fake_ingest), \
+            patch("routers.ai_router.delete_stale_chunks", side_effect=fake_delete_stale), \
+            patch("routers.ai_router.delete_document", side_effect=fake_delete_document):
+        reembed = threading.Thread(
+            target=_run_ingest_background,
+            args=(doc_id, "제목", "LAW", "regulations", FLAT_LAW_SAMPLE,
+                  None, None, None, None, 2, "batch-1"),
+        )
+        reembed.start()
+        assert ingest_started.wait(timeout=5), "재임베딩 배경 태스크가 시작되어야 한다"
+
+        responses: list = []
+        deleter = threading.Thread(
+            target=lambda: responses.append(
+                client.delete(f"/ai/rag-documents/{doc_id}?target_collection=regulations")
+            )
+        )
+        deleter.start()
+
+        # 재임베딩이 락을 쥐고 있는 동안에는 삭제가 실행되지 않아야 한다.
+        assert not delete_called.wait(timeout=0.5), "재임베딩 락 보유 중에는 삭제가 블록되어야 한다"
+
+        ingest_may_finish.set()
+        reembed.join(timeout=5)
+        deleter.join(timeout=5)
+
+    assert responses and responses[0].json()["success"] is True
+    # 삭제는 재임베딩(ingest + stale 정리)이 모두 끝난 뒤에 실행된다.
+    assert events == ["ingest", "delete_stale", "delete"]
+    # 최종 상태: 재임베딩이 다시 써 넣은 청크까지 포함해 0개로 수렴(고아 청크 없음).
+    assert chroma_chunks == set()
+
+
+def test_delete_endpoint가_document_ingest_lock을_사용한다():
+    """삭제 경로가 (새 락 메커니즘이 아니라) 재임베딩과 동일한 doc_id 락을 잡는지 직접 확인."""
+    doc_id = "lock-race-2"
+    lock = document_ingest_lock(doc_id)
+    responses: list = []
+
+    with patch("routers.ai_router.delete_document") as mock_delete:
+        lock.acquire()
+        try:
+            deleter = threading.Thread(
+                target=lambda: responses.append(
+                    client.delete(f"/ai/rag-documents/{doc_id}?target_collection=regulations")
+                )
+            )
+            deleter.start()
+            time.sleep(0.3)
+            assert mock_delete.call_count == 0, "동일 doc_id 락 보유 중에는 삭제가 실행되면 안 된다"
+        finally:
+            lock.release()
+        deleter.join(timeout=5)
+
+    assert responses and responses[0].json()["success"] is True
+    mock_delete.assert_called_once_with(doc_id, "regulations")
+    # 락은 반드시 반납되어야 한다(다음 재임베딩/삭제가 영구 블록되지 않도록).
+    assert lock.acquire(timeout=1)
+    lock.release()
