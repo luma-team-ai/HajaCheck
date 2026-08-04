@@ -14,6 +14,10 @@ interface ImageWithFallbackProps {
 // 타이밍이 달라져 성공). 실패 즉시 fallback으로 영구 고정하지 않고, 짧은 지연 후 1회만 재시도한다.
 const RETRY_DELAY_MS = 500;
 
+// #1571 — 500ms 재시도(#1494)만으로는 시설물이 많은 목록(페이지네이션 없이 최대 500건, #1571
+// 이슈 참고)에서 화면 밖 카드까지 전부 즉시 요청을 쏘는 근본 원인을 해결하지 못한다.
+// loading="lazy"로 뷰포트 밖 이미지의 요청 자체를 미뤄 동시 요청 폭주를 줄인다.
+
 export function ImageWithFallback({
   src,
   alt,
@@ -64,6 +68,7 @@ export function ImageWithFallback({
       src={src}
       alt={alt}
       className={className}
+      loading="lazy"
       onError={handleError}
     />
   );

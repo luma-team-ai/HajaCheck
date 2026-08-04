@@ -16,6 +16,15 @@ describe('ImageWithFallback', () => {
     expect(screen.queryByText('사진 없음')).toBeNull();
   });
 
+  // #1571 — 시설물 목록이 페이지네이션 없이 최대 500건까지 한 번에 렌더링돼(#1571 이슈 참고),
+  // 화면 밖 카드까지 즉시 요청을 쏘면 브라우저 동시 연결 한도를 넘어 #1494/#1504 재시도로도
+  // 못 덮는 실패가 재발한다. loading="lazy"로 뷰포트 밖 이미지는 요청 자체를 미루는지 회귀 고정.
+  it('img에 loading="lazy"가 설정되어 뷰포트 밖 이미지 요청을 지연시킨다(#1571)', () => {
+    render(<ImageWithFallback src="/img.png" alt="테스트 이미지" fallback={<span>사진 없음</span>} />);
+
+    expect(screen.getByAltText('테스트 이미지').getAttribute('loading')).toBe('lazy');
+  });
+
   it('src가 없으면 fallback을 렌더링한다', () => {
     render(<ImageWithFallback src={null} alt="테스트 이미지" fallback={<span>사진 없음</span>} />);
 
