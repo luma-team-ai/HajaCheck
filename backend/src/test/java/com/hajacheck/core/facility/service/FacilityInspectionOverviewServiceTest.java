@@ -19,6 +19,8 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -87,6 +89,16 @@ class FacilityInspectionOverviewServiceTest {
         return user;
     }
 
+    private Media media(Long id) {
+        Media media = Media.builder()
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("stub")
+                .mimeSignatureVerified(true)
+                .build();
+        ReflectionTestUtils.setField(media, "id", id);
+        return media;
+    }
+
     @Test
     void get_시설물이_없으면_FACILITY_NOT_FOUND() {
         when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.empty());
@@ -117,6 +129,7 @@ class FacilityInspectionOverviewServiceTest {
         when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
         when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID)).thenReturn(List.of(round1));
         when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
+        when(mediaRepository.findTop2ByInspectionIdOrderByIdAsc(any())).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(any()))
                 .thenReturn(List.of(gradeCount(11L, DefectGrade.C, 2), gradeCount(11L, DefectGrade.E, 1)));
         when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
@@ -142,6 +155,7 @@ class FacilityInspectionOverviewServiceTest {
         when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID))
                 .thenReturn(List.of(round2, round1)); // 최신순
         when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
+        when(mediaRepository.findTop2ByInspectionIdOrderByIdAsc(any())).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(any())).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
         when(defectRepository.countByInspectionIdInAndDeletedFalseAndStatusNot(any(), any())).thenReturn(0L);
@@ -165,6 +179,7 @@ class FacilityInspectionOverviewServiceTest {
         when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID))
                 .thenReturn(List.of(round2, round1));
         when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
+        when(mediaRepository.findTop2ByInspectionIdOrderByIdAsc(any())).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(any())).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
         when(defectRepository.countByInspectionIdInAndDeletedFalseAndStatusNot(any(), any())).thenReturn(0L);
@@ -173,6 +188,33 @@ class FacilityInspectionOverviewServiceTest {
         FacilityInspectionOverviewResponse response = service.get(USER_ID, COMPANY_ID, FACILITY_ID);
 
         assertThat(response.history().get(0).changeNote()).isNull();
+    }
+
+    // #1549 — 최신 회차는 썸네일 URL을 채우고(최대 2장, media.id 기반 /api/media/{id}/thumbnail),
+    // 이전 회차는 changeNote와 동일하게 빈 리스트여야 한다.
+    @Test
+    void get_최신회차_썸네일URL을_media_id_기반으로_채우고_이전회차는_빈리스트다() {
+        Inspection round1 = inspection(11L, 1, InspectionStatus.REVIEWED);
+        Inspection round2 = inspection(12L, 2, InspectionStatus.REVIEWED);
+        when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
+        when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID))
+                .thenReturn(List.of(round2, round1));
+        when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
+        when(mediaRepository.findTop2ByInspectionIdOrderByIdAsc(12L))
+                .thenReturn(List.of(media(501L), media(502L)));
+        when(defectRepository.countGroupByInspectionIdAndGrade(any())).thenReturn(List.of());
+        when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
+        when(defectRepository.countByInspectionIdInAndDeletedFalseAndStatusNot(any(), any())).thenReturn(0L);
+        when(userRepository.findAllById(any())).thenReturn(List.of(inspector()));
+        when(facilityComparisonService.compare(USER_ID, COMPANY_ID, FACILITY_ID, 1, 2))
+                .thenReturn(comparisonWith(0L, 0L));
+
+        FacilityInspectionOverviewResponse response = service.get(USER_ID, COMPANY_ID, FACILITY_ID);
+
+        FacilityInspectionOverviewResponse.HistoryItem latest = response.history().get(0);
+        FacilityInspectionOverviewResponse.HistoryItem previous = response.history().get(1);
+        assertThat(latest.thumbnailUrls()).containsExactly("/api/media/501/thumbnail", "/api/media/502/thumbnail");
+        assertThat(previous.thumbnailUrls()).isEmpty();
     }
 
     private InspectionGradeCountProjection gradeCount(Long inspectionId, DefectGrade grade, long cnt) {

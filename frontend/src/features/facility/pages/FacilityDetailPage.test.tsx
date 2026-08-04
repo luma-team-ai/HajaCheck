@@ -164,6 +164,28 @@ describe('FacilityDetailPage (통합 테스트)', () => {
     expect(await screen.findByText('시설물 정보를 불러오지 못했습니다.')).not.toBeNull();
   });
 
+  // #1549 — "+N"(추가 사진) 클릭 시 분석 결과 뷰어로 이동해야 한다(이전엔 onClick 없는 <div>라
+  // 클릭해도 아무 동작이 없었음).
+  it('점검 이력 "+N" 클릭 시 분석 결과 뷰어로 이동한다(#1549)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/facilities/1']}>
+          <Routes>
+            <Route path="/facilities/:id" element={<FacilityDetailPage />} />
+            <Route path="/inspections/:id/viewer" element={<div>분석 결과 뷰어 화면</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByText('8회차 점검');
+    fireEvent.click(screen.getByRole('button', { name: '+212' }));
+
+    expect(await screen.findByText('분석 결과 뷰어 화면')).not.toBeNull();
+  });
+
   it('+ 새 점검 버튼을 누르면 점검(회차) 생성 화면으로 이동한다', async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 

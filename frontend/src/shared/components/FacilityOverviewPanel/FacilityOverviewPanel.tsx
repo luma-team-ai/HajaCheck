@@ -47,6 +47,8 @@ export interface FacilityOverviewPanelProps {
   /** "하자 현황" 탭 클릭 시 로컬 탭 전환 대신 호출된다(예: 하자 상세 오버레이로 이동).
    * 넘기지 않으면 다른 탭과 동일하게 로컬 탭 전환만 한다. */
   onDefectsTabClick?: () => void;
+  /** 점검 이력의 "+N"(추가 사진) 클릭 시 호출된다(#1549) — 넘기지 않으면 버튼이 비활성 상태로만 표시된다. */
+  onViewInspectionPhotos?: (inspectionId: number) => void;
   /** 점검 이력의 "결과 보기" 클릭(#1359 후속) — 넘기지 않으면 버튼이 비활성 처리된다 */
   onViewResult?: (item: FacilityOverviewHistoryItem) => void;
   /** 점검 이력의 "보고서" 클릭(#1359 후속) — 넘기지 않으면 버튼이 비활성 처리된다 */
@@ -68,6 +70,7 @@ export function FacilityOverviewPanel({
   onNewInspection,
   newInspectionLabel = '+ 새 점검',
   onDefectsTabClick,
+  onViewInspectionPhotos,
   onViewResult,
   onViewReport,
 }: FacilityOverviewPanelProps) {
@@ -153,6 +156,10 @@ export function FacilityOverviewPanel({
                     key={item.id}
                     item={item}
                     expanded={index === 0}
+                    // 썸네일 행 자체가 최신 회차(index 0, additionalImageCount 존재)에만 렌더링되지만
+                    // (useFacilityInspectionOverview.ts), 그 결합을 이 파일에도 명시해 향후 그 규칙이
+                    // 바뀌어도 여기서 조용히 새는 일이 없게 한다(code-reviewer 지적, #1549).
+                    onViewMoreClick={index === 0 ? onViewInspectionPhotos : undefined}
                     onViewResult={onViewResult}
                     onViewReport={onViewReport}
                   />
