@@ -98,7 +98,11 @@ class ReportServiceTest {
     }
 
     private static FacilityResponse facility() {
-        return new FacilityResponse(10L, "테스트빌딩", "BUILDING", "서울시 강남구",
+        return facility("서울시 강남구");
+    }
+
+    private static FacilityResponse facility(String address) {
+        return new FacilityResponse(10L, "테스트빌딩", "BUILDING", address,
                 null, null, null, null, null, null, LocalDateTime.now(), LocalDateTime.now(),
                 null, null, null, null, null, null);
     }
@@ -300,6 +304,32 @@ class ReportServiceTest {
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
         verify(aiProxyService, never()).generateReport(anyLong(), any());
+    }
+
+    // #1479 — 시설물 주소가 비어 있으면 ai-server 호출(422) 전에 명확한 사유로 사전 차단해야 한다.
+    // "AI 서버가 요청을 거부했습니다"라는 애매한 AI_REQUEST_REJECTED 대신 FACILITY_ADDRESS_MISSING이어야 한다.
+    @Test
+    void generateDraft_시설물주소없음_FACILITY_ADDRESS_MISSING() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility(""));
+
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 200L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FACILITY_ADDRESS_MISSING));
+        verifyNoInteractions(aiProxyService);
+        verify(reportRepository, never()).save(any());
+    }
+
+    // 공백만 있는 주소도 blank로 취급해 동일하게 차단되는지 확인.
+    @Test
+    void generateDraft_시설물주소공백_FACILITY_ADDRESS_MISSING() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility("   "));
+
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 200L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FACILITY_ADDRESS_MISSING));
+        verifyNoInteractions(aiProxyService);
     }
 
     @Test

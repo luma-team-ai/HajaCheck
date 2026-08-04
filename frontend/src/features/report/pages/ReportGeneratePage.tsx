@@ -599,7 +599,11 @@ export function ReportGeneratePage() {
               <path d="M6.5 16.5a4.5 4.5 0 0 1-.6-8.96A5.5 5.5 0 0 1 16.2 5.9 4.75 4.75 0 0 1 17.5 15h-.4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M9 10.5l2.5 2.5 5-5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <span>자동 저장됨 · {formatElapsedTime(report.createdAt)}</span>
+            {/* #1479 후속 — 이 보고서 편집기는 "임시저장" 버튼·이탈 시 저장 확인·최종 확정
+                흐름으로만 저장되고 주기적 자동 저장은 없다(handleSave 참고). "자동 저장됨"은
+                실제 저장 방식과 맞지 않아 "마지막 저장됨"으로 바꾸고, 항상 고정인 createdAt이
+                아니라 실제 마지막 저장 시각(updatedAt)의 경과 시간을 보여준다. */}
+            <span>마지막 저장됨 · {formatElapsedTime(report.updatedAt ?? report.createdAt)}</span>
           </div>
           <div className="flex items-center gap-3">
             <Button
