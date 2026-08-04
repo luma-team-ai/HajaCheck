@@ -42,6 +42,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.multipart.MultipartFile;
+import com.hajacheck.support.PngTestFixtures;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -75,8 +76,10 @@ class CompanySignupServiceTest {
 
     @BeforeEach
     void setUp() {
+        // ⚠️ 진짜 PNG 여야 한다 — 저장 전 검증(BusinessLicenseUploadValidator, #1488)이 선언
+        // Content-Type ↔ 실제 매직바이트 일치와 디코딩 가능성을 저장보다 먼저 확인한다.
         file = new MockMultipartFile(
-                "businessRegistrationFile", "brn.png", "image/png", "PNG".getBytes());
+                "businessRegistrationFile", "brn.png", "image/png", PngTestFixtures.realPng());
         when(policyProperties.getTermsVersion()).thenReturn("1.0");
         when(policyProperties.getPrivacyVersion()).thenReturn("1.0");
         when(authProperties.getSignupStatusTtl()).thenReturn(Duration.ofDays(30));
@@ -365,5 +368,47 @@ class CompanySignupServiceTest {
         assertThat(response.status()).isEqualTo("APPROVED");
         verify(accountWriter).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(),
                 eq("1.0"), eq("1.0"), any());
+    }
+
+    // ---------- 업로드 파일 사전 검증(#1488) ----------
+
+    @Test
+    void signup_선언ContentType과_실제바이트가_다르면_저장전에_거부된다() {
+        // 클라이언트가 자유롭게 바꿀 수 있는 Content-Type 헤더만 믿고 저장을 시도하면, 확장자와
+        // 내용이 어긋난 파일이 볼륨에 쌓이고 나중에 사람이 증빙을 열람할 때 신뢰할 수 없다.
+        MultipartFile disguised = new MockMultipartFile(
+                "businessRegistrationFile", "brn.pdf", "application/pdf", PngTestFixtures.realPng());
+        CompanySignupRequest request = new CompanySignupRequest(
+                "haja@check.com", "pass1234", "(주)하자체크", "123-45-67890",
+                "김민수", LocalDate.of(2020, 1, 1), "서울시 강남구", "101호", true, true, disguised);
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+
+        assertThatThrownBy(() -> service.signup(request))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.FILE_INVALID_TYPE));
+
+        // 저장도 계정 생성도 없어야 한다.
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
+        verify(accountWriter, never()).createAccount(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void signup_손상된_이미지는_증빙으로_저장되지_않는다() {
+        // FF D8 FF + 쓰레기 = 시그니처는 JPEG 지만 열리지 않는 파일. 증빙으로 남으면 나중에 사람이
+        // 등록증을 열람할 때 신뢰할 수 없다.
+        byte[] brokenJpeg = new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x11, 0x22, 0x33, 0x44, 0x55};
+        MultipartFile broken = new MockMultipartFile(
+                "businessRegistrationFile", "brn.jpg", "image/jpeg", brokenJpeg);
+        CompanySignupRequest request = new CompanySignupRequest(
+                "haja@check.com", "pass1234", "(주)하자체크", "123-45-67890",
+                "김민수", LocalDate.of(2020, 1, 1), "서울시 강남구", "101호", true, true, broken);
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(companyRepository.existsByBusinessRegistrationNumber(anyString())).thenReturn(false);
+
+        assertThatThrownBy(() -> service.signup(request))
+                .isInstanceOf(BusinessException.class);
+
+        verify(fileStorage, never()).store(any(), anyString(), any(), anyLong());
     }
 }

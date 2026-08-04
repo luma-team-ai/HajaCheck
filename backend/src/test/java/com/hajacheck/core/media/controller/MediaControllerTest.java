@@ -40,6 +40,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import com.hajacheck.support.PngTestFixtures;
 
 /**
  * 미인증 요청이 SecurityConfig 의 anyRequest().authenticated() 로 실제 차단되어 401을
@@ -198,7 +199,7 @@ class MediaControllerTest extends PostgresTestSupport {
                 .status(InspectionStatus.CREATED)
                 .build());
         FileStorageService.StoredFile thumb = fileStorage.storeBytes(
-                "THUMBDATA".getBytes(), "image/jpeg", "inspection-media-thumb",
+                PngTestFixtures.realJpeg(), "image/jpeg", "inspection-media-thumb",
                 List.of("image/jpeg"), 1_000_000L);
         Media media = mediaRepository.save(Media.builder()
                 .inspectionId(inspection.getId())
@@ -286,10 +287,10 @@ class MediaControllerTest extends PostgresTestSupport {
 
         // 2개의 미디어 저장 (detailUrl 있음)
         FileStorageService.StoredFile thumb1 = fileStorage.storeBytes(
-                "THUMBDATA1".getBytes(), "image/jpeg", "inspection-media-thumb",
+                PngTestFixtures.realJpeg(), "image/jpeg", "inspection-media-thumb",
                 List.of("image/jpeg"), 1_000_000L);
         FileStorageService.StoredFile detail1 = fileStorage.storeBytes(
-                "DETAILDATA1".getBytes(), "image/jpeg", "inspection-media-detail",
+                PngTestFixtures.realJpeg(), "image/jpeg", "inspection-media-detail",
                 List.of("image/jpeg"), 8_000_000L);
         Media media1 = mediaRepository.save(Media.builder()
                 .inspectionId(inspection.getId())
@@ -303,10 +304,10 @@ class MediaControllerTest extends PostgresTestSupport {
                 .build());
 
         FileStorageService.StoredFile thumb2 = fileStorage.storeBytes(
-                "THUMBDATA2".getBytes(), "image/jpeg", "inspection-media-thumb",
+                PngTestFixtures.realJpeg(), "image/jpeg", "inspection-media-thumb",
                 List.of("image/jpeg"), 1_000_000L);
         FileStorageService.StoredFile detail2 = fileStorage.storeBytes(
-                "DETAILDATA2".getBytes(), "image/jpeg", "inspection-media-detail",
+                PngTestFixtures.realJpeg(), "image/jpeg", "inspection-media-detail",
                 List.of("image/jpeg"), 8_000_000L);
         Media media2 = mediaRepository.save(Media.builder()
                 .inspectionId(inspection.getId())

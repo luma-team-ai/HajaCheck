@@ -26,6 +26,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
+import com.hajacheck.support.PngTestFixtures;
 
 /**
  * 가입 시 FREE 플랜 자동 배정(#517)의 "시드 존재 여부"에 대한 계약을 통합 테스트로 고정한다
@@ -54,7 +55,7 @@ class FreePlanProvisioningIntegrationTest extends PostgresTestSupport {
 
     private MockMultipartFile brnFile() {
         return new MockMultipartFile(
-                "businessRegistrationFile", "brn.png", "image/png", "PNGDATA".getBytes());
+                "businessRegistrationFile", "brn.png", "image/png", PngTestFixtures.realPng());
     }
 
     private MvcResult signup(String email, String brn) throws Exception {
