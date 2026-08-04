@@ -70,7 +70,10 @@ describe('FacilityCard', () => {
       />,
     );
 
+    // ImageWithFallback은 첫 실패를 즉시 fallback으로 고정하지 않고 1회 재시도한다(#1494) —
+    // 재시도 대기 중인 같은 <img>에 에러를 다시 쏴서 "재시도까지 실패"를 재현한다.
     const img = screen.getByRole('img', { name: '강남 오피스타워 A동' });
+    fireEvent.error(img);
     fireEvent.error(img);
 
     expect(screen.getByText('사진 없음')).not.toBeNull();
