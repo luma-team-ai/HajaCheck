@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useBlocker, useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
@@ -50,17 +49,12 @@ interface StepContext {
   isFinalized: boolean;
   hasContent: boolean;
   groundingCheckPassed: boolean | null | undefined;
-  dirty: boolean;
-  // 임시저장 직후 dirty=false로, updateContent가 groundingCheckPassed를 null로 리셋하므로(재검증
-  // 전까지) B 조건이 둘 다 거짓이 돼 A로 되돌아가던 회귀 방지용 — "이 세션에서 한 번이라도
-  // 편집한 적 있는가"를 저장 이후에도 남는 신호로 별도로 들고 있는다(dirty처럼 순간적이지 않음).
-  hasEverEdited: boolean;
   hasPdf: boolean;
 }
 
 const REPORT_STEPS: ReadonlyArray<{ key: string; label: string; isActive: (ctx: StepContext) => boolean }> = [
   { key: 'A', label: 'AI 분류', isActive: (ctx) => ctx.hasContent },
-  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.groundingCheckPassed === true || ctx.dirty || ctx.hasEverEdited },
+  { key: 'B', label: '작성자 확인', isActive: (ctx) => ctx.hasContent },
   { key: 'C', label: '발행', isActive: (ctx) => ctx.isFinalized && ctx.hasPdf },
 ];
 
@@ -282,7 +276,6 @@ export function ReportGeneratePage() {
   const missingFinalRequiredLabels = useMemo(() => getMissingFinalReportRequiredLabels(content), [content]);
   const hasMissingFinalRequiredContent = missingFinalRequiredLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
-  const [isLeavingAfterSave, setIsLeavingAfterSave] = useState(false);
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
     if (!report || !dirty || isFinalized) return false;
     const isSameLocation =
@@ -365,15 +358,7 @@ export function ReportGeneratePage() {
     blocker.reset?.();
   };
 
-  const handleConfirmLeave = async () => {
-    if (isLeavingAfterSave) return;
-    setIsLeavingAfterSave(true);
-    const saved = await handleSave();
-    if (!saved) {
-      setIsLeavingAfterSave(false);
-      return;
-    }
-    flushSync(() => setIsLeavingAfterSave(false));
+  const handleConfirmLeave = () => {
     blocker.proceed?.();
   };
 
@@ -567,10 +552,8 @@ export function ReportGeneratePage() {
     active: step.isActive({
       isFinalized,
       hasContent: Boolean(content),
-      groundingCheckPassed: report.groundingCheckPassed,
-      dirty,
-      hasEverEdited,
-      hasPdf: Boolean(report.pdfUrl),
+      groundingCheckPassed: report?.groundingCheckPassed,
+      hasPdf: Boolean(report?.pdfUrl),
     }),
   }));
   const alertModalElement = (
@@ -586,19 +569,19 @@ export function ReportGeneratePage() {
       <Modal
         open
         onClose={handleCancelLeave}
-        title="편집한 내용이 저장되지 않았습니다"
+        title="편집 중인 내용이 있습니다"
         closeOnOverlayClick={false}
       >
         <div className="flex w-80 flex-col gap-6">
-          <p className="m-0 text-sm text-text-muted">
-            이 페이지를 나가기 전에 변경 내용을 임시저장합니다.
+          <p className="m-0 whitespace-pre-line text-sm text-text-muted">
+            {'이 페이지를 나가시겠습니까?\n저장되지 않은 변경사항은 손실됩니다.'}
           </p>
           <div className="flex justify-end gap-3">
-            <Button type="button" variant="secondary" onClick={handleCancelLeave} disabled={isLeavingAfterSave}>
+            <Button type="button" variant="secondary" onClick={handleCancelLeave}>
               취소
             </Button>
-            <Button type="button" variant="primary" onClick={() => void handleConfirmLeave()} disabled={isLeavingAfterSave}>
-              {isLeavingAfterSave ? '저장 중...' : '임시저장 후 나가기'}
+            <Button type="button" variant="primary" onClick={handleConfirmLeave}>
+              나가기
             </Button>
           </div>
         </div>

@@ -919,16 +919,52 @@ describe('ReportGeneratePage', () => {
     expect(screen.queryByText('최종 승인')).toBeNull();
   });
 
-  it('저장하지 않은 편집이 있으면 작성자 확인 단계를 활성화한다', async () => {
+  it('보고서 편집 화면 진입 시 작성자 확인 단계(B)와 AI 분류 단계(A)가 모두 기본 활성화되어 있다', async () => {
     renderPage();
     await screen.findByText('보고서 생성 결과');
 
     const authorStep = screen.getByText('작성자 확인').closest('li');
+    const aiStep = screen.getByText('AI 분류').closest('li');
     expect(authorStep).not.toBeNull();
-    expect(within(authorStep!).getByText('B').className).not.toContain('bg-primary');
+    expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
+    expect(within(aiStep!).getByText('A').className).toContain('bg-primary');
+  });
+
+  // 임시저장 직후 dirty=false로 꺼지고, PATCH 목 핸들러(138~141행)가 실제 백엔드처럼
+  // groundingCheckPassed를 null로 리셋한다 — 예전엔 이 두 조건이 모두 거짓이 되어 "작성자 확인"이
+  // 다시 "AI 분류"로 되돌아갔다. hasEverEdited로 저장 후에도 유지되는지 검증한다.
+  it('편집 후 임시저장해도 작성자 확인 단계가 AI 분류로 되돌아가지 않는다', async () => {
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const authorStep = screen.getByText('작성자 확인').closest('li');
+    const aiStep = screen.getByText('AI 분류').closest('li');
+    expect(authorStep).not.toBeNull();
+    expect(aiStep).not.toBeNull();
 
     fireEvent.change(screen.getByLabelText('점검 목적'), { target: { value: '수정된 점검 목적' } });
+    expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
 
+    fireEvent.click(screen.getByRole('button', { name: '임시저장' }));
+    await waitFor(() => expect(updateReportCallCount).toBe(1));
+
+    expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
+    expect(within(aiStep!).getByText('A').className).toContain('bg-primary');
+  });
+
+  it('보고서 편집·미리보기 화면에서는 내용(content)이 존재하면 A(AI 분류)와 B(작성자 확인) 단계가 모두 활성화된다', async () => {
+    reportState = {
+      ...mockReportDetailResponse,
+      version: 1,
+      editedBy: 1,
+      groundingCheckPassed: true,
+    };
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const aiStep = screen.getByText('AI 분류').closest('li');
+    const authorStep = screen.getByText('작성자 확인').closest('li');
+    expect(within(aiStep!).getByText('A').className).toContain('bg-primary');
     expect(within(authorStep!).getByText('B').className).toContain('bg-primary');
   });
 
@@ -1020,7 +1056,7 @@ describe('ReportGeneratePage', () => {
     expect(updateReportCallCount).toBe(0);
   });
 
-  it('미저장 변경 상태에서 PDF 내보내기가 아닌 다른 라우트로 이탈하면 임시저장 모달을 띄우고 저장 후 이동한다', async () => {
+  it('미저장 변경 상태에서 PDF 내보내기가 아닌 다른 라우트로 이탈하면 이탈 모달을 띄운다', async () => {
     const queryClient = new QueryClient();
     const router = createMemoryRouter(
       [
@@ -1041,25 +1077,23 @@ describe('ReportGeneratePage', () => {
     await router.navigate('/dashboard');
 
     expect(await screen.findByRole('dialog')).toBeTruthy();
-    expect(screen.getByText('편집한 내용이 저장되지 않았습니다')).toBeTruthy();
-    expect(screen.getByText('이 페이지를 나가기 전에 변경 내용을 임시저장합니다.')).toBeTruthy();
+    expect(screen.getByText('편집 중인 내용이 있습니다')).toBeTruthy();
+    expect(screen.getByText('이 페이지를 나가시겠습니까? 저장되지 않은 변경사항은 손실됩니다.')).toBeTruthy();
     expect(router.state.location.pathname).toBe('/reports/1');
-    expect(updateReportCallCount).toBe(0);
 
     fireEvent.click(screen.getByRole('button', { name: '취소' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(router.state.location.pathname).toBe('/reports/1');
 
     await router.navigate('/dashboard');
-    await screen.findByText('편집한 내용이 저장되지 않았습니다');
-    fireEvent.click(screen.getByRole('button', { name: '임시저장 후 나가기' }));
+    await screen.findByText('편집 중인 내용이 있습니다');
+    fireEvent.click(screen.getByRole('button', { name: '나가기' }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard'));
     expect(screen.getByText('대시보드 페이지')).toBeTruthy();
-    expect(updateReportCallCount).toBe(1);
   });
 
-  it('미저장 상태의 PDF 미리보기에서도 다른 라우트 이탈 시 같은 임시저장 모달을 띄운다', async () => {
+  it('미저장 상태의 PDF 미리보기에서도 다른 라우트 이탈 시 같은 이탈 모달을 띄운다', async () => {
     const queryClient = new QueryClient();
     const router = createMemoryRouter(
       [
@@ -1083,7 +1117,7 @@ describe('ReportGeneratePage', () => {
     await router.navigate('/dashboard');
 
     expect(await screen.findByRole('dialog')).toBeTruthy();
-    expect(screen.getByText('편집한 내용이 저장되지 않았습니다')).toBeTruthy();
+    expect(screen.getByText('편집 중인 내용이 있습니다')).toBeTruthy();
     expect(router.state.location.pathname).toBe('/reports/1');
     expect(router.state.location.search).toBe('?mode=export');
   });
