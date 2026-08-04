@@ -1,6 +1,8 @@
 import { http, HttpResponse } from 'msw';
 import { mockRagAnswer } from '../mocks/support.mock';
-import type { RagAnswerData, RagChatRequest } from '../types';
+import type { ChatSessionMessageResponse, ChatSessionResponse, RagAnswerData, RagChatRequest } from '../types';
+
+let mockSessionSeq = 0;
 
 // POST /api/ai/rag-chat — aiClient baseURL(/api/ai) 기준 전체 경로. AIResponse({success,data,usage,error}) envelope.
 // 개발 편의: query가 아래 전용 트리거로 "시작"할 때만 0건/에러 상태를 유도한다.
@@ -45,5 +47,22 @@ export const supportHandlers = [
       usage: { tokens: 0 },
     };
     return HttpResponse.json(body);
+  }),
+
+  // POST /api/chat-sessions — RAG 세션 생성(HAJA-668, #1548, 설계 §2/§5.1). api(baseURL=/api) 경유.
+  http.post('/api/chat-sessions', () => {
+    mockSessionSeq += 1;
+    const data: ChatSessionResponse = {
+      sessionId: mockSessionSeq,
+      sessionType: 'RAG',
+      startedAt: new Date().toISOString(),
+    };
+    return HttpResponse.json({ success: true, data }, { status: 201 });
+  }),
+
+  // GET /api/chat-sessions/:sessionId/messages — 세션 이력 조회(새로고침 시 대화 복원용).
+  http.get('/api/chat-sessions/:sessionId/messages', () => {
+    const data: ChatSessionMessageResponse[] = [];
+    return HttpResponse.json({ success: true, data });
   }),
 ];
