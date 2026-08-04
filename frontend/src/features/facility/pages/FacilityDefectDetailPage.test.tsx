@@ -139,7 +139,7 @@ describe('FacilityDefectDetailPage (통합 테스트)', () => {
     renderPage();
 
     expect(await screen.findByText("하자 등급을 'D'에서 'E'(으)로 변경했습니다.")).not.toBeNull();
-    expect(screen.getByText("상태를 '탐지됨'에서 '확인됨'(으)로 변경했습니다.")).not.toBeNull();
+    expect(screen.getByText("상태를 '신규'에서 '검수확정'(으)로 변경했습니다.")).not.toBeNull();
   });
 
   it('defectId가 숫자로 변환되지 않으면(NaN) 활동 기록 패널을 렌더하지 않고 revisions API를 호출하지 않는다(#1351)', async () => {

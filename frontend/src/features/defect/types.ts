@@ -121,12 +121,16 @@ export const DEFECT_TYPE_LABEL: Record<DefectType, string> = {
   PAINT_DAMAGE: '도장 손상',
 };
 
-// 결함 조치 상태 한글 라벨(DDL 코멘트 기준 — backend DefectStatus.java 주석과 동일 매핑)
+// 결함 조치 상태 한글 라벨 — constants/defectStatusWorkflow.ts의 STEP_LABEL,
+// constants/defectPresentation.ts의 STATUS_PRESENTATION과 동일한 용어로 통일한다(#1553).
+// 과거엔 이 맵만 탐지됨/확인됨/해결됨을 썼는데, 활동 기록에서 배지(STATUS_PRESENTATION 사용)는
+// "조치완료"인데 본문 텍스트(이 맵 사용)는 "해결됨"으로 나오는 등 같은 상태를 화면마다 다르게
+// 부르는 문제가 있었다.
 export const DEFECT_STATUS_LABEL: Record<DefectStatus, string> = {
-  DETECTED: '탐지됨',
-  CONFIRMED: '확인됨',
+  DETECTED: '신규',
+  CONFIRMED: '검수확정',
   IN_PROGRESS: '조치중',
-  RESOLVED: '해결됨',
+  RESOLVED: '조치완료',
 };
 
 // 등급 한글 라벨 — features/map/constants.ts GRADE_LABEL과 동일 값(feature 간 직접 import 금지로 로컬 재정의)

@@ -660,6 +660,9 @@
    나머지 가로폭을 전부 가져간다(.defect-detail-modal__image-col 참고). */
 .defect-detail-modal__diagnosis-col {
   display: flex;
+  /* image-col은 위에 photo-tab-row(탭 min-height 44px) + 12px gap이 있어 실제 사진 박스가
+     56px 아래에서 시작한다(#1553) — 같은 오프셋을 줘서 두 박스의 상단을 맞춘다. */
+  margin-top: 56px;
   flex: 0 1 360px;
   flex-direction: column;
   min-width: 300px;

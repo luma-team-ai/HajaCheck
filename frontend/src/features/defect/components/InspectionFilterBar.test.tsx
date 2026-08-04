@@ -63,7 +63,7 @@ describe('InspectionFilterBar — 하자조건 필터 칩', () => {
       screen.getByRole('button', { name: '하자등급: 경고, 중대 필터 제거' }),
     ).not.toBeNull();
     expect(
-      screen.getByRole('button', { name: '하자상태: 확인됨 필터 제거' }),
+      screen.getByRole('button', { name: '하자상태: 검수확정 필터 제거' }),
     ).not.toBeNull();
   });
 
@@ -100,7 +100,7 @@ describe('InspectionFilterBar — 하자조건 필터 칩', () => {
     await screen.findByText('적용된 필터:');
     expect(screen.getByRole('button', { name: '점검상태: 보고완료 필터 제거' })).not.toBeNull();
     expect(
-      screen.getByRole('button', { name: '하자상태: 해결됨 필터 제거' }),
+      screen.getByRole('button', { name: '하자상태: 조치완료 필터 제거' }),
     ).not.toBeNull();
   });
 
