@@ -1,6 +1,9 @@
 package com.hajacheck.core.ai.service;
 
+import com.hajacheck.counsel.entity.ChatMessage;
+import com.hajacheck.counsel.entity.ChatSenderType;
 import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.service.ChatSessionService;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.BriefingAiEnvelope;
@@ -15,6 +18,7 @@ import com.hajacheck.core.ai.dto.DetectedDefectItem;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
+import com.hajacheck.core.ai.dto.HistoryTurnDto;
 import com.hajacheck.core.ai.dto.RagChatAiEnvelope;
 import com.hajacheck.core.ai.dto.RagChatAiRequest;
 import com.hajacheck.core.ai.dto.RagChatRequest;
@@ -29,18 +33,22 @@ import com.hajacheck.core.ai.dto.ReportAiEnvelope;
 import com.hajacheck.core.ai.dto.ReportRequest;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.support.AiProxyRateLimiter;
+import com.hajacheck.core.rag.entity.ChatMessageCitation;
+import com.hajacheck.core.rag.repository.ChatMessageCitationRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -66,6 +74,8 @@ public class AiProxyService {
     private static final String RAG_DELETE_PATH = "/ai/rag-documents/{docId}";
     private static final String DETECT_DEFECTS_PATH = "/ai/detect-defects";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
+    // 프롬프트에 실어 보낼 최근 이력 턴 수(질문+답변 페어) — 설계 §3, HF_MAX_TOKENS 여유 고려한 초안값.
+    private static final int RECENT_HISTORY_TURN_LIMIT = 3;
 
     private final RestClient aiServerRestClient;
     private final AiServerProperties aiServerProperties;
@@ -75,6 +85,10 @@ public class AiProxyService {
     // 세션 소유 검증 전용(#1467/HAJA-647). 인가 로직을 여기서 재구현하지 않고 counsel 도메인 서비스에
     // 위임해 /api/chat-sessions 와 동일한 규칙·동일한 403을 쓴다.
     private final ChatSessionService chatSessionService;
+    // 세션 이력 조회·질문/답변 저장 전용(#1493/HAJA-657). ChatSessionService.findMessages()가 쓰는
+    // 것과 동일한 리포지토리를 재사용한다(조회 로직 중복 금지).
+    private final ChatMessageRepository chatMessageRepository;
+    private final ChatMessageCitationRepository chatMessageCitationRepository;
 
     /**
      * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
@@ -222,8 +236,12 @@ public class AiProxyService {
      * 세션 소유자({@code userId} 일치)와 {@code sessionType=RAG} 를 검증하고, 불일치·미존재면
      * {@link ErrorCode#CHAT_SESSION_FORBIDDEN}(403)으로 중단한다 — 타인 세션 식별자를 실어 보내는
      * cross-user 접근(IDOR) 차단이 목적이라, 검증은 반드시 외부 호출·과금보다 앞서야 한다.
-     * 세션 이력을 FastAPI로 전달하거나 질의/답변을 저장하는 것은 후속 이슈 범위다(이번엔 검증까지만).
+     * 세션이 있으면 최근 3턴 이력을 FastAPI에 함께 전달하고, 응답 성공 시 질의/답변/출처를 저장한다
+     * (#1493/HAJA-657). 세션이 없으면(단발 질의) 이력 전달·저장 둘 다 생략 — 기존 무상태 호출과 회귀 없음.
+     * DB 쓰기(메시지·인용 저장)가 생겨 메서드 레벨 {@code @Transactional} 을 붙인다(클래스 상단 주석은
+     * "이 서비스는 DB 접근이 없어 @Transactional 미부착"이었으나 이 메서드부터 예외).
      */
+    @Transactional
     public ApiResponse<RagChatResponse> ragChat(Long userId, RagChatRequest request) {
         // 인가 먼저: rate-limit 소모나 AI 서버 호출보다 앞서 타인 세션 접근을 차단한다.
         if (request.sessionId() != null) {
@@ -232,7 +250,12 @@ public class AiProxyService {
         // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
         aiProxyRateLimiter.checkUser(userId);
         aiProxyRateLimiter.checkGlobal();
-        RagChatAiEnvelope envelope = callAiServer(new RagChatAiRequest(request.query()));
+
+        List<HistoryTurnDto> history = request.sessionId() != null
+                ? buildRecentHistory(request.sessionId())
+                : List.of();
+
+        RagChatAiEnvelope envelope = callAiServer(new RagChatAiRequest(request.query(), history));
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
@@ -250,7 +273,59 @@ public class AiProxyService {
         if (envelope.data() == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
+
+        if (request.sessionId() != null) {
+            saveConversation(request.sessionId(), request.query(), envelope.data());
+        }
         return ApiResponse.ok(envelope.data());
+    }
+
+    /**
+     * 세션의 (질문, 답변) 페어 중 최근 {@link #RECENT_HISTORY_TURN_LIMIT}개만 시간순으로 추린다.
+     * citation은 제외하고 질문/답변 텍스트만 담는다(설계 §3).
+     */
+    private List<HistoryTurnDto> buildRecentHistory(Long sessionId) {
+        List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        List<HistoryTurnDto> turns = new ArrayList<>();
+        ChatMessage pendingQuestion = null;
+        for (ChatMessage message : messages) {
+            if (message.getSender() == ChatSenderType.USER) {
+                pendingQuestion = message;
+            } else if (message.getSender() == ChatSenderType.BOT && pendingQuestion != null) {
+                turns.add(new HistoryTurnDto(pendingQuestion.getContent(), message.getContent()));
+                pendingQuestion = null;
+            }
+        }
+        int fromIndex = Math.max(0, turns.size() - RECENT_HISTORY_TURN_LIMIT);
+        return turns.subList(fromIndex, turns.size());
+    }
+
+    /** 사용자 질문 + 봇 답변을 저장하고, 답변의 출처를 봇 메시지에 인용으로 매핑해 저장한다. */
+    private void saveConversation(Long sessionId, String query, RagChatResponse data) {
+        chatMessageRepository.save(ChatMessage.createText(sessionId, ChatSenderType.USER, query));
+        ChatMessage botMessage = chatMessageRepository.save(
+                ChatMessage.createText(sessionId, ChatSenderType.BOT, data.answer()));
+
+        if (data.sources() == null) {
+            return;
+        }
+        for (RagChatResponse.SourceCitation source : data.sources()) {
+            Long documentId = parseDocumentId(source.docId());
+            if (documentId == null) {
+                continue;
+            }
+            chatMessageCitationRepository.save(ChatMessageCitation.create(
+                    botMessage.getId(), documentId, source.chunkRef(), source.locator(), source.snippet()));
+        }
+    }
+
+    private Long parseDocumentId(String docId) {
+        try {
+            return Long.parseLong(docId);
+        } catch (NumberFormatException e) {
+            log.warn("RAG 출처 doc_id 파싱 실패 — citation 저장 생략: {}", docId);
+            return null;
+        }
     }
 
     private RagChatAiEnvelope callAiServer(RagChatAiRequest request) {
