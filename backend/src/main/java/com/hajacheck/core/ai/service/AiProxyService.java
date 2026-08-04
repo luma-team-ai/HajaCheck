@@ -297,7 +297,9 @@ public class AiProxyService {
             //
             // 실패 경로는 전부 citation 쪽이다 — chat_message_citations 는 document_id → rag_documents FK 와
             // unique(message_id, document_id, chunk_ref), 그리고 NOT NULL·varchar(100) 제약을 갖는다:
-            //   ① FK 위반 — Postgres 에서 삭제된 문서를 인용하는 경우.
+            //   ① FK 위반 — 검색 시점엔 존재하던 문서를 LLM 생성(수 초) 중에 관리자가 삭제하면 저장 시점엔
+            //      대상이 사라진 상태다(TOCTOU 레이스). RagDocumentService.delete() 가 Chroma → PG 순서를
+            //      고정해도(#1394) 이 레이스 자체는 닫히지 않는다.
             //   ② unique 위반 — 같은 청크 중복 인용. RagCitationWriter 의 중복 제거로 선제 차단.
             //   ③ NOT NULL·길이 위반 — RagCitationWriter 의 필드 가드로 선제 차단.
             // 저장은 (메시지 트랜잭션) → (출처 트랜잭션) 두 단계로 쪼개져 있어, ①~③ 이 터져도 질문·답변
@@ -317,7 +319,9 @@ public class AiProxyService {
                         request.sessionId(), request.query(), envelope.data());
             } catch (Exception e) {
                 log.error("RAG 대화 저장 실패(답변 자체는 정상 반환) — 이 턴은 이력에 남지 않음 "
-                        + "userId={}, sessionId={}", userId, request.sessionId(), e);
+                                + "userId={}, sessionId={}, docIds={}",
+                        userId, request.sessionId(),
+                        RagConversationPersistenceService.docIds(envelope.data()), e);
             }
         }
         return ApiResponse.ok(envelope.data());

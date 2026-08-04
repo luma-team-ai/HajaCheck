@@ -116,6 +116,8 @@ class RagConversationBestEffortIntegrationTest extends PostgresTestSupport {
 
         RestClient.Builder builder = RestClient.builder().baseUrl(properties.getBaseUrl());
         mockServer = MockRestServiceServer.bindTo(builder).build();
+        // 3번째 인자 briefingStatsService=null — ragChat 경로에서는 참조되지 않는 협력자라
+        // 컨텍스트 빈을 끌어오지 않고 null 로 둔다(다른 인자와 달리 의도적 미주입).
         aiProxyService = new AiProxyService(
                 builder.build(), properties, null, new AiProxyRateLimiter(new InMemoryRateLimiter()),
                 builder.build(), chatSessionService, chatMessageRepository,
