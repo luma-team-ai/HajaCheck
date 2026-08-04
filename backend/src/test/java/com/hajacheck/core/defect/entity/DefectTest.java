@@ -99,24 +99,27 @@ class DefectTest {
     }
 
     @Test
-    void softDelete_물리삭제대신삭제표시() {
+    void softDelete_물리삭제대신삭제표시_reviewed는건드리지않는다() {
+        // AI가 등급까지 채워 생성한(grade != null) 미확정 하자라도 reviewed는 여전히 false다
+        // (InspectionAnalysisWorker가 grade는 채우고 reviewed는 건드리지 않음 — 사람이 검수했다는
+        // 뜻이 아니므로 softDelete가 임의로 true로 만들면 안 된다, 실측 버그 수정).
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.SPALLING)
-                .confidence(0.8).build();
+                .confidence(0.8).grade(DefectGrade.C).build();
 
         defect.softDelete();
         defect.softDelete();
 
         assertThat(defect.isDeleted()).isTrue();
-        assertThat(defect.isReviewed()).isTrue();
+        assertThat(defect.isReviewed()).isFalse();
     }
 
     @Test
-    void restore_등급없이삭제됐던하자는복구후미확정으로돌아간다() {
-        // 등급 확정(review) 없이 미확정 상태에서 오탐 삭제된 경우 — softDelete가 세운
-        // reviewed=true를 그대로 두면 실제로는 한 번도 검수하지 않은 하자가 검수완료로
-        // 부활해 진행률·confirmReview 가드를 속인다(실측 버그, restore() 참고).
+    void restore_미확정상태로삭제됐던하자는복구후에도미확정을유지한다() {
+        // AI가 등급을 미리 채워도(grade != null) 사람이 검수(review/changeStatus/등)한 적 없으면
+        // reviewed=false다 — softDelete/restore가 이 값을 건드리지 않아야 왕복 후에도 정확하다
+        // (grade 존재 여부로 재판정하던 이전 시도는 AI 사전 등급 때문에 항상 true가 돼 틀렸다).
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
-                .confidence(0.9).build();
+                .confidence(0.9).grade(DefectGrade.C).build();
 
         defect.softDelete();
         defect.restore();
@@ -126,7 +129,7 @@ class DefectTest {
     }
 
     @Test
-    void restore_등급확정후삭제됐던하자는복구후검수완료를유지한다() {
+    void restore_검수확정후삭제됐던하자는복구후에도검수완료를유지한다() {
         Defect defect = Defect.builder().inspectionId(1L).type(DefectType.CRACK)
                 .confidence(0.9).build();
         defect.review(DefectGrade.C);
