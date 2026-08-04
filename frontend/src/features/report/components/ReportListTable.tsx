@@ -164,11 +164,13 @@ export function ReportListTable({
             onClick={(event) => {
               event.stopPropagation();
               const rect = event.currentTarget.getBoundingClientRect();
-              // actionError 메시지가 표시될 경우 메뉴 높이가 늘어나므로 추정치에 가산한다
-              // (에러 텍스트 1줄 ≈ 28px). 에러 유무는 클릭 시점에 이미 결정돼 있으므로
-              // 여기서 읽어도 정확하다.
-              const hasError = !!(actionErrors[row.id]);
-              const ESTIMATED_MENU_HEIGHT = 175 + (hasError ? 28 : 0);
+              // actionError 메시지가 표시될 경우 메뉴 높이가 늘어나므로 줄 수를 추정해 가산한다.
+              // 메뉴 너비(w-32 ≈ 128px) 기준 px-3 패딩 제외 실제 텍스트 폭 ≈ 104px,
+              // text-xs(12px) 기준 한 줄 ≈ 13자 → Math.ceil(length / 13) 줄, 줄당 ≈ 20px.
+              // 에러 유무는 클릭 시점에 이미 결정돼 있으므로 여기서 읽어도 정확하다.
+              const errorText = actionErrors[row.id] ?? '';
+              const errorLines = errorText ? Math.max(1, Math.ceil(errorText.length / 13)) : 0;
+              const ESTIMATED_MENU_HEIGHT = 175 + errorLines * 20;
 
               const openUpward = rect.bottom + ESTIMATED_MENU_HEIGHT > window.innerHeight;
               setOpenMenu((current) =>
