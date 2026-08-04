@@ -8,6 +8,10 @@ export interface GeocodeResult {
   longitude: number;
 }
 
+// Geocoder.addressSearch 콜백이 발화하지 않을 때의 상한(#1590 리뷰 P2). SDK 로드(15초)와 달리
+// 이 단계는 단발 REST 조회라 훨씬 짧아도 되지만, 저속 회선에서의 오탐(좌표 유실)을 피해 넉넉히 둔다.
+export const GEOCODE_SEARCH_TIMEOUT_MS = 8000;
+
 /** 주소로 검색했으나 일치하는 결과가 없을 때(카카오 Status.ZERO_RESULT) */
 export class GeocodeNotFoundError extends Error {
   constructor(address: string) {
@@ -49,8 +53,17 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
   }
 
   return new Promise<GeocodeResult>((resolve, reject) => {
+    // addressSearch 콜백에도 상한을 둔다(#1590 리뷰 P2) — SDK 로드에만 타임아웃을 걸고 이 줄을
+    // 열어두면 증상이 똑같다. addressSearch도 dapi.kakao.com으로 나가고 SDK 자체 타임아웃이 없어,
+    // 프록시가 응답을 삼키면 콜백이 아예 발화하지 않아 이 Promise가 영구 pending → 호출부의
+    // finally(setIsGeocoding(false))가 실행되지 않아 등록 모달이 "등록 중"에서 멈춘다.
+    const timer = window.setTimeout(() => {
+      reject(new GeocodeFailedError(trimmed));
+    }, GEOCODE_SEARCH_TIMEOUT_MS);
+
     const geocoder = new window.kakao.maps.services.Geocoder();
     geocoder.addressSearch(trimmed, (result, status) => {
+      window.clearTimeout(timer);
       if (status === window.kakao.maps.services.Status.OK && result[0]) {
         resolve({
           latitude: Number(result[0].y),

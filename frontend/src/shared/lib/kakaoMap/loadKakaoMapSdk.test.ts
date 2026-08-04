@@ -63,12 +63,69 @@ describe('loadKakaoMapSdk', () => {
     await expect(secondCall).resolves.toBeUndefined();
   });
 
-  it('이미 로드 완료된 window.kakao.maps 가 있으면 즉시 resolve한다', async () => {
-    (window as unknown as { kakao: { maps: unknown } }).kakao = { maps: {} };
-    const { loadKakaoMapSdk } = await importFreshModule();
+  // #1590 리뷰 P3 — 단축 경로(즉시 resolve) 판정 기준은 "window.kakao.maps 네임스페이스 존재"가
+  // 아니라 "maps.load() 콜백까지 끝남"이어야 한다. 아래 두 테스트가 그 경계를 양쪽에서 고정한다.
+  it('maps.load() 콜백까지 끝난 뒤(로드 완료)에는 새 script 없이 즉시 resolve한다', async () => {
+    vi.useFakeTimers();
+    try {
+      const { loadKakaoMapSdk, KAKAO_MAP_SDK_LOAD_TIMEOUT_MS } = await importFreshModule();
 
-    await expect(loadKakaoMapSdk()).resolves.toBeUndefined();
-    expect(document.getElementById(SCRIPT_ID)).toBeNull();
+      // 타임아웃으로 loadPromise가 리셋된 뒤, 지연됐던 스크립트가 뒤늦게 실행돼 로드가 완료되는 상황
+      const firstCall = loadKakaoMapSdk();
+      const rejection = firstCall.catch((err: unknown) => err);
+      const script = document.getElementById(SCRIPT_ID) as HTMLScriptElement;
+      await vi.advanceTimersByTimeAsync(KAKAO_MAP_SDK_LOAD_TIMEOUT_MS);
+      await rejection;
+
+      (window as unknown as { kakao: { maps: { load: (cb: () => void) => void } } }).kakao = {
+        maps: { load: (cb: () => void) => cb() },
+      };
+      script.onload?.(new Event('load')); // maps.load() 콜백까지 동기 실행 = 사용 가능 상태
+
+      await expect(loadKakaoMapSdk()).resolves.toBeUndefined();
+      expect(document.getElementById(SCRIPT_ID)).toBeNull(); // 새 script를 만들지 않는다
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('타임아웃 후 스크립트가 뒤늦게 실행돼 네임스페이스만 생긴 상태(maps.load 콜백 전)에서는 즉시 resolve하지 않는다(#835 레이스 재발 방지)', async () => {
+    vi.useFakeTimers();
+    try {
+      const { loadKakaoMapSdk, KAKAO_MAP_SDK_LOAD_TIMEOUT_MS } = await importFreshModule();
+
+      const firstCall = loadKakaoMapSdk();
+      const rejection = firstCall.catch((err: unknown) => err);
+      const script = document.getElementById(SCRIPT_ID) as HTMLScriptElement;
+      await vi.advanceTimersByTimeAsync(KAKAO_MAP_SDK_LOAD_TIMEOUT_MS);
+      await rejection;
+
+      // window.kakao.maps는 생겼지만 load() 콜백은 아직 — 이 시점엔 services(Geocoder)가 없다.
+      (window as unknown as { kakao: { maps: { load: (cb: () => void) => void } } }).kakao = {
+        maps: { load: () => {} },
+      };
+      script.onload?.(new Event('load'));
+
+      const secondCall = loadKakaoMapSdk();
+      let resolved = false;
+      secondCall.then(
+        () => {
+          resolved = true;
+        },
+        () => {},
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(resolved).toBe(false); // 조기 resolve 금지
+      expect(document.getElementById(SCRIPT_ID)).not.toBeNull(); // 새 script로 다시 로드를 시도한다
+
+      // 뒷정리 — 남은 타임아웃 타이머가 unhandled rejection으로 새지 않게 처리한다.
+      const pending = secondCall.catch(() => undefined);
+      await vi.advanceTimersByTimeAsync(KAKAO_MAP_SDK_LOAD_TIMEOUT_MS);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('기존 script 재사용 분기의 error 이벤트에서도 loadPromise를 리셋한다', async () => {
