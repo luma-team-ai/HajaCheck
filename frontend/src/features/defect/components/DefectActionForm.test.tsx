@@ -4,6 +4,7 @@
 // DefectActionBoard.test.tsx와 동일하게 재사용한다(defectApi.handlers.ts 단일 소스).
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { defectHandlers } from '../api/defectApi.handlers';
@@ -248,6 +249,71 @@ describe('DefectActionForm — 진행상태 select(#1128)', () => {
     expect((capturedBody as unknown as Record<string, unknown>).targetStatus).toBe('IN_PROGRESS');
 
     server.events.removeListener('request:start', listener);
+    uploadSpy.mockRestore();
+  });
+});
+
+// 이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456/#1457) — 백엔드가 groupSize>1로 응답하면 같은
+// 이미지의 다른 하자들도 함께 갱신됐음을 성공 문구에 덧붙인다.
+describe('DefectActionForm — 그룹 팬아웃 성공 안내', () => {
+  it('응답 groupSize가 1보다 크면 성공 문구에 그룹 반영 건수를 덧붙인다', async () => {
+    server.use(
+      http.patch('/api/defects/:id/action', () =>
+        HttpResponse.json({
+          success: true,
+          data: {
+            id: 1,
+            inspectionId: 101,
+            status: 'IN_PROGRESS',
+            groupSize: 3,
+            groupStatus: 'IN_PROGRESS',
+          },
+        }),
+      ),
+    );
+    const uploadSpy = vi
+      .spyOn(defectMediaApi, 'uploadActionPhoto')
+      .mockResolvedValue({ data: [{ id: 9003, thumbnailUrl: '/api/media/9003/thumbnail' }] } as Awaited<
+        ReturnType<typeof defectMediaApi.uploadActionPhoto>
+      >);
+
+    renderForm('CONFIRMED');
+    fireEvent.change(screen.getByLabelText('조치 후 사진 업로드'), {
+      target: { files: [makeImageFile('after.png')] },
+    });
+    fireEvent.change(screen.getByLabelText('조치 내용'), { target: { value: '그룹 조치' } });
+    fireEvent.change(screen.getByLabelText('조치일'), { target: { value: '2026-07-28' } });
+    await screen.findByText('김도현 검사자');
+    fireEvent.change(screen.getByLabelText('담당자'), { target: { value: '101' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '상태 저장' }));
+
+    expect(await screen.findByText(/같은 이미지의 하자 3건에 함께 반영됨/)).not.toBeNull();
+
+    uploadSpy.mockRestore();
+  });
+
+  it('응답 groupSize가 1(단독 하자)이면 그룹 반영 문구를 덧붙이지 않는다', async () => {
+    const uploadSpy = vi
+      .spyOn(defectMediaApi, 'uploadActionPhoto')
+      .mockResolvedValue({ data: [{ id: 9004, thumbnailUrl: '/api/media/9004/thumbnail' }] } as Awaited<
+        ReturnType<typeof defectMediaApi.uploadActionPhoto>
+      >);
+
+    renderForm('CONFIRMED');
+    fireEvent.change(screen.getByLabelText('조치 후 사진 업로드'), {
+      target: { files: [makeImageFile('after.png')] },
+    });
+    fireEvent.change(screen.getByLabelText('조치 내용'), { target: { value: '단독 조치' } });
+    fireEvent.change(screen.getByLabelText('조치일'), { target: { value: '2026-07-28' } });
+    await screen.findByText('김도현 검사자');
+    fireEvent.change(screen.getByLabelText('담당자'), { target: { value: '101' } });
+
+    fireEvent.click(screen.getByRole('button', { name: '상태 저장' }));
+
+    await screen.findByText(/저장되었습니다/);
+    expect(screen.queryByText(/함께 반영됨/)).toBeNull();
+
     uploadSpy.mockRestore();
   });
 });
