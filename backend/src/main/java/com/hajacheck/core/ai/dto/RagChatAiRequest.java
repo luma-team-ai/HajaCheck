@@ -21,9 +21,4 @@ import java.util.List;
 public record RagChatAiRequest(String question,
                                @JsonProperty("company_id") Long companyId,
                                List<HistoryTurnDto> history) {
-
-    /** 이력 없는(단발 질의) 호출부 편의 생성자 — 기존 계약·테스트 호환. */
-    public RagChatAiRequest(String question, Long companyId) {
-        this(question, companyId, List.of());
-    }
 }
