@@ -260,6 +260,9 @@ public class CounselTicketService {
                 CounselTicketResponse.from(ticket, resolveCounselorName(counselorId));
         messagingTemplate.convertAndSendToUser(
                 String.valueOf(ticket.getUserId()), DEST_ASSIGNED, response);
+        // #1506 — 상담원 콘솔도 자신이 방금 배정받은 티켓을 알아야 한다(그래야 목록/화면이 즉시 갱신).
+        messagingTemplate.convertAndSendToUser(
+                String.valueOf(counselorId), DEST_ASSIGNED, response);
         return response;
     }
 
@@ -286,6 +289,12 @@ public class CounselTicketService {
                 CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
         messagingTemplate.convertAndSendToUser(
                 String.valueOf(ticket.getUserId()), DEST_ENDED, response);
+        // #1506 — 종료 시점 진입 전 ticket.resolve()가 IN_PROGRESS만 허용하므로 counselorId는 항상 non-null.
+        // 담당 상담원 콘솔도 종료 사실을 실시간으로 알아야 "종료됨" 배지가 즉시 반영된다.
+        messagingTemplate.convertAndSendToUser(
+                String.valueOf(ticket.getCounselorId()), DEST_ENDED, response);
+        // 활성 채팅 목록(대기열 IN_PROGRESS 필터) 실시간 갱신 — createTicket과 동일 패턴, 신호만 전달.
+        messagingTemplate.convertAndSend(DEST_QUEUE_UPDATED, "TICKET_RESOLVED");
         return response;
     }
 
@@ -348,6 +357,28 @@ public class CounselTicketService {
         ticket.leaveOffline();
         endSession(ticket.getSessionId());
         ticketRepository.saveAndFlush(ticket);
+        CounselTicketResponse response =
+                CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
+        // #1506 — 이전엔 아무에게도 알리지 않아 상담원 콘솔이 사용자 이탈을 몰랐다(활성 채팅에 "상담 중"
+        // 잔존 → 상담원이 종료를 누르면 409). WAITING 상태에서 이탈하면 counselorId가 없을 수 있다.
+        if (ticket.getCounselorId() != null) {
+            messagingTemplate.convertAndSendToUser(
+                    String.valueOf(ticket.getCounselorId()), DEST_ENDED, response);
+        }
+        messagingTemplate.convertAndSend(DEST_QUEUE_UPDATED, "TICKET_RESOLVED");
+        return response;
+    }
+
+    /**
+     * 티켓 단건 상태 조회(#1506) — 고객 화면이 WS 재연결 시점에 REST로 최신 상태를 백필하기 위한 폴백
+     * 엔드포인트. 당사자(사용자 본인/담당 상담원) 또는 PLATFORM_ADMIN만 허용 — {@link #getMessages}와
+     * 동일한 인가 패턴({@link #loadParticipantTicket}).
+     */
+    public CounselTicketResponse getTicket(Long ticketId, Long requesterId, boolean platformAdmin) {
+        CounselTicket ticket = platformAdmin
+                ? ticketRepository.findById(ticketId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.COUNSEL_TICKET_NOT_FOUND))
+                : loadParticipantTicket(ticketId, requesterId);
         return CounselTicketResponse.from(ticket, resolveCounselorName(ticket.getCounselorId()));
     }
 
