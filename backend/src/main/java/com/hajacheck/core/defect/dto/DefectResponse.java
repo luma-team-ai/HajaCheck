@@ -41,6 +41,9 @@ import java.time.LocalDateTime;
  * 대상으로 집계한 상태(전체 RESOLVED→RESOLVED, 일부 진행 이상→IN_PROGRESS, 그 외 CONFIRMED)다.
  * 목록/상세 등 다른 조회 경로는 계산하지 않고 null로 남긴다({@link #from(Defect)} 등 기존 팩토리는
  * 변경 없음, {@link #withGroupSummary(int, DefectStatus)}로만 채운다).
+ *
+ * <p>mediaId(#1456, 프론트 카드 그룹핑용)는 imageUrl에 이미 간접 포함돼 있던 값을 클라이언트가
+ * 문자열 파싱 없이 바로 그룹 키로 쓸 수 있도록 그대로 노출한 것뿐이다 — 신규 계산이나 저장 없음.
  */
 public record DefectResponse(
         Long id,
@@ -64,6 +67,7 @@ public record DefectResponse(
         Double crackWidthMm,
         Double crackLengthMm,
         String imageUrl,
+        Long mediaId,
         Long previousDefectId,
         String actionPhotoUrl,
         String actionContent,
@@ -106,6 +110,7 @@ public record DefectResponse(
                 defect.getCrackWidthMm(),
                 defect.getCrackLengthMm(),
                 defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail",
+                defect.getMediaId(),
                 defect.getPreviousDefectId(),
                 defect.getActionMediaId() == null ? null : "/api/media/" + defect.getActionMediaId() + "/thumbnail",
                 defect.getActionContent(),
@@ -122,7 +127,7 @@ public record DefectResponse(
         return new DefectResponse(
                 id, inspectionId, facilityId, facilityName, facilityType, location, assigneeName, foundCycle,
                 type, typeLabel, grade, status, confidence, reviewed, bboxX, bboxY, bboxW, bboxH,
-                crackWidthMm, crackLengthMm, imageUrl, previousDefectId, actionPhotoUrl, actionContent,
+                crackWidthMm, crackLengthMm, imageUrl, mediaId, previousDefectId, actionPhotoUrl, actionContent,
                 actionDate, actionAssigneeId, actionAssigneeName, createdAt, groupSize, groupStatus);
     }
 }
