@@ -61,9 +61,10 @@ class TestCardDetection:
         result = detect_card(img)
         assert result is None
 
+    @patch("ai.core.card_client._get_yolo_world_model")
     @patch("ai.core.card_client._attempt_detection_tiled")
     @patch("ai.core.card_client._attempt_detection")
-    def test_card_valid(self, mock_attempt, mock_attempt_tiled):
+    def test_card_valid(self, mock_attempt, mock_attempt_tiled, mock_get_model):
         """정상 카드 검출 (검출 로직 mock)."""
         width, height = 1920, 1440
         card_w, card_h = 300, int(300 / CARD_RATIO)
@@ -85,8 +86,9 @@ class TestCardDetection:
         assert 0 < result.confidence <= 1
         assert result.method in ("quad", "bbox", "quad_rec")
 
+    @patch("ai.core.card_client._get_yolo_world_model")
     @patch("ai.core.card_client._attempt_detection")
-    def test_card_ratio_tolerance(self, mock_attempt):
+    def test_card_ratio_tolerance(self, mock_attempt, mock_get_model):
         """종횡비 허용 범위 내 카드 (검출 로직 mock)."""
         card_w, card_h = 300, 200
         img = create_card_image(1920, 1440, card_box=(500, 500, 800, 700))
@@ -104,8 +106,9 @@ class TestCardDetection:
             ratio = result.long_px / result.short_px
             assert 1.25 <= ratio <= 2.0
 
+    @patch("ai.core.card_client._get_yolo_world_model")
     @patch("ai.core.card_client._attempt_detection")
-    def test_confidence_range(self, mock_attempt):
+    def test_confidence_range(self, mock_attempt, mock_get_model):
         """신뢰도가 0~1 범위 (검출 로직 mock)."""
         card_w, card_h = 300, int(300 / CARD_RATIO)
         img = create_card_image(1920, 1440, card_box=(500, 500, 500 + card_w, 500 + card_h))
