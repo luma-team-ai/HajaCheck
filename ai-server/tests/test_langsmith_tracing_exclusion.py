@@ -14,13 +14,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from langsmith.client import Client
-from langsmith.run_helpers import tracing_context
+from langsmith.run_helpers import get_tracing_context, tracing_context
 
 from _langsmith_test_helpers import (
     extract_bytes,
     reset_langsmith_process_state,
     wait_for_flush,
 )
+from ai.chains.business_license_ocr_chain import BusinessLicenseOcrExtract
 
 SENSITIVE_INPUT = "사업자등록번호 123-45-67890 대표자 홍길동"
 SENSITIVE_OUTPUT = "원인은 콘크리트 중성화로 추정됩니다"
@@ -181,6 +182,49 @@ def test_ocr_chain_tracing_context_actually_suppresses_transmission(monkeypatch)
     assert SENSITIVE_INPUT.encode("utf-8") in control_payload, (
         "마스킹 OFF 상태의 LLM 호출 프롬프트가 전송되지 않았다 — "
         "대조군 자체가 작동하지 않았으므로 OCR 억제 검증이 무효"
+    )
+
+
+def test_ocr_chain_suppresses_tracing_for_the_whole_function_not_just_llm_invoke():
+    """#1594 5번 — 억제 범위가 `run_business_license_ocr_chain` **전체**여야 한다.
+
+    예전 구현은 LLM invoke 한 줄만 `tracing_context(enabled=False)`로 감쌌다. 전역 백스톱
+    (LANGSMITH_HIDE_*)이 사라진 지금 그 구조에서는 누군가 이 체인에 LLM 호출을 한 줄 추가하거나
+    `with` 블록 **밖**에서 호출하면 사업자등록번호·대표자명이 경보 없이 국외 SaaS로 전송된다.
+
+    검증 방식: OCR 단계(= 예전 구조에서는 억제 범위 **밖**이던 지점)에서 현재 트레이싱 컨텍스트를
+    읽어, 그 시점에 이미 억제가 걸려 있는지 본다. 범위를 invoke 한 줄로 되돌리면 이 값이
+    "억제 아님"이 되어 테스트가 실패한다. 실제 전송 억제 자체는 위 테스트가 페이로드로 검증하므로,
+    여기서는 네트워크·스파이 없이 범위만 결정론적으로 고정한다.
+    """
+    observed: list = []
+
+    def _engine(_image_bytes):
+        observed.append(get_tracing_context().get("enabled"))
+        return MagicMock(txts=["사업자등록번호 123-45-67890"], scores=[0.95])
+
+    with patch(
+        "ai.chains.business_license_ocr_chain.get_ocr_engine", return_value=_engine
+    ), patch("ai.chains.business_license_ocr_chain._decode_image", return_value=b"fake-image"), patch(
+        "ai.chains.business_license_ocr_chain.get_llm"
+    ) as mock_get_llm:
+        mock_get_llm.return_value.with_structured_output.return_value.invoke.return_value = (
+            BusinessLicenseOcrExtract(
+                business_registration_number="123-45-67890",
+                company_name="테스트회사",
+                representative_name="김테스트",
+                business_start_date="2020.01.15",
+            )
+        )
+
+        from ai.chains.business_license_ocr_chain import run_business_license_ocr_chain
+
+        with tracing_context(enabled=True):  # 바깥에서 트레이싱이 켜져 있어도
+            run_business_license_ocr_chain("aGVsbG8=")
+
+    assert observed == [False], (
+        "OCR 텍스트 추출 단계에서 트레이싱이 억제되지 않았다 — 억제 범위가 LLM invoke 한 줄로 "
+        f"좁아졌다는 뜻이다(#1594 5번 회귀). 관측값: {observed}"
     )
 
 
