@@ -72,6 +72,21 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
     });
   });
 
+  it('제품 스크린샷에 고유 크기를 지정해 로드 전 레이아웃 이동(CLS)을 방지한다', () => {
+    renderWithProviders(<LandingPage />);
+
+    const productScreenshots = [
+      screen.getByAltText('분석 결과 뷰어 화면'),
+      screen.getByAltText('시설물 점검 주기 설정 화면'),
+      screen.getByAltText('하자 상세 화면'),
+    ];
+
+    productScreenshots.forEach((image) => {
+      expect(image.getAttribute('width')).toBeTruthy();
+      expect(image.getAttribute('height')).toBeTruthy();
+    });
+  });
+
   it('요금제 카드에는 가입 또는 문의 CTA를 표시하지 않는다', () => {
     renderWithProviders(<LandingPage />);
 
