@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-08-03
+> 마지막 갱신: 2026-08-04
 
 ## 인프라
 
@@ -36,6 +36,11 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **🛠️ 하자 조치 등록 그룹 팬아웃 — 이미지 단위 보수 작업 v0.2 (→ dev, 2026-08-04)** — BE **#1460**(이슈 #1456), FE **#1461**(이슈 #1457). 둘 다 `awaiting-promotion` 라벨 부여. **마이그레이션 0건** — `docs/_local/repair-work-image-unit-plan_v0.2.md`(신규 엔티티 대신 `inspection_id+media_id` 계산 그룹, 스키마 무변경 버전)를 채택해 v0.1(신규 테이블 3개) 대비 마이그레이션 리스크를 제거했다.
+  - **BE(#1460)**: `DefectService#registerActionResult` 내부를 단일 하자 처리 → 그룹 팬아웃으로 확장. 같은 `inspection_id+media_id`로 확정된(CONFIRMED 이상) 비삭제 하자 전체를 **id 오름차순**으로 묶어 동일 트랜잭션에서 반복 반영(잠금 순서 고정으로 교착 방지, 낙관적 락 충돌 시 그룹 전체 롤백). API는 기존 `PATCH /api/defects/{id}/action` 그대로(신규 엔드포인트 없음), `DefectResponse`에 `groupSize`/`groupStatus`/`mediaId` additive 필드만 추가.
+  - **FE(#1461)**: 착수 전 확인해보니 카드 목록 `mediaId` 클라이언트 그룹핑(`groupDefectsByImage`)과 상세 모달의 그룹 공유 조치 폼(bbox 전환 시 진단만 바뀌고 폼은 그룹 defects 유지)이 **#1422/#1436/#1450에서 이미 구현돼 있었다** — 원래 계획했던 카드/모달/보고서 그룹핑 작업 대부분이 불필요했다. 실제 변경은 `DefectActionForm` 성공 안내에 `groupSize>1`이면 "같은 이미지의 하자 N건에 함께 반영됨" 문구를 붙인 것뿐(옵셔널 필드 소비, 별도 API 호출 없음).
+  - **PR머신 P1 픽스 1회**: FE #1461을 BE #1460 병합 전에 리뷰해 "`groupSize` 응답 필드가 dev에 없어 이 기능이 실서비스에서 절대 동작하지 않는다"는 P1을 받았다 — BE #1460이 이미 머신에 의해 dev에 머지된 상태였으므로, `origin/dev`를 FE 브랜치에 **리베이스**(병합 커밋 대신 선형 히스토리로) 후 재푸시해 해소.
+  - **검증**: BE `DefectServiceTest`(Mockito, 그룹 팬아웃 신규 4건 포함) 전체 PASS·`compileJava/compileTestJava` PASS. `DefectRepositoryTest`(Testcontainers) 신규 그룹조회 테스트는 로컬 샌드박스 Docker 네트워킹 제약으로 클래스 전체(기존 포함) 실행 불가 확인(CI는 별개). FE `tsc -b`·`vitest run src/features/defect`(24 files/183 tests) PASS, 무관 3개 파일(facility 미디어 업로드·보고서 생성) 8건 실패는 `dev` 베이스에서도 동일 재현되는 기존 환경 이슈로 확인.
 - **⏰ 백엔드 CI 복구 — 모니터링 소요시간 테스트 시한폭탄 제거 (→ dev, 2026-08-03)** — **#1431**(squash `36c69779`, 이슈 #1430 / HAJA-639, **사람 수동 머지**). `awaiting-promotion` 라벨 부여, Jira `dev-pr-check`. 테스트 1파일 **+6/-1**, 프로덕션 코드 무변경, 마이그레이션 0건.
   - **증상**: `./gradlew test` 가 **2026-08-03 16:00 KST부터 영구 실패**. 이후 올라오는 **모든 백엔드 PR의 CI가 빨간불**이 되는 상태였다(`expected "02:45" but was null`).
   - **원인**: 테스트가 고정 시각을 쓰는데 서비스는 그 값을 `now()` 와 비교했다. `PlatformAdminMonitoringServiceTest:116` 의 `LocalDateTime.of(2026, 8, 3, 10, 0, 0)` ↔ `PlatformAdminMonitoringService:169` 의 `Duration.between(createdAt, LocalDateTime.now()) > PROGRESS_CACHE_TTL(6시간) → durationLabel=null`. **10:00 + 6h = 16:00 을 넘긴 순간부터 항상 null.**
