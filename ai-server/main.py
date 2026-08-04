@@ -66,7 +66,6 @@ def _load_defect_models_sync() -> None:
     # 지연 임포트 — ultralytics/huggingface_hub/segmentation_models_pytorch는 무거운 의존성이라
     # 모듈 최상단에서 임포트하면 main.py를 import하는 모든 테스트(TestClient 미사용 포함)가 그
     # 비용을 진다.
-    from ai.core.card_client import warmup_card_model
     from ai.core.embeddings import get_embeddings
     from ai.core.unet_client import get_crack_model
     from ai.core.yolo_client import get_yolo_model
@@ -77,13 +76,27 @@ def _load_defect_models_sync() -> None:
     get_yolo_model("SPALLING")
     get_yolo_model("REBAR_EXPOSURE")
 
+    # bge-m3 임베딩 모델 워밍업 (첫 RAG 호출 시 콜드스타트 지연 방지).
+    # ⚠️ 순서 주의(#1594) — 이 호출은 반드시 카드 검출 워밍업보다 **앞**에 있어야 한다. 예전에는
+    # 카드가 먼저였고 예외는 _warmup_defect_models() 바깥에서 한 번에 잡혀서, 신규·고위험 경로
+    # (런타임에 GitHub YOLO-World 24.7MB + CLIP ViT-B/32 338MB를 새로 받는다)가 실패하면
+    # get_embeddings()가 아예 실행되지 않아 **기존에 잘 돌던 RAG 첫 호출이 콜드스타트를 떠안았다.**
+    # 부가 기능 실패가 기존 기능을 회귀시키면 안 된다.
+    get_embeddings()
+
     # 카드 검출(#1487, #1547 머신 검수 P1) — YOLO-World 가중치 24.7MB + set_classes()가 받는
     # CLIP ViT-B/32 338MB. 균열이 검출된 사진에서만 타는 부가 경로지만 콜드스타트 비용은 위
     # 3종보다 오히려 크므로 동일하게 미리 로드한다.
-    warmup_card_model()
-    
-    # bge-m3 임베딩 모델 워밍업 추가 (첫 RAG 호출 시 콜드스타트 지연 방지)
-    get_embeddings()
+    #
+    # 개별 try/except로 감싼다(#1594) — defect_detection_chain.py의 detect_card 호출부가 이미 쓰는
+    # 패턴과 동일하다("카드는 부가 정보라, 그 실패가 균열 탐지 자체를 무너뜨리면 안 된다"). 지연
+    # 임포트까지 블록 안에 두는 이유는 ultralytics/CLIP 의존성 임포트 자체가 실패할 수 있어서다.
+    try:
+        from ai.core.card_client import warmup_card_model
+
+        warmup_card_model()
+    except Exception:  # noqa: BLE001 — 카드 워밍업 실패는 첫 실제 요청의 지연 로드로 재시도된다
+        logger.exception("카드 검출 모델 워밍업 실패 — 다른 모델 워밍업은 계속 진행한다 (#1594)")
 
 
 async def _warmup_defect_models() -> None:

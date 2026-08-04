@@ -44,6 +44,43 @@ def test_load_defect_models_sync_includes_card_model():
     mock_embeddings.assert_called_once()
 
 
+def test_card_warmup_failure_does_not_block_embedding_warmup():
+    """#1594 3번 — 신규 카드 경로(런타임에 GitHub YOLO-World + CLIP 338MB를 새로 받는다) 실패가
+    기존 RAG 임베딩 워밍업을 건너뛰게 만들면 안 된다.
+
+    예전 구조는 카드 워밍업이 `get_embeddings()`보다 앞이고 예외는 `_warmup_defect_models()`
+    바깥에서 한 번에 잡혀서, 카드가 실패하면 bge-m3 워밍업이 아예 실행되지 않았다 —
+    부가 기능 실패가 기존 기능(RAG 첫 호출 콜드스타트)을 회귀시키는 실패 모드다.
+    """
+    with patch(
+        "ai.core.card_client.warmup_card_model", side_effect=RuntimeError("YOLO-World 다운로드 실패")
+    ) as mock_card, patch("ai.core.unet_client.get_crack_model"), patch(
+        "ai.core.yolo_client.get_yolo_model"
+    ), patch("ai.core.embeddings.get_embeddings") as mock_embeddings:
+        main._load_defect_models_sync()  # 예외가 전파되면 테스트 실패
+
+    mock_card.assert_called_once()
+    mock_embeddings.assert_called_once()
+
+
+def test_embedding_warmup_runs_before_card_warmup():
+    """순서 자체를 고정한다 — 개별 try/except만 있고 순서가 되돌아가면, 카드 워밍업이 예외 없이
+    **오래 매달리는** 경우(느린 대용량 다운로드)에 임베딩 워밍업이 그만큼 밀린다. 위 테스트는
+    예외 케이스만 잡으므로 이 테스트가 나머지 절반을 고정한다."""
+    call_order = []
+
+    with patch(
+        "ai.core.card_client.warmup_card_model", side_effect=lambda: call_order.append("card")
+    ), patch("ai.core.unet_client.get_crack_model"), patch(
+        "ai.core.yolo_client.get_yolo_model"
+    ), patch(
+        "ai.core.embeddings.get_embeddings", side_effect=lambda: call_order.append("embeddings")
+    ):
+        main._load_defect_models_sync()
+
+    assert call_order == ["embeddings", "card"]
+
+
 def test_warmup_defect_models_swallows_loader_exception():
     # 워밍업 실패(네트워크 장애·체크포인트 없음 등)로 앱 기동 자체가 죽으면 안 된다 —
     # 첫 실제 분석 요청이 get_yolo_model()/get_crack_model()의 지연 로드 경로로 재시도한다.
