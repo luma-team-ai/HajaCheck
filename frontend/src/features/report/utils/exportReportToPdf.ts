@@ -58,6 +58,15 @@ const SECTION_TITLE_HEIGHT = 6;
 const PHOTO_CAPTION_HEIGHT = 9;
 /** 사진 1장 표(이미지 행 + 캡션 행)가 통째로 들어가야 하는 높이 — 이만큼 없으면 페이지를 넘긴다. */
 const PHOTO_BLOCK_HEIGHT = PHOTO_ROW_HEIGHT + 4 + PHOTO_CAPTION_HEIGHT;
+/**
+ * "책임기술자 종합의견" 표(renderSummaryBlock)가 절 제목 바로 다음에 최소한으로 필요로 하는
+ * 높이 — 표 헤더 행("책임기술자 종합의견", ~10mm) + 본문 셀 최소 높이(minCellHeight: 40)만
+ * 더한 값이다(서명 행까지는 다음 페이지로 넘어가도 무방). 범용 값 MIN_BLOCK_SPACE(40, "제목+한
+ * 줄 표" 가정)로는 이 표의 실제 필요 지면을 과소평가해, 섹션 제목+표 헤더 행까지만 현재
+ * 페이지에 들어간다고 판단되고 정작 본문 행은 autoTable이 다음 페이지로 넘겨버려 헤더만 고아로
+ * 남는 문제가 있었다(renderPhotosBlock가 PHOTO_BLOCK_HEIGHT로 같은 문제를 막은 선례를 따름).
+ */
+const SUMMARY_BLOCK_MIN_HEIGHT = SECTION_TITLE_HEIGHT + 10 + 40;
 
 const FONT_SIZE = {
   documentTitle: 25,
@@ -589,7 +598,9 @@ export async function exportReportToPdf(
   // 기존 소절이 담던 등급별 건수·주요 발견사항은 표를 따로 만들지 않고 같은 불릿 흐름에 흡수한다
   // — 새 데이터를 붙이지 않고 표시 구조만 원본에 맞춘다(#1409).
   const renderSummaryBlock = (label: string, startY: number): number => {
-    const y = sectionTitle(label, startY);
+    // 표 헤더 행+본문 최소 한 줄이 함께 들어갈 지면이 없으면 제목 전체를 다음 페이지로
+    // 넘긴다 — 그래야 "제목+표 헤더만 이 페이지, 본문은 다음 페이지" 고아 현상이 사라진다.
+    const y = sectionTitle(label, ensureSpace(startY, SUMMARY_BLOCK_MIN_HEIGHT));
     autoTable(doc, {
       ...tableDefaults,
       startY: y,
