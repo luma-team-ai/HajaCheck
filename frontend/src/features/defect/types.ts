@@ -31,6 +31,11 @@ export interface Defect {
   // actionAssigneeId/actionAssigneeName flat 필드로 응답한다 — normalizeDefect()가 API 경계에서
   // 이 형태로 조립한다(#1182). 필드가 옵셔널이라 기존 mock/테스트 데이터를 건드리지 않아도 된다.
   actionResult?: DefectActionResult | null;
+  // 이미지 단위 보수 작업 그룹 팬아웃(v0.2, #1456/#1457) — PATCH /api/defects/{id}/action 응답에서만
+  // 채워진다(신규 저장 컬럼 아님, 조치 등록 시점의 그룹 크기/집계 상태). 다른 조회 경로(목록/상세
+  // 단순 조회)는 백엔드가 null로 남기므로 옵셔널로 둔다.
+  groupSize?: number | null;
+  groupStatus?: DefectStatus | null;
 }
 
 // GET /api/inspections/{id}/defects의 실제 DefectDetailItem JSON 계약.
