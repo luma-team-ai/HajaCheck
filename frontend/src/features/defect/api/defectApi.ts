@@ -1,5 +1,6 @@
 import { aiClient } from '../../../shared/api/aiClient';
 import { api } from '../../../shared/api/axios';
+import { AI_TIMEOUT_MS } from '../../../shared/api/timeouts';
 import type { PageResponse } from '../../../shared/api/types';
 import type {
   Defect,
@@ -97,7 +98,11 @@ export const defectApi = {
   // POST /api/defects/nl-search — 자연어 검색 → 필터 조건 변환. 세션 인증·점검자 역할·AI 부가 기능
   // 게이트가 걸린 공개 Spring 게이트웨이라 aiClient가 아니라 일반 백엔드 클라이언트(api)를 사용한다
   // (docs/design/ai/nl_search_filter_schema.md §4 — "프론트도 aiClient가 아니라... Spring API 클라이언트 사용").
-  nlSearch: (query: string) => api.post<NlSearchResult>('/defects/nl-search', { query }),
+  // ⚠️ api 인스턴스를 쓰지만 실제로는 LLM 경유다 — 백엔드 NlSearchService가 ai-server를 동기로
+  // 호출하므로 스프링 ai.server read-timeout 150초가 걸린다. 전역 30초면 정상 검색이 끊기므로
+  // AI 상한으로 override 한다(#1598, 근거는 timeouts.ts).
+  nlSearch: (query: string) =>
+    api.post<NlSearchResult>('/defects/nl-search', { query }, { timeout: AI_TIMEOUT_MS }),
 
   // --- 하자 목록·상세 개편 (HAJA-393/394, #725/#726) ---------------------------------------
 

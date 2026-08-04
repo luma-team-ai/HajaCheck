@@ -1,4 +1,5 @@
 import { api } from '../../../shared/api/axios';
+import { totalBytesOf, uploadTimeoutMs } from '../../../shared/api/timeouts';
 import type { FacilityPhoto } from '../types';
 
 // 시설물 대표 사진 업로드/조회(#652, 백엔드 #1017/#632 완료) — inspection/api/mediaApi.ts와
@@ -11,6 +12,8 @@ export const facilityMediaApi = {
     files.forEach((file) => formData.append('files', file));
 
     return api.post<FacilityPhoto[]>(`/facilities/${facilityId}/media`, formData, {
+      // 파일 크기에 비례한 업로드 상한(#1598) — mediaApi.upload와 동일 근거(timeouts.ts).
+      timeout: uploadTimeoutMs(totalBytesOf(files)),
       onUploadProgress: (event) => {
         if (!onUploadProgress || !event.total) return;
         onUploadProgress(Math.round((event.loaded / event.total) * 100));

@@ -1,4 +1,5 @@
 import { api } from '../../../shared/api/axios';
+import { AI_TIMEOUT_MS, uploadTimeoutMs } from '../../../shared/api/timeouts';
 import {
   BUSINESS_LICENSE_OCR_PATH,
   BUSINESS_VERIFICATION_PATH,
@@ -75,7 +76,12 @@ export const authApi = {
   checkEmailAvailability: (email: string) =>
     api.get<EmailAvailabilityResponse>(EMAIL_AVAILABILITY_PATH, { params: { email } }),
   signupCompany: (body: CompanySignupRequest) =>
-    api.post<CompanySignupResponse>(COMPANY_SIGNUP_PATH, toCompanySignupFormData(body)),
+    api.post<CompanySignupResponse>(COMPANY_SIGNUP_PATH, toCompanySignupFormData(body), {
+      // 사업자등록증 파일(최대 10MB, constants.BUSINESS_LICENSE_MAX_SIZE_BYTES)을 함께 올리고,
+      // 서버는 그 김에 국세청 진위확인까지 동기로 호출한다(biz-verify read-timeout 5초, 재시도 없음).
+      // 파일 전송 시간이 전역 30초를 잠식하므로 크기에 비례한 상한을 준다(#1598, 근거는 timeouts.ts).
+      timeout: uploadTimeoutMs(body.businessRegistrationFile.size),
+    }),
   // 사업자 진위확인(#648 BE, #663 FE) — 회원가입 제출 전 [진위확인] 버튼, 비로그인 공개 엔드포인트.
   // 판정 결과(VERIFIED 등 6종)는 항상 200으로 오므로 result 필드로 분기한다.
   verifyBusiness: (body: BusinessVerificationRequest) =>
@@ -85,7 +91,12 @@ export const authApi = {
   businessLicenseOcr: (file: File) => {
     const formData = new FormData();
     formData.append('businessRegistrationFile', file);
-    return api.post<BusinessLicenseOcrResponse>(BUSINESS_LICENSE_OCR_PATH, formData);
+    return api.post<BusinessLicenseOcrResponse>(BUSINESS_LICENSE_OCR_PATH, formData, {
+      // 이름만 봐서는 AI 호출인 줄 모르는 경로다 — 서버가 ai-server로 프록시해 RapidOCR + LLM을
+      // 돌리므로 스프링 ai.server read-timeout 150초가 그대로 걸린다. 전역 30초면 정상 OCR이
+      // 끊긴다. AI 처리 천장 + 파일 전송 시간(#1598, 근거는 timeouts.ts).
+      timeout: uploadTimeoutMs(file.size, AI_TIMEOUT_MS),
+    });
   },
   findLoginId: (body: IdInquiryRequest) => api.post<IdInquiryResponse>(ID_INQUIRY_PATH, body),
   // 비밀번호 찾기 — 이메일 링크 방식(#301, HAJA-224)
