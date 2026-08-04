@@ -26,6 +26,7 @@ from ai.chains.rag_chat_chain import (
     run_rag_chat_chain,
 )
 from ai.core.llm_client import CACHE_TTL_SECONDS
+from ai.core.prompt_safety import wrap_untrusted
 from main import app
 
 client = TestClient(app)
@@ -501,6 +502,8 @@ def test_build_history_block_empty_returns_empty_string():
 
 
 def test_build_history_block_renders_qa_pairs():
+    """이전 질문(Q)은 wrap_untrusted로 감싸지고, 이전 답변(A)은 감싸지 않는다(#1510 P2 픽스) —
+    Q는 사용자 입력, A는 이 체인 자신이 생성한 LLM 출력이라 방어 대상이 아니다."""
     history = [
         {"question": "균열이 뭔가요?", "answer": "구조물 표면의 갈라짐입니다."},
         {"question": "심각한가요?", "answer": "정도에 따라 다릅니다."},
@@ -508,18 +511,27 @@ def test_build_history_block_renders_qa_pairs():
     block = _build_history_block(history)
     assert block == (
         "이전 대화:\n"
-        "Q: 균열이 뭔가요?\n"
+        f"Q: {wrap_untrusted('균열이 뭔가요?')}\n"
         "A: 구조물 표면의 갈라짐입니다.\n"
-        "Q: 심각한가요?\n"
+        f"Q: {wrap_untrusted('심각한가요?')}\n"
         "A: 정도에 따라 다릅니다.\n\n"
     )
+
+
+def test_build_history_block_wraps_question_not_answer():
+    """이전 질문에는 UNTRUSTED_DATA 마커가 붙고, 이전 답변에는 붙지 않는지 직접 검증."""
+    history = [{"question": "이전 질문", "answer": "이전 답변"}]
+    block = _build_history_block(history)
+    assert "---BEGIN UNTRUSTED DATA---\n이전 질문\n---END UNTRUSTED DATA---" in block
+    assert "A: 이전 답변" in block
+    assert "---BEGIN UNTRUSTED DATA---\n이전 답변" not in block
 
 
 def test_build_prompt_inserts_history_between_system_and_question():
     history = [{"question": "이전 질문", "answer": "이전 답변"}]
     prompt = _build_prompt("현재 질문", "발췌 컨텍스트", history)
     assert "이전 대화:" in prompt
-    assert "Q: 이전 질문" in prompt
+    assert "Q: " + wrap_untrusted("이전 질문") in prompt
     assert "A: 이전 답변" in prompt
     # 이력 블록은 시스템 프롬프트 뒤·질문 앞에 위치해야 한다.
     assert prompt.index("이전 대화:") < prompt.index("현재 질문")

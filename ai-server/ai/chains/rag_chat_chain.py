@@ -124,12 +124,19 @@ def _build_context(docs) -> str:
 def _build_history_block(history: Optional[list[dict]]) -> str:
     """이전 대화 블록 렌더링(design §5.3) — "이전 대화:\\nQ: ...\\nA: ...\\n\\n" 반복.
 
-    history가 비어있으면 빈 문자열(1턴째 프롬프트는 기존과 100% 동일해야 회귀가 없다)."""
+    history가 비어있으면 빈 문자열(1턴째 프롬프트는 기존과 100% 동일해야 회귀가 없다).
+
+    Q(이전 질문)는 현재 질문(question_text)과 동일하게 사용자가 입력한 텍스트이므로
+    wrap_untrusted로 감싼다(PR #1510 P2 픽스) — 프롬프트 인젝션 방어 대상은 "누가 언제 입력했는지"가
+    아니라 "사용자 입력인지"이므로 현재 질문만 감싸고 이전 질문은 놔두는 건 방어 구멍이다.
+    A(이전 답변)는 이 체인 자신이 생성한 LLM 출력(사용자가 직접 쓴 텍스트가 아님)이라 감싸지 않는다
+    — wrap_untrusted 대상은 "사용자·외부 입력"(prompt_safety.py 모듈 docstring)이지 자체 출력이 아니다.
+    """
     if not history:
         return ""
     lines = ["이전 대화:"]
     for turn in history:
-        lines.append(f"Q: {turn['question']}")
+        lines.append(f"Q: {wrap_untrusted(turn['question'])}")
         lines.append(f"A: {turn['answer']}")
     return "\n".join(lines) + "\n\n"
 

@@ -40,6 +40,7 @@ import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -290,9 +291,17 @@ public class AiProxyService {
     /**
      * 세션의 (질문, 답변) 페어 중 최근 {@link #RECENT_HISTORY_TURN_LIMIT}개만 시간순으로 추린다.
      * citation은 제외하고 질문/답변 텍스트만 담는다(설계 §3).
+     *
+     * <p>세션 전체 이력이 아니라 최근 {@link #RECENT_HISTORY_TURN_LIMIT} * 2(=6)건만 DB에서 가져온다
+     * (PR #1510 P2 픽스) — 세션이 길어질수록 전체 조회량이 선형 증가하는 것을 막는다.
+     * {@code findTop6BySessionIdOrderByCreatedAtDesc}는 최신순(desc)이라 프롬프트에 넣을 때는
+     * 다시 시간순(asc)으로 뒤집어야 한다.
      */
     private List<HistoryTurnDto> buildRecentHistory(Long sessionId) {
-        List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        List<ChatMessage> recentDesc = chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(sessionId);
+        List<ChatMessage> messages = new ArrayList<>(recentDesc);
+        Collections.reverse(messages);
+
         List<HistoryTurnDto> turns = new ArrayList<>();
         ChatMessage pendingQuestion = null;
         for (ChatMessage message : messages) {

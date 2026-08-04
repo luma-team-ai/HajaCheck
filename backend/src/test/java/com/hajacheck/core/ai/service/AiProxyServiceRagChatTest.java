@@ -69,7 +69,7 @@ class AiProxyServiceRagChatTest {
         chatSessionService = mock(ChatSessionService.class);
         chatMessageRepository = mock(ChatMessageRepository.class);
         ragConversationPersistenceService = mock(RagConversationPersistenceService.class);
-        when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(SESSION_ID)).thenReturn(List.of());
+        when(chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(SESSION_ID)).thenReturn(List.of());
         properties = new AiServerProperties();
         properties.setBaseUrl("http://ai-server-test");
         properties.setInternalKey("test-internal-key");
@@ -312,9 +312,10 @@ class AiProxyServiceRagChatTest {
 
     @Test
     void ragChat_sessionId있음_이전이력있으면FastAPI요청바디에history포함() {
-        when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(SESSION_ID)).thenReturn(List.of(
-                message(ChatSenderType.USER, "1차 질문"),
-                message(ChatSenderType.BOT, "1차 답변")));
+        // 리포지토리는 최신순(desc)으로 반환 — 호출부가 다시 asc로 뒤집는다.
+        when(chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(SESSION_ID)).thenReturn(List.of(
+                message(ChatSenderType.BOT, "1차 답변"),
+                message(ChatSenderType.USER, "1차 질문")));
 
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andExpect(content().json("""
@@ -335,11 +336,14 @@ class AiProxyServiceRagChatTest {
 
     @Test
     void ragChat_이력이3턴초과면최근3턴만FastAPI로전달() {
-        when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(SESSION_ID)).thenReturn(List.of(
-                message(ChatSenderType.USER, "질문1"), message(ChatSenderType.BOT, "답변1"),
-                message(ChatSenderType.USER, "질문2"), message(ChatSenderType.BOT, "답변2"),
-                message(ChatSenderType.USER, "질문3"), message(ChatSenderType.BOT, "답변3"),
-                message(ChatSenderType.USER, "질문4"), message(ChatSenderType.BOT, "답변4")));
+        // 리포지토리(findTop6BySessionIdOrderByCreatedAtDesc)가 이미 최근 6건(3턴)만 최신순으로 반환한다
+        // (PR #1510 P2 픽스 — 세션 전체가 아니라 필요한 만큼만 DB에서 가져온다). 호출부는 그걸 다시
+        // 시간순으로 뒤집어 프롬프트 순서를 맞춘다. "질문1/답변1"은 이미 DB 조회 단계에서 잘려나가
+        // 여기 없다는 것 자체가 최근 3턴 제한이 지켜짐을 보여준다.
+        when(chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(SESSION_ID)).thenReturn(List.of(
+                message(ChatSenderType.BOT, "답변4"), message(ChatSenderType.USER, "질문4"),
+                message(ChatSenderType.BOT, "답변3"), message(ChatSenderType.USER, "질문3"),
+                message(ChatSenderType.BOT, "답변2"), message(ChatSenderType.USER, "질문2")));
 
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andExpect(content().json("""
@@ -383,7 +387,7 @@ class AiProxyServiceRagChatTest {
 
     @Test
     void ragChat_sessionId있음_응답성공시대화저장서비스에위임() {
-        when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(SESSION_ID)).thenReturn(List.of());
+        when(chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(SESSION_ID)).thenReturn(List.of());
 
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withStatus(HttpStatus.OK)
