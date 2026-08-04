@@ -36,6 +36,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+- **PR #1515 dev 머지 (2026-08-04)** — 하자 목록(`DefectListPage`)에서 필터 적용 후 점검 상세로 이동했다가 뒤로가기하면 필터·목록 상태가 기본값으로 리셋되던 버그(#1508) 수정. 필터 상태를 컴포넌트 로컬 `useState`에서 `useSearchParams`(URL 쿼리파라미터) 기반으로 전환, 필터/페이지 변경은 `replace:true`로 히스토리 엔트리를 쌓지 않게 처리. 신규 `inspectionListFiltersUrl.ts`(URL 직렬화 유틸, enum 화이트리스트로 URL 복원값 검증). 백엔드/DB 변경 없음. Self-review(직접, 서브에이전트 미사용) P1/P2 없음 — P3 1건(조건식 소소한 중복, 동작엔 무관). `tsc -b`/`eslint`/`defect` 기능 테스트(25 files·194 tests, #1508 회귀 테스트 포함) 전부 PASS. Jira HAJA-661 dev-pr-check 전환, GitHub #1508 `awaiting-promotion` 라벨 부여.
+
 - **PR #1509 dev 머지 (2026-08-04)** — 하자 상세 모달 이미지 상자가 와이드 화면(1920폭)에서 aspect-ratio(3:4)만으로 1110px까지 커지던 문제에 `max-height:480px` 캡핑 추가 + 등급 칩(A~E) 색상 코드 적용(`features/map` GRADE_COLOR와 동일 값 로컬 재정의). 이슈/Jira 미연동(ad-hoc UI 폴리싱, 별도 이슈 없음). Self-review(직접, 서브에이전트 미사용) P1/P2 없음 — P3 2건: C등급 칩 흰 텍스트 WCAG 대비 미달(기존 `GradeBadge` 패턴 재사용분, 이번 PR 신규 유발 아님) · 등급 색상 렌더링 테스트 부재. `npm run build` PASS, 라이브 프로덕션에서 실측 버그 케이스로 max-height 동작 확인.
 
 - **PR #1485 dev 머지 (2026-08-04)** — 초대 코드 redeem 시 `company_memberships` 미생성으로 회사 스코프 API 전면 403이던 결함(#1474) + 랜딩↔초대코드 리다이렉트 루프(#1484). squash `15499b94`, `ai:needs-human`(민감영역 `CompanyMembership.java` 자동머지 가드) → 사람 수동 머지.
