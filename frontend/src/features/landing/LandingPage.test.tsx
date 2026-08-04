@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import fs from 'fs';
+import path from 'path';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -72,18 +74,31 @@ describe('LandingPage 제품 스크린샷 및 요금제', () => {
     });
   });
 
-  it('제품 스크린샷에 고유 크기를 지정해 로드 전 레이아웃 이동(CLS)을 방지한다', () => {
+  it('제품 스크린샷에 고유 크기를 지정해 로드 전 레이아웃 이동(CLS)을 방지하고 실제 PNG 해상도와 일치하는지 검증한다', () => {
     renderWithProviders(<LandingPage />);
 
     const productScreenshots = [
-      screen.getByAltText('분석 결과 뷰어 화면'),
-      screen.getByAltText('시설물 점검 주기 설정 화면'),
-      screen.getByAltText('하자 상세 화면'),
+      { alt: '분석 결과 뷰어 화면', fileName: 'analysis-viewer.png' },
+      { alt: '시설물 점검 주기 설정 화면', fileName: 'inspection-cycle.png' },
+      { alt: '하자 상세 화면', fileName: 'defect-detail.png' },
     ];
 
-    productScreenshots.forEach((image) => {
-      expect(image.getAttribute('width')).toBeTruthy();
-      expect(image.getAttribute('height')).toBeTruthy();
+    productScreenshots.forEach(({ alt, fileName }) => {
+      const img = screen.getByAltText(alt);
+      const widthAttr = Number(img.getAttribute('width'));
+      const heightAttr = Number(img.getAttribute('height'));
+
+      expect(widthAttr).toBeGreaterThan(0);
+      expect(heightAttr).toBeGreaterThan(0);
+
+      // PNG 헤더(IHDR)를 읽어 JSX 속성에 명시된 width/height 가 실제 이미지 픽셀 크기와 정확히 일치하여 비율 찌그러짐이 없는지 검증
+      const imagePath = path.resolve(__dirname, '../../assets/brand/landing-screens', fileName);
+      const buf = fs.readFileSync(imagePath);
+      const actualWidth = buf.readUInt32BE(16);
+      const actualHeight = buf.readUInt32BE(20);
+
+      expect(widthAttr).toBe(actualWidth);
+      expect(heightAttr).toBe(actualHeight);
     });
   });
 
