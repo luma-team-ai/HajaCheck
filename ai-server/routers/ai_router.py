@@ -84,19 +84,29 @@ def defect_explain(req: DefectExplainRequest) -> AIResponse:
     return AIResponse.ok(result.model_dump())
 
 
+class HistoryTurn(BaseModel):
+    """대화 이력 한 턴 — 질문/답변 텍스트만(citation 제외, design §3/§5.3, #1493/HAJA-657)."""
+
+    question: str
+    answer: str
+
+
 class RagChatRequest(BaseModel):
     """고객지원 RAG 챗봇 요청 (FR-6, contract.md `POST /ai/rag-chat`)."""
 
     question: str = Field(min_length=1)
-    # Spring이 세션 소유·session_type='RAG'를 검증한 뒤 넘기는 값(design §7) — 이관 전인
-    # 현재 파이프라인은 세션·이력 연동이 없어 미사용(후속 이슈, design §9).
+    # Spring이 세션 소유·session_type='RAG'를 검증한 뒤 넘기는 값(design §7) — 세션·이력 연동 여부
+    # 판단은 history 유무로 하므로(design §5.3) 이 필드 자체는 여전히 미사용.
     session_id: Optional[int] = Field(default=None, ge=1)
+    # Spring이 세션이 있을 때 최근 3턴만 추려 담아 보낸다(design §3/§5.2). 세션이 없으면 빈 리스트.
+    history: list[HistoryTurn] = Field(default_factory=list)
 
 
 @router.post("/rag-chat")
 def rag_chat(req: RagChatRequest) -> AIResponse:
     try:
-        return run_rag_chat_chain(req.question)
+        history = [{"question": turn.question, "answer": turn.answer} for turn in req.history]
+        return run_rag_chat_chain(req.question, history=history)
     except OutputParserException:
         # report/defect-explain과 동일 이유로 (ValueError, PydanticValidationError)절보다 먼저
         # 잡아야 한다 — OutputParserException은 ValueError의 서브클래스.

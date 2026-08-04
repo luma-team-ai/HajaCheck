@@ -17,12 +17,16 @@ from ai.chains.rag_chat_chain import (
     RAG_CHAT_CACHE_PREFIX,
     RAG_CHAT_TOP_K,
     SEMANTIC_CACHE_SIMILARITY_THRESHOLD,
+    _build_history_block,
+    _build_prompt,
     _build_sources,
     _cache_key,
     _render_locator,
     _RagChatAnswer,
+    run_rag_chat_chain,
 )
 from ai.core.llm_client import CACHE_TTL_SECONDS
+from ai.core.prompt_safety import wrap_untrusted
 from main import app
 
 client = TestClient(app)
@@ -485,6 +489,140 @@ def test_rag_chat_semantic_cache_empty_collection_is_miss(
     body = res.json()
     assert body["success"] is True
     mock_hybrid_search.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 대화 이력(history) 반영 — #1493/HAJA-657, design §3/§4/§5.3
+# ---------------------------------------------------------------------------
+
+
+def test_build_history_block_empty_returns_empty_string():
+    assert _build_history_block([]) == ""
+    assert _build_history_block(None) == ""
+
+
+def test_build_history_block_renders_qa_pairs():
+    """이전 질문(Q)은 wrap_untrusted로 감싸지고, 이전 답변(A)은 감싸지 않는다(#1510 P2 픽스) —
+    Q는 사용자 입력, A는 이 체인 자신이 생성한 LLM 출력이라 방어 대상이 아니다."""
+    history = [
+        {"question": "균열이 뭔가요?", "answer": "구조물 표면의 갈라짐입니다."},
+        {"question": "심각한가요?", "answer": "정도에 따라 다릅니다."},
+    ]
+    block = _build_history_block(history)
+    assert block == (
+        "이전 대화:\n"
+        f"Q: {wrap_untrusted('균열이 뭔가요?')}\n"
+        "A: 구조물 표면의 갈라짐입니다.\n"
+        f"Q: {wrap_untrusted('심각한가요?')}\n"
+        "A: 정도에 따라 다릅니다.\n\n"
+    )
+
+
+def test_build_history_block_wraps_question_not_answer():
+    """이전 질문에는 UNTRUSTED_DATA 마커가 붙고, 이전 답변에는 붙지 않는지 직접 검증."""
+    history = [{"question": "이전 질문", "answer": "이전 답변"}]
+    block = _build_history_block(history)
+    assert "---BEGIN UNTRUSTED DATA---\n이전 질문\n---END UNTRUSTED DATA---" in block
+    assert "A: 이전 답변" in block
+    assert "---BEGIN UNTRUSTED DATA---\n이전 답변" not in block
+
+
+def test_build_prompt_inserts_history_between_system_and_question():
+    history = [{"question": "이전 질문", "answer": "이전 답변"}]
+    prompt = _build_prompt("현재 질문", "발췌 컨텍스트", history)
+    assert "이전 대화:" in prompt
+    assert "Q: " + wrap_untrusted("이전 질문") in prompt
+    assert "A: 이전 답변" in prompt
+    # 이력 블록은 시스템 프롬프트 뒤·질문 앞에 위치해야 한다.
+    assert prompt.index("이전 대화:") < prompt.index("현재 질문")
+
+
+def test_build_prompt_without_history_matches_original_output():
+    """history를 안 주면(1턴째) 기존 프롬프트와 100% 동일해야 한다(회귀 없음)."""
+    assert _build_prompt("질문", "컨텍스트") == _build_prompt("질문", "컨텍스트", None)
+    assert _build_prompt("질문", "컨텍스트") == _build_prompt("질문", "컨텍스트", [])
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_rag_chat_with_history_skips_cache_lookup_and_write(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """이력이 있으면 exact(Redis)·semantic(Chroma) 캐시 조회·저장을 모두 우회한다(design §4).
+
+    Redis .get()/.setex() 자체가 호출되지 않아야 하고(조회 우회), 시맨틱 캐시도 조회/저장 없이
+    바로 retrieve로 간다."""
+    mock_redis = MagicMock()
+    mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    mock_hybrid_search.return_value = [
+        _doc(doc_id="42", chunk_index=3, article="제12조")
+    ]
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+        answer="후속 답변입니다.",
+        grounded=True,
+    )
+    mock_get_llm.return_value = mock_llm
+
+    history = [{"question": "이전 질문", "answer": "이전 답변"}]
+    response = run_rag_chat_chain("후속 질문", history=history)
+
+    assert response.success is True
+    assert response.data["answer"] == "후속 답변입니다."
+
+    mock_redis.get.assert_not_called()
+    mock_redis.setex.assert_not_called()
+    mock_semantic_store.similarity_search_with_score.assert_not_called()
+    mock_semantic_store.add_documents.assert_not_called()
+    mock_hybrid_search.assert_called_once_with("후속 질문", k=RAG_CHAT_TOP_K)
+
+    # LLM이 이전 대화를 프롬프트로 전달받았는지 확인.
+    prompt = mock_llm.with_structured_output.return_value.invoke.call_args[0][0]
+    assert "이전 질문" in prompt
+    assert "이전 답변" in prompt
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_rag_chat_without_history_keeps_existing_cache_behavior(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """history가 비어있으면(1턴째) 기존 캐시 조회·저장 동작 그대로 회귀 없음을 확인한다."""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+
+    mock_semantic_store = MagicMock()
+    mock_semantic_store.similarity_search_with_score.return_value = []
+    mock_get_vectorstore.return_value = mock_semantic_store
+
+    mock_hybrid_search.return_value = [
+        _doc(doc_id="42", chunk_index=3, article="제12조")
+    ]
+
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+        answer="첫 답변입니다.",
+        grounded=True,
+    )
+    mock_get_llm.return_value = mock_llm
+
+    response = run_rag_chat_chain("첫 질문")
+
+    assert response.success is True
+    mock_redis.get.assert_called_once()
+    mock_redis.setex.assert_called_once()
+    mock_semantic_store.similarity_search_with_score.assert_called_once()
+    mock_semantic_store.add_documents.assert_called_once()
 
 
 if __name__ == "__main__":

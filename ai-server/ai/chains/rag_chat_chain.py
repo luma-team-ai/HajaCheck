@@ -53,6 +53,10 @@ class RagChatState(TypedDict):
     llm_answer: Optional["_RagChatAnswer"]
     sources: Optional[list[SourceCitation]]
     final_response: Optional[AIResponse]
+    # 대화 이력(질문/답변 텍스트만, #1493/HAJA-657) — 비어있지 않으면 skip_cache=True로 캐시를
+    # 조회/저장 모두 우회한다(design §4 "이력이 있으면 캐시를 우회").
+    history: list[dict]
+    skip_cache: bool
 
 
 class _RagChatAnswer(BaseModel):
@@ -117,14 +121,36 @@ def _build_context(docs) -> str:
     return "\n\n".join(doc.page_content for doc in docs)
 
 
-def _build_prompt(question: str, context: str) -> str:
+def _build_history_block(history: Optional[list[dict]]) -> str:
+    """이전 대화 블록 렌더링(design §5.3) — "이전 대화:\\nQ: ...\\nA: ...\\n\\n" 반복.
+
+    history가 비어있으면 빈 문자열(1턴째 프롬프트는 기존과 100% 동일해야 회귀가 없다).
+
+    Q(이전 질문)는 현재 질문(question_text)과 동일하게 사용자가 입력한 텍스트이므로
+    wrap_untrusted로 감싼다(PR #1510 P2 픽스) — 프롬프트 인젝션 방어 대상은 "누가 언제 입력했는지"가
+    아니라 "사용자 입력인지"이므로 현재 질문만 감싸고 이전 질문은 놔두는 건 방어 구멍이다.
+    A(이전 답변)는 이 체인 자신이 생성한 LLM 출력(사용자가 직접 쓴 텍스트가 아님)이라 감싸지 않는다
+    — wrap_untrusted 대상은 "사용자·외부 입력"(prompt_safety.py 모듈 docstring)이지 자체 출력이 아니다.
+    """
+    if not history:
+        return ""
+    lines = ["이전 대화:"]
+    for turn in history:
+        lines.append(f"Q: {wrap_untrusted(turn['question'])}")
+        lines.append(f"A: {turn['answer']}")
+    return "\n".join(lines) + "\n\n"
+
+
+def _build_prompt(question: str, context: str, history: Optional[list[dict]] = None) -> str:
     system = (PROMPTS_DIR / "_system_base.md").read_text(encoding="utf-8")
     template = (PROMPTS_DIR / "rag_chat.md").read_text(encoding="utf-8")
     filled = template.format(
         context=context,
         question_text=wrap_untrusted(question),
     )
-    return f"{system}\n\n{filled}"
+    history_block = _build_history_block(history)
+    # 시스템 프롬프트 뒤 · 현재 질문(포함된 filled) 앞에 삽입(design §5.3).
+    return f"{system}\n\n{history_block}{filled}"
 
 
 def _cache_key(question: str) -> str:
@@ -142,8 +168,18 @@ def _node_cache_check(state: RagChatState) -> RagChatState:
     Redis에서 캐시를 조회하고, 히트 시 cached_result와 final_response를 세팅한다.
     노드 함수 내에서 get_redis_client()를 런타임 호출하므로 @patch 호환성 유지.
     """
-    redis_client = get_redis_client()
     cache_key = _cache_key(state["question"])
+
+    # 이력이 있는 요청(2턴째부터)은 캐시를 완전히 우회한다(design §4) — Redis 조회 자체를 생략한다.
+    if state.get("skip_cache"):
+        return {
+            **state,
+            "cache_key": cache_key,
+            "cached_result": None,
+            "final_response": None,
+        }
+
+    redis_client = get_redis_client()
     cached = redis_client.get(cache_key)
 
     cached_result = json.loads(cached) if cached else None
@@ -160,12 +196,12 @@ def _node_cache_check(state: RagChatState) -> RagChatState:
     }
 
 
-def _route_after_cache(state: RagChatState) -> Literal["end", "retrieve"]:
-    """캐시 후 라우터 — 캐시 히트면 END, 미스면 semantic_cache_check 노드로.
-
-    반환값 리터럴("end"/"retrieve")은 기존 그대로 유지 — 그래프 엣지 매핑에서
-    "retrieve" 라벨을 semantic_cache_check 노드로 연결한다(호출부 조건부 엣지 dict 참조)."""
-    return "end" if state["cached_result"] is not None else "retrieve"
+def _route_after_cache(state: RagChatState) -> Literal["end", "semantic_cache", "retrieve"]:
+    """캐시 후 라우터 — skip_cache면 semantic 캐시까지 건너뛰고 곧장 retrieve로, 그 외엔 캐시
+    히트면 END, 미스면 semantic_cache_check 노드로."""
+    if state.get("skip_cache"):
+        return "retrieve"
+    return "end" if state["cached_result"] is not None else "semantic_cache"
 
 
 def _node_semantic_cache_check(state: RagChatState) -> RagChatState:
@@ -227,7 +263,7 @@ def _node_answer(state: RagChatState) -> RagChatState:
     노드 함수 내에서 get_llm()을 런타임 호출하므로 @patch 호환성 유지.
     """
     context = _build_context(state["docs"])
-    prompt = _build_prompt(state["question"], context)
+    prompt = _build_prompt(state["question"], context, state.get("history"))
     llm_answer = get_llm().with_structured_output(_RagChatAnswer).invoke(prompt)
     return {**state, "llm_answer": llm_answer}
 
@@ -257,12 +293,14 @@ def _node_cache_write(state: RagChatState) -> RagChatState:
         answer=state["llm_answer"].answer,
         sources=state["sources"]
     )
-    redis_client = get_redis_client()
-    redis_client.setex(
-        state["cache_key"],
-        CACHE_TTL_SECONDS,
-        answer_data.model_dump_json()
-    )
+    # 이력이 있던 요청은 캐시 저장도 생략(design §4) — 캐시 조회를 우회한 요청과 대칭.
+    if not state.get("skip_cache"):
+        redis_client = get_redis_client()
+        redis_client.setex(
+            state["cache_key"],
+            CACHE_TTL_SECONDS,
+            answer_data.model_dump_json()
+        )
     return {
         **state,
         "final_response": AIResponse.ok(answer_data.model_dump())
@@ -276,6 +314,9 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     질문 원문을 page_content로, RagAnswerData 직렬화 결과를 metadata["answer_json"]으로 저장.
     노드 함수 내에서 get_vectorstore()를 런타임 호출(테스트 patch 호환).
     """
+    if state.get("skip_cache"):
+        return state
+
     answer_data = RagAnswerData(
         answer=state["llm_answer"].answer,
         sources=state["sources"]
@@ -324,11 +365,12 @@ _graph.add_node("no_result", _node_no_result)
 # 진입점 및 엣지
 _graph.set_entry_point("cache_check")
 
-# cache_check(exact) 후 조건부 분기 — 미스면 semantic_cache_check로(1차/2차 계층 구조)
+# cache_check(exact) 후 조건부 분기 — 미스면 semantic_cache_check로(1차/2차 계층 구조).
+# skip_cache(이력 있음)면 semantic 캐시까지 건너뛰고 곧장 retrieve 노드로(design §4).
 _graph.add_conditional_edges(
     "cache_check",
     _route_after_cache,
-    {"end": END, "retrieve": "semantic_cache_check"}
+    {"end": END, "semantic_cache": "semantic_cache_check", "retrieve": "retrieve"}
 )
 
 # semantic_cache_check 후 조건부 분기 — 미스면 retrieve로
@@ -362,12 +404,14 @@ _graph.add_edge("no_result", END)
 compiled_graph = _graph.compile()
 
 
-def run_rag_chat_chain(question: str) -> AIResponse:
+def run_rag_chat_chain(question: str, history: Optional[list[dict]] = None) -> AIResponse:
     """RAG 챗봇 체인 공개 진입점.
 
     LangGraph StateGraph로 구현된 파이프라인을 invoke하고 최종 응답을 반환.
-    시그니처와 반환값은 기존과 100% 동일.
+    history가 비어있지 않으면(대화 맥락 반영 요청, #1493/HAJA-657) skip_cache=True로 캐시
+    조회/저장을 모두 우회한다(design §4) — history가 비어있으면 기존과 100% 동일하게 동작(회귀 없음).
     """
+    history = history or []
     initial_state: RagChatState = {
         "question": question,
         "cache_key": "",
@@ -376,6 +420,8 @@ def run_rag_chat_chain(question: str) -> AIResponse:
         "llm_answer": None,
         "sources": None,
         "final_response": None,
+        "history": history,
+        "skip_cache": bool(history),
     }
 
     result_state = compiled_graph.invoke(

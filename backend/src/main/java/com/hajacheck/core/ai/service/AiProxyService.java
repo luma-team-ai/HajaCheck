@@ -1,6 +1,9 @@
 package com.hajacheck.core.ai.service;
 
+import com.hajacheck.counsel.entity.ChatMessage;
+import com.hajacheck.counsel.entity.ChatSenderType;
 import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.service.ChatSessionService;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.BriefingAiEnvelope;
@@ -15,6 +18,7 @@ import com.hajacheck.core.ai.dto.DetectedDefectItem;
 import com.hajacheck.core.ai.dto.DefectExplainAiEnvelope;
 import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
+import com.hajacheck.core.ai.dto.HistoryTurnDto;
 import com.hajacheck.core.ai.dto.RagChatAiEnvelope;
 import com.hajacheck.core.ai.dto.RagChatAiRequest;
 import com.hajacheck.core.ai.dto.RagChatRequest;
@@ -35,6 +39,8 @@ import com.hajacheck.global.exception.ErrorCode;
 import java.net.SocketTimeoutException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -66,6 +72,8 @@ public class AiProxyService {
     private static final String RAG_DELETE_PATH = "/ai/rag-documents/{docId}";
     private static final String DETECT_DEFECTS_PATH = "/ai/detect-defects";
     private static final String INTERNAL_KEY_HEADER = "X-Internal-Key";
+    // 프롬프트에 실어 보낼 최근 이력 턴 수(질문+답변 페어) — 설계 §3, HF_MAX_TOKENS 여유 고려한 초안값.
+    private static final int RECENT_HISTORY_TURN_LIMIT = 3;
 
     private final RestClient aiServerRestClient;
     private final AiServerProperties aiServerProperties;
@@ -75,6 +83,15 @@ public class AiProxyService {
     // 세션 소유 검증 전용(#1467/HAJA-647). 인가 로직을 여기서 재구현하지 않고 counsel 도메인 서비스에
     // 위임해 /api/chat-sessions 와 동일한 규칙·동일한 403을 쓴다.
     private final ChatSessionService chatSessionService;
+    // 세션 이력 조회 전용(#1493/HAJA-657). ChatSessionService.findMessages()가 쓰는 것과 동일한
+    // 리포지토리를 재사용한다(조회 로직 중복 금지). 조회는 단건 repository 호출이라 별도
+    // @Transactional 불필요 — 쓰기(저장)만 RagConversationPersistenceService로 분리한 이유는
+    // 그 클래스 javadoc 참고.
+    private final ChatMessageRepository chatMessageRepository;
+    // 대화 저장(질문/답변/citation)은 별도 빈에 위임 — ragChat()이 FastAPI 호출까지 트랜잭션으로
+    // 묶어 DB 커넥션을 오래 점유하는 것을 막기 위함(PR #1510 P1 픽스, RagConversationPersistenceService
+    // javadoc 참고).
+    private final RagConversationPersistenceService ragConversationPersistenceService;
 
     /**
      * @param userId 요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal}에서만 취득해 전달한다
@@ -222,7 +239,15 @@ public class AiProxyService {
      * 세션 소유자({@code userId} 일치)와 {@code sessionType=RAG} 를 검증하고, 불일치·미존재면
      * {@link ErrorCode#CHAT_SESSION_FORBIDDEN}(403)으로 중단한다 — 타인 세션 식별자를 실어 보내는
      * cross-user 접근(IDOR) 차단이 목적이라, 검증은 반드시 외부 호출·과금보다 앞서야 한다.
-     * 세션 이력을 FastAPI로 전달하거나 질의/답변을 저장하는 것은 후속 이슈 범위다(이번엔 검증까지만).
+     * 세션이 있으면 최근 3턴 이력을 FastAPI에 함께 전달하고, 응답 성공 시 질의/답변/출처를 저장한다
+     * (#1493/HAJA-657). 세션이 없으면(단발 질의) 이력 전달·저장 둘 다 생략 — 기존 무상태 호출과 회귀 없음.
+     *
+     * <p>이 메서드 자체에는 {@code @Transactional} 을 붙이지 않는다(PR #1510 P1 픽스) — FastAPI 호출
+     * ({@code callAiServer}, 캐시 미스 시 수 초 소요 가능)까지 트랜잭션으로 묶으면 그 동안 DB 커넥션을
+     * 계속 점유해 동시 요청이 몰릴 때 커넥션 풀 고갈로 이어질 수 있다. 저장(DB 쓰기)만
+     * {@link RagConversationPersistenceService} 로 분리해 그 빈에만 {@code @Transactional} 을 붙인다
+     * (클래스 상단 주석 "이 서비스는 DB 접근이 없어 @Transactional 미부착" 그대로 유지 — ragChat()도
+     * 자체적으로는 DB에 직접 쓰지 않는다, 조회는 read-only 단건 호출이라 별도 트랜잭션 불필요).
      */
     public ApiResponse<RagChatResponse> ragChat(Long userId, RagChatRequest request) {
         // 인가 먼저: rate-limit 소모나 AI 서버 호출보다 앞서 타인 세션 접근을 차단한다.
@@ -232,7 +257,12 @@ public class AiProxyService {
         // 사용자 축 → 전역 축 순서로 rate-limit(초과 시 429·FastAPI 호출 없이 중단, AiProxyRateLimiter 참고).
         aiProxyRateLimiter.checkUser(userId);
         aiProxyRateLimiter.checkGlobal();
-        RagChatAiEnvelope envelope = callAiServer(new RagChatAiRequest(request.query()));
+
+        List<HistoryTurnDto> history = request.sessionId() != null
+                ? buildRecentHistory(request.sessionId())
+                : List.of();
+
+        RagChatAiEnvelope envelope = callAiServer(new RagChatAiRequest(request.query(), history));
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
@@ -250,7 +280,40 @@ public class AiProxyService {
         if (envelope.data() == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }
+
+        if (request.sessionId() != null) {
+            ragConversationPersistenceService.saveConversation(
+                    request.sessionId(), request.query(), envelope.data());
+        }
         return ApiResponse.ok(envelope.data());
+    }
+
+    /**
+     * 세션의 (질문, 답변) 페어 중 최근 {@link #RECENT_HISTORY_TURN_LIMIT}개만 시간순으로 추린다.
+     * citation은 제외하고 질문/답변 텍스트만 담는다(설계 §3).
+     *
+     * <p>세션 전체 이력이 아니라 최근 {@link #RECENT_HISTORY_TURN_LIMIT} * 2(=6)건만 DB에서 가져온다
+     * (PR #1510 P2 픽스) — 세션이 길어질수록 전체 조회량이 선형 증가하는 것을 막는다.
+     * {@code findTop6BySessionIdOrderByCreatedAtDesc}는 최신순(desc)이라 프롬프트에 넣을 때는
+     * 다시 시간순(asc)으로 뒤집어야 한다.
+     */
+    private List<HistoryTurnDto> buildRecentHistory(Long sessionId) {
+        List<ChatMessage> recentDesc = chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(sessionId);
+        List<ChatMessage> messages = new ArrayList<>(recentDesc);
+        Collections.reverse(messages);
+
+        List<HistoryTurnDto> turns = new ArrayList<>();
+        ChatMessage pendingQuestion = null;
+        for (ChatMessage message : messages) {
+            if (message.getSender() == ChatSenderType.USER) {
+                pendingQuestion = message;
+            } else if (message.getSender() == ChatSenderType.BOT && pendingQuestion != null) {
+                turns.add(new HistoryTurnDto(pendingQuestion.getContent(), message.getContent()));
+                pendingQuestion = null;
+            }
+        }
+        int fromIndex = Math.max(0, turns.size() - RECENT_HISTORY_TURN_LIMIT);
+        return turns.subList(fromIndex, turns.size());
     }
 
     private RagChatAiEnvelope callAiServer(RagChatAiRequest request) {

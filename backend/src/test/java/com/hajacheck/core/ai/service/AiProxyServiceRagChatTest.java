@@ -13,8 +13,14 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.when;
+
 import com.hajacheck.auth.support.RateLimiter;
+import com.hajacheck.counsel.entity.ChatMessage;
+import com.hajacheck.counsel.entity.ChatSenderType;
 import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
 import com.hajacheck.counsel.service.ChatSessionService;
 import com.hajacheck.core.ai.config.AiServerProperties;
 import com.hajacheck.core.ai.dto.RagChatRequest;
@@ -26,11 +32,14 @@ import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.InMemoryRateLimiter;
 import com.hajacheck.support.StubRateLimiter;
 import java.net.ConnectException;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -52,10 +61,15 @@ class AiProxyServiceRagChatTest {
     private AiServerProperties properties;
     private AiProxyService aiProxyService;
     private ChatSessionService chatSessionService;
+    private ChatMessageRepository chatMessageRepository;
+    private RagConversationPersistenceService ragConversationPersistenceService;
 
     @BeforeEach
     void setUp() {
         chatSessionService = mock(ChatSessionService.class);
+        chatMessageRepository = mock(ChatMessageRepository.class);
+        ragConversationPersistenceService = mock(RagConversationPersistenceService.class);
+        when(chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(SESSION_ID)).thenReturn(List.of());
         properties = new AiServerProperties();
         properties.setBaseUrl("http://ai-server-test");
         properties.setInternalKey("test-internal-key");
@@ -69,7 +83,7 @@ class AiProxyServiceRagChatTest {
 
     private AiProxyService newService(RateLimiter rateLimiter) {
         return new AiProxyService(builder.build(), properties, null, new AiProxyRateLimiter(rateLimiter),
-                builder.build(), chatSessionService);
+                builder.build(), chatSessionService, chatMessageRepository, ragConversationPersistenceService);
     }
 
     @Test
@@ -286,5 +300,128 @@ class AiProxyServiceRagChatTest {
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.CHAT_SESSION_FORBIDDEN));
         mockServer.verify();
+    }
+
+    // ---- 대화 맥락 유지: 이력 전달·저장(#1493/HAJA-657) ----
+
+    private static ChatMessage message(ChatSenderType sender, String content) {
+        ChatMessage message = ChatMessage.createText(SESSION_ID, sender, content);
+        ReflectionTestUtils.setField(message, "id", (long) (Math.random() * 100000));
+        return message;
+    }
+
+    @Test
+    void ragChat_sessionId있음_이전이력있으면FastAPI요청바디에history포함() {
+        // 리포지토리는 최신순(desc)으로 반환 — 호출부가 다시 asc로 뒤집는다.
+        when(chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(SESSION_ID)).thenReturn(List.of(
+                message(ChatSenderType.BOT, "1차 답변"),
+                message(ChatSenderType.USER, "1차 질문")));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andExpect(content().json("""
+                        {"question":"후속 질문입니다","history":[{"question":"1차 질문","answer":"1차 답변"}]}
+                        """))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"후속 답변","sources":[]}}
+                                """));
+
+        ApiResponse<RagChatResponse> response =
+                aiProxyService.ragChat(USER_ID, new RagChatRequest("후속 질문입니다", SESSION_ID));
+
+        assertThat(response.success()).isTrue();
+        mockServer.verify();
+    }
+
+    @Test
+    void ragChat_이력이3턴초과면최근3턴만FastAPI로전달() {
+        // 리포지토리(findTop6BySessionIdOrderByCreatedAtDesc)가 이미 최근 6건(3턴)만 최신순으로 반환한다
+        // (PR #1510 P2 픽스 — 세션 전체가 아니라 필요한 만큼만 DB에서 가져온다). 호출부는 그걸 다시
+        // 시간순으로 뒤집어 프롬프트 순서를 맞춘다. "질문1/답변1"은 이미 DB 조회 단계에서 잘려나가
+        // 여기 없다는 것 자체가 최근 3턴 제한이 지켜짐을 보여준다.
+        when(chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(SESSION_ID)).thenReturn(List.of(
+                message(ChatSenderType.BOT, "답변4"), message(ChatSenderType.USER, "질문4"),
+                message(ChatSenderType.BOT, "답변3"), message(ChatSenderType.USER, "질문3"),
+                message(ChatSenderType.BOT, "답변2"), message(ChatSenderType.USER, "질문2")));
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andExpect(content().json("""
+                        {"history":[
+                            {"question":"질문2","answer":"답변2"},
+                            {"question":"질문3","answer":"답변3"},
+                            {"question":"질문4","answer":"답변4"}
+                        ]}
+                        """))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"답변5","sources":[]}}
+                                """));
+
+        aiProxyService.ragChat(USER_ID, new RagChatRequest("질문5", SESSION_ID));
+
+        mockServer.verify();
+    }
+
+    @Test
+    void ragChat_sessionId없음_이력전달없고저장도안함() {
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andExpect(content().json("""
+                        {"question":"균열 보수 기준은 무엇인가요?","history":[]}
+                        """))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"답변","sources":[{
+                                    "doc_id":"42","title":"t","collection":"regulations",
+                                    "locator":"제1조","snippet":"s","chunk_ref":"42_0"}]}}
+                                """));
+
+        aiProxyService.ragChat(USER_ID, REQUEST);
+
+        verifyNoInteractions(chatMessageRepository);
+        verifyNoInteractions(ragConversationPersistenceService);
+        mockServer.verify();
+    }
+
+    @Test
+    void ragChat_sessionId있음_응답성공시대화저장서비스에위임() {
+        when(chatMessageRepository.findTop6BySessionIdOrderByCreatedAtDesc(SESSION_ID)).thenReturn(List.of());
+
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"손상 정도에 따라 다릅니다.","sources":[
+                                    {"doc_id":"42","title":"t","collection":"regulations",
+                                     "locator":"제12조","snippet":"s","chunk_ref":"42_3"}
+                                ]}}
+                                """));
+
+        aiProxyService.ragChat(USER_ID, new RagChatRequest("균열 보수 기준은?", SESSION_ID));
+
+        // 저장 자체(DB 쓰기)는 RagConversationPersistenceService 책임 — ragChat()은 위임만 검증한다
+        // (PR #1510 P1 픽스: ragChat() 트랜잭션 범위에서 저장 로직을 분리).
+        ArgumentCaptor<RagChatResponse> dataCaptor = ArgumentCaptor.forClass(RagChatResponse.class);
+        verify(ragConversationPersistenceService)
+                .saveConversation(eq(SESSION_ID), eq("균열 보수 기준은?"), dataCaptor.capture());
+        assertThat(dataCaptor.getValue().answer()).isEqualTo("손상 정도에 따라 다릅니다.");
+        assertThat(dataCaptor.getValue().sources()).hasSize(1);
+        assertThat(dataCaptor.getValue().sources().get(0).chunkRef()).isEqualTo("42_3");
+        mockServer.verify();
+    }
+
+    @Test
+    void ragChat_sessionId있음_세션소유검증실패시대화저장호출안함() {
+        doThrow(new BusinessException(ErrorCode.CHAT_SESSION_FORBIDDEN))
+                .when(chatSessionService).getOwnedSession(USER_ID, OTHER_USER_SESSION_ID, ChatSessionType.RAG);
+
+        assertThatThrownBy(() -> aiProxyService.ragChat(
+                USER_ID, new RagChatRequest("남의 세션", OTHER_USER_SESSION_ID)))
+                .isInstanceOf(BusinessException.class);
+
+        verifyNoInteractions(chatMessageRepository);
+        verifyNoInteractions(ragConversationPersistenceService);
     }
 }
