@@ -101,6 +101,10 @@ export interface ReportDetailResponse {
   editedBy?: number | null;
   createdBy: number;
   createdAt: string;
+  // #1479 후속 — "저장됨" 경과 시간 표시를 createdAt(불변)이 아니라 마지막 편집 시각으로 보여주기 위해 추가.
+  // optional인 이유: 이미 캐시/테스트 픽스처에 남아있는 구 형태 응답(백엔드 배포 전)과의 호환 —
+  // 소비부(ReportGeneratePage)는 없으면 createdAt으로 폴백한다.
+  updatedAt?: string;
   context?: ReportContext | null;
 }
 
