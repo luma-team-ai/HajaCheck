@@ -3,7 +3,7 @@ import '../pages/DefectDetailPage.css';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
 import { useDefect } from '../hooks/useDefect';
 import { useDefectActionLogs } from '../hooks/useDefectActionLogs';
-import { DEFECT_GRADE_LABEL, DEFECT_STATUS_LABEL } from '../types';
+import { DEFECT_GRADE_COLOR, DEFECT_GRADE_LABEL, DEFECT_STATUS_LABEL } from '../types';
 import type { InspectionDefect } from '../types';
 import { formatDefectCode } from '../utils/defectFormat';
 import { ActivityHistoryPanel } from './ActivityHistoryPanel';
@@ -113,7 +113,14 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
         <header className="defect-detail-modal__header">
           <h2 className="defect-detail-modal__code">{formatDefectCode(selectedDefect.id)}</h2>
           <span className="defect-chip">{selectedDefect.typeLabel}</span>
-          <span className="defect-chip">
+          <span
+            className="defect-chip defect-chip--grade"
+            style={
+              selectedDefect.grade
+                ? { backgroundColor: DEFECT_GRADE_COLOR[selectedDefect.grade], borderColor: 'transparent' }
+                : undefined
+            }
+          >
             {selectedDefect.grade
               ? `${selectedDefect.grade}등급 · ${DEFECT_GRADE_LABEL[selectedDefect.grade]}`
               : '미분류'}
