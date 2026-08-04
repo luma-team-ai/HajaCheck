@@ -142,7 +142,7 @@ describe('CounselorConsolePage', () => {
     expect(screen.getByText('이미 상담 세션이 배정된 티켓입니다.')).not.toBeNull();
   });
 
-  it('소켓 onEnded 콜백(다른 경로로 상담 종료)을 받으면 대기열 화면으로 돌아간다', async () => {
+  it('소켓 onEnded 콜백(고객 등 다른 경로로 상담 종료)을 받으면 화면 이동 없이 종료 UI로 전환한다(#1506)', async () => {
     renderPage();
 
     fireEvent.click(await screen.findByText(mockQueueTickets[0].title));
@@ -161,9 +161,11 @@ describe('CounselorConsolePage', () => {
       createdAt: '2026-07-27T09:00:00',
     });
 
-    await waitFor(() =>
-      expect(screen.getByText('왼쪽 목록에서 상담을 선택하세요.')).not.toBeNull(),
-    );
+    // 화면 이동 없이 같은 채팅창에서 종료 상태로 전환된다 — 대기열 화면(선택 안내 문구)으로 돌아가지 않는다.
+    await waitFor(() => expect(screen.getByText('고객이 상담을 종료했습니다.')).not.toBeNull());
+    expect(screen.getByText('상담종료')).not.toBeNull();
+    expect(screen.queryByText('왼쪽 목록에서 상담을 선택하세요.')).toBeNull();
+    expect(screen.queryByRole('button', { name: '상담 종료' })).toBeNull();
   });
 
   it('정보 패널 "정보/메모" 탭에서 기존 비공개 메모를 불러와 보여준다(#1022)', async () => {
