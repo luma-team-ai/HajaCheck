@@ -8,7 +8,9 @@
 // 여기 LOGIN_ROUTE는 react-router 내부 경로(basename이 라우터에서 따로 붙는다)라 형태가 다르다.
 // basename 배포 설정을 바꾼다면 두 파일을 함께 확인할 것.
 
-import { isCounselorRole, isPlatformAdminRole, type Role } from './roles';
+// role 판정 함수(isPlatformAdminRole 등)를 쓰지 않고 Role 유니온을 직접 switch 한다 —
+// 판정 함수 조합은 "빠뜨린 role"을 컴파일러가 알 수 없어 전수성을 강제하지 못한다(아래 주석 참조).
+import type { Role } from './roles';
 
 /** 미인증 시 리다이렉트 대상(react-router 경로) */
 export const LOGIN_ROUTE = '/login';
@@ -52,14 +54,41 @@ export const COUNSELOR_LOGIN_ROUTE = '/counsel-console/login';
 //   2) LoginPage — 이미 세션이 있는 채로 /login에 재방문했을 때의 기본 목적지
 // 서로 다른 답을 내면 무한 리다이렉트가 된다. 예: 기업 대시보드(AppShell)에 allowedRoles가
 // 걸린 뒤 거부 대상을 DASHBOARD_ROUTE로 고정해 두면 거부 → 대시보드 → 거부 …로 순환한다.
-// 각 role의 홈은 그 role이 통과할 수 있는 가드(PlatformAdminRoute/CounselorRoute/AppShell
-// ProtectedRoute) 뒤에 있어야 하며, 지금 세 값 모두 그 조건을 만족한다.
+//
+// ⚠️ 불변식: **각 role의 홈은 그 role이 통과할 수 있는 가드 뒤에 있어야 한다.**
+// (PLATFORM_ADMIN→PlatformAdminRoute / COUNSELOR→CounselorRoute / 나머지→AppShell ProtectedRoute
+//  allowedRoles=COMPANY_DASHBOARD_ROLES). 이 PR로 /dashboard 자체가 잠겼기 때문에, 폴백으로
+// DASHBOARD_ROUTE를 받는 role이 COMPANY_DASHBOARD_ROLES에 없으면 "거부 → /dashboard → 거부"가 되어
+// Navigate가 같은 경로를 replace 하며 아무것도 렌더하지 않는 **백지 데드엔드**가 된다.
+//
+// 그래서 이 불변식은 주석으로 "서술"하지 않고 아래 switch가 **강제**한다:
+//   ① 모든 Role을 명시 case로 나열하고 default에서 never 할당 → Role 유니온에 값이 추가되면
+//      그 값을 여기에 배치하기 전까지 **컴파일 에러**가 난다(백엔드 AuthControllerPortalRolesTest의
+//      role 전수성 강제와 같은 역할).
+//   ② DASHBOARD_ROUTE로 폴백하는 role 목록(ADMIN/INSPECTOR/USER)이 COMPANY_DASHBOARD_ROLES와
+//      일치하는지는 shared/constants/roleHome.test.ts가 전수 단언한다(값을 지워도 잡히도록).
+// 새 role을 추가할 때는 반드시 "그 role이 통과할 수 있는 화면"을 홈으로 지정할 것 —
+// 통과 못 하는 화면을 적으면 위 백지 데드엔드가 재현된다.
 export function resolveRoleHomeRoute(role: Role | undefined): string {
-  if (isPlatformAdminRole(role)) {
-    return PLATFORM_ADMIN_ROUTE;
+  switch (role) {
+    case 'PLATFORM_ADMIN':
+      return PLATFORM_ADMIN_ROUTE;
+    case 'COUNSELOR':
+      return COUNSELOR_QUEUE_ROUTE;
+    // 기업 대시보드(AppShell)를 통과하는 role + role 미상(undefined, 가드 진입 전 호출)
+    case 'ADMIN':
+    case 'INSPECTOR':
+    case 'USER':
+    case undefined:
+      return DASHBOARD_ROUTE;
+    default: {
+      // 도달 불가(위에서 Role 유니온을 전수 처리) — 유니온에 값이 추가되면 여기서 컴파일이 깨진다.
+      // 런타임에 여기 오는 경우는 서버가 프론트 유니온에 없는 role을 내려준 때뿐이며, 그때는
+      // 어느 콘솔도 통과할 수 없으므로 기본 화면으로 보낸다(가드가 다시 막으면 화면이 비지만,
+      // 그 상태는 이미 프론트-서버 role 체계가 어긋난 배포 사고다 — 위 컴파일 게이트가 1차 방어).
+      const _exhaustive: never = role;
+      void _exhaustive;
+      return DASHBOARD_ROUTE;
+    }
   }
-  if (isCounselorRole(role)) {
-    return COUNSELOR_QUEUE_ROUTE;
-  }
-  return DASHBOARD_ROUTE;
 }
