@@ -248,8 +248,14 @@ public class AiProxyService {
      * {@link RagConversationPersistenceService} 로 분리해 그 빈에만 {@code @Transactional} 을 붙인다
      * (클래스 상단 주석 "이 서비스는 DB 접근이 없어 @Transactional 미부착" 그대로 유지 — ragChat()도
      * 자체적으로는 DB에 직접 쓰지 않는다, 조회는 read-only 단건 호출이라 별도 트랜잭션 불필요).
+     *
+     * @param userId    요청자 식별자 — 컨트롤러가 {@code @AuthenticationPrincipal} 에서만 취득해 전달한다.
+     * @param companyId 요청자의 회사 식별자(#1584) — 마찬가지로 {@code @AuthenticationPrincipal} 에서만
+     *                  취득한다(요청 바디 금지). AI 서버 시맨틱 캐시의 회사 스코프 키로 그대로 전달되며,
+     *                  바디에서 받으면 임의 회사의 캐시 답변을 읽어갈 수 있으므로 신뢰하지 않는다.
+     *                  회사 미소속 개인회원은 {@code null} — AI 서버가 시맨틱 캐시를 건너뛴다(fail-closed).
      */
-    public ApiResponse<RagChatResponse> ragChat(Long userId, RagChatRequest request) {
+    public ApiResponse<RagChatResponse> ragChat(Long userId, Long companyId, RagChatRequest request) {
         // 인가 먼저: rate-limit 소모나 AI 서버 호출보다 앞서 타인 세션 접근을 차단한다.
         if (request.sessionId() != null) {
             chatSessionService.getOwnedSession(userId, request.sessionId(), ChatSessionType.RAG);
@@ -262,7 +268,8 @@ public class AiProxyService {
                 ? buildRecentHistory(request.sessionId())
                 : List.of();
 
-        RagChatAiEnvelope envelope = callAiServer(new RagChatAiRequest(request.query(), history));
+        RagChatAiEnvelope envelope =
+                callAiServer(new RagChatAiRequest(request.query(), companyId, history));
         if (envelope == null) {
             throw new BusinessException(ErrorCode.AI_INVALID_RESPONSE);
         }

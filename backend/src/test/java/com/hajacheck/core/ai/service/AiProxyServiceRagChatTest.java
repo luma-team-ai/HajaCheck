@@ -51,6 +51,7 @@ class AiProxyServiceRagChatTest {
 
     private static final String AI_SERVER_URL = "http://ai-server-test/ai/rag-chat";
     private static final Long USER_ID = 1L;
+    private static final Long COMPANY_ID = 7L;
     private static final Long SESSION_ID = 100L;
     private static final Long OTHER_USER_SESSION_ID = 999L;
 
@@ -117,7 +118,7 @@ class AiProxyServiceRagChatTest {
                                 }
                                 """));
 
-        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, REQUEST);
+        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST);
 
         assertThat(response.success()).isTrue();
         assertThat(response.data()).isNotNull();
@@ -142,7 +143,7 @@ class AiProxyServiceRagChatTest {
                                 {"success":false,"error":{"code":"RAG_NO_RESULT","message":"관련 근거를 찾지 못했습니다"}}
                                 """));
 
-        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, REQUEST);
+        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST);
 
         assertThat(response.success()).isFalse();
         assertThat(response.error().code()).isEqualTo("RAG_NO_RESULT");
@@ -158,7 +159,7 @@ class AiProxyServiceRagChatTest {
                                 {"success":false,"error":{"code":"LLM_INVALID_OUTPUT","message":"모델 응답 파싱 실패"}}
                                 """));
 
-        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, REQUEST);
+        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST);
 
         assertThat(response.success()).isFalse();
         assertThat(response.error().code()).isEqualTo("LLM_INVALID_OUTPUT");
@@ -172,7 +173,7 @@ class AiProxyServiceRagChatTest {
                     throw new ConnectException("Connection refused");
                 });
 
-        assertThatThrownBy(() -> aiProxyService.ragChat(USER_ID, REQUEST))
+        assertThatThrownBy(() -> aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_UNREACHABLE));
@@ -183,7 +184,7 @@ class AiProxyServiceRagChatTest {
         mockServer.expect(requestTo(AI_SERVER_URL))
                 .andRespond(withServerError());
 
-        assertThatThrownBy(() -> aiProxyService.ragChat(USER_ID, REQUEST))
+        assertThatThrownBy(() -> aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_SERVER_ERROR));
@@ -196,7 +197,7 @@ class AiProxyServiceRagChatTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"detail\":\"invalid request\"}"));
 
-        assertThatThrownBy(() -> aiProxyService.ragChat(USER_ID, REQUEST))
+        assertThatThrownBy(() -> aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_REQUEST_REJECTED));
@@ -207,7 +208,7 @@ class AiProxyServiceRagChatTest {
         AiProxyService limited = newService(StubRateLimiter.of((key, limit, window) -> !key.startsWith("rate:ai-proxy:global")
                 && !key.equals("rate:ai-proxy:daily")));
 
-        assertThatThrownBy(() -> limited.ragChat(USER_ID, REQUEST))
+        assertThatThrownBy(() -> limited.ragChat(USER_ID, COMPANY_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
@@ -218,7 +219,7 @@ class AiProxyServiceRagChatTest {
     void ragChat_사용자rate_limit초과_AUTH_TOO_MANY_REQUESTS_내부호출없음() {
         AiProxyService limited = newService(StubRateLimiter.of((key, limit, window) -> !key.startsWith("rate:ai-proxy:user:")));
 
-        assertThatThrownBy(() -> limited.ragChat(USER_ID, REQUEST))
+        assertThatThrownBy(() -> limited.ragChat(USER_ID, COMPANY_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
@@ -232,7 +233,7 @@ class AiProxyServiceRagChatTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("{\"foo\":\"bar\"}"));
 
-        assertThatThrownBy(() -> aiProxyService.ragChat(USER_ID, REQUEST))
+        assertThatThrownBy(() -> aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.AI_INVALID_RESPONSE));
@@ -249,7 +250,7 @@ class AiProxyServiceRagChatTest {
                                 {"success":true,"data":{"answer":"답변","sources":[]}}
                                 """));
 
-        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, REQUEST);
+        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST);
 
         assertThat(response.success()).isTrue();
         // sessionId 가 없으면 세션 조회 자체를 하지 않는다(기존 호출 경로 회귀 없음).
@@ -267,7 +268,7 @@ class AiProxyServiceRagChatTest {
                                 """));
 
         ApiResponse<RagChatResponse> response =
-                aiProxyService.ragChat(USER_ID, new RagChatRequest("후속 질문입니다", SESSION_ID));
+                aiProxyService.ragChat(USER_ID, COMPANY_ID, new RagChatRequest("후속 질문입니다", SESSION_ID));
 
         assertThat(response.success()).isTrue();
         // 소유 검증은 RAG 유형까지 확인해야 한다(다른 유형 세션 재사용 차단).
@@ -282,7 +283,7 @@ class AiProxyServiceRagChatTest {
                 .when(chatSessionService).getOwnedSession(USER_ID, OTHER_USER_SESSION_ID, ChatSessionType.RAG);
 
         assertThatThrownBy(() ->
-                aiProxyService.ragChat(USER_ID, new RagChatRequest("남의 세션 훔쳐보기", OTHER_USER_SESSION_ID)))
+                aiProxyService.ragChat(USER_ID, COMPANY_ID, new RagChatRequest("남의 세션 훔쳐보기", OTHER_USER_SESSION_ID)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.CHAT_SESSION_FORBIDDEN));
@@ -295,7 +296,7 @@ class AiProxyServiceRagChatTest {
                 .when(chatSessionService).getOwnedSession(USER_ID, SESSION_ID, ChatSessionType.RAG);
 
         assertThatThrownBy(() ->
-                aiProxyService.ragChat(USER_ID, new RagChatRequest("상담 세션 재사용", SESSION_ID)))
+                aiProxyService.ragChat(USER_ID, COMPANY_ID, new RagChatRequest("상담 세션 재사용", SESSION_ID)))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
                         .isEqualTo(ErrorCode.CHAT_SESSION_FORBIDDEN));
@@ -328,7 +329,7 @@ class AiProxyServiceRagChatTest {
                                 """));
 
         ApiResponse<RagChatResponse> response =
-                aiProxyService.ragChat(USER_ID, new RagChatRequest("후속 질문입니다", SESSION_ID));
+                aiProxyService.ragChat(USER_ID, COMPANY_ID, new RagChatRequest("후속 질문입니다", SESSION_ID));
 
         assertThat(response.success()).isTrue();
         mockServer.verify();
@@ -359,7 +360,7 @@ class AiProxyServiceRagChatTest {
                                 {"success":true,"data":{"answer":"답변5","sources":[]}}
                                 """));
 
-        aiProxyService.ragChat(USER_ID, new RagChatRequest("질문5", SESSION_ID));
+        aiProxyService.ragChat(USER_ID, COMPANY_ID, new RagChatRequest("질문5", SESSION_ID));
 
         mockServer.verify();
     }
@@ -378,7 +379,7 @@ class AiProxyServiceRagChatTest {
                                     "locator":"제1조","snippet":"s","chunk_ref":"42_0"}]}}
                                 """));
 
-        aiProxyService.ragChat(USER_ID, REQUEST);
+        aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST);
 
         verifyNoInteractions(chatMessageRepository);
         verifyNoInteractions(ragConversationPersistenceService);
@@ -399,7 +400,7 @@ class AiProxyServiceRagChatTest {
                                 ]}}
                                 """));
 
-        aiProxyService.ragChat(USER_ID, new RagChatRequest("균열 보수 기준은?", SESSION_ID));
+        aiProxyService.ragChat(USER_ID, COMPANY_ID, new RagChatRequest("균열 보수 기준은?", SESSION_ID));
 
         // 저장 자체(DB 쓰기)는 RagConversationPersistenceService 책임 — ragChat()은 위임만 검증한다
         // (PR #1510 P1 픽스: ragChat() 트랜잭션 범위에서 저장 로직을 분리).
@@ -418,10 +419,57 @@ class AiProxyServiceRagChatTest {
                 .when(chatSessionService).getOwnedSession(USER_ID, OTHER_USER_SESSION_ID, ChatSessionType.RAG);
 
         assertThatThrownBy(() -> aiProxyService.ragChat(
-                USER_ID, new RagChatRequest("남의 세션", OTHER_USER_SESSION_ID)))
+                USER_ID, COMPANY_ID, new RagChatRequest("남의 세션", OTHER_USER_SESSION_ID)))
                 .isInstanceOf(BusinessException.class);
 
         verifyNoInteractions(chatMessageRepository);
         verifyNoInteractions(ragConversationPersistenceService);
+    }
+
+    // ── 시맨틱 캐시 회사 스코프 (#1584) ──────────────────────────────────────
+
+    @Test
+    void ragChat_principal의companyId를company_id로FastAPI에전달() {
+        // AI 서버는 이 값으로 시맨틱 캐시 조회·저장 스코프를 회사 단위로 제한한다 — 필드명이
+        // snake_case(company_id)가 아니면 Pydantic이 모르는 필드로 무시해 전역 조회가 유지된다.
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {"question":"균열 보수 기준은 무엇인가요?","company_id":7}
+                        """))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"답변","sources":[{
+                                    "doc_id":"42","title":"t","collection":"regulations",
+                                    "locator":"제1조","snippet":"s","chunk_ref":"42_0"}]}}
+                                """));
+
+        aiProxyService.ragChat(USER_ID, COMPANY_ID, REQUEST);
+
+        mockServer.verify();
+    }
+
+    @Test
+    void ragChat_개인회원_companyId없으면company_id를null로전달() {
+        // 회사 미소속 개인회원(companyId=null)도 RAG 챗봇을 쓴다. AI 서버는 null을 받으면 시맨틱
+        // 캐시를 조회·저장 모두 건너뛴다(fail-closed) — 여기서는 프록시가 값을 지어내지 않고
+        // null 을 그대로 전달하는지만 검증한다.
+        mockServer.expect(requestTo(AI_SERVER_URL))
+                .andExpect(content().json("""
+                        {"question":"균열 보수 기준은 무엇인가요?","company_id":null}
+                        """))
+                .andRespond(withStatus(HttpStatus.OK)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body("""
+                                {"success":true,"data":{"answer":"답변","sources":[{
+                                    "doc_id":"42","title":"t","collection":"regulations",
+                                    "locator":"제1조","snippet":"s","chunk_ref":"42_0"}]}}
+                                """));
+
+        ApiResponse<RagChatResponse> response = aiProxyService.ragChat(USER_ID, null, REQUEST);
+
+        assertThat(response.success()).isTrue();
+        mockServer.verify();
     }
 }

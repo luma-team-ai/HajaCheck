@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.15 · **최종 수정:** 2026-08-04 · 이전 버전 `archive/`
+> **문서 버전:** v0.16 · **최종 수정:** 2026-08-05 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -118,9 +118,12 @@
 ```json
 {
   "question": "균열 보수 기준은 무엇인가요?",
-  "session_id": 42
+  "session_id": 42,
+  "company_id": 7
 }
 ```
+
+`company_id`(선택, 양의 정수)는 요청자의 회사 식별자다. Spring이 **`@AuthenticationPrincipal`에서만** 취득해 넘긴다 — 프론트 요청 바디에서 받지 않는다(`session_id`·`user_id`와 동일 규약, #1584). 시맨틱 캐시의 조회·저장 스코프 키로 쓰인다(아래 캐시 절). 회사 미소속 개인회원은 이 필드가 없으며(null), 그 경우 시맨틱 캐시를 **조회도 저장도 하지 않는다**.
 
 **응답 성공**:
 ```json
@@ -147,6 +150,10 @@
 **응답 실패**: `RAG_NO_RESULT`(검색 결과 0건, 캐시 저장 안 함) · `VALIDATION_ERROR`(비-LLM 검증 실패) · 공통 LLM 오류 코드(`LLM_INVALID_OUTPUT` 등).
 
 정상 응답은 Redis에 `ai:cache:rag-chat:{sha256(question)[:16]}` 키로 캐시된다(TTL 1일, `llm_client.CACHE_TTL_SECONDS` 공유). 캐시 히트 시 Chroma·LLM 호출 없이 저장된 `RagAnswerData`를 그대로 반환한다.
+
+이 exact 캐시 키에 **`company_id`가 없는 것은 의도된 설계다**(#1584 검수 확인). 답변 생성 입력이 `질문 원문 + 전 회사 공용 regulations 청크`뿐이고 `company_id`는 검색 필터에도 프롬프트에도 들어가지 않으므로, 질문이 바이트 단위로 동일하면 회사와 무관하게 생성 결과도 동일하다 — B사는 자기가 입력한 질문 이상을 얻지 못한다. 반면 아래 시맨틱 캐시는 **다른** 질문(A사가 쓴 고유명사가 실린 질문)에 대해 생성된 답변을 반환하므로 유출이 성립한다. 이 비대칭이 회사 스코프를 시맨틱 캐시에만 건 이유다.
+
+**2차 시맨틱 캐시(#1475)** — exact-match(Redis) 미스 시 Chroma `semantic_cache` 컬렉션에서 유사 질문을 찾아 재사용한다. 이 캐시는 **회사 스코프가 강제된다**(#1584): 저장 시 `metadata.company_id`를 함께 기록하고, 조회 시 `filter={"company_id": …}`로 같은 회사가 남긴 항목만 본다. 요청에 `company_id`가 없으면(개인회원) **조회·저장을 모두 건너뛴다** — 필터 없는 전역 조회로 폴백하면 A사 질문 맥락으로 생성된 답변이 B사 유사 질문에 반환되므로, 캐시 이득을 포기하고 fail-closed로 간다(exact 캐시와 LLM 경로는 정상 동작). 대화 이력(`history`)이 있는 요청은 기존대로 두 캐시를 모두 우회한다.
 
 `sources[].doc_id`는 PostgreSQL `rag_documents.id`를 문자열화한 양의 정수 문자열(`^[1-9][0-9]*$`)이다. Spring Boot가 `chat_message_citations.document_id`에 저장할 때 패턴 검증을 통과한 값을 `int(doc_id)`로 변환한다.
 

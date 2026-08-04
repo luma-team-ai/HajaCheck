@@ -62,7 +62,10 @@ public class AiProxyController {
     public ResponseEntity<ApiResponse<RagChatResponse>> ragChat(
             @AuthenticationPrincipal LoginUser loginUser,
             @Valid @RequestBody RagChatRequest request) {
-        // userId 는 principal 에서만 취득(요청 바디 금지) — 사용자 축 rate-limit 키로만 쓰인다.
-        return ResponseEntity.ok(aiProxyService.ragChat(loginUser.getUserId(), request));
+        // userId·companyId 는 principal 에서만 취득(요청 바디 금지). userId 는 사용자 축 rate-limit
+        // 키로, companyId 는 AI 서버 시맨틱 캐시의 회사 스코프 키로 쓰인다(#1584) — 바디에서 받으면
+        // 임의 회사의 캐시를 읽어갈 수 있으므로 절대 신뢰하지 않는다.
+        return ResponseEntity.ok(
+                aiProxyService.ragChat(loginUser.getUserId(), loginUser.getCompanyId(), request));
     }
 }
