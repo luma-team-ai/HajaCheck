@@ -54,6 +54,8 @@ public class MembershipService {
     private final UsageCounterRepository usageCounterRepository;
     // 미결제 유예(#1177) — 한도 표시를 실제 강제 기준(FREE)과 일치시키고 결제 마감을 노출한다.
     private final PaymentGraceService paymentGraceService;
+    // 좌석 실측 단일 소스(#1473) — QuotaService#measureSeats 를 재사용해 저장 카운터와의 드리프트를 차단한다.
+    private final QuotaService quotaService;
 
     public MyPlanResponse getMyPlan(Long userId) {
         User user = findUser(userId);
@@ -77,15 +79,17 @@ public class MembershipService {
             UserPlan userPlan = resolveCurrentUserPlan(userId, null);
             Plan plan = paymentGraceService.resolveEffectivePlan(
                     userPlan, findPlan(userPlan.getPlanId()));
-            return SeatsResponse.of(1, List.of(user), plan.getMaxSeats());
+            return SeatsResponse.of(quotaService.measureSeats(null), List.of(user), plan.getMaxSeats());
         }
 
         UserPlan userPlan = resolveCurrentUserPlan(userId, companyId);
         Plan plan = paymentGraceService.resolveEffectivePlan(userPlan, findPlan(userPlan.getPlanId()));
-        long totalActive = userRepository.countByCompanyIdAndStatus(companyId, UserStatus.ACTIVE);
+        // 실측 단일 소스(#1473) — QuotaService#measureSeats 와 동일한 값이어야 /api/me/plan 의
+        // usage.seatCount 와 항상 일치한다.
+        int totalActive = quotaService.measureSeats(companyId);
         List<User> members = userRepository.findByCompanyIdAndStatusOrderByIdAsc(
                 companyId, UserStatus.ACTIVE, PageRequest.of(0, MEMBERSHIP_SEATS_MAX));
-        return SeatsResponse.of((int) totalActive, members, plan.getMaxSeats());
+        return SeatsResponse.of(totalActive, members, plan.getMaxSeats());
     }
 
     @Transactional
@@ -149,8 +153,10 @@ public class MembershipService {
         // PaymentGraceService 단일 소스를 쓴다(QuotaService 의 실제 차단 기준과 같은 값이어야 한다).
         Plan effectivePlan = paymentGraceService.resolveEffectivePlan(userPlan, plan);
         Instant paymentPendingUntil = paymentGraceService.resolveGraceDeadline(userPlan);
+        // 좌석은 usage_counters 유무와 무관하게 항상 실측이다(#1473) — getSeats 와 동일한 companyId 기준.
+        int measuredSeatCount = quotaService.measureSeats(userPlan.getCompanyId());
         return MyPlanResponse.from(userPlan, plan, usage, period, company, KST, effectivePlan,
-                paymentPendingUntil);
+                paymentPendingUntil, measuredSeatCount);
     }
 
     private LocalDate currentPeriod() {
