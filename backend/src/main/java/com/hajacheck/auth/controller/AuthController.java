@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -61,14 +62,27 @@ public class AuthController {
 
     // 화면(포털)별 허용 role 화이트리스트 — AdminUserService.ASSIGNABLE_ROLES 와 같은 EnumSet 상수 패턴.
     //
-    // 세 집합은 "전수(union == 모든 Role) + 상호배타(pairwise disjoint)" 여야 한다. 선언만으로는
+    // 네 집합은 "전수(union == 모든 Role) + 상호배타(pairwise disjoint)" 여야 한다. 선언만으로는
     // 지켜지지 않으므로 AuthControllerPortalRolesTest 가 단언으로 고정한다 — Role 에 값이 새로
     // 추가되면 그 role 은 어느 포털로도 로그인할 수 없게 되는데(fail-closed 라 안전하지만 무증상),
-    // 그 테스트가 즉시 깨져 포털 배정을 강제로 결정하게 만든다. package-private 인 이유가 그것뿐이니
-    // 외부에서 참조하지 말 것.
-    static final Set<Role> COMPANY_PORTAL_ROLES = EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER);
-    static final Set<Role> PLATFORM_ADMIN_PORTAL_ROLES = EnumSet.of(Role.PLATFORM_ADMIN);
-    static final Set<Role> COUNSELOR_PORTAL_ROLES = EnumSet.of(Role.COUNSELOR);
+    // 그 테스트가 즉시 깨져 포털 배정을 강제로 결정하게 만든다.
+    //
+    // ⚠️ unmodifiableSet 필수 — EnumSet.of(...) 는 가변이고 이 상수들은 테스트 때문에
+    // package-private 이다. 감싸지 않으면 같은 패키지의 코드가 COMPANY_PORTAL_ROLES.add(...) 한 줄로
+    // JVM 수명 내내 게이트를 전역 무력화할 수 있다(보안 화이트리스트를 가변으로 노출할 이유가 없다).
+    // package-private 인 이유는 위 테스트뿐이니 프로덕션 코드에서 외부 참조하지 말 것.
+    static final Set<Role> COMPANY_PORTAL_ROLES =
+            Collections.unmodifiableSet(EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER));
+    static final Set<Role> PLATFORM_ADMIN_PORTAL_ROLES =
+            Collections.unmodifiableSet(EnumSet.of(Role.PLATFORM_ADMIN));
+    static final Set<Role> COUNSELOR_PORTAL_ROLES =
+            Collections.unmodifiableSet(EnumSet.of(Role.COUNSELOR));
+
+    // 어느 포털로도 비밀번호 로그인할 수 없는 role(현재 없음). "로그인 불가"를 명시적으로 선언 가능한
+    // 선택지로 남겨 두는 것이 목적이다 — 이게 없으면 로그인해서는 안 되는 role(시스템·서비스·봇 계정
+    // 등)이 추가됐을 때 전수성 테스트를 green 으로 만드는 최단 경로가 "기존 화이트리스트에 그냥
+    // 밀어 넣기"가 되어, 안전한 기본값(fail-closed)을 깨는 쪽이 더 쉬워진다. 그런 role 은 여기에 넣어라.
+    static final Set<Role> NO_PORTAL_ROLES = Collections.unmodifiableSet(EnumSet.noneOf(Role.class));
 
     private final AuthenticationManager authenticationManager;
     private final SecurityContextRepository securityContextRepository;
