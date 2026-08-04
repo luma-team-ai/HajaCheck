@@ -16,10 +16,14 @@ import type { Defect } from '../../inspection/types';
 import type { DefectPhotoGroup } from '../components/editor/DefectPhoto';
 import { DetailSection } from '../components/editor/DetailSection';
 
-vi.mock('../utils/exportReportToPdf', () => ({
-  exportReportToPdf: vi.fn().mockResolvedValue(new Blob(['fake-pdf'])),
-  buildReportPdfFileName: vi.fn().mockReturnValue('점검보고서_1_20260723.pdf'),
-}));
+vi.mock('../utils/exportReportToPdf', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../utils/exportReportToPdf')>();
+  return {
+    ...actual,
+    exportReportToPdf: vi.fn().mockResolvedValue(new Blob(['fake-pdf'])),
+    buildReportPdfFileName: vi.fn().mockReturnValue('점검보고서_1_20260723.pdf'),
+  };
+});
 
 const mockInspection: InspectionResponse = {
   id: 1,
