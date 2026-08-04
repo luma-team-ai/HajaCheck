@@ -55,10 +55,18 @@ public class InspectionAnalysisService {
     // 진행률 캐시가 종료됐다고 보는 stage(코드 리뷰 P2) — 이 상태면 고착이 아니라 정상 종료다.
     private static final Set<String> TERMINAL_STAGES = Set.of("done", "failed");
 
-    // 고착 판정 임계값(코드 리뷰 P2, 제품 확인 완료) — ANALYZING인데 진행률 캐시(하트비트)가 이보다
-    // 오래 갱신 안 됐으면 워커가 크래시(JVM 재기동·OOM 등)한 것으로 본다. PRD 목표(100장 10분)의
-    // 정상 진행 간격보다 충분히 커서 정상 진행 중인 잡을 오탐하지 않는다.
-    private static final Duration STUCK_HEARTBEAT_THRESHOLD = Duration.ofMinutes(5);
+    // 고착 판정 임계값(코드 리뷰 P2, 제품 확인 완료 / 2026-08-04 QA 조사로 5분→15분 상향) —
+    // ANALYZING인데 진행률 캐시(하트비트)가 이보다 오래 갱신 안 됐으면 워커가 크래시(JVM 재기동·OOM
+    // 등)한 것으로 본다. 애초 5분은 PRD 목표(100장 10분, 장당 ~6초)의 정상 진행 간격만 기준으로
+    // 잡았는데, 이 값이 너무 짧으면 "리퍼가 아직 살아있는 워커를 오탐으로 펜싱"하는 레이스가 생긴다
+    // (reapIfStuck이 새 세대 토큰을 발급해, 진짜로 살아있던 원본 워커의 다음 DB 쓰기가 그 즉시 조용히
+    // 중단된다 — InspectionAnalysisWorker#isCurrentGeneration). 사진 수가 많을수록(회차당 최대
+    // 50장, MediaUploadProperties) 총 소요시간이 길어져 이 창에 노출될 확률이 커지고, FastAPI가
+    // CPU 바운드 단일 워커 전제(AsyncConfig 참고)인데 Spring 쪽은 회사 간 동시 2개 잡까지 허용하므로
+    // 다른 회사의 대량 분석과 겹치면 장당 대기시간이 급격히 늘어날 수 있다 — 5분은 이 경합을 버틸
+    // 여유가 거의 없었다. 15분은 레이스 자체를 없애지 않는다(완화책일 뿐 — 근본 해결은 원격 워커
+    // 생존을 실제로 확인하거나 남은 사진 수 기반 적응형 임계값으로 가야 하며, 이번 변경 범위 밖이다).
+    private static final Duration STUCK_HEARTBEAT_THRESHOLD = Duration.ofMinutes(15);
 
     // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차) — analysisTaskExecutor(AsyncConfig, 전역 공유
     // core=max=2·queue=20)를 한 회사가 대량 요청으로 독점하면 다른 회사까지 ANALYSIS_QUEUE_FULL을

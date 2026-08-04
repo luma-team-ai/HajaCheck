@@ -31,7 +31,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class StuckAnalysisReaper {
 
-    // 하트비트 임계(5분)보다 촘촘히 돌아 고착 회차가 오래 잔류하지 않게 한다. 최초 실행은 기동 직후
+    // 하트비트 임계(15분, InspectionAnalysisService#STUCK_HEARTBEAT_THRESHOLD)보다 촘촘히 돌아
+    // 고착 회차가 오래 잔류하지 않게 한다. 최초 실행은 기동 직후
     // 부하를 피해 1분 뒤부터.
     private static final long REAP_INTERVAL_MS = 120_000L;
     private static final long REAP_INITIAL_DELAY_MS = 60_000L;
