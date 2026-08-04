@@ -407,6 +407,16 @@ paths:
                   format: int64
                   description: Spring Boot가 소유권과 RAG 세션 유형을 검증한 서버 관리 식별자
                   example: 42
+                company_id:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                  nullable: true
+                  description: >
+                    요청자의 회사 식별자(#1584). Spring Boot가 @AuthenticationPrincipal에서만
+                    취득해 전달한다(요청 바디에서 받지 않는다). 시맨틱 캐시의 조회·저장 스코프
+                    키이며, 회사 미소속 개인회원은 null이라 시맨틱 캐시를 조회도 저장도 하지 않는다.
+                  example: 7
       responses:
         "200":
           description: 성공/실패 모두 200 — success 필드로 구분

@@ -57,6 +57,10 @@ class RagChatState(TypedDict):
     # 조회/저장 모두 우회한다(design §4 "이력이 있으면 캐시를 우회").
     history: list[dict]
     skip_cache: bool
+    # 요청자의 회사 식별자(#1584) — Spring이 @AuthenticationPrincipal에서만 취득해 넘긴다(요청 바디
+    # 신뢰 금지). 시맨틱 캐시는 이 값으로 회사 스코프를 강제한다. 회사 미소속 개인회원은 None이며,
+    # 이때는 시맨틱 캐시를 조회도 저장도 하지 않는다(fail-closed — 필터 없는 전역 조회 폴백 금지).
+    company_id: Optional[int]
 
 
 class _RagChatAnswer(BaseModel):
@@ -198,24 +202,46 @@ def _node_cache_check(state: RagChatState) -> RagChatState:
 
 def _route_after_cache(state: RagChatState) -> Literal["end", "semantic_cache", "retrieve"]:
     """캐시 후 라우터 — skip_cache면 semantic 캐시까지 건너뛰고 곧장 retrieve로, 그 외엔 캐시
-    히트면 END, 미스면 semantic_cache_check 노드로."""
+    히트면 END, 미스면 semantic_cache_check 노드로.
+
+    company_id가 없으면(회사 미소속 개인회원) 시맨틱 캐시 노드 자체를 건너뛴다(#1584) —
+    필터 없는 전역 조회로 폴백하면 회사 간 답변 교차 노출이 그대로 재현되므로, 캐시 이득을
+    포기하고 fail-closed로 간다. exact(Redis) 캐시와 LLM 경로는 그대로 동작한다.
+    """
     if state.get("skip_cache"):
         return "retrieve"
-    return "end" if state["cached_result"] is not None else "semantic_cache"
+    if state["cached_result"] is not None:
+        return "end"
+    if state.get("company_id") is None:
+        return "retrieve"
+    return "semantic_cache"
 
 
 def _node_semantic_cache_check(state: RagChatState) -> RagChatState:
     """시맨틱 캐시(2차) 조회 노드 — exact-match(Redis) 미스 시에만 진입.
 
-    Chroma semantic_cache 컬렉션에서 질문과 가장 유사한 과거 질문을 검색해, distance가
-    임계값 이하면 hit으로 판정하고 저장된 answer_json을 cached_result/final_response에 세팅한다.
+    Chroma semantic_cache 컬렉션에서 **같은 회사(company_id)가 남긴** 과거 질문 중 가장 유사한
+    것을 검색해(#1584), distance가 임계값 이하면 hit으로 판정하고 저장된 answer_json을
+    cached_result/final_response에 세팅한다.
     노드 함수 내에서 get_vectorstore()를 런타임 호출(모듈 top-level 금지 — @patch 호환성 유지,
     Redis 클라이언트와 동일 컨벤션).
 
+    company_id가 None이면 _route_after_cache가 이 노드로 보내지 않지만, 그래프 구조 변경 시에도
+    전역 조회가 되살아나지 않도록 노드 자체에서도 방어적으로 miss 반환한다(Chroma는 filter 값에
+    None을 허용하지 않아 `filter={"company_id": None}`은 ValueError로 터진다 — 실측 확인).
+
     파싱 실패 시 miss로 안전하게 폴백한다(캐시 오염으로 전체 요청이 죽지 않도록).
     """
+    company_id = state.get("company_id")
+    if company_id is None:
+        return {**state, "cached_result": None, "final_response": None}
+
     vectorstore = get_vectorstore(COLLECTION_SEMANTIC_CACHE)
-    results = vectorstore.similarity_search_with_score(state["question"], k=1)
+    # filter로 회사 스코프를 강제한다. company_id metadata가 없는 과거(#1584 이전) 캐시 항목은
+    # 어떤 회사 필터에도 매칭되지 않으므로 자연히 조회 대상에서 빠진다(실측 확인).
+    results = vectorstore.similarity_search_with_score(
+        state["question"], k=1, filter={"company_id": company_id}
+    )
 
     cached_result = None
     if results:
@@ -311,10 +337,22 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     """시맨틱 캐시(2차) 저장 노드 — cache_write(exact) 직후, grounded=true 경로에서만 진입한다
     (no_result 경로는 그래프 구조상 이 노드를 거치지 않으므로 별도 분기 불필요).
 
-    질문 원문을 page_content로, RagAnswerData 직렬화 결과를 metadata["answer_json"]으로 저장.
+    질문 원문을 page_content로, RagAnswerData 직렬화 결과를 metadata["answer_json"]으로,
+    요청자의 회사 식별자를 metadata["company_id"]로 저장한다(#1584) — 조회 시 이 필드로
+    회사 스코프를 필터링한다.
+
+    company_id가 없으면(개인회원) 저장하지 않는다 — 조회를 건너뛰는 것과 대칭이며, Chroma가
+    metadata 값에 None을 허용하지 않기도 한다(실측: "Expected metadata value to be a str, int,
+    float or bool, got None"). 스코프 필드 없이 저장하면 이후 어떤 회사도 읽지 못하는 쓰레기
+    항목만 쌓인다.
+
     노드 함수 내에서 get_vectorstore()를 런타임 호출(테스트 patch 호환).
     """
     if state.get("skip_cache"):
+        return state
+
+    company_id = state.get("company_id")
+    if company_id is None:
         return state
 
     answer_data = RagAnswerData(
@@ -325,7 +363,10 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     vectorstore.add_documents([
         Document(
             page_content=state["question"],
-            metadata={"answer_json": answer_data.model_dump_json()},
+            metadata={
+                "answer_json": answer_data.model_dump_json(),
+                "company_id": company_id,
+            },
         )
     ])
     return state
@@ -404,12 +445,20 @@ _graph.add_edge("no_result", END)
 compiled_graph = _graph.compile()
 
 
-def run_rag_chat_chain(question: str, history: Optional[list[dict]] = None) -> AIResponse:
+def run_rag_chat_chain(
+    question: str,
+    history: Optional[list[dict]] = None,
+    company_id: Optional[int] = None,
+) -> AIResponse:
     """RAG 챗봇 체인 공개 진입점.
 
     LangGraph StateGraph로 구현된 파이프라인을 invoke하고 최종 응답을 반환.
     history가 비어있지 않으면(대화 맥락 반영 요청, #1493/HAJA-657) skip_cache=True로 캐시
     조회/저장을 모두 우회한다(design §4) — history가 비어있으면 기존과 100% 동일하게 동작(회귀 없음).
+
+    company_id는 Spring이 `@AuthenticationPrincipal`에서만 취득해 넘기는 요청자 회사 식별자(#1584).
+    시맨틱 캐시의 조회·저장을 이 회사 스코프로 제한하며, None(회사 미소속 개인회원)이면 시맨틱
+    캐시를 조회도 저장도 하지 않는다(fail-closed).
     """
     history = history or []
     initial_state: RagChatState = {
@@ -422,6 +471,7 @@ def run_rag_chat_chain(question: str, history: Optional[list[dict]] = None) -> A
         "final_response": None,
         "history": history,
         "skip_cache": bool(history),
+        "company_id": company_id,
     }
 
     result_state = compiled_graph.invoke(

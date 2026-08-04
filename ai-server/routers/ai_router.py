@@ -100,13 +100,17 @@ class RagChatRequest(BaseModel):
     session_id: Optional[int] = Field(default=None, ge=1)
     # Spring이 세션이 있을 때 최근 3턴만 추려 담아 보낸다(design §3/§5.2). 세션이 없으면 빈 리스트.
     history: list[HistoryTurn] = Field(default_factory=list)
+    # 요청자의 회사 식별자(#1584) — Spring이 @AuthenticationPrincipal에서만 취득해 넘긴다.
+    # 시맨틱 캐시의 회사 스코프 필터 키. 회사 미소속 개인회원은 None이며, 이때 체인은 시맨틱
+    # 캐시를 조회도 저장도 하지 않는다(fail-closed).
+    company_id: Optional[int] = Field(default=None, ge=1)
 
 
 @router.post("/rag-chat")
 def rag_chat(req: RagChatRequest) -> AIResponse:
     try:
         history = [{"question": turn.question, "answer": turn.answer} for turn in req.history]
-        return run_rag_chat_chain(req.question, history=history)
+        return run_rag_chat_chain(req.question, history=history, company_id=req.company_id)
     except OutputParserException:
         # report/defect-explain과 동일 이유로 (ValueError, PydanticValidationError)절보다 먼저
         # 잡아야 한다 — OutputParserException은 ValueError의 서브클래스.
