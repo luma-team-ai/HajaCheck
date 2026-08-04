@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../../features/auth/store/authStore';
-import { DASHBOARD_ROUTE, PLATFORM_ADMIN_LOGIN_ROUTE } from '../constants/routes';
+import { PLATFORM_ADMIN_LOGIN_ROUTE, resolveRoleHomeRoute } from '../constants/routes';
 import { isPlatformAdminRole } from '../constants/roles';
 
 type Props = { children?: ReactNode };
@@ -20,9 +20,13 @@ export function PlatformAdminRoute({ children }: Props) {
 
   // 권한 부족은 미인증과 다르게 다룬다 — 이미 로그인한(플랫폼 관리자가 아닌) 사용자를
   // 플랫폼 관리자 로그인 화면으로 다시 보내면 혼란스럽고 리다이렉트가 반복된다.
-  // 일반 사용자 대시보드로 되돌린다(ProtectedRoute의 allowedRoles 불충족 처리와 동일 원칙).
+  // 각 role의 홈으로 되돌린다(ProtectedRoute의 allowedRoles 불충족 처리와 동일 원칙).
+  //
+  // DASHBOARD_ROUTE 고정이 아닌 이유(#1513): 대시보드(AppShell)에 allowedRoles가 걸린 뒤로는
+  // COUNSELOR를 대시보드로 보내면 그 가드가 다시 튕겨 상담원 콘솔로 보낸다 — 결과는 같아도
+  // 2홉을 돈다. resolveRoleHomeRoute(단일 진실 소스)로 한 번에 정착시킨다.
   if (!isPlatformAdminRole(user.role)) {
-    return <Navigate to={DASHBOARD_ROUTE} replace />;
+    return <Navigate to={resolveRoleHomeRoute(user.role)} replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;

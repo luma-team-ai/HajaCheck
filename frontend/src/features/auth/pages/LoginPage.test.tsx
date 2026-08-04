@@ -75,11 +75,11 @@ function LoginPageWithProbe() {
   );
 }
 
-function mockGetMeSuccess() {
+function mockGetMeSuccess(user: User = mockUser) {
   server.use(
     http.get('/api/users/me', () => {
       getMeCallCount += 1;
-      const success: ApiResponse<User> = { success: true, data: mockUser };
+      const success: ApiResponse<User> = { success: true, data: user };
       return HttpResponse.json(success);
     }),
   );
@@ -132,6 +132,41 @@ describe('LoginPage', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('location').textContent).toBe('/dashboard');
+    });
+  });
+
+  // #1513 — 기업 대시보드를 쓰지 않는 role이 기존 세션으로 /login에 재방문했을 때, 예전에는
+  // PLATFORM_ADMIN 분기가 없어 대시보드로 들어갔다(로그인 훅만 막으면 이쪽으로 뚫린다).
+  // 이제는 role 홈이 단일 기준이고, 대시보드에 걸린 allowedRoles와 답이 같아야 루프가 안 난다.
+  it('세션이 PLATFORM_ADMIN이면 플랫폼 관리자 콘솔로 이동한다(#1513)', async () => {
+    mockGetMeSuccess({ ...mockUser, role: 'PLATFORM_ADMIN', companyId: null });
+    const queryClient = new QueryClient();
+    renderLoginPage(queryClient, { pathname: '/login' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/platform-admin');
+    });
+  });
+
+  it('세션이 COUNSELOR면 상담원 대기열로 이동한다', async () => {
+    mockGetMeSuccess({ ...mockUser, role: 'COUNSELOR', companyId: null });
+    const queryClient = new QueryClient();
+    renderLoginPage(queryClient, { pathname: '/login' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/counsel-console/queue');
+    });
+  });
+
+  // 차단 role은 state.from(대시보드 하위 경로)이 실려 있어도 role 홈이 이긴다 — 그대로 보내면
+  // AppShell의 allowedRoles 가드가 다시 튕겨 리다이렉트가 한 번 더 돈다(#1513).
+  it('세션이 차단 role이면 state.from이 있어도 무시하고 role 홈으로 이동한다(#1513)', async () => {
+    mockGetMeSuccess({ ...mockUser, role: 'PLATFORM_ADMIN', companyId: null });
+    const queryClient = new QueryClient();
+    renderLoginPage(queryClient, { pathname: '/login', state: { from: '/facilities/list' } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location').textContent).toBe('/platform-admin');
     });
   });
 

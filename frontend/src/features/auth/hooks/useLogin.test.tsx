@@ -27,12 +27,20 @@ const mockUser: User = {
   status: 'ACTIVE',
 };
 
+// 기업회원 탭은 기업 포털 엔드포인트만 쓴다(#1513) — onUnhandledRequest:'error'라, 훅이 다른
+// 경로(예: 플랫폼 관리자용)로 POST 하면 이 핸들러에 걸리지 않고 테스트가 즉시 실패한다.
 const server = setupServer(
   http.post('/api/auth/login', () => {
     const success: ApiResponse<User> = { success: true, data: mockUser };
     return HttpResponse.json(success);
   }),
 );
+
+// 실제 요청 경로 기록 — "이 훅이 /api/auth/login으로 POST 한다"를 명시적으로 고정한다.
+const requestedPaths: string[] = [];
+server.events.on('request:start', ({ request }) => {
+  requestedPaths.push(new URL(request.url).pathname);
+});
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
@@ -41,6 +49,7 @@ afterEach(() => {
   useAuthStore.setState({ user: null });
   useInspectionStore.getState().clearActiveInspectionId();
   useInspectionStore.getState().clearActiveReportId();
+  requestedPaths.length = 0;
 });
 afterAll(() => server.close());
 
@@ -117,11 +126,45 @@ describe('useLogin', () => {
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/dashboard'));
   });
 
-  it('state.from이 없으면 기존 동작대로 role별 fallback으로 이동한다', async () => {
+  it('state.from이 없으면 기본 목적지(/dashboard)로 이동한다', async () => {
     renderWithProviders(['/login']);
 
     fireEvent.click(screen.getByText('로그인'));
 
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/dashboard'));
+  });
+
+  // #1513 — 기업 탭은 기업 포털 엔드포인트로만 로그인한다. 경로가 바뀌면 서버 role 게이트가
+  // 통째로 다른 포털 것으로 적용되므로(허용 role이 달라진다), 경로 자체를 계약으로 고정한다.
+  it('기업 포털 엔드포인트(POST /api/auth/login)로 요청한다', async () => {
+    renderWithProviders(['/login']);
+
+    fireEvent.click(screen.getByText('로그인'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/dashboard'));
+    expect(requestedPaths).toEqual(['/api/auth/login']);
+  });
+
+  // #1513 — 허용 role이 아니면 서버가 세션을 발급하지 않고 403 AUTH_ROLE_NOT_ALLOWED를 준다.
+  // 훅은 성공 처리(setUser·navigate)를 하지 않고 error로만 노출해야 한다(문구는 화면 책임).
+  it('403 AUTH_ROLE_NOT_ALLOWED면 setUser·이동 없이 로그인 화면에 머문다', async () => {
+    server.use(
+      http.post('/api/auth/login', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'AUTH_ROLE_NOT_ALLOWED', message: '이 화면으로는 로그인할 수 없는 계정입니다.' },
+        };
+        return HttpResponse.json(failure, { status: 403 });
+      }),
+    );
+    renderWithProviders(['/login']);
+
+    fireEvent.click(screen.getByText('로그인'));
+
+    await waitFor(() => expect(requestedPaths).toEqual(['/api/auth/login']));
+    // 되돌릴 세션이 없으므로 롤백용 logout 호출도 없어야 한다(핸들러 미등록 + onUnhandledRequest:'error').
+    expect(useAuthStore.getState().user).toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/login');
   });
 });

@@ -11,11 +11,20 @@ import {
 } from '../utils/savedLoginId';
 import { isLoginFormValid } from '../utils/validateLoginForm';
 
+// 기업회원 로그인이 허용하지 않는 role(PLATFORM_ADMIN·COUNSELOR)로 로그인을 시도한 경우(#1513).
+// 서버가 403 AUTH_ROLE_NOT_ALLOWED로 거절하며 세션은 발급되지 않는다.
+// 어떤 role인지, 그 계정이 어떤 콘솔에 속하는지는 노출하지 않는다 — 문구가 달라지는 순간
+// "이 아이디는 플랫폼 관리자다"를 알려주는 계정 오라클이 된다(자격증명 오류 문구와 동일한 원칙).
+const ROLE_DENIED_MESSAGE = '이 계정으로는 기업회원 로그인을 사용할 수 없습니다.';
+
 const ERROR_MESSAGES: Record<string, string> = {
   AUTH_INVALID_CREDENTIALS: '아이디 또는 비밀번호가 올바르지 않습니다.',
   // CSRF 토큰 누락·만료(#1200) — 자격 증명 문제가 아니라 요청이 거부된 것이라, 기본 문구
   // ("로그인에 실패했습니다")로 표시하면 아이디/비밀번호가 틀린 것으로 오인된다. 재시도를 유도한다.
+  // ⚠️ 아래 AUTH_ROLE_NOT_ALLOWED와 혼동 금지 — 둘 다 HTTP 403이지만 코드가 달라 서로 겹치지 않는다.
   FORBIDDEN: '요청이 만료되었습니다. 다시 시도해 주세요.',
+  // 포털 role 게이트 거절(#1513) — 매핑이 없으면 DEFAULT_ERROR_MESSAGE로 오안내된다.
+  AUTH_ROLE_NOT_ALLOWED: ROLE_DENIED_MESSAGE,
 };
 const DEFAULT_ERROR_MESSAGE = '로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 
