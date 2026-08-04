@@ -707,6 +707,33 @@ def test_semantic_cache_check_node_is_miss_without_company_id(mock_get_vectorsto
     mock_get_vectorstore.assert_not_called()
 
 
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_explicit_null_company_id_is_accepted_and_skips_semantic_cache(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
+):
+    """Spring은 개인회원일 때 필드를 생략하지 않고 `"company_id": null` 을 그대로 보낸다
+    (Jackson 기본 직렬화가 null을 포함). 명시적 null도 422 없이 필드 생략과 동일하게
+    동작해야 한다 — 스택 간 계약이 어긋나면 개인회원 요청이 전부 422로 죽는다."""
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None
+    mock_get_redis_client.return_value = mock_redis
+    mock_hybrid_search.return_value = [_doc(doc_id="42", chunk_index=3, article="제12조")]
+    mock_llm = MagicMock()
+    mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+        answer=_ANSWER_FRESH, grounded=True
+    )
+    mock_get_llm.return_value = mock_llm
+
+    res = client.post("/ai/rag-chat", json={"question": "균열 보수 기준은?", "company_id": None})
+
+    assert res.status_code == 200
+    assert res.json()["success"] is True
+    mock_get_vectorstore.assert_not_called()
+
+
 def test_rag_chat_request_rejects_non_positive_company_id():
     """company_id는 ge=1 — 0/음수는 422로 거절한다(다른 ID 필드와 동일한 검증 강도)."""
     res = client.post("/ai/rag-chat", json={"question": "균열 보수 기준은?", "company_id": 0})
