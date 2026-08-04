@@ -412,6 +412,24 @@ public class FacilityService {
         return FacilityResponse.from(facility);
     }
 
+    /**
+     * 점검 회차 완료(REPORTED 전이) 시 다음 점검일을 재계산한다(#1497/HAJA-656).
+     * updateSchedule() 의 "최종 점검일 기준 정교화"(위 javadoc 참고) 후속 조치 —
+     * baseDate 로 그 회차의 실제 점검일(inspection.inspectionDate())을 받는다.
+     * 점검주기가 설정돼 있지 않으면(null/0) 재계산할 기준이 없으므로 아무것도 하지 않는다.
+     */
+    @Transactional
+    public void recalculateNextInspectionDueAt(
+            Long userId, Long companyId, Long facilityId, LocalDate baseDate) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        Facility facility = findCompanyFacility(companyId, facilityId);
+        Integer cycleMonths = facility.getInspectionCycleMonths();
+        if (cycleMonths == null || cycleMonths <= 0) {
+            return;
+        }
+        facility.updateSchedule(cycleMonths, baseDate);
+    }
+
     private Facility findCompanyFacility(Long companyId, Long facilityId) {
         return facilityRepository.findByIdAndCompanyId(facilityId, companyId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.FACILITY_NOT_FOUND));

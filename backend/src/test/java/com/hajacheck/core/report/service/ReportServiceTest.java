@@ -862,6 +862,9 @@ class ReportServiceTest {
         org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(inspectionService);
         inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
         inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REPORTED);
+        // #1497/HAJA-656 — REPORTED 전이 시 그 회차의 점검일(inspection(10L,..)이 세팅한 LocalDate.now())
+        // 기준으로 시설물의 다음 점검일을 재계산해야 한다.
+        verify(facilityService).recalculateNextInspectionDueAt(200L, 100L, 10L, LocalDate.now());
     }
 
     @Test
@@ -881,6 +884,8 @@ class ReportServiceTest {
 
         verify(inspectionService, never()).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
         verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REPORTED);
+        // #1497/HAJA-656
+        verify(facilityService).recalculateNextInspectionDueAt(200L, 100L, 10L, LocalDate.now());
     }
 
     @Test
@@ -901,6 +906,8 @@ class ReportServiceTest {
         reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        // #1497/HAJA-656 — REPORTED로 실제 전이되지 않으므로(이미 종단 상태) 재계산도 호출되면 안 된다.
+        verify(facilityService, never()).recalculateNextInspectionDueAt(any(), any(), any(), any());
     }
 
     @Test
@@ -930,6 +937,8 @@ class ReportServiceTest {
             assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
         }
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+        // #1497/HAJA-656
+        verify(facilityService, never()).recalculateNextInspectionDueAt(any(), any(), any(), any());
     }
 
     @Test

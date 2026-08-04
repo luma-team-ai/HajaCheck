@@ -924,6 +924,50 @@ class FacilityServiceTest {
         assertThatThrownBy(() -> facilityService.setSchedule(USER_ID, OWNER_ID, 10L, request))
                 .isInstanceOf(BusinessException.class);
     }
+
+    // ── recalculateNextInspectionDueAt(#1497/HAJA-656) ──
+    // 점검 회차 완료(REPORTED 전이) 시 ReportService가 호출 — 그 회차의 실제 점검일을
+    // baseDate로 받아 다음 점검일을 재계산한다.
+
+    @Test
+    void recalculateNextInspectionDueAt_주기설정됨_점검일기준재계산한다() {
+        Facility facility = Facility.builder()
+                .companyId(OWNER_ID)
+                .name("기존시설")
+                .type("BUILDING")
+                .address("서울시 강남구")
+                .inspectionCycleMonths(4)
+                .build();
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+        LocalDate inspectionDate = LocalDate.of(2026, 8, 1);
+
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, inspectionDate);
+
+        assertThat(facility.getNextInspectionDueAt()).isEqualTo(inspectionDate.plusMonths(4));
+    }
+
+    @Test
+    void recalculateNextInspectionDueAt_주기미설정_아무것도하지않는다() {
+        Facility facility = existingFacility(); // inspectionCycleMonths 미설정(null)
+        when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
+
+        facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, LocalDate.of(2026, 8, 1));
+
+        assertThat(facility.getNextInspectionDueAt()).isNull();
+    }
+
+    @Test
+    void recalculateNextInspectionDueAt_없는시설_FACILITY_NOT_FOUND예외() {
+        when(facilityRepository.findByIdAndCompanyId(999L, OWNER_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                        facilityService.recalculateNextInspectionDueAt(
+                                USER_ID, OWNER_ID, 999L, LocalDate.of(2026, 8, 1)))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
+    }
+
     @Test
     void list_회사없는사용자_FORBIDDEN예외() {
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))
