@@ -15,9 +15,34 @@ export interface RagAnswerData {
   sources: SourceCitation[];
 }
 
-// 요청 스키마 — session_id 등 세션·이력 연동은 설계 §9 확정 후 확장 예정
+// 요청 스키마 — session_id는 HAJA-668(#1548, 설계 §2/§5.1)로 확정. 없으면 기존처럼 단발 질의.
 export interface RagChatRequest {
   query: string;
+  session_id?: number;
+}
+
+// 세션 라이프사이클(설계 §2/§5.1, HAJA-668) — Spring `ChatSessionController` 응답을 그대로 미러.
+// Jackson 기본 camelCase 응답이라 wire 그대로 camelCase로 둔다(RagAnswerData의 snake_case와는 별개 계약).
+export interface ChatSessionResponse {
+  sessionId: number;
+  sessionType: string;
+  startedAt: string;
+}
+
+export interface ChatSessionCitation {
+  documentId: string;
+  chunkRef: string;
+  locator: string;
+  snippet: string;
+}
+
+export interface ChatSessionMessageResponse {
+  id: number;
+  sessionId: number;
+  sender: 'USER' | 'BOT' | 'COUNSELOR';
+  content: string;
+  citations: ChatSessionCitation[];
+  createdAt: string;
 }
 
 // 채팅 화면 로컬 메시지 모델(표시용 — 서버 스키마와 별개)
