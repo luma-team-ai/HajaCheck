@@ -15,7 +15,7 @@ LLM(LangChain + RAG)이 점검 보고서 초안과 법규 질의응답까지 지
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)]()
 [![LangChain](https://img.shields.io/badge/LangChain-0.3-1C3C3C?logo=langchain&logoColor=white)]()
 
-🚀 **[라이브 데모](https://hajacheck.luma200ok.com)** · 📑 **[중간보고(PDF)](docs/report/hajaCheck_중간보고_v2.pdf)** · 📋 **[진행 보드](docs/STATUS.md)**
+🚀 **[라이브 데모](https://hajacheck.luma200ok.com)** · 📑 **[중간보고(PDF)](docs/report/interim-report/hajaCheck_중간보고_v2.pdf)** · 📋 **[진행 보드](docs/STATUS.md)**
 
 </div>
 
@@ -34,19 +34,15 @@ LLM(LangChain + RAG)이 점검 보고서 초안과 법규 질의응답까지 지
 
 ---
 
-<!-- 🎬 데모 스크린샷 — prod 테스트 캡처 후 docs/shots/ 에 넣고 이 블록의 주석을 해제한다.
-     권장 파일명(교체 가능): dashboard.png · viewer.png · report.png · chatbot.png · map.png · statistics.png
-
 ## 🎬 데모
 
 | 대시보드 | 분석 결과 뷰어 | 보고서 |
 |:---:|:---:|:---:|
 | ![대시보드](docs/shots/dashboard.png) | ![뷰어](docs/shots/viewer.png) | ![보고서](docs/shots/report.png) |
 | **AI 어시스턴트** | **지도 뷰** | **통계** |
-| ![챗봇](docs/shots/chatbot.png) | ![지도](docs/shots/map.png) | ![통계](docs/shots/statistics.png) |
+| ![챗봇](docs/shots/chatbot.png) | ![지도](docs/shots/map.jpg) | ![통계](docs/shots/statistics.png) |
 
 ---
--->
 
 ## ✨ 핵심 기능
 
@@ -78,13 +74,7 @@ LLM(LangChain + RAG)이 점검 보고서 초안과 법규 질의응답까지 지
 
 ## 🗂 아키텍처
 
-```
-[React SPA] → [Nginx 80/443] → [Spring Boot :8080] → [FastAPI :8000 (내부 전용)]
-                                     ├ PostgreSQL 16 (Flyway V1~V40)   ├ U-Net(resnet34) · YOLOv8n-seg — 하자 탐지
-                                     └ Redis 7 (세션·잡·응답 캐시)        ├ LangGraph + Qwen3-8B (HF Serverless API)
-                                                                        ├ Chroma (임베디드 — RAG·시맨틱 캐시)
-                                                                        └ RapidOCR PP-OCRv5 (사업자등록증)
-```
+![시스템 아키텍처](docs/shots/architecture.png)
 
 - **AI 서버는 외부 미노출** — 프론트는 항상 Spring(`/api/ai/*`) 경유, FastAPI는 X-Internal-Key 검증 (nginx 공개 경로 없음)
 - **스키마는 Flyway forward migration 전용** — `ddl-auto=validate`로 엔티티↔DB 불일치 시 기동 차단
@@ -178,7 +168,7 @@ cd frontend && npm install && npm run dev
 - 📑 **[제품 요구사항 → PRD](docs/prd/PRD_hajaCheck.md)** — 요구사항·아키텍처·일정(배포 §6.1)
 - 🔌 **[API 계약 → openapi.yaml](docs/api-contract/openapi.yaml)** — 단일 진실 원본(83 path · 97 operation)
 - 🛠 **컨벤션** — [SpringBoot](docs/conventions/SpringBoot_코드_컨벤션.md) · [React](docs/conventions/React_코드_컨벤션.md) · [AI 체인](docs/conventions/AI_개발_컨벤션.md)
-- 📄 **보고서** — [착수](docs/report/HajaCheck_착수_보고_v1.0.pdf) · [중간(PDF)](docs/report/hajaCheck_중간보고_v2.pdf) · [중간 별첨](docs/report/hajaCheck_중간보고_별첨.pdf)
+- 📄 **보고서** — [착수](docs/report/interim-report/HajaCheck_착수_보고_v1.0.pdf) · [중간(PDF)](docs/report/interim-report/hajaCheck_중간보고_v2.pdf) · [중간 별첨](docs/report/interim-report/hajaCheck_중간보고_별첨.pdf)
 
 ## 🔀 Git 규칙
 
