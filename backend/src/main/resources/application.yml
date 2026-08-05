@@ -363,3 +363,6 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+  # 컨트롤러가 produces를 명시 안 하면 springdoc이 */*로 문서화해 계약(application/json)과
+  # 어긋나 보이는 문제 방지 — 전역 기본값으로 한 번에 고침(IT-05 Swagger diff 검증 중 발견).
+  default-produces-media-type: application/json

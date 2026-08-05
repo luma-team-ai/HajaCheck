@@ -12,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -56,7 +57,7 @@ public class InspectionController {
     public ResponseEntity<ApiResponse<PageResponse<InspectionListItemResponse>>> list(
             @AuthenticationPrincipal LoginUser loginUser,
             @Valid @ModelAttribute InspectionListFilterRequest filters,
-            @PageableDefault(size = 20) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<InspectionListItemResponse> response = inspectionService.list(
                 loginUser.getUserId(), loginUser.getCompanyId(), filters, pageable);
         return ResponseEntity.ok(ApiResponse.ok(response));

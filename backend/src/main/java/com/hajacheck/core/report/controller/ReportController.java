@@ -17,11 +17,14 @@ import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -62,7 +65,7 @@ public class ReportController {
             @RequestParam(required = false) ReportStatus status,
             @RequestParam(required = false, defaultValue = "") String query,
             @RequestParam(required = false, defaultValue = "ALL") String period,
-            @PageableDefault(size = 10, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 10, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.ok(reportService.listCompanyReports(
                 loginUser.getUserId(), loginUser.getCompanyId(), facilityId, roundNo, status, query, period,
                 pageable)));
@@ -178,6 +181,11 @@ public class ReportController {
     }
 
     @Operation(summary = "보고서 PDF 다운로드", description = "업로드된 보고서 PDF를 소유권 검증 후 스트리밍한다")
+    // 문서 전용 표기 — 전역 default-produces-media-type(JSON)이 PDF 응답을 JSON으로 오문서화하는 걸 덮는다.
+    // @GetMapping(produces=)는 MVC 요청 매칭까지 좁히므로 쓰지 않는다.
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "보고서 PDF 바이너리",
+            content = @Content(mediaType = MediaType.APPLICATION_PDF_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/api/reports/{id}/pdf/{storageKey}")
     public ResponseEntity<Resource> downloadPdf(
             @PathVariable Long id,

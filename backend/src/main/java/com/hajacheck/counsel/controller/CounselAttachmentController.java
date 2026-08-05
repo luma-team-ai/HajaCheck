@@ -6,9 +6,13 @@ import com.hajacheck.counsel.service.CounselAttachmentService;
 import com.hajacheck.counsel.service.CounselAttachmentService.AttachmentFile;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -43,6 +47,15 @@ public class CounselAttachmentController {
     }
 
     @Operation(summary = "상담 첨부 조회", description = "메시지 첨부 이미지 바이트 반환(당사자만, 개인 대화라 공유 캐시 금지).")
+    // 업로드 허용 타입이 JPG/PNG 뿐이라 응답도 둘 중 하나다. 문서 전용 표기 —
+    // 전역 default-produces-media-type(JSON)이 이미지 응답을 JSON으로 오문서화하는 걸 덮는다.
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "원본 이미지 바이트",
+            headers = @Header(name = HttpHeaders.CACHE_CONTROL, description = "no-store, private (공유 캐시 금지)",
+                    schema = @Schema(type = "string")),
+            content = {
+                @Content(mediaType = MediaType.IMAGE_JPEG_VALUE, schema = @Schema(type = "string", format = "binary")),
+                @Content(mediaType = MediaType.IMAGE_PNG_VALUE, schema = @Schema(type = "string", format = "binary"))
+            })
     @GetMapping("/api/counsel/tickets/{ticketId}/messages/{messageId}/attachment")
     public ResponseEntity<byte[]> getAttachment(
             @PathVariable Long ticketId,

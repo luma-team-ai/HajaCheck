@@ -6,6 +6,8 @@ import com.hajacheck.core.media.service.MediaService;
 import com.hajacheck.core.media.service.MediaService.ThumbnailFile;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -86,6 +88,13 @@ public class MediaController {
     }
 
     @Operation(summary = "미디어 썸네일 조회", description = "원본은 서빙하지 않고 재인코딩된 썸네일만 반환")
+    // 응답은 항상 JPEG(MediaService.THUMBNAIL_MIME_TYPE 상수로 재인코딩). 전역
+    // springdoc.default-produces-media-type(application/json)이 바이너리 응답까지 JSON으로 오문서화하는 걸
+    // 여기서 덮는다. @GetMapping(produces=)를 쓰지 않는 이유: 그건 MVC 요청 매칭 조건까지 바꾸므로,
+    // 문서만 고치면 되는 자리에는 문서 전용 애노테이션을 쓴다.
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "썸네일 JPEG 바이트",
+            content = @Content(mediaType = MediaType.IMAGE_JPEG_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/api/media/{id}/thumbnail")
     public ResponseEntity<byte[]> getThumbnail(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
@@ -102,6 +111,9 @@ public class MediaController {
 
     @Operation(summary = "미디어 상세 이미지 조회",
             description = "분석 결과 뷰어 전용 — 그리드용 썸네일보다 큰 해상도로 원본에서 재인코딩해 반환(원본 직접 서빙 안 함)")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "상세 이미지 JPEG 바이트",
+            content = @Content(mediaType = MediaType.IMAGE_JPEG_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/api/media/{id}/detail")
     public ResponseEntity<byte[]> getDetailImage(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
