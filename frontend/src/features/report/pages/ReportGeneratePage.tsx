@@ -92,7 +92,6 @@ export function ReportGeneratePage() {
   const [savedContent, setSavedContent] = useState<ReportContent | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
-  const isRechecking = false;
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -357,7 +356,7 @@ export function ReportGeneratePage() {
   // 각 단계 실패 시 AlertModal로 알리고 다음 단계로 넘어가지 않는다.
   const handleFinalizeAll = async () => {
     if (!report || !content || isFinalized) return;
-    if (isSaving || isRechecking || isFinalizing) return;
+    if (isSaving || isFinalizing) return;
 
     let currentReport = report;
     if (dirty) {
@@ -462,14 +461,12 @@ export function ReportGeneratePage() {
   // "무엇이 비었는지" 알려준다(#1341 원 설계) — hasEmptyManualSections를 canFinalize에 넣어
   // 버튼을 조용히 비활성화했던 것은 #1375/#1377에서 이 주석과 모순되게 들어간 회귀였다(#1409).
   const canFinalize = !isFinalized;
-  const isFinalizeBusy = isSaving || isRechecking || isFinalizing;
+  const isFinalizeBusy = isSaving || isFinalizing;
   const finalizeLabel = isSaving
     ? '저장 중...'
-    : isRechecking
-      ? '검증 중...'
-      : isFinalizing
-        ? 'PDF 생성/확정 중...'
-        : '최종 보고서 확정';
+    : isFinalizing
+      ? 'PDF 생성/확정 중...'
+      : '최종 보고서 확정';
   const reportStepViews = REPORT_STEPS.map((step) => ({
     key: step.key,
     label: step.label,
@@ -665,7 +662,7 @@ export function ReportGeneratePage() {
         <ReportContentEditor
           content={content}
           onChange={setContent}
-          readOnly={isFinalized || isSaving || isRechecking || isFinalizing}
+          readOnly={isFinalized || isSaving || isFinalizing}
           defectPhotos={defectPhotos}
           defectPhotoGroups={defectPhotoGroups}
         />

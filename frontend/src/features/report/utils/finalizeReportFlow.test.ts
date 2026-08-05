@@ -99,6 +99,36 @@ describe('runFinalizeReportFlow unit tests', () => {
     expect(reportApi.finalizeReport).toHaveBeenCalledWith(10, '/api/reports/10/pdf/key');
   });
 
+  it('PDF 생성/확정 단계가 ApiError로 거부되면 서버가 준 구체 사유가 결과 message로 노출된다', async () => {
+    const reportWithNullGrounding: ReportDetailResponse = {
+      ...baseReport,
+      groundingCheckPassed: null,
+    };
+
+    const recheckReport: ReportDetailResponse = {
+      ...baseReport,
+      groundingCheckPassed: true,
+    };
+
+    vi.mocked(reportApi.groundingRecheck).mockResolvedValueOnce(axiosResponse(recheckReport));
+    // axios 응답 인터셉터(shared/api/axios.ts)는 실패를 { code, message, status } 평탄화해서
+    // reject하므로 그 형태로 거부시킨다 — getApiErrorMessage가 이 message를 그대로 전달해야 한다.
+    vi.mocked(reportApi.uploadPdf).mockRejectedValueOnce({
+      code: 'PDF_UPLOAD_FAILED',
+      message: '업로드된 PDF가 없습니다.',
+      status: 400,
+    });
+
+    const result = await runFinalizeReportFlow(10, reportWithNullGrounding, mockContent);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.title).toBe('PDF 생성/확정 실패');
+      expect(result.message).toBe('업로드된 PDF가 없습니다.');
+    }
+    expect(reportApi.finalizeReport).not.toHaveBeenCalled();
+  });
+
   it('groundingRecheck가 실패하면 uploadPdf와 finalizeReport가 호출되지 않는다', async () => {
     const reportWithNullGrounding: ReportDetailResponse = {
       ...baseReport,
