@@ -9,31 +9,12 @@ import {
 } from './manualSectionValidation';
 import { buildReportPdfContext } from './reportPdfContext';
 import { buildReportPdfFileName } from '../../../shared/utils/reportPdf';
+import { getApiErrorMessage } from '../../../shared/api/types';
 import type { InspectionResult } from '../../inspection/types';
 
 export type FinalizeResult =
   | { ok: true; report: ReportDetailResponse }
   | { ok: false; title: string; message: string };
-
-function extractErrorMessage(err: unknown, fallback: string): string {
-  if (err && typeof err === 'object') {
-    const record = err as Record<string, unknown>;
-    const response = record.response;
-    if (response && typeof response === 'object') {
-      const data = (response as Record<string, unknown>).data;
-      if (data && typeof data === 'object') {
-        const error = (data as Record<string, unknown>).error;
-        if (error && typeof error === 'object') {
-          const message = (error as Record<string, unknown>).message;
-          if (typeof message === 'string' && message) return message;
-        }
-      }
-    }
-    const message = record.message;
-    if (typeof message === 'string' && message) return message;
-  }
-  return fallback;
-}
 
 export async function runFinalizeReportFlow(
   reportId: number,
@@ -90,7 +71,7 @@ export async function runFinalizeReportFlow(
         };
       }
     } catch (err: unknown) {
-      const message = extractErrorMessage(err, '확정 검증에 실패했습니다.');
+      const message = getApiErrorMessage(err, '확정 검증에 실패했습니다.');
       return {
         ok: false,
         title: '확정 검증 실패',
@@ -108,7 +89,7 @@ export async function runFinalizeReportFlow(
     const finalizeResponse = await reportApi.finalizeReport(reportId, uploadResponse.data.pdfUrl);
     return { ok: true, report: finalizeResponse.data };
   } catch (err: unknown) {
-    const message = extractErrorMessage(err, 'PDF 생성/확정에 실패했습니다.');
+    const message = getApiErrorMessage(err, 'PDF 생성/확정에 실패했습니다.');
     return { ok: false, title: 'PDF 생성/확정 실패', message };
   }
 }
