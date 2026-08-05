@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🏗️ HajaCheck — AI 기반 시설물 외관 하자 점검 플랫폼
+<img src="docs/shots/banner_README.png" alt="HajaCheck — AI 기반 시설물 외관 하자 점검 플랫폼" width="600">
 
 **사진을 올리면 하자를 찾고, 등급을 매기고, 보고서 초안까지 씁니다.**
 
