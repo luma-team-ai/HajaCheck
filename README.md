@@ -15,7 +15,7 @@ LLM(LangChain + RAG)이 점검 보고서 초안과 법규 질의응답까지 지
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)]()
 [![LangChain](https://img.shields.io/badge/LangChain-0.3-1C3C3C?logo=langchain&logoColor=white)]()
 
-🚀 **[라이브 데모](https://hajacheck.luma200ok.com)** · 📑 **[중간보고(PDF)](docs/report/hajaCheck_중간보고_v2.pdf)** · 📋 **[진행 보드](docs/STATUS.md)**
+🚀 **[라이브 데모](https://hajacheck.luma200ok.com)** · 📑 **[중간보고(PDF)](docs/report/interim-report/hajaCheck_중간보고_v2.pdf)** · 📋 **[진행 보드](docs/STATUS.md)**
 
 </div>
 
@@ -168,7 +168,7 @@ cd frontend && npm install && npm run dev
 - 📑 **[제품 요구사항 → PRD](docs/prd/PRD_hajaCheck.md)** — 요구사항·아키텍처·일정(배포 §6.1)
 - 🔌 **[API 계약 → openapi.yaml](docs/api-contract/openapi.yaml)** — 단일 진실 원본(83 path · 97 operation)
 - 🛠 **컨벤션** — [SpringBoot](docs/conventions/SpringBoot_코드_컨벤션.md) · [React](docs/conventions/React_코드_컨벤션.md) · [AI 체인](docs/conventions/AI_개발_컨벤션.md)
-- 📄 **보고서** — [착수](docs/report/HajaCheck_착수_보고_v1.0.pdf) · [중간(PDF)](docs/report/hajaCheck_중간보고_v2.pdf) · [중간 별첨](docs/report/hajaCheck_중간보고_별첨.pdf)
+- 📄 **보고서** — [착수](docs/report/interim-report/HajaCheck_착수_보고_v1.0.pdf) · [중간(PDF)](docs/report/interim-report/hajaCheck_중간보고_v2.pdf) · [중간 별첨](docs/report/interim-report/hajaCheck_중간보고_별첨.pdf)
 
 ## 🔀 Git 규칙
 
