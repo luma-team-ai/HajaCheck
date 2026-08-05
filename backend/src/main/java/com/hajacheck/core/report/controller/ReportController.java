@@ -17,11 +17,14 @@ import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -37,6 +40,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -62,7 +66,7 @@ public class ReportController {
             @RequestParam(required = false) ReportStatus status,
             @RequestParam(required = false, defaultValue = "") String query,
             @RequestParam(required = false, defaultValue = "ALL") String period,
-            @PageableDefault(size = 10, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 10, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.ok(reportService.listCompanyReports(
                 loginUser.getUserId(), loginUser.getCompanyId(), facilityId, roundNo, status, query, period,
                 pageable)));
@@ -77,6 +81,7 @@ public class ReportController {
     }
 
     @Operation(summary = "보고서 초안 생성", description = "점검의 확정 하자를 근거로 AI 보고서 초안을 생성한다")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping("/api/inspections/{inspectionId}/reports")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> generateDraft(
             @PathVariable Long inspectionId,
@@ -109,6 +114,7 @@ public class ReportController {
     }
 
     @Operation(summary = "보고서 복제", description = "기존 보고서 content를 복제해 같은 점검의 다음 버전 DRAFT를 생성한다")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping("/api/reports/{id}/clone")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> cloneReport(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
@@ -162,10 +168,11 @@ public class ReportController {
     }
 
     @Operation(summary = "보고서 PDF 업로드", description = "확정용 PDF 파일을 저장하고 접근 URL을 반환한다(별도로 /finalize에 전달)")
-    @PostMapping("/api/reports/{id}/pdf")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
+    @PostMapping(value = "/api/reports/{id}/pdf", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<ReportPdfResponse>> uploadPdf(
             @PathVariable Long id,
-            @RequestParam("file") MultipartFile file,
+            @RequestPart("file") MultipartFile file,
             @AuthenticationPrincipal LoginUser loginUser) {
         // 소유권 및 DRAFT 상태 검증 — 존재하지 않거나 타인 소유 또는 이미 확정된 보고서에 대한 PDF 업로드를 차단.
         ReportDetailResponse report = reportService.getReport(id, loginUser.getUserId(), loginUser.getCompanyId());
@@ -178,6 +185,11 @@ public class ReportController {
     }
 
     @Operation(summary = "보고서 PDF 다운로드", description = "업로드된 보고서 PDF를 소유권 검증 후 스트리밍한다")
+    // 문서 전용 표기 — 전역 default-produces-media-type(JSON)이 PDF 응답을 JSON으로 오문서화하는 걸 덮는다.
+    // @GetMapping(produces=)는 MVC 요청 매칭까지 좁히므로 쓰지 않는다.
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "보고서 PDF 바이너리",
+            content = @Content(mediaType = MediaType.APPLICATION_PDF_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/api/reports/{id}/pdf/{storageKey}")
     public ResponseEntity<Resource> downloadPdf(
             @PathVariable Long id,

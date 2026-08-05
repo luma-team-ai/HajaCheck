@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -50,7 +51,7 @@ public class MyInspectionsController {
     public ResponseEntity<ApiResponse<PageResponse<MyInspectionRowResponse>>> getInspections(
             @AuthenticationPrincipal LoginUser loginUser,
             @RequestParam(defaultValue = "ALL") String period,
-            @PageableDefault(size = 8) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 8) Pageable pageable) {
         PageResponse<MyInspectionRowResponse> response = myInspectionsService.getInspections(
                 loginUser.getUserId(), loginUser.getCompanyId(), period, pageable);
         return ResponseEntity.ok(ApiResponse.ok(response));

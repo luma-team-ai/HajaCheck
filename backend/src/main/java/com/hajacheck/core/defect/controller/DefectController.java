@@ -19,6 +19,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -51,7 +52,7 @@ public class DefectController {
             @RequestParam(required = false) DefectType type,
             @RequestParam(required = false) DefectGrade grade,
             @RequestParam(required = false) DefectStatus status,
-            @PageableDefault(size = 20) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<DefectResponse> response =
                 defectService.list(
                         loginUser.getUserId(), loginUser.getCompanyId(), type, grade, status, pageable);
@@ -138,7 +139,7 @@ public class DefectController {
     public ResponseEntity<ApiResponse<PageResponse<DefectRevisionResponse>>> getRevisions(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long id,
-            @PageableDefault(size = 20) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<DefectRevisionResponse> response =
                 defectService.getRevisions(
                         loginUser.getUserId(), loginUser.getCompanyId(), id, pageable);

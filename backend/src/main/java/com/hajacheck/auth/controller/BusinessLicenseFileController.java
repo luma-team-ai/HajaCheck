@@ -4,6 +4,9 @@ import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.auth.service.BusinessLicenseFileService;
 import com.hajacheck.auth.service.BusinessLicenseFileService.LicenseFile;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.CacheControl;
@@ -25,6 +28,17 @@ public class BusinessLicenseFileController {
     private final BusinessLicenseFileService businessLicenseFileService;
 
     @Operation(summary = "사업자등록증 조회", description = "유효한 회사 소속과 저장키를 검증한 뒤 파일을 반환한다")
+    // Content-Type은 저장된 파일 확장자로 결정된다(업로드 허용 타입 기준). 문서 전용 표기 —
+    // 전역 default-produces-media-type(JSON)이 바이너리 응답을 JSON으로 오문서화하는 걸 덮는다.
+    @ApiResponse(responseCode = "200", description = "파일 바이너리(Content-Type은 확장자로 결정)",
+            content = {
+                @Content(mediaType = MediaType.IMAGE_PNG_VALUE, schema = @Schema(type = "string", format = "binary")),
+                @Content(mediaType = MediaType.IMAGE_JPEG_VALUE, schema = @Schema(type = "string", format = "binary")),
+                @Content(mediaType = MediaType.APPLICATION_PDF_VALUE,
+                        schema = @Schema(type = "string", format = "binary")),
+                @Content(mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                        schema = @Schema(type = "string", format = "binary"))
+            })
     @GetMapping("/api/companies/{companyId}/business-license/{*storageKey}")
     public ResponseEntity<byte[]> download(
             @PathVariable Long companyId,

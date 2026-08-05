@@ -38,6 +38,7 @@ public class CompanySignupController {
 
     @Operation(summary = "기업 회원가입",
             description = "User+Company(즉시 APPROVED·VERIFIED, #1324)+오너 APPROVED 멤버십+동의이력 원자 생성 (multipart)")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping(value = "/companies", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<CompanySignupResponse>> signup(
             @Valid @ModelAttribute CompanySignupRequest request) {

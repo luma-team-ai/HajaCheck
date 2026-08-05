@@ -6,6 +6,8 @@ import com.hajacheck.core.media.service.MediaService;
 import com.hajacheck.core.media.service.MediaService.ThumbnailFile;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +20,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -48,10 +50,18 @@ public class MediaController {
     }
 
     @Operation(summary = "촬영 데이터 업로드", description = "점검 회차에 이미지(JPG/PNG) 다중 업로드")
-    @PostMapping("/api/inspections/{inspectionId}/media")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
+    // consumes 를 명시하지 않으면 springdoc 이 요청 바디를 기본값(application/json)으로 문서화한다.
+    // 이 엔드포인트는 multipart 만 받으므로(파일 업로드) 선언이 사실과 일치하며, 같은 성격의
+    // RagDocument·CompanySignup·BusinessLicenseOcr 업로드도 이미 동일하게 선언돼 있다.
+    @PostMapping(value = "/api/inspections/{inspectionId}/media",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<List<MediaResponse>>> uploadMedia(
             @PathVariable Long inspectionId,
-            @RequestParam("files") List<MultipartFile> files,
+            // @RequestParam 이면 springdoc 이 파일을 쿼리 파라미터로 오인식해 multipart 요청 바디가
+            // 문서에서 통째로 빠진다. 파일 파트 바인딩 결과는 @RequestPart 와 동일하고(프론트는 모두
+            // FormData 로 전송), 누락 시 예외만 MissingServletRequestPart 로 바뀐다 → FILE_REQUIRED.
+            @RequestPart("files") List<MultipartFile> files,
             @AuthenticationPrincipal LoginUser loginUser) {
         List<MediaResponse> response = mediaService.uploadMedia(
                 inspectionId, loginUser.getUserId(), loginUser.getCompanyId(), files);
@@ -75,10 +85,12 @@ public class MediaController {
             summary = "시설물 대표 사진 업로드",
             description = "시설물 대표 사진(JPG/PNG) 다중 업로드 — 시설물당 최대 4장(#632/#652)"
     )
-    @PostMapping("/api/facilities/{facilityId}/media")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
+    @PostMapping(value = "/api/facilities/{facilityId}/media",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<List<MediaResponse>>> uploadFacilityPhotos(
             @PathVariable Long facilityId,
-            @RequestParam("files") List<MultipartFile> files,
+            @RequestPart("files") List<MultipartFile> files,
             @AuthenticationPrincipal LoginUser loginUser) {
         List<MediaResponse> response = mediaService.uploadFacilityPhotos(
                 facilityId, loginUser.getUserId(), loginUser.getCompanyId(), files);
@@ -86,6 +98,13 @@ public class MediaController {
     }
 
     @Operation(summary = "미디어 썸네일 조회", description = "원본은 서빙하지 않고 재인코딩된 썸네일만 반환")
+    // 응답은 항상 JPEG(MediaService.THUMBNAIL_MIME_TYPE 상수로 재인코딩). 전역
+    // springdoc.default-produces-media-type(application/json)이 바이너리 응답까지 JSON으로 오문서화하는 걸
+    // 여기서 덮는다. @GetMapping(produces=)를 쓰지 않는 이유: 그건 MVC 요청 매칭 조건까지 바꾸므로,
+    // 문서만 고치면 되는 자리에는 문서 전용 애노테이션을 쓴다.
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "썸네일 JPEG 바이트",
+            content = @Content(mediaType = MediaType.IMAGE_JPEG_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/api/media/{id}/thumbnail")
     public ResponseEntity<byte[]> getThumbnail(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
@@ -102,6 +121,9 @@ public class MediaController {
 
     @Operation(summary = "미디어 상세 이미지 조회",
             description = "분석 결과 뷰어 전용 — 그리드용 썸네일보다 큰 해상도로 원본에서 재인코딩해 반환(원본 직접 서빙 안 함)")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "상세 이미지 JPEG 바이트",
+            content = @Content(mediaType = MediaType.IMAGE_JPEG_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/api/media/{id}/detail")
     public ResponseEntity<byte[]> getDetailImage(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
