@@ -580,4 +580,82 @@ class ReportControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.finalizedCount").value(0))
                 .andExpect(jsonPath("$.data.issuedThisMonthCount").value(0));
     }
+
+    private User seedUserWithRole(String email, Role role, Long companyId) {
+        User user = userRepository.save(User.builder()
+                .email(email)
+                .name("사용자")
+                .role(role)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .build());
+        companyMembershipRepository.save(CompanyMembership.approvedMember(companyId, user.getId()));
+        user.assignToCompany(companyId);
+        return userRepository.save(user);
+    }
+
+    @Test
+    void USER_역할_사용자가_보고서_변경_API_호출시_403_조회는_허용() throws Exception {
+        // 점검(inspection) 담당자는 DB 제약상 INSPECTOR여야 하므로, 보고서 소유는 INSPECTOR 오너가 하고
+        // 검증 대상 USER는 같은 회사 멤버로만 추가해 role 게이트(SecurityConfig)를 검증한다.
+        User owner = seedOwner("user-gate-owner@haja.com");
+        User regularUser = seedUserWithRole("user-role@haja.com", Role.USER, owner.getCompanyId());
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        // 변경 API 7종 -> USER 호출 시 403 Forbidden
+        mockMvc.perform(post("/api/inspections/{id}/reports", inspection.getId()).with(csrf()).with(authentication(authOf(regularUser))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/reports/{id}/clone", report.getId()).with(csrf()).with(authentication(authOf(regularUser))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(patch("/api/reports/{id}", report.getId()).with(csrf()).with(authentication(authOf(regularUser))).contentType(MediaType.APPLICATION_JSON).content("{\"contentJson\":\"{}\"}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/reports/{id}/grounding-recheck", report.getId()).with(csrf()).with(authentication(authOf(regularUser))))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/reports/{id}/finalize", report.getId()).with(csrf()).with(authentication(authOf(regularUser))).contentType(MediaType.APPLICATION_JSON).content("{\"pdfUrl\":\"/api/reports/1/pdf/key\"}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(delete("/api/reports/{id}", report.getId()).with(csrf()).with(authentication(authOf(regularUser))))
+                .andExpect(status().isForbidden());
+
+        MockMultipartFile file = new MockMultipartFile("file", "r.pdf", MediaType.APPLICATION_PDF_VALUE, "%PDF-1.4 body".getBytes());
+        mockMvc.perform(multipart("/api/reports/{id}/pdf", report.getId()).file(file).with(csrf()).with(authentication(authOf(regularUser))))
+                .andExpect(status().isForbidden());
+
+        // 조회 API -> USER 호출 허용 (200 OK)
+        mockMvc.perform(get("/api/reports/{id}", report.getId()).with(authentication(authOf(regularUser))))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/inspections/{id}/reports", inspection.getId()).with(authentication(authOf(regularUser))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void ADMIN_역할_사용자는_보고서_변경_API_접근_가능() throws Exception {
+        User owner = seedOwner("admin-test-owner@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        User admin = userRepository.save(User.builder()
+                .email("admin-role@haja.com")
+                .name("관리자")
+                .role(Role.ADMIN)
+                .passwordHash("$2a$10$hashed")
+                .status(UserStatus.ACTIVE)
+                .build());
+        companyMembershipRepository.save(CompanyMembership.approvedMember(owner.getCompanyId(), admin.getId()));
+        admin.assignToCompany(owner.getCompanyId());
+        userRepository.save(admin);
+
+        mockMvc.perform(patch("/api/reports/{id}", report.getId())
+                        .with(csrf()).with(authentication(authOf(admin)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"contentJson\":\"{}\"}"))
+                .andExpect(status().isOk());
+    }
 }
+

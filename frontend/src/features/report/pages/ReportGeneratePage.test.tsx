@@ -1300,6 +1300,103 @@ describe('ReportGeneratePage', () => {
     expect(screen.getByText('이미지 없음')).toBeTruthy();
     expect(screen.queryByRole('img', { name: /현장 이미지/ })).toBeNull();
   });
+
+  it('초기 groundingCheckPassed가 true였어도 편집 후 PATCH가 null을 반환하면 grounding-recheck -> PDF 업로드 -> finalize가 순서대로 호출된다', async () => {
+    let recheckCalled = false;
+    let pdfUploadCalled = false;
+    let finalizeCalled = false;
+
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+    };
+
+    server.use(
+      http.patch('/api/reports/1', async ({ request }) => {
+        updateReportCallCount += 1;
+        const body = (await request.json()) as { contentJson: string };
+        reportState = { ...reportState, content: JSON.parse(body.contentJson), groundingCheckPassed: null };
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+      http.post('/api/reports/1/grounding-recheck', () => {
+        recheckCalled = true;
+        reportState = { ...reportState, groundingCheckPassed: true };
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+      http.post('/api/reports/1/pdf', async () => {
+        pdfUploadCalled = true;
+        return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/1/pdf/storage-key' } });
+      }),
+      http.post('/api/reports/1/finalize', async () => {
+        finalizeCalled = true;
+        reportState = { ...reportState, status: 'FINALIZED', pdfUrl: '/api/reports/1/pdf/storage-key' };
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    fireEvent.change(purposeInput, { target: { value: '새 목적' } });
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    fireEvent.click(finalizeButton);
+
+    await waitFor(() => {
+      expect(screen.getByText('이 보고서는 확정되어 더 이상 편집할 수 없습니다.')).toBeTruthy();
+    });
+
+    expect(updateReportCallCount).toBe(1);
+    expect(recheckCalled).toBe(true);
+    expect(pdfUploadCalled).toBe(true);
+    expect(finalizeCalled).toBe(true);
+  });
+
+  it('재검증 실패 시 PDF 업로드와 finalize가 호출되지 않는다', async () => {
+    let pdfUploadCalled = false;
+    let finalizeCalled = false;
+
+    reportState = {
+      ...mockReport,
+      groundingCheckPassed: true,
+    };
+
+    server.use(
+      http.patch('/api/reports/1', async ({ request }) => {
+        const body = (await request.json()) as { contentJson: string };
+        reportState = { ...reportState, content: JSON.parse(body.contentJson), groundingCheckPassed: null };
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+      http.post('/api/reports/1/grounding-recheck', () => {
+        reportState = { ...reportState, groundingCheckPassed: false };
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+      http.post('/api/reports/1/pdf', () => {
+        pdfUploadCalled = true;
+        return HttpResponse.json({ success: true, data: { pdfUrl: '/api/reports/1/pdf/storage-key' } });
+      }),
+      http.post('/api/reports/1/finalize', () => {
+        finalizeCalled = true;
+        return HttpResponse.json({ success: true, data: reportState });
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+
+    const purposeInput = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
+    fireEvent.change(purposeInput, { target: { value: '불일치 목적' } });
+
+    const finalizeButton = screen.getByRole('button', { name: /최종 보고서 확정/ }) as HTMLButtonElement;
+    fireEvent.click(finalizeButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('검증 실패')).toBeTruthy();
+
+    expect(pdfUploadCalled).toBe(false);
+    expect(finalizeCalled).toBe(false);
+  });
 });
 
 /** DetailSection이 쓰는 최소 필드만 채운 사진 그룹 — bbox가 null이면 박스를 그리지 않는 경로를 검증한다. */
@@ -1404,3 +1501,4 @@ describe('DetailSection', () => {
     expect(container.querySelector('span[aria-hidden="true"].absolute')).toBeNull();
   });
 });
+

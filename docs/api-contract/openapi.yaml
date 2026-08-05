@@ -349,8 +349,9 @@ paths:
     post:
       summary: AI 보고서 4개 섹션 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당)
       description: >
-        구현된 내부 전용 FastAPI 라우트다. 외부 클라이언트는 인증된 Spring `/api/ai/report`
-        프록시를 경유한다. grounding_request_id, inspection_id, report_version은 모두 제공하거나
+        구현된 내부 전용 FastAPI 라우트다. 외부 클라이언트용 Spring `/api/ai/report` 프록시는 삭제되었으며,
+        Spring `ReportService`가 이 라우트를 내부 전용 키(InternalKey)로만 직접 호출한다.
+        grounding_request_id, inspection_id, report_version은 모두 제공하거나
         모두 생략해야 한다. 모두 생략하면 기존 호환 경로로 처리되어 응답의 correlation 필드와
         content_hash도 생략된다. 모두 제공하면 같은 correlation 값과 보고서 본문의 canonical JSON
         SHA-256 content_hash를 반환한다. 현재 Spring 프록시는 이 값을 서버에서 강제 생성하지 않고
@@ -516,57 +517,6 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "502":
           description: AI_INVALID_RESPONSE | AI_SERVER_ERROR — 내부 FastAPI 오류를 그대로 전달하지 않고 이 코드로 통일
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "503":
-          description: AI_SERVER_UNREACHABLE
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "504":
-          description: AI_SERVER_TIMEOUT
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-
-  /api/ai/report:
-    post:
-      summary: AI 보고서 생성 (인증 프록시, #239 / HAJA-192)
-      description: >
-        확정된 하자 목록을 세션 인증 프록시로 내부 FastAPI `/ai/report` 에 전달해 개요·요약·상세·권고
-        보고서를 반환한다. correlation 필드(grounding_request_id/inspection_id/report_version)는 모두
-        제공하거나 모두 생략해야 한다(내부 ReportGenerateRequest 와 동일 계약). 실무에서는
-        `POST /api/inspections/{inspectionId}/reports`(ReportController.generateDraft) 가 이 프록시를 내부
-        호출해 grounding 캡처까지 포함한 전체 흐름을 담당한다 — 이 엔드포인트 자체를 프론트가 직접 호출하는
-        경로는 별도다. `AiProxyController.report` 구현됨.
-      security:
-        - SessionCookie: []
-          XsrfToken: []
-      tags: [ai, report]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ReportGenerateRequest" }
-      responses:
-        "200":
-          description: 성공
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ReportGenerateApiResponse" }
-        "400":
-          description: INVALID_INPUT | AI_REQUEST_REJECTED
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "401":
-          description: 미인증 (UNAUTHORIZED)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "502":
-          description: AI_INVALID_RESPONSE | AI_SERVER_ERROR
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }

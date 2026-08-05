@@ -321,17 +321,17 @@ export function ReportGeneratePage() {
 
   // 임시저장 — "임시저장" 버튼(원 저장 버튼)뿐 아니라 PDF 미리보기 가드, 최종 확정 통합 플로우에서도
   // 재사용한다(#1338). 성공 여부를 반환해 호출부가 다음 단계 진행 여부를 판단할 수 있게 한다.
-  const handleSave = async (): Promise<boolean> => {
-    if (!report || !content || isSaving) return false;
+  const handleSave = async (): Promise<ReportDetailResponse | null> => {
+    if (!report || !content || isSaving) return null;
     setIsSaving(true);
     try {
       const response = await reportApi.updateContent(report.id, content);
       applyReport(response.data);
-      return true;
+      return response.data;
     } catch (err) {
       const message = extractErrorMessage(err, '저장에 실패했습니다.');
       setAlertModal({ open: true, title: '저장 실패', message });
-      return false;
+      return null;
     } finally {
       setIsSaving(false);
     }
@@ -359,15 +359,17 @@ export function ReportGeneratePage() {
     if (!report || !content || isFinalized) return;
     if (isSaving || isRechecking || isFinalizing) return;
 
+    let currentReport = report;
     if (dirty) {
-      const saved = await handleSave();
-      if (!saved) return;
+      const savedReport = await handleSave();
+      if (!savedReport) return;
+      currentReport = savedReport;
     }
 
     setIsFinalizing(true);
     setFinalizeError(null);
     try {
-      const result = await runFinalizeReportFlow(report.id, report, content, inspectionData);
+      const result = await runFinalizeReportFlow(report.id, currentReport, content, inspectionData);
       if (result.ok) {
         applyReport(result.report);
       } else {
