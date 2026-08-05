@@ -3,6 +3,10 @@ package com.hajacheck.global.config;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.BeanDescription;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.introspect.BeanPropertyDefinition;
+import com.hajacheck.core.defect.dto.DefectDetailItem;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.defect.dto.DefectStatusUpdateRequest;
 import com.hajacheck.global.common.PageResponse;
@@ -19,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -88,6 +93,31 @@ class OpenApiConfigTest {
         // 코드 주석상 "null = 무제한" 인 세 필드 — 필수로 표기되면 계약이 틀어진다.
         assertThat(entry.getRequired())
                 .doesNotContain("maxFacilities", "maxMonthlyAnalyses", "maxSeats");
+    }
+
+    /**
+     * {@code DefectDetailItem} 은 record 가 아니라 class 라 {@code ModelConverter} 자동 승격 대상 밖이어서
+     * required 를 클래스 레벨 {@code @Schema(requiredProperties=)} 로 <b>수기 나열</b>한다. 자동 승격과 달리
+     * 목록이 필드와 따로 놀 수 있어(필드 추가·이름변경 시 누락) 여기서 강제한다 — 어긋나면 빌드가 깨진다.
+     */
+    @Test
+    @DisplayName("DefectDetailItem 의 수기 required 목록이 실제 JSON 키 집합과 일치한다")
+    void defectDetailItemRequiredListMatchesSerializedKeys() {
+        ObjectMapper mapper = new ObjectMapper();
+        BeanDescription description = mapper.getSerializationConfig()
+                .introspect(mapper.constructType(DefectDetailItem.class));
+        // @JsonProperty("isReviewed") 같은 이름 재정의가 반영된 실제 직렬화 키.
+        Set<String> jsonKeys = description.findProperties().stream()
+                .map(BeanPropertyDefinition::getName)
+                .collect(Collectors.toSet());
+
+        String[] declared = DefectDetailItem.class
+                .getAnnotation(io.swagger.v3.oas.annotations.media.Schema.class)
+                .requiredProperties();
+
+        assertThat(declared)
+                .as("@Schema(requiredProperties) 와 Jackson 직렬화 키가 불일치 — 필드 변경 시 목록도 갱신할 것")
+                .containsExactlyInAnyOrderElementsOf(jsonKeys);
     }
 
     @Test
