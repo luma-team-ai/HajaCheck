@@ -183,6 +183,28 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
     expect(screen.getByLabelText('조치 후 사진 업로드')).not.toBeNull();
     expect(screen.queryByText('에폭시 주입 처리')).toBeNull();
   });
+
+  // #1610 회귀 방지 — 검수확정→조치완료 "건너뛰기" 전이(updateStatus, 사유만 입력)는 조치 등록
+  // 폼을 거치지 않아 actionResult가 null인 채로 RESOLVED에 도달한다. 과거엔 이 경우
+  // `actionResult && status === 'RESOLVED'` 조건을 못 타고 곧바로 `statusOptions == null`
+  // 분기에 걸려 폼 전체가 렌더링되지 않았다 — 되돌리기 select가 화면에서 사라지는 버그였다.
+  it('RESOLVED인데 actionResult가 없어도(건너뛰기 전이) 안내 문구와 함께 되돌리기 select를 렌더링한다', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DefectActionForm defect={makeDefect('RESOLVED')} actionResult={null} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText('등록된 조치 내용이 없습니다.')).not.toBeNull();
+    const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
+    expect(select.value).toBe('RESOLVED');
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual([
+      '조치완료',
+      '조치중(으)로 되돌리기',
+    ]);
+    expect(screen.queryByLabelText('조치 후 사진 업로드')).toBeNull();
+  });
 });
 
 describe('DefectActionForm — 진행상태 select(#1128, "다른 상태로 변경" 통합 #1556)', () => {
