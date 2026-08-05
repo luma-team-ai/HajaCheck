@@ -364,6 +364,8 @@ public enum ErrorCode {
     // finalize 요청의 pdfUrl이 이 보고서용 업로드 엔드포인트 형식(/api/reports/{id}/pdf/{storageKey})을
     // 따르지 않으면 거부 — 임의 문자열/타 보고서 pdfUrl로 확정을 시도하는 것을 차단한다(#455 P2-2).
     REPORT_PDF_URL_INVALID(HttpStatus.BAD_REQUEST, "유효하지 않은 보고서 PDF 경로입니다."),
+    REPORT_FINALIZATION_REQUIRED_FIELD_MISSING(HttpStatus.BAD_REQUEST, "최종 보고서 필수 항목이 작성되지 않았습니다."),
+    FINALIZED_REPORT_IMMUTABLE(HttpStatus.BAD_REQUEST, "확정된 보고서는 수정하거나 PDF를 변경할 수 없습니다."),
 
     // RAG 문서 관리(#22 / HAJA-35) — 플랫폼 관리자 콘솔 법규·지침 PDF 업로드 + 임베딩 파이프라인
     RAG_DOCUMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "RAG 문서를 찾을 수 없습니다."),

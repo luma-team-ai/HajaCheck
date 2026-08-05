@@ -21,10 +21,10 @@ class ConfirmedDefectTextFactoryTest {
                 .crackLengthMm(20.0)
                 .build();
 
-        ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "서울시 강남구");
+        ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "지하 1층 동측 기둥");
 
         assertThat(result.defectType()).isEqualTo("균열");
-        assertThat(result.location()).isEqualTo("서울시 강남구");
+        assertThat(result.location()).isEqualTo("지하 1층 동측 기둥");
         assertThat(result.severityGrade()).isEqualTo("C");
         assertThat(result.description()).contains("균열").contains("c").contains("3.0mm").contains("20.0mm");
     }
@@ -38,8 +38,9 @@ class ConfirmedDefectTextFactoryTest {
                 .grade(DefectGrade.B)
                 .build();
 
-        ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "서울시 강남구");
+        ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "위치 미입력");
 
+        assertThat(result.location()).isEqualTo("위치 미입력");
         assertThat(result.description()).contains("미측정");
     }
 
@@ -52,9 +53,10 @@ class ConfirmedDefectTextFactoryTest {
                 .grade(DefectGrade.B)
                 .build();
 
-        ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "부산시 해운대구");
+        ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "옥상 난간 남측");
 
         assertThat(result.defectType()).isEqualTo("누수·백태");
+        assertThat(result.location()).isEqualTo("옥상 난간 남측");
         assertThat(result.severityGrade()).isEqualTo("B");
         assertThat(result.description()).isEqualTo("누수·백태(b)로 판정됨");
     }
@@ -67,7 +69,7 @@ class ConfirmedDefectTextFactoryTest {
                 .confidence(0.9)
                 .build();
 
-        ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "인천시 남동구");
+        ReportRequest.ConfirmedDefect result = ConfirmedDefectTextFactory.from(defect, "지하 2층 주차장");
 
         assertThat(result.severityGrade()).isEqualTo("미분류");
         assertThat(result.description()).isEqualTo("박리·박락(미분류)로 판정됨");

@@ -172,8 +172,8 @@ export default function LandingPage() {
             alt="하자 상세 화면"
             className="landing-screen-image"
             loading="lazy"
-            width={1650}
-            height={761}
+            width={1920}
+            height={1080}
           />
         </div>
       </section>
@@ -192,8 +192,8 @@ export default function LandingPage() {
             alt="시설물 점검 주기 설정 화면"
             className="landing-screen-image"
             loading="lazy"
-            width={1650}
-            height={761}
+            width={1920}
+            height={1080}
           />
         </div>
       </section>
@@ -224,8 +224,8 @@ export default function LandingPage() {
             alt="분석 결과 뷰어 화면"
             className="landing-screen-image"
             loading="lazy"
-            width={1650}
-            height={868}
+            width={1920}
+            height={1080}
           />
         </div>
       </section>
