@@ -38,6 +38,7 @@ public class ChatSessionController {
     @Operation(summary = "채팅 세션 생성",
             description = "로그인 사용자 소유의 채팅 세션을 생성한다(RAG 챗봇은 sessionType=RAG). "
                     + "소유자는 인증 컨텍스트에서만 취득하며 요청 바디로 받지 않는다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping
     public ResponseEntity<ApiResponse<ChatSessionResponse>> createSession(
             @AuthenticationPrincipal LoginUser loginUser,

@@ -29,9 +29,10 @@ public class OpenApiConfig {
      * <p><b>왜 필요한가</b>: Jackson은 record의 모든 컴포넌트를 항상 JSON 키로 내보낸다(값이 null이어도
      * {@code "field": null} 로 키는 존재). 반면 swagger-core 는 {@code @NotNull} 같은 검증 애노테이션이
      * 붙은 필드만 required 로 표시하는데, 응답 DTO 에는 검증 애노테이션을 달지 않는 게 관례라 "실제로는
-     * 항상 오는 필드가 계약서엔 optional 로" 표기되는 불일치가 광범위하게 생겼다(IT-05 diff 79건).
-     * {@code openapi.yaml} 은 이 필드들을 required 로 적고 있으므로(예: {@code [success, data, error]},
-     * {@code [content, page, totalElements]}) 실서버 문서를 계약서 표기에 맞춘다.
+     * 항상 오는 필드가 문서엔 optional 로" 표기되는 불일치가 광범위하게 생겼다(IT-05 diff 79건).
+     *
+     * <p>판단 기준은 <b>Jackson 의 실제 직렬화 동작</b>이다 — 문서(스웨거)가 API 계약의 기준 문서이므로,
+     * 문서는 코드가 실제로 내보내는 것을 그대로 반영해야 한다. 수기 계약서와 맞추기 위한 조정이 아니다.
      *
      * <p><b>제외 대상</b> — required 로 적으면 틀리는 두 경우만 건너뛴다:
      * <ul>

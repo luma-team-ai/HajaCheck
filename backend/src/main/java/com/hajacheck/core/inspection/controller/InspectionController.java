@@ -38,6 +38,7 @@ public class InspectionController {
     private final InspectionService inspectionService;
 
     @Operation(summary = "점검 회차 생성", description = "시설물 선택 + 점검일 + 담당자 지정으로 새 점검 회차 생성")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping
     public ResponseEntity<ApiResponse<InspectionResponse>> createInspection(
             @Valid @RequestBody InspectionCreateRequest request,
@@ -56,7 +57,9 @@ public class InspectionController {
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<InspectionListItemResponse>>> list(
             @AuthenticationPrincipal LoginUser loginUser,
-            @Valid @ModelAttribute InspectionListFilterRequest filters,
+            // @ParameterObject 가 없으면 springdoc 이 필터 객체를 개별 쿼리 파라미터로 펼치지 못해
+            // status/facilityId/defectGrade 등 12개가 문서에서 통째로 빠진다(Pageable 과 같은 사유).
+            @Valid @ParameterObject @ModelAttribute InspectionListFilterRequest filters,
             @ParameterObject @PageableDefault(size = 20) Pageable pageable) {
         PageResponse<InspectionListItemResponse> response = inspectionService.list(
                 loginUser.getUserId(), loginUser.getCompanyId(), filters, pageable);

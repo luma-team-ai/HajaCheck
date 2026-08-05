@@ -63,6 +63,7 @@ public class CounselTicketController {
     @Operation(summary = "상담 티켓 생성",
             description = "시나리오 리프(leadsToCounselor=true)에서 상담원 연결을 요청한다(WAITING). "
                     + "has_counselor_access 활성 플랜만 허용, category/title 은 시나리오 트리에서 스냅샷.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping
     public ResponseEntity<ApiResponse<CounselTicketResponse>> createTicket(
             @AuthenticationPrincipal LoginUser loginUser,

@@ -20,7 +20,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -36,10 +36,14 @@ public class CounselAttachmentController {
     private final CounselAttachmentService counselAttachmentService;
 
     @Operation(summary = "상담 첨부 업로드", description = "이미지(JPG/PNG) 1건 업로드 후 저장키 반환(당사자만). 프론트는 이 저장키를 WS 메시지에 실어 보낸다.")
-    @PostMapping("/api/counsel/tickets/{ticketId}/attachments")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
+    // consumes 미명시 시 springdoc 이 요청 바디를 기본값(application/json)으로 문서화한다 —
+    // 이 엔드포인트는 multipart 만 받으므로 선언이 사실과 일치한다(MediaController 업로드와 동일).
+    @PostMapping(value = "/api/counsel/tickets/{ticketId}/attachments",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<CounselAttachmentResponse>> upload(
             @PathVariable Long ticketId,
-            @RequestParam("file") MultipartFile file,
+            @RequestPart("file") MultipartFile file,
             @AuthenticationPrincipal LoginUser loginUser) {
         CounselAttachmentResponse response =
                 counselAttachmentService.upload(ticketId, loginUser.getUserId(), file);

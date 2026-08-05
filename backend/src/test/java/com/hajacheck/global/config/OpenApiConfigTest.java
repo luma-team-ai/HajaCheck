@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.defect.dto.DefectStatusUpdateRequest;
 import com.hajacheck.global.common.PageResponse;
+import com.hajacheck.menu.dto.MenuTreeItemResponse;
 import com.hajacheck.platformadmin.dto.PlatformAdminPlanPolicyUpdateRequest;
 import io.swagger.v3.core.converter.AnnotatedType;
 import io.swagger.v3.core.converter.ModelConverters;
@@ -87,6 +88,17 @@ class OpenApiConfigTest {
         // 코드 주석상 "null = 무제한" 인 세 필드 — 필수로 표기되면 계약이 틀어진다.
         assertThat(entry.getRequired())
                 .doesNotContain("maxFacilities", "maxMonthlyAnalyses", "maxSeats");
+    }
+
+    @Test
+    @DisplayName("자기 자신을 참조하는 record 도 재귀 필드까지 required 에 들어간다")
+    void promotesSelfReferencingRecord() {
+        Schema<?> menu = resolve(MenuTreeItemResponse.class);
+
+        // children 은 List<MenuTreeItemResponse> — 재귀 해석 중 스키마가 아직 미완성이면 누락된다.
+        assertThat(menu.getRequired())
+                .containsExactlyInAnyOrderElementsOf(menu.getProperties().keySet());
+        assertThat(menu.getRequired()).contains("children");
     }
 
     @Test

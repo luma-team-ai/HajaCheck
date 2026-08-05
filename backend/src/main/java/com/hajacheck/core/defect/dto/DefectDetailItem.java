@@ -5,6 +5,7 @@ import com.hajacheck.core.defect.entity.DefectGrade;
 import com.hajacheck.core.defect.entity.DefectStatus;
 import com.hajacheck.core.defect.entity.DefectType;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDateTime;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,6 +20,14 @@ import lombok.Getter;
  * detailUrl(#788)은 분석 결과 뷰어 전용 — 그리드용 썸네일(400px 상한)로는 크랙 폭 같은 하자를
  * 육안으로 판별하기 어려워 더 큰 해상도의 {@code /api/media/{id}/detail}을 가리킨다.
  */
+// 전 필드 required — @JsonInclude 를 쓰지 않으므로 Jackson 이 값이 null 이어도 키는 항상 내보낸다.
+// OpenApiConfig 의 ModelConverter 는 record 만 승격하는데 이 DTO 는 class 라 대상 밖이어서, 여기서
+// 직접 명시한다(필드마다 @Schema 를 다는 대신 클래스 레벨 한 줄). 필드 추가 시 여기도 같이 추가할 것.
+// reviewed 는 @JsonProperty("isReviewed") 로 나가므로 JSON 키 이름으로 적는다.
+@Schema(requiredProperties = {
+        "id", "inspectionId", "type", "typeLabel", "grade", "status", "confidence", "isReviewed",
+        "bboxX", "bboxY", "bboxW", "bboxH", "crackWidthMm", "crackLengthMm", "areaRatio",
+        "mediaId", "imageUrl", "detailUrl", "createdAt"})
 @Getter
 @Builder
 public class DefectDetailItem {

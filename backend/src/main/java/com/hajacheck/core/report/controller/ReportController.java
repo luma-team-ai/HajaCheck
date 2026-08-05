@@ -40,6 +40,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -80,6 +81,7 @@ public class ReportController {
     }
 
     @Operation(summary = "보고서 초안 생성", description = "점검의 확정 하자를 근거로 AI 보고서 초안을 생성한다")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping("/api/inspections/{inspectionId}/reports")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> generateDraft(
             @PathVariable Long inspectionId,
@@ -112,6 +114,7 @@ public class ReportController {
     }
 
     @Operation(summary = "보고서 복제", description = "기존 보고서 content를 복제해 같은 점검의 다음 버전 DRAFT를 생성한다")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping("/api/reports/{id}/clone")
     public ResponseEntity<ApiResponse<ReportDetailResponse>> cloneReport(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
@@ -165,10 +168,11 @@ public class ReportController {
     }
 
     @Operation(summary = "보고서 PDF 업로드", description = "확정용 PDF 파일을 저장하고 접근 URL을 반환한다(별도로 /finalize에 전달)")
-    @PostMapping("/api/reports/{id}/pdf")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
+    @PostMapping(value = "/api/reports/{id}/pdf", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<ReportPdfResponse>> uploadPdf(
             @PathVariable Long id,
-            @RequestParam("file") MultipartFile file,
+            @RequestPart("file") MultipartFile file,
             @AuthenticationPrincipal LoginUser loginUser) {
         // 소유권 및 DRAFT 상태 검증 — 존재하지 않거나 타인 소유 또는 이미 확정된 보고서에 대한 PDF 업로드를 차단.
         ReportDetailResponse report = reportService.getReport(id, loginUser.getUserId(), loginUser.getCompanyId());
