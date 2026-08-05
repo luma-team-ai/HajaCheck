@@ -159,20 +159,32 @@ export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
   // IN_PROGRESS로 되돌리는 것은 여기서도 진행상태 select로 계속 제공한다. CONFIRMED→IN_PROGRESS
   // 단계에서도 actionResult가 채워지지만(같은 등록 필드를 공유), IN_PROGRESS는 아직 RESOLVED로
   // 한 번 더 전이해야 하므로 이 시점엔 폼을 계속 보여준다(#1128).
-  if (actionResult && status === 'RESOLVED') {
+  //
+  // actionResult 유무와 무관하게 이 분기를 탄다(#1610) — 검수확정에서 조치완료로 "건너뛰기"
+  // 전이(updateStatus, 사유만 입력)한 하자는 조치 등록 폼을 거친 적이 없어 actionContent가 비어
+  // actionResult가 null이다. 과거엔 actionResult가 있어야만 이 분기를 타서, 그 경우 다음 분기
+  // (statusOptions == null → RESOLVED는 미정의)에 걸려 폼 전체가 사라지고 되돌리기 select도 함께
+  // 사라졌다 — 백엔드는 RESOLVED→IN_PROGRESS 역행을 허용하는데 UI 진입로만 없던 상태.
+  if (status === 'RESOLVED') {
     return (
       <section className="defect-action-form defect-action-form--registered" aria-label="조치 결과">
         <h2>조치 결과 등록</h2>
-        <dl className="defect-action-form__summary">
-          <dt>조치 내용</dt>
-          <dd>{actionResult.actionContent}</dd>
-          <dt>조치일</dt>
-          <dd>{actionResult.actionDate}</dd>
-          <dt>담당자</dt>
-          <dd>{actionResult.assigneeName}</dd>
-        </dl>
-        {actionResult.afterPhotoUrl && (
-          <img className="defect-action-form__after-photo" src={actionResult.afterPhotoUrl} alt="조치 후 사진" />
+        {actionResult ? (
+          <>
+            <dl className="defect-action-form__summary">
+              <dt>조치 내용</dt>
+              <dd>{actionResult.actionContent}</dd>
+              <dt>조치일</dt>
+              <dd>{actionResult.actionDate}</dd>
+              <dt>담당자</dt>
+              <dd>{actionResult.assigneeName}</dd>
+            </dl>
+            {actionResult.afterPhotoUrl && (
+              <img className="defect-action-form__after-photo" src={actionResult.afterPhotoUrl} alt="조치 후 사진" />
+            )}
+          </>
+        ) : (
+          <p className="defect-action-form__empty-summary">등록된 조치 내용이 없습니다.</p>
         )}
 
         <div className="defect-action-form__field">

@@ -902,6 +902,13 @@
   margin: 0;
 }
 
+.defect-action-form__empty-summary {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
 .defect-action-form__summary dt {
   color: var(--color-text-muted);
   font-size: 12px;
