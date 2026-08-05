@@ -45,6 +45,9 @@ public class OpenApiConfig {
      * 를 공유해 구조적으로 구분할 방법이 없고, 이 레포는 DTO 네이밍이 일관되기 때문이다(record 178개 중
      * 요청은 전부 {@code *Request}, 나머지는 응답 또는 응답 내부 항목). 요청·응답이 같은 record 를
      * 공유하게 되면 이 규칙으로는 못 가르므로, 그때는 응답 전용 마커 애노테이션으로 승격할 것.
+     *
+     * <p>위 규칙과 그 한계는 {@code OpenApiConfigTest} 가 고정한다 — 공유 record 가 요청 바디에
+     * 들어오는 순간 {@code requestBodiesDoNotShareTopLevelResponseRecords} 가 실패한다.
      */
     @Bean
     public ModelConverter responseRecordRequiredConverter(ObjectMapperProvider springDocObjectMapper) {
