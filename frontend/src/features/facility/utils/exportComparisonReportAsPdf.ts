@@ -13,8 +13,9 @@ function buildFileName(facilityId: string): string {
 // html2canvas는 <select>처럼 OS/브라우저가 직접 그리는 네이티브 폼 컨트롤의 실제 픽셀을 읽어올
 // 방법이 없어, 캡처 시 선택된 옵션 텍스트가 겹쳐 그려지는 구조적 한계가 있다(2026-08-05 발견).
 // 캡처 직전 캡처 영역 안의 모든 select를 "선택된 옵션 텍스트를 보여주는 동일 스타일 span"으로
-// 잠깐 바꿔치기하고, 캡처 성공/실패와 무관하게 즉시 원래 select로 되돌린다 — 사용자에게는
-// 화면 변화가 보이지 않고(찰나의 캡처 순간만 대체), 실제 상호작용에는 영향이 없다.
+// 잠깐 바꿔치기하고, 캡처 성공/실패와 무관하게 즉시 원래 select로 되돌린다 — 텍스트·레이아웃은
+// 그대로 유지되지만, 캡처가 끝날 때까지(수백ms~수초) select는 클릭/키보드 조작이 안 되는
+// 정적 텍스트가 된다(내보내기 버튼만 disabled, select 자체는 그대로 두는 것과의 트레이드오프).
 function swapSelectsForCapture(node: HTMLElement): () => void {
   const selects = Array.from(node.querySelectorAll('select'));
   const restorers = selects.map((select) => {

@@ -79,4 +79,47 @@ describe('exportComparisonReportAsPdf', () => {
     expect(firstY).toBe(0);
     expect(secondY).toBe(-PAGE_HEIGHT);
   });
+
+  it('캡처 직전 select를 선택된 옵션 텍스트의 span으로 바꾸고, 캡처 후 원래 select로 되돌린다', async () => {
+    let selectDisplayDuringCapture: string | undefined;
+    let siblingTextDuringCapture: string | null | undefined;
+
+    vi.doMock('html2canvas', () => ({
+      default: vi.fn().mockImplementation(async (node: HTMLElement) => {
+        const select = node.querySelector('select') as HTMLSelectElement;
+        selectDisplayDuringCapture = select.style.display;
+        siblingTextDuringCapture = select.nextElementSibling?.textContent;
+        return { width: 1000, height: 800, toDataURL: mockToDataURL };
+      }),
+    }));
+    const { exportComparisonReportAsPdf: exportFn } = await import('./exportComparisonReportAsPdf');
+
+    const container = document.createElement('div');
+    container.innerHTML = '<select><option value="1">1회차</option><option value="2">2회차</option></select>';
+    const select = container.querySelector('select') as HTMLSelectElement;
+    select.value = '2';
+
+    await exportFn(container, '1');
+
+    expect(selectDisplayDuringCapture).toBe('none');
+    expect(siblingTextDuringCapture).toBe('2회차');
+    expect(select.style.display).toBe('');
+    expect(container.querySelectorAll('span').length).toBe(0);
+  });
+
+  it('html2canvas가 실패해도 select를 원래 상태로 되돌린다', async () => {
+    vi.doMock('html2canvas', () => ({
+      default: vi.fn().mockRejectedValue(new Error('capture failed')),
+    }));
+    const { exportComparisonReportAsPdf: exportFn } = await import('./exportComparisonReportAsPdf');
+
+    const container = document.createElement('div');
+    container.innerHTML = '<select><option value="1">1회차</option></select>';
+    const select = container.querySelector('select') as HTMLSelectElement;
+
+    await expect(exportFn(container, '1')).rejects.toThrow('capture failed');
+
+    expect(select.style.display).toBe('');
+    expect(container.querySelectorAll('span').length).toBe(0);
+  });
 });
