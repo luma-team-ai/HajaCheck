@@ -11,14 +11,10 @@ import { ReportListFilterBar } from '../components/ReportListFilterBar';
 import { ReportListKpiBar } from '../components/ReportListKpiBar';
 import { ReportListTable } from '../components/ReportListTable';
 import { ReportVersionHistoryPanel } from '../components/ReportVersionHistoryPanel';
-import { isReportContent } from '../types';
 import type { ReportListFilters, ReportListItem } from '../types';
-import { exportReportToPdf } from '../utils/exportReportToPdf';
-import { getMissingFinalReportRequiredLabels } from '../utils/manualSectionValidation';
-import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { formatReportListTitle } from '../utils/reportListFormat';
 import { getApiErrorMessage } from '../../../shared/api/types';
-import { buildReportPdfFileName } from '../../../shared/utils/reportPdf';
+import { runFinalizeReportFlow } from '../utils/finalizeReportFlow';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -137,43 +133,19 @@ export function ReportListPage() {
     setPendingAction({ reportId: row.id, type: 'submit' });
     setActionErrors((prev) => ({ ...prev, [row.id]: undefined }));
     try {
-      let report = (await reportApi.getReport(row.id)).data;
-      if (report.status !== 'DRAFT') {
-        throw new Error('DRAFT 보고서만 제출할 수 있습니다.');
+      const result = await runFinalizeReportFlow(row.id, null, null, null, {
+        facilityName: row.facilityName,
+        inspectionRound: row.roundNo,
+      });
+      if (result.ok) {
+        await refreshReportQueries(result.report.inspectionId);
+      } else {
+        setActionErrors((prev) => ({
+          ...prev,
+          [row.id]: result.message,
+        }));
       }
-      if (!isReportContent(report.content)) {
-        throw new Error('보고서 본문 형식이 올바르지 않습니다.');
-      }
-      const content = report.content;
-      const missingFinalRequiredLabels = getMissingFinalReportRequiredLabels(content);
-      if (missingFinalRequiredLabels.length > 0) {
-        throw new Error(`최종 보고서 확정 전 필수 항목을 작성해 주세요: ${missingFinalRequiredLabels.join(', ')}`);
-      }
-      if (report.groundingCheckPassed !== true) {
-        report = (await reportApi.groundingRecheck(row.id)).data;
-        if (report.groundingCheckPassed !== true) {
-          throw new Error('근거 재검증을 통과하지 못했습니다.');
-        }
-      }
-      const pdfBlob = await exportReportToPdf(
-        content,
-        buildReportPdfContext(
-          report,
-          null,
-          content.reportOptions?.includePhoto !== false,
-          { facilityName: row.facilityName, inspectionRound: row.roundNo },
-        ),
-      );
-      const fileName = buildReportPdfFileName(report.inspectionId);
-      const uploadResponse = await reportApi.uploadPdf(row.id, pdfBlob, fileName);
-      await reportApi.finalizeReport(row.id, uploadResponse.data.pdfUrl);
-      await refreshReportQueries(report.inspectionId);
     } catch (error) {
-      // 위에서 던지는 Error(예: 필수 항목 누락 목록)와 reportApi 호출이 던지는 ApiError를
-      // 구분 없이 항상 일반 문구로 덮어쓰면, ReportGeneratePage의 AlertModal과 달리 이 화면은
-      // 구체적으로 뭐가 빠졌는지 사용자가 알 수 없다(PR머신 리뷰 P3, #1418). getApiErrorMessage는
-      // 두 형태(ApiError·plain Error) 모두 message를 뽑아주므로 있으면 그대로 보여주고, 없을
-      // 때만 일반 문구로 폴백한다.
       setActionErrors((prev) => ({
         ...prev,
         [row.id]: getApiErrorMessage(error, actionErrorMessage('submit')),

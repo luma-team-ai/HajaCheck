@@ -6,8 +6,6 @@ import com.hajacheck.core.ai.dto.DefectExplainRequest;
 import com.hajacheck.core.ai.dto.DefectExplainResponse;
 import com.hajacheck.core.ai.dto.RagChatRequest;
 import com.hajacheck.core.ai.dto.RagChatResponse;
-import com.hajacheck.core.ai.dto.ReportRequest;
-import com.hajacheck.core.ai.dto.ReportResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
 import com.hajacheck.global.common.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,15 +38,6 @@ public class AiProxyController {
             @Valid @RequestBody DefectExplainRequest request) {
         // userId 는 principal 에서만 취득(요청 바디 금지) — 사용자 축 rate-limit 키로만 쓰인다.
         return ResponseEntity.ok(aiProxyService.explainDefect(loginUser.getUserId(), request));
-    }
-
-    @Operation(summary = "AI 보고서 생성", description = "확정된 하자 목록을 인증 프록시로 AI 서버에 전달해 개요·요약·상세·권고 보고서를 반환한다")
-    @PostMapping("/report")
-    public ResponseEntity<ApiResponse<ReportResponse>> report(
-            @AuthenticationPrincipal LoginUser loginUser,
-            @Valid @RequestBody ReportRequest request) {
-        // userId 는 principal 에서만 취득(요청 바디 금지) — 사용자 축 rate-limit 키로만 쓰인다.
-        return ResponseEntity.ok(aiProxyService.generateReport(loginUser.getUserId(), request));
     }
 
     @Operation(summary = "AI 주간 브리핑", description = "로그인 사용자의 회사 소유 현황을 집계해 인증 프록시로 AI 서버에 전달해 주간 브리핑 카드를 반환한다")

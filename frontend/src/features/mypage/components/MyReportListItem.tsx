@@ -40,7 +40,7 @@ export function MyReportListItem({ report }: Props) {
       anchor.remove();
       URL.revokeObjectURL(objectUrl);
     } catch {
-      setDownloadError('PDF 다운로드에 실패했습니다. 잠시 후 다시 시도해주세요.');
+      setDownloadError('PDF 다운로드에 실패했습니다.\n잠시 후 다시 시도해주세요.');
     } finally {
       setIsDownloading(false);
     }

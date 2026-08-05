@@ -18,14 +18,14 @@ public final class ConfirmedDefectTextFactory {
     }
 
     /**
-     * @param defect   확정된 하자
-     * @param location 하자가 위치한 시설물 주소(Defect→Inspection→Facility.address) — 호출부(서비스)가 조회해 전달한다.
+     * @param defect         확정된 하자
+     * @param defectLocation 하자 발생 부위 위치 텍스트(Defect.location 유효 시 사용, 없으면 "위치 미입력")
      */
-    public static ReportRequest.ConfirmedDefect from(Defect defect, String location) {
+    public static ReportRequest.ConfirmedDefect from(Defect defect, String defectLocation) {
         String typeLabel = defect.getType().label();
         String gradeLabel = gradeLabel(defect.getGrade());
         String description = buildDescription(defect, typeLabel, gradeLabel);
-        return new ReportRequest.ConfirmedDefect(defect.getId(), typeLabel, location, gradeLabel, description);
+        return new ReportRequest.ConfirmedDefect(defect.getId(), typeLabel, defectLocation, gradeLabel, description);
     }
 
     // 원본 정밀안전진단 보고서 양식은 등급을 "등급 E"가 아니라 소문자 단일 글자(a~d)로만

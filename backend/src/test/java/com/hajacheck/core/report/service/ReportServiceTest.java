@@ -83,6 +83,8 @@ class ReportServiceTest {
     private UserRepository userRepository;
     @Mock
     private MediaRepository mediaRepository;
+    @Mock
+    private ReportFinalizationValidator reportFinalizationValidator;
 
     @InjectMocks
     private ReportService reportService;
@@ -260,8 +262,51 @@ class ReportServiceTest {
         verify(aiProxyService).generateReport(anyLong(), captor.capture());
         ReportRequest.ConfirmedDefect confirmedDefect = captor.getValue().confirmedDefects().get(0);
         assertThat(confirmedDefect.defectType()).isEqualTo("균열");
-        assertThat(confirmedDefect.location()).isEqualTo("서울시 강남구");
+        assertThat(confirmedDefect.location()).isEqualTo("위치 미입력");
         assertThat(confirmedDefect.severityGrade()).isEqualTo("C");
+    }
+
+    @Test
+    void 보고서_생성시_하자별_실제위치를_AI요청에_전달한다() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        Defect defect1 = Defect.builder()
+                .inspectionId(1L)
+                .type(DefectType.CRACK)
+                .confidence(0.9)
+                .grade(DefectGrade.C)
+                .status(DefectStatus.CONFIRMED)
+                .location("지하 1층 동측 기둥")
+                .build();
+        Defect defect2 = Defect.builder()
+                .inspectionId(1L)
+                .type(DefectType.SPALLING)
+                .confidence(0.8)
+                .grade(DefectGrade.B)
+                .status(DefectStatus.CONFIRMED)
+                .location("옥상 난간 남측")
+                .build();
+        Defect defect3 = Defect.builder()
+                .inspectionId(1L)
+                .type(DefectType.LEAK_EFFLORESCENCE)
+                .confidence(0.8)
+                .status(DefectStatus.CONFIRMED)
+                .build();
+
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(defect1, defect2, defect3));
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        reportService.generateDraft(1L, 100L, 200L);
+
+        ArgumentCaptor<ReportRequest> captor = ArgumentCaptor.forClass(ReportRequest.class);
+        verify(aiProxyService).generateReport(anyLong(), captor.capture());
+        List<ReportRequest.ConfirmedDefect> confirmedDefects = captor.getValue().confirmedDefects();
+        assertThat(confirmedDefects.get(0).location()).isEqualTo("지하 1층 동측 기둥");
+        assertThat(confirmedDefects.get(1).location()).isEqualTo("옥상 난간 남측");
+        assertThat(confirmedDefects.get(2).location()).isEqualTo("위치 미입력");
     }
 
     @Test

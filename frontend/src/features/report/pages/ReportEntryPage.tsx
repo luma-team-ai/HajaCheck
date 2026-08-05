@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback';
 import { AILoadingIndicator } from '../../../shared/components/AILoadingIndicator';
@@ -183,6 +183,19 @@ export function ReportEntryPage() {
   });
   const [includePhoto, setIncludePhoto] = useState(true);
 
+  // inspectionId가 바뀔 때(다른 회차 이동) 섹션 선택 및 사진 옵션을 기본값으로 초기화
+  const currentInspectionIdRef = useRef(inspectionId);
+  useEffect(() => {
+    currentInspectionIdRef.current = inspectionId;
+    setSections({
+      overview: true,
+      summary: true,
+      details: true,
+      recommendation: true,
+    });
+    setIncludePhoto(true);
+  }, [inspectionId]);
+
   // UI 상태
   const [isGenerating, setIsGenerating] = useState(false);
   // 다른 보고서 화면(ReportGeneratePage)과 동일한 패턴 — 네이티브 alert() 대신 AlertModal로 통일.
@@ -295,18 +308,24 @@ export function ReportEntryPage() {
         message: [
           `보고서 초안은 확정 하자 ${MAX_REPORT_DEFECT_COUNT}건까지 생성할 수 있습니다.`,
           `현재 확정 하자는 ${confirmedDefectCount}건입니다.`,
-          '보고서에 포함할 하자를 줄이거나 점검을 나누어 다시 생성해 주세요.',
+          '보고서에 포함할 하자를 줄이거나\n점검을 나누어 다시 생성해 주세요.',
         ].join('\n'),
       });
       return;
     }
 
+    const targetInspectionId = inspectionId;
     setIsGenerating(true);
     try {
       const response = await reportApi.generateReportDraft(inspectionId, {
         sections: selectedSectionKeys,
         includePhoto,
       });
+      // 요청 진행 중 inspectionId가 다른 회차로 바뀐 경우 늦게 도달한 응답으로 라우팅되지 않게 차단
+      if (currentInspectionIdRef.current !== targetInspectionId) {
+        setIsGenerating(false);
+        return;
+      }
       setActiveReportId(response.data.id);
       navigate(`/reports/${response.data.id}`);
     } catch (error) {
@@ -320,11 +339,15 @@ export function ReportEntryPage() {
   }, [inspectionId, data, isGenerating, hasSelectedSections, confirmedDefectCount, selectedSectionKeys, includePhoto, navigate]);
 
   const handleEditReport = useCallback(
-    (reportId: number) => {
+    (reportId: number, isFinalized = false) => {
       setActiveReportId(reportId);
-      navigate(`/reports/${reportId}`);
+      if (isFinalized) {
+        navigate(`/reports/${reportId}?mode=export`);
+      } else {
+        navigate(`/reports/${reportId}`);
+      }
     },
-    [inspectionId, navigate, setActiveReportId],
+    [navigate, setActiveReportId],
   );
 
   if (!Number.isInteger(inspectionId) || inspectionId <= 0) {
@@ -537,7 +560,17 @@ export function ReportEntryPage() {
                     key={sec.key}
                     type="button"
                     aria-pressed={isSelected}
-                    onClick={() => setSections((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }))}
+                    onClick={() => {
+                      if ((sectionKey === 'overview' || sectionKey === 'summary') && isSelected) {
+                        setAlertModal({
+                          open: true,
+                          title: '필수 섹션 안내',
+                          message: '기본현황 및 결과 요약은 보고서 초안 구성에\n필수적인 섹션이므로 제외할 수 없습니다.',
+                        });
+                        return;
+                      }
+                      setSections((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
+                    }}
                     className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all ${
                       isSelected
                         ? 'border-black bg-black text-white'
@@ -590,38 +623,43 @@ export function ReportEntryPage() {
           </h3>
 
           <div className="space-y-2">
-            {reports.map((report) => (
-              <div
-                key={report.id}
-                className="flex items-center justify-between rounded-full border border-border bg-white p-3"
-              >
-                <div className="flex items-center gap-3">
-                  {/* ponytail: bg-danger-soft-bg는 tokens.css의 --color-danger-soft-bg(#fef2f2)와 동일값 — 하드코딩 대신 기존 토큰 재사용(#928) */}
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-danger-soft-bg">
-                    <Icon spec={ICONS.documentAccent} fill="#EF4444" className="h-[17px] w-[17px]" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-medium text-black">{data.roundNo}회차 보고서 (초안)</div>
-                    <div className="text-xs text-text-muted">
-                      {new Date(report.createdAt).toLocaleDateString('ko-KR')}
+            {reports.map((report) => {
+              const isFinalized = report.status === 'FINALIZED';
+              return (
+                <div
+                  key={report.id}
+                  className="flex items-center justify-between rounded-full border border-border bg-white p-3"
+                >
+                  <div className="flex items-center gap-3">
+                    {/* ponytail: bg-danger-soft-bg는 tokens.css의 --color-danger-soft-bg(#fef2f2)와 동일값 — 하드코딩 대신 기존 토큰 재사용(#928) */}
+                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-danger-soft-bg">
+                      <Icon spec={ICONS.documentAccent} fill="#EF4444" className="h-[17px] w-[17px]" />
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-black">
+                        {data.roundNo}회차 {isFinalized ? '최종 보고서' : '보고서 (초안)'}
+                      </div>
+                      <div className="text-xs text-text-muted">
+                        {new Date(report.createdAt).toLocaleDateString('ko-KR')}
+                      </div>
+                    </div>
+                    <div className="rounded-full bg-surface-muted px-2 py-1">
+                      <span className="text-xs font-medium text-text-default">
+                        {isFinalized ? '확정됨' : '편집 중'}
+                      </span>
                     </div>
                   </div>
-                  <div className="rounded-full bg-surface-muted px-2 py-1">
-                    <span className="text-xs font-medium text-text-default">
-                      {report.status === 'DRAFT' ? '편집 중' : '확정됨'}
-                    </span>
-                  </div>
-                </div>
 
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => handleEditReport(report.id)}
-                >
-                  이어서 편집
-                </Button>
-              </div>
-            ))}
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleEditReport(report.id, isFinalized)}
+                  >
+                    {isFinalized ? '보고서 보기' : '이어서 편집'}
+                  </Button>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -14,6 +14,8 @@ import com.hajacheck.core.report.service.ReportService;
 import com.hajacheck.core.report.support.ReportPdfStorage;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.common.PageResponse;
+import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -165,8 +167,11 @@ public class ReportController {
             @PathVariable Long id,
             @RequestParam("file") MultipartFile file,
             @AuthenticationPrincipal LoginUser loginUser) {
-        // 소유권 검증 — 존재하지 않거나 타인 소유 보고서에 대한 PDF 업로드를 차단(IDOR 방지).
-        reportService.getReport(id, loginUser.getUserId(), loginUser.getCompanyId());
+        // 소유권 및 DRAFT 상태 검증 — 존재하지 않거나 타인 소유 또는 이미 확정된 보고서에 대한 PDF 업로드를 차단.
+        ReportDetailResponse report = reportService.getReport(id, loginUser.getUserId(), loginUser.getCompanyId());
+        if (report.status() != ReportStatus.DRAFT) {
+            throw new BusinessException(ErrorCode.FINALIZED_REPORT_IMMUTABLE);
+        }
         String storageKey = reportPdfStorage.store(id, file);
         String pdfUrl = "/api/reports/%d/pdf/%s".formatted(id, storageKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(new ReportPdfResponse(pdfUrl)));

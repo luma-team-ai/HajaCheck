@@ -159,11 +159,11 @@
 
 ---
 
-## POST /ai/report — ✅ 구현됨(내부 전용, Spring `/api/ai/report` 프록시 경유)
+## POST /ai/report — ✅ 구현됨(내부 전용, ReportService -> AiProxyService direct call)
 
 AI 보고서 4개 섹션(개요·요약·상세·권고)을 병렬 생성하고 Grounding Check를 수행한다
 (FR-5, 로그인/보고서 담당). FastAPI 라우트는 `ai-server/routers/ai_router.py`에 구현되어 있으며,
-외부 클라이언트는 직접 호출하지 않고 인증된 Spring `/api/ai/report` 프록시를 경유한다.
+외부 클라이언트용 `/api/ai/report` 엔드포인트는 삭제되어 `POST /api/inspections/{inspectionId}/reports`(ReportService) 경로로만 호출된다.
 
 현재 correlation 필드에는 두 호환 모드가 있다.
 
