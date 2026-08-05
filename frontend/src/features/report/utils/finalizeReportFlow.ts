@@ -9,16 +9,37 @@ import {
 } from './manualSectionValidation';
 import { buildReportPdfContext } from './reportPdfContext';
 import { buildReportPdfFileName } from '../../../shared/utils/reportPdf';
+import type { InspectionResult } from '../../inspection/types';
 
 export type FinalizeResult =
   | { ok: true; report: ReportDetailResponse }
   | { ok: false; title: string; message: string };
 
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object') {
+    const response = (err as Record<string, unknown>).response;
+    if (response && typeof response === 'object') {
+      const data = (response as Record<string, unknown>).data;
+      if (data && typeof data === 'object') {
+        const error = (data as Record<string, unknown>).error;
+        if (error && typeof error === 'object') {
+          const message = (error as Record<string, unknown>).message;
+          if (typeof message === 'string' && message) return message;
+        }
+      }
+    }
+  }
+  if (err instanceof Error && err.message) {
+    return err.message;
+  }
+  return fallback;
+}
+
 export async function runFinalizeReportFlow(
   reportId: number,
   existingReport?: ReportDetailResponse | null,
   existingContent?: ReportContent | null,
-  inspectionData?: any,
+  inspectionData?: InspectionResult | null,
   fallbackOverrides?: { facilityName?: string; inspectionRound?: number },
 ): Promise<FinalizeResult> {
   let report = existingReport ?? (await reportApi.getReport(reportId)).data;
@@ -68,8 +89,8 @@ export async function runFinalizeReportFlow(
           message: '검증 실패 — 내용을 확인 후 다시 시도하세요.',
         };
       }
-    } catch (err: any) {
-      const message = err?.response?.data?.error?.message ?? err?.message ?? '확정 검증에 실패했습니다.';
+    } catch (err: unknown) {
+      const message = extractErrorMessage(err, '확정 검증에 실패했습니다.');
       return {
         ok: false,
         title: '확정 검증 실패',
@@ -86,8 +107,8 @@ export async function runFinalizeReportFlow(
     const uploadResponse = await reportApi.uploadPdf(reportId, pdfBlob, fileName);
     const finalizeResponse = await reportApi.finalizeReport(reportId, uploadResponse.data.pdfUrl);
     return { ok: true, report: finalizeResponse.data };
-  } catch (err: any) {
-    const message = err?.response?.data?.error?.message ?? err?.message ?? 'PDF 생성/확정에 실패했습니다.';
+  } catch (err: unknown) {
+    const message = extractErrorMessage(err, 'PDF 생성/확정에 실패했습니다.');
     return { ok: false, title: 'PDF 생성/확정 실패', message };
   }
 }
