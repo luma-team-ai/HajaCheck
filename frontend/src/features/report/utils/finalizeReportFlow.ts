@@ -17,7 +17,8 @@ export type FinalizeResult =
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object') {
-    const response = (err as Record<string, unknown>).response;
+    const record = err as Record<string, unknown>;
+    const response = record.response;
     if (response && typeof response === 'object') {
       const data = (response as Record<string, unknown>).data;
       if (data && typeof data === 'object') {
@@ -28,9 +29,8 @@ function extractErrorMessage(err: unknown, fallback: string): string {
         }
       }
     }
-  }
-  if (err instanceof Error && err.message) {
-    return err.message;
+    const message = record.message;
+    if (typeof message === 'string' && message) return message;
   }
   return fallback;
 }
