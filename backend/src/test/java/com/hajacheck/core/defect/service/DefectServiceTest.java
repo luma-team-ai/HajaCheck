@@ -980,12 +980,14 @@ class DefectServiceTest {
     }
 
     @Test
-    void updateStatus_동일상태그룹에사유있는건너뛰기_anchor만전이된다() {
-        // #1583 (b)안의 의도된 팬아웃 축소를 고정한다 — 그룹 전원이 CONFIRMED인 사진에서 "다른 상태로
-        // 변경 → 조치완료(사유 기재)"를 하면, dev에서는 형제도 함께 RESOLVED가 됐지만 이제 anchor만
-        // 전이된다(형제는 목표 기준 두 단계 뒤처짐). 조치 기록(actionContent) 없는 형제를 완료 처리하지
-        // 않는 것이 #1583의 취지이므로 의도된 동작이다 — "그룹 팬아웃이 안 먹는 버그"로 오인해
-        // 되돌리지 말 것.
+    void updateStatus_동일상태그룹에사유있는건너뛰기_같은출발상태멤버는함께전이된다() {
+        // #1609 — #1583 (b)안이 "형제는 목표 기준 두 단계 뒤처짐"으로 취급해 anchor만 전이시켰던
+        // 동작을 뒤집는다. 그룹 전원이 CONFIRMED인 사진에서 "다른 상태로 변경 → 조치완료(사유 기재)"를
+        // 하면, anchor와 같은 출발 상태(CONFIRMED)였던 형제는 anchor의 건너뛰기 전이를 함께 따라가야
+        // 이미지 단위 그룹 팬아웃(#1456/#1556)의 원 의도(같은 사진의 하자는 함께 움직인다)에 맞다.
+        // (#1583의 "두 단계 이상 뒤처진 멤버는 끌고 가지 않는다"는 앞서 다른 상태로 갈라져 있던
+        // 멤버에만 적용되고, anchor와 출발 상태가 같았던 멤버에는 적용되지 않는다 — 이 테스트가 그
+        // 경계를 고정한다.)
         Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L
         ReflectionTestUtils.setField(anchor, "mediaId", 77L);
         Defect sibling = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
@@ -1000,10 +1002,103 @@ class DefectServiceTest {
                 USER_ID, COMPANY_ID, 10L, DefectStatus.RESOLVED, "현장 재확인 결과 조치 완료로 정정");
 
         assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED);
-        assertThat(sibling.getStatus()).isEqualTo(DefectStatus.CONFIRMED); // 함께 완료되지 않는다
-        assertThat(sibling.getActionContent()).isNull(); // 조치 기록 없는 채 완료 처리되지 않았음
-        verify(defectRevisionRepository, org.mockito.Mockito.times(1)).save(any());
+        assertThat(sibling.getStatus()).isEqualTo(DefectStatus.RESOLVED); // anchor와 함께 완료된다
+        verify(defectRevisionRepository, org.mockito.Mockito.times(2)).save(argThat(revision ->
+                revision.getFieldChanged().equals("status")
+                        && revision.getOldValue().equals("CONFIRMED")
+                        && revision.getNewValue().equals("RESOLVED")));
         assertThat(response.groupSize()).isEqualTo(2);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.RESOLVED);
+    }
+
+    @Test
+    void updateStatus_동일상황에서이미RESOLVED인멤버는계속스킵() {
+        // #1609 — 같은 출발 상태(CONFIRMED) 멤버는 anchor의 건너뛰기를 함께 따라가지만, 이미 목표
+        // 상태(RESOLVED)에 도달해 있는 멤버는 여전히 #1562 규칙(이미 목표 상태면 건너뛴다)이 우선
+        // 적용돼야 한다 — followsAnchorSkip 예외가 "이미 목표 상태" 케이스를 잠식하면 안 된다.
+        Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect sibling = existingDefect(9L, 100L, 5L, DefectStatus.CONFIRMED, 1, null);
+        ReflectionTestUtils.setField(sibling, "mediaId", 77L);
+        Defect alreadyResolved = existingDefect(15L, 100L, 5L, DefectStatus.RESOLVED, 1, null);
+        ReflectionTestUtils.setField(alreadyResolved, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(sibling, anchor, alreadyResolved));
+
+        DefectResponse response = defectService.updateStatus(
+                USER_ID, COMPANY_ID, 10L, DefectStatus.RESOLVED, "현장 재확인 결과 조치 완료로 정정");
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(sibling.getStatus()).isEqualTo(DefectStatus.RESOLVED); // anchor를 따라 함께 전이
+        assertThat(alreadyResolved.getStatus()).isEqualTo(DefectStatus.RESOLVED); // 원래부터 목표 상태(변화 없음)
+        assertThat(response.groupSize()).isEqualTo(3);
+        // 실제로 상태가 바뀐 건 anchor+sibling 2건뿐 — 이미 RESOLVED였던 멤버는 이력이 남지 않는다.
+        verify(defectRevisionRepository, org.mockito.Mockito.times(2)).save(argThat(revision ->
+                revision.getFieldChanged().equals("status") && revision.getNewValue().equals("RESOLVED")));
+    }
+
+    @Test
+    void updateStatus_IN_PROGRESS멤버는기존한단계규칙으로함께RESOLVED() {
+        // #1609 — anchor(CONFIRMED)와 출발 상태가 다른 IN_PROGRESS 멤버는 followsAnchorSkip 예외가
+        // 아니라 기존 #1456 "정방향 한 단계" 규칙(isForwardStepTo)으로 여전히 함께 팬아웃돼야 한다
+        // (기존 동작 유지 확인 — 이번 수정이 다른 출발 상태 멤버의 팬아웃 경로를 건드리지 않았는지).
+        Defect anchor = existingDefect(5L, DefectStatus.CONFIRMED); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect inProgressMember = existingDefect(9L, 100L, 5L, DefectStatus.IN_PROGRESS, 1, null);
+        ReflectionTestUtils.setField(inProgressMember, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(inProgressMember, anchor));
+
+        DefectResponse response = defectService.updateStatus(
+                USER_ID, COMPANY_ID, 10L, DefectStatus.RESOLVED, "현장 재확인 결과 조치 완료로 정정");
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(inProgressMember.getStatus()).isEqualTo(DefectStatus.RESOLVED);
+        assertThat(response.groupSize()).isEqualTo(2);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.RESOLVED);
+    }
+
+    @Test
+    void registerActionResult_IN_PROGRESS유지재제출시_같은IN_PROGRESS멤버는여전히상태전이스킵() {
+        // #1609 회귀 방지 — followsAnchorSkip(memberStatus == anchorOriginalStatus)이 "제자리 재제출"
+        // (anchorOriginalStatus == targetStatus)까지 잠식하면, 같은 IN_PROGRESS 그룹 멤버가
+        // registerActionResult() -> changeStatus(IN_PROGRESS)를 타 "동일 상태 재전이 거부"
+        // (DomainStateTransitionException)로 그룹 전체 요청이 실패한다(#1193 유지 재제출 팬아웃 파괴).
+        // shouldSkipGroupMember의 memberStatus != targetStatus 가드가 이를 막아, 같은 IN_PROGRESS
+        // 멤버는 예전처럼 상태 전이만 건너뛰고(조치 필드는 갱신) 그대로 IN_PROGRESS에 남아야 한다.
+        Defect anchor = existingDefect(5L, DefectStatus.IN_PROGRESS); // id=10L
+        ReflectionTestUtils.setField(anchor, "mediaId", 77L);
+        Defect sibling = existingDefect(9L, 100L, 5L, DefectStatus.IN_PROGRESS, 1, null);
+        ReflectionTestUtils.setField(sibling, "mediaId", 77L);
+
+        when(defectRepository.findByIdAndCompanyId(10L, COMPANY_ID)).thenReturn(Optional.of(anchor));
+        Media media = Media.builder().inspectionId(100L).build();
+        ReflectionTestUtils.setField(media, "id", 50L);
+        when(mediaRepository.findByIdAndInspectionId(50L, 100L)).thenReturn(Optional.of(media));
+        when(defectRepository.findByInspectionIdAndMediaIdAndStatusInAndDeletedFalseOrderByIdAsc(
+                eq(100L), eq(77L), any()))
+                .thenReturn(List.of(sibling, anchor));
+        User assignee = User.builder().name("김현수").build();
+        ReflectionTestUtils.setField(assignee, "id", 200L);
+        when(userRepository.findById(200L)).thenReturn(Optional.of(assignee));
+
+        DefectResponse response = defectService.registerActionResult(
+                USER_ID, COMPANY_ID, 10L, actionResultRequest(DefectStatus.IN_PROGRESS));
+
+        assertThat(anchor.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
+        assertThat(sibling.getStatus()).isEqualTo(DefectStatus.IN_PROGRESS); // 상태 전이는 스킵, 예외 없음
+        assertThat(sibling.getActionContent()).isEqualTo("균열 부위 보수 완료"); // 조치 필드는 갱신됨
+        // 상태가 실제로 바뀌지 않았으므로 status 필드 revision은 남지 않는다.
+        verify(defectRevisionRepository, never()).save(argThat(revision ->
+                revision.getFieldChanged().equals("status")));
+        assertThat(response.groupSize()).isEqualTo(2);
+        assertThat(response.groupStatus()).isEqualTo(DefectStatus.IN_PROGRESS);
     }
 
     @Test
