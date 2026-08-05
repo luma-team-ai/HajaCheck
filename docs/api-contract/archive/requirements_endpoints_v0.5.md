@@ -1,9 +1,9 @@
 # 2.1 요구사항 정의서 — API 엔드포인트 (점검관리B 작성분)
 
-> **문서 버전:** v0.6 · **최종 수정:** 2026-08-05 · 이전 버전 `archive/`
+> **문서 버전:** v0.5 · **최종 수정:** 2026-08-04 · 이전 버전 `archive/`
 
 > ⚠️ **이 문서는 "점검관리B 담당분"의 요구사항↔엔드포인트 매핑만 담은 부분 문서다** — 전체 API 목록이 아니다.
-> 전체 계약 SoT는 `docs/api-contract/openapi.yaml`(2026-08-05 기준 **v0.45.0-draft · 138 path · 161 operation** — 코드 실측 대조로 누락 63개 일괄 등재), 사람이 보는 요약은 `docs/api-contract/contract.md`(v0.17).
+> 전체 계약 SoT는 `docs/api-contract/openapi.yaml`(2026-08-04 기준 **v0.42.0-draft · 81 path · 95 operation**), 사람이 보는 요약은 `docs/api-contract/contract.md`(v0.15).
 > FR 번호는 **PRD의 FR 체계로 확정**됐다(PRD `§FR-1~FR-9`) — 이 문서의 `FR-00N` 표기는 작성 당시 임시 번호이므로, 새 작업은 PRD 번호를 기준으로 삼는다.
 
 ## 핵심 명세서 (워킹 스켈레톤 관통용)

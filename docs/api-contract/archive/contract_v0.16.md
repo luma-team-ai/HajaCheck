@@ -1,21 +1,9 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.17 · **최종 수정:** 2026-08-05 · 이전 버전 `archive/`
+> **문서 버전:** v0.16 · **최종 수정:** 2026-08-05 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
-> SOT는 `docs/api-contract/openapi.yaml`(2026-08-05 기준 **v0.45.0-draft · 138 path · 161 operation**) — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
-
-## 2026-08-05 계약 전수 최신화 (코드 실측 대조)
-
-컨트롤러/라우터 전수 추출 ↔ 명세 diff로 누락돼 있던 **63개 엔드포인트(Spring 59 + FastAPI 4)** 를 SoT에 일괄 등재했다(admin·platform-admin·counsel/채팅세션·시설/점검/하자 보강·통계/대시보드/메뉴/플랜/마이페이지·진위확인/AI 프록시). 상세 계약은 전부 SoT 참조. 함께 수정: ① `/api/inspections/{id}/analyze` POST의 TODO 스텁을 실구현(202 비동기) 기준으로 갱신, ② `/api/inspections/{id}/media` **path 키 중복 선언 버그** — YAML 파서(Swagger 포함)가 POST 명세를 조용히 버리던 것을 한 path item으로 병합해 수정.
-
-이 문서(FastAPI 파트) 기준 신규 4개 — 전부 **내부 전용**(`X-Internal-Key`, 접근 모델 §아래 동일):
-- `POST /ai/detect-defects` — AI 하자 탐지(dev-05-04, AP-006). Spring 분석 워커가 이미지별로 호출.
-- `POST /ai/rag-documents/embed` — RAG 문서 임베딩(#22/HAJA-35, FR-8-B). 백그라운드 임베딩 시작.
-- `GET /ai/rag-documents/{doc_id}/embedding-status` — 백그라운드 임베딩 완료 여부 폴링(#1328).
-- `DELETE /ai/rag-documents/{doc_id}` — Chroma 청크 삭제(#1394, PLATFORM_ADMIN 콘솔 문서 삭제 연동).
-
-그 외 이 문서 범위 관련: `/ai/rag-chat`을 감싸는 인증 프록시 `POST /api/ai/rag-chat`(HAJA-32/#467)이 SoT에 등재됨 — 프론트 필드 `query`/`sessionId`를 Spring이 FastAPI `question`으로 변환한다(§POST /ai/rag-chat의 "Spring 프록시는 후속 이슈" 문구는 해소됨).
+> SOT는 `docs/api-contract/openapi.yaml` — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
 
 ## 접근 모델 — `/ai/*`는 내부 전용 (2026-07-16, #229·#234·#236)
 
@@ -118,7 +106,7 @@
 
 ---
 
-## POST /ai/rag-chat — ✅ 구현됨(내부 전용, Spring `/api/ai/rag-chat` 인증 프록시 경유 — 2026-08-05 SoT 등재)
+## POST /ai/rag-chat — ✅ 구현됨(내부 전용, Spring 프록시는 후속 이슈)
 
 점검 기준·법규 질의 전담 RAG 챗봇(FR-6). FastAPI 라우트는 `ai-server/routers/ai_router.py`에 구현되어 있다(체인: `ai-server/ai/chains/rag_chat_chain.py`, GitHub #19/HAJA-28). 성공 시 `AIResponse.data`는 `RagAnswerData` 형태이며, `sources[]`는 표시 라벨(`locator`)과 원문 발췌(`snippet`)를 분리한다.
 
@@ -171,11 +159,11 @@
 
 ---
 
-## POST /ai/report — ✅ 구현됨(내부 전용, ReportService -> AiProxyService direct call)
+## POST /ai/report — ✅ 구현됨(내부 전용, Spring `/api/ai/report` 프록시 경유)
 
 AI 보고서 4개 섹션(개요·요약·상세·권고)을 병렬 생성하고 Grounding Check를 수행한다
 (FR-5, 로그인/보고서 담당). FastAPI 라우트는 `ai-server/routers/ai_router.py`에 구현되어 있으며,
-외부 클라이언트용 `/api/ai/report` 엔드포인트는 삭제되어 `POST /api/inspections/{inspectionId}/reports`(ReportService) 경로로만 호출된다.
+외부 클라이언트는 직접 호출하지 않고 인증된 Spring `/api/ai/report` 프록시를 경유한다.
 
 현재 correlation 필드에는 두 호환 모드가 있다.
 
