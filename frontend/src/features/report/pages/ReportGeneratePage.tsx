@@ -19,12 +19,9 @@ import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { exportReportToPdf } from '../utils/exportReportToPdf';
-import {
-  getEmptyManualSectionLabels,
-  getMissingFinalReportRequiredLabels,
-} from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { buildReportPdfFileName, normalizePdfPreviewUrl } from '../../../shared/utils/reportPdf';
+import { runFinalizeReportFlow } from '../utils/finalizeReportFlow';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
@@ -95,7 +92,7 @@ export function ReportGeneratePage() {
   const [savedContent, setSavedContent] = useState<ReportContent | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [isRechecking, setIsRechecking] = useState(false);
+  const isRechecking = false;
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -261,10 +258,6 @@ export function ReportGeneratePage() {
   }, [applyReport, reportQuery.data]);
 
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
-  const emptyManualSectionLabels = useMemo(() => getEmptyManualSectionLabels(content), [content]);
-  const hasEmptyManualSections = emptyManualSectionLabels.length > 0;
-  const missingFinalRequiredLabels = useMemo(() => getMissingFinalReportRequiredLabels(content), [content]);
-  const hasMissingFinalRequiredContent = missingFinalRequiredLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
     if (!report || !dirty || isFinalized) return false;
@@ -352,25 +345,6 @@ export function ReportGeneratePage() {
     blocker.proceed?.();
   };
 
-  const handleGroundingRecheck = async (): Promise<{
-    success: boolean;
-    data?: ReportDetailResponse;
-    message?: string;
-  }> => {
-    if (!report || isRechecking) return { success: false };
-    setIsRechecking(true);
-    try {
-      const response = await reportApi.groundingRecheck(report.id);
-      applyReport(response.data);
-      return { success: true, data: response.data };
-    } catch (err) {
-      const message = extractErrorMessage(err, '확정 검증에 실패했습니다.');
-      return { success: false, message };
-    } finally {
-      setIsRechecking(false);
-    }
-  };
-
   // "PDF 미리보기" 클릭 핸들러 — 미리보기는 확정 전 편집 중인 내용을 보기 위한 기능이므로
   // 저장 성공 여부와 무관하게 바로 이동한다. 임시저장 실패(예: 빈 수동 섹션)로 미리보기까지
   // 막히면 안 된다 — 이동 경로는 blocker의 임시저장 이탈 가드 대상에서도 제외되어 있다.
@@ -390,58 +364,16 @@ export function ReportGeneratePage() {
       if (!saved) return;
     }
 
-    if (hasEmptyManualSections) {
-      setAlertModal({
-        open: true,
-        title: '확정할 수 없습니다',
-        message: `내용이 비어 있거나 필수값이 누락된 추가 섹션이 있습니다: ${emptyManualSectionLabels.join(', ')}`,
-      });
-      return;
-    }
-
-    if (hasMissingFinalRequiredContent) {
-      setAlertModal({
-        open: true,
-        title: '확정할 수 없습니다',
-        message: `최종 보고서 확정 전 필수 항목을 작성해 주세요: ${missingFinalRequiredLabels.join(', ')}`,
-      });
-      return;
-    }
-
-    const recheckResult = await handleGroundingRecheck();
-    if (!recheckResult.success) {
-      setAlertModal({
-        open: true,
-        title: '확정 검증 실패',
-        message: recheckResult.message ?? '확정 검증에 실패했습니다.',
-      });
-      return;
-    }
-
-    if (recheckResult.data?.groundingCheckPassed !== true) {
-      setAlertModal({
-        open: true,
-        title: '검증 실패',
-        message: '검증 실패 — 내용을 확인 후 다시 시도하세요.',
-      });
-      return;
-    }
-
     setIsFinalizing(true);
     setFinalizeError(null);
     try {
-      const pdfBlob = await exportReportToPdf(
-        content,
-        buildReportPdfContext(report, inspectionData, includeReportPhotos),
-      );
-      const fileName = buildReportPdfFileName(report.inspectionId);
-      const uploadResponse = await reportApi.uploadPdf(report.id, pdfBlob, fileName);
-      const finalizeResponse = await reportApi.finalizeReport(report.id, uploadResponse.data.pdfUrl);
-      applyReport(finalizeResponse.data);
-    } catch (err) {
-      const message = extractErrorMessage(err, 'PDF 생성/확정에 실패했습니다.');
-      setFinalizeError(message);
-      setAlertModal({ open: true, title: 'PDF 생성/확정 실패', message });
+      const result = await runFinalizeReportFlow(report.id, report, content, inspectionData);
+      if (result.ok) {
+        applyReport(result.report);
+      } else {
+        setFinalizeError(result.message);
+        setAlertModal({ open: true, title: result.title, message: result.message });
+      }
     } finally {
       setIsFinalizing(false);
     }
@@ -465,7 +397,7 @@ export function ReportGeneratePage() {
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
-      anchor.download = buildReportPdfFileName(currentReport.inspectionId);
+      anchor.download = buildReportPdfFileName(currentReport.inspectionId, currentReport.status === 'DRAFT');
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();

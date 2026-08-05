@@ -92,6 +92,7 @@ public class ReportService {
     private final CompanyRepository companyRepository;
     private final UserRepository userRepository;
     private final MediaRepository mediaRepository;
+    private final ReportFinalizationValidator reportFinalizationValidator;
 
     /**
      * 확정 하자를 근거로 AI 보고서 초안을 생성한다.
@@ -124,7 +125,10 @@ public class ReportService {
         List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
                 inspectionId, CONFIRMED_DEFECT_STATUSES);
         List<ReportRequest.ConfirmedDefect> confirmedDefectDtos = confirmedDefects.stream()
-                .map(defect -> ConfirmedDefectTextFactory.from(defect, facility.address()))
+                .map(defect -> ConfirmedDefectTextFactory.from(
+                        defect,
+                        resolveDefectLocation(defect)
+                ))
                 .toList();
         ReportRequest.FacilityInfo facilityInfo =
                 new ReportRequest.FacilityInfo(facility.name(), facility.address());
@@ -335,19 +339,33 @@ public class ReportService {
         return keys;
     }
 
-    private static String sanitizeClientContentJson(String currentContentJson, String nextContentJson) {
-        if (excludesDetailsByGeneratedOptions(currentContentJson) && extractDetailKeys(nextContentJson).isEmpty()) {
-            return nextContentJson;
+    private static String resolveDefectLocation(Defect defect) {
+        if (defect != null && StringUtils.hasText(defect.getLocation())) {
+            return defect.getLocation().trim();
         }
+        return "위치 미입력";
+    }
+
+    private static String sanitizeClientContentJson(String currentContentJson, String nextContentJson) {
         try {
-            JsonNode root = RECHECK_MAPPER.readTree(nextContentJson);
-            if (root instanceof ObjectNode objectNode) {
-                objectNode.remove("reportOptions");
-                return RECHECK_MAPPER.writeValueAsString(objectNode);
+            JsonNode current = RECHECK_MAPPER.readTree(currentContentJson);
+            JsonNode next = RECHECK_MAPPER.readTree(nextContentJson);
+
+            if (next instanceof ObjectNode nextObject) {
+                JsonNode serverOptions = current.get("reportOptions");
+
+                if (serverOptions != null && !serverOptions.isNull()) {
+                    nextObject.set("reportOptions", serverOptions.deepCopy());
+                } else {
+                    nextObject.remove("reportOptions");
+                }
+
+                return RECHECK_MAPPER.writeValueAsString(nextObject);
             }
         } catch (Exception ignored) {
             // 유효하지 않은 JSON은 Report.updateContent의 기존 검증 경로에서 동일하게 거부한다.
         }
+
         return nextContentJson;
     }
 
@@ -389,6 +407,7 @@ public class ReportService {
         Report report = scoped.report();
         String storageKey = requireOwnPdfUrl(reportId, pdfUrl);
         reportPdfStorage.load(reportId, storageKey);
+        reportFinalizationValidator.validate(report.getContentJson());
         report.finalizeReport(pdfUrl, editedByUserId);
         markInspectionReported(scoped.inspection(), companyId, editedByUserId);
         return toDetailResponse(report, editedByUserId, companyId, scoped.inspection());
