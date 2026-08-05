@@ -605,6 +605,14 @@
   gap: 22px;
 }
 
+/* secondary 컬럼(조치 결과 등록+활동 기록)엔 primary처럼 photo-tab-row가 없어, grid
+   align-items:start 기준으로 두 컬럼 상단이 정렬되면 secondary가 diagnosis-col(AI 분석
+   설명)보다 56px 위에서 시작해 두 패널의 제목 높이가 어긋난다(#1553에서 diagnosis-col만
+   image-col 상단에 맞췄고 secondary는 빠뜨림). diagnosis-col과 같은 오프셋을 줘서 맞춘다. */
+.defect-detail-modal__secondary {
+  margin-top: 56px;
+}
+
 /* --- 이미지(3:4) + 지표 카드 좌우 배치(#1417) ---
    하자 사진(균열 등)은 대부분 세로로 긴 형태라 4:3(가로)으로 고정하면 레터박스 여백이 크게
    남는다(실사용 확인 — 균열 사진이 박스 폭의 60%+를 빈 여백으로 남김). 3:4(세로)로 바꿔 실제
@@ -900,6 +908,13 @@
   grid-template-columns: max-content 1fr;
   gap: 6px 12px;
   margin: 0;
+}
+
+.defect-action-form__empty-summary {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-style: italic;
 }
 
 .defect-action-form__summary dt {

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.44.0-draft"
+  version: "0.45.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -50,6 +50,18 @@ info:
     흐름**이고 그 계정은 소셜 식별자를 그대로 보유한 채 기업 화면의 소셜 버튼으로 로그인할 수 있다.
     승격된 소셜 계정은 password_hash가 null이라 비밀번호 로그인이 이미 차단되어 있어(소셜까지 막으면
     로그인 수단이 0개가 된다) 이번 PR에서는 막지 않는다 — **소셜 경로의 포털 분리는 후속 이슈 #1519**.
+
+
+    2026-08-05 계약 전수 최신화(코드 실측 대조) — 컨트롤러/라우터 전수 추출과 명세를 diff 해 누락돼
+    있던 63개 엔드포인트(Spring 59 + FastAPI 4: detect-defects·rag-documents embed/상태/삭제)를 일괄
+    등재했다(admin·platform-admin·counsel/채팅세션·facilities/inspections/defects 보강·statistics/
+    dashboard/menus/plans/마이페이지·auth 진위확인/AI 프록시). 함께 정리한 것: ① `/api/inspections/
+    {id}/analyze` POST TODO 스텁을 실구현(202 비동기, ANALYSIS_* ErrorCode) 기준으로 갱신, ②
+    `/api/inspections/{id}/media` **path 키 중복 선언 버그 수정** — POST 블록과 GET 블록이 같은 키로
+    두 번 선언돼 있어 YAML 파서(Swagger 포함)가 뒤의 GET만 남기고 POST 명세를 조용히 버리던 것을 한
+    path item으로 병합했다. admin(전사)과 platform-admin의 사용자 role/status 변경 계약은 허용값이
+    다르므로(예: role 화이트리스트 ADMIN/INSPECTOR/USER vs +COUNSELOR) 스키마를 `AdminUser*` /
+    `PlatformAdminUser*` 로 분리했다.
 
 
     2026-07-30 플랫폼 관리자 날짜별 상담 목록 계약화(#1168, PR #1205 dev 머지 반영) — GET
@@ -349,8 +361,9 @@ paths:
     post:
       summary: AI 보고서 4개 섹션 병렬 생성 및 Grounding Check (FR-5, 로그인/보고서 담당)
       description: >
-        구현된 내부 전용 FastAPI 라우트다. 외부 클라이언트는 인증된 Spring `/api/ai/report`
-        프록시를 경유한다. grounding_request_id, inspection_id, report_version은 모두 제공하거나
+        구현된 내부 전용 FastAPI 라우트다. 외부 클라이언트용 Spring `/api/ai/report` 프록시는 삭제되었으며,
+        Spring `ReportService`가 이 라우트를 내부 전용 키(InternalKey)로만 직접 호출한다.
+        grounding_request_id, inspection_id, report_version은 모두 제공하거나
         모두 생략해야 한다. 모두 생략하면 기존 호환 경로로 처리되어 응답의 correlation 필드와
         content_hash도 생략된다. 모두 제공하면 같은 correlation 값과 보고서 본문의 canonical JSON
         SHA-256 content_hash를 반환한다. 현재 Spring 프록시는 이 값을 서버에서 강제 생성하지 않고
@@ -516,57 +529,6 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "502":
           description: AI_INVALID_RESPONSE | AI_SERVER_ERROR — 내부 FastAPI 오류를 그대로 전달하지 않고 이 코드로 통일
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "503":
-          description: AI_SERVER_UNREACHABLE
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "504":
-          description: AI_SERVER_TIMEOUT
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-
-  /api/ai/report:
-    post:
-      summary: AI 보고서 생성 (인증 프록시, #239 / HAJA-192)
-      description: >
-        확정된 하자 목록을 세션 인증 프록시로 내부 FastAPI `/ai/report` 에 전달해 개요·요약·상세·권고
-        보고서를 반환한다. correlation 필드(grounding_request_id/inspection_id/report_version)는 모두
-        제공하거나 모두 생략해야 한다(내부 ReportGenerateRequest 와 동일 계약). 실무에서는
-        `POST /api/inspections/{inspectionId}/reports`(ReportController.generateDraft) 가 이 프록시를 내부
-        호출해 grounding 캡처까지 포함한 전체 흐름을 담당한다 — 이 엔드포인트 자체를 프론트가 직접 호출하는
-        경로는 별도다. `AiProxyController.report` 구현됨.
-      security:
-        - SessionCookie: []
-          XsrfToken: []
-      tags: [ai, report]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/ReportGenerateRequest" }
-      responses:
-        "200":
-          description: 성공
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ReportGenerateApiResponse" }
-        "400":
-          description: INVALID_INPUT | AI_REQUEST_REJECTED
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "401":
-          description: 미인증 (UNAUTHORIZED)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "502":
-          description: AI_INVALID_RESPONSE | AI_SERVER_ERROR
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -2406,6 +2368,34 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    get:
+      summary: 점검 회차별 촬영 데이터(미디어) 목록 조회
+      description: >
+        점검 회차(inspection)에 업로드된 미디어 전체를 반환한다(하자 유무 무관, 분석 결과 뷰어 전용,
+        #803). 결과뷰어가 하자 목록에서 역으로 이미지를 그룹핑하던 기존 방식은 하자가 0건인 사진을
+        노출할 수 없었던 문제를 이 엔드포인트로 해소한다. 소유권은 점검 회차를 통해 검증하며,
+        미존재와 타인 소유를 구분하지 않고 404로 통일한다(IDOR 방지).
+      security:
+        - SessionCookie: []
+      tags: [media]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: 조회 성공(빈 배열 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaListApiResponse" }
+        "401":
+          description: 미인증
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 점검 회차 미존재 또는 타인 소유(INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
 
   /api/media/{id}/thumbnail:
     get:
@@ -2477,39 +2467,112 @@ paths:
 
   /api/inspections/{id}/analyze:
     post:
-      summary: AI 분석 요청
-      tags: [inspection]
-      parameters:
-        - { name: id, in: path, required: true, schema: { type: integer } }
-      responses:
-        "202": { description: TODO — 황승현 확정 필요(비동기 잡 패턴) }
-
-  /api/inspections/{id}/media:
-    get:
-      summary: 점검 회차별 촬영 데이터(미디어) 목록 조회
+      summary: AI 분석 시작
       description: >
-        점검 회차(inspection)에 업로드된 미디어 전체를 반환한다(하자 유무 무관, 분석 결과 뷰어 전용,
-        #803). 결과뷰어가 하자 목록에서 역으로 이미지를 그룹핑하던 기존 방식은 하자가 0건인 사진을
-        노출할 수 없었던 문제를 이 엔드포인트로 해소한다. 소유권은 점검 회차를 통해 검증하며,
-        미존재와 타인 소유를 구분하지 않고 404로 통일한다(IDOR 방지).
+        점검 회차에 업로드된 이미지 전체에 대해 AI 하자 탐지를 비동기로 시작한다(202 즉시 반환, 본문
+        없음 — 진행률은 GET 폴링). 소유권은 점검 회차를 통해 검증하며 미존재/타인 소유 모두 404로
+        통일한다. `InspectionAnalysisController.analyze` 구현 완료 — 구 TODO 스텁을 실구현 기준으로
+        갱신(2026-08-05 계약 전수 최신화).
       security:
         - SessionCookie: []
-      tags: [media]
+          XsrfToken: []
+      tags: [inspection]
       parameters:
         - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
       responses:
-        "200":
-          description: 조회 성공(빈 배열 포함)
+        "202":
+          description: 분석 시작 수락(비동기, 본문 없음)
+        "400":
+          description: 분석할 이미지가 없음 (ANALYSIS_NO_MEDIA)
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/MediaListApiResponse" }
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "401":
-          description: 미인증
+          description: 미인증 (UNAUTHORIZED)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "404":
-          description: 점검 회차 미존재 또는 타인 소유(INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          description: 점검 회차 미존재 또는 타인 소유 (INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 이미 분석 진행 중 (ANALYSIS_ALREADY_RUNNING) 또는 검수 완료·보고서화 회차 재분석 (ANALYSIS_NOT_ALLOWED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "503":
+          description: 분석 큐 포화 (ANALYSIS_QUEUE_FULL) / 회사별 동시 실행 제한 (ANALYSIS_COMPANY_CONCURRENCY_LIMIT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    get:
+      summary: AI 분석 진행 상태 조회
+      description: >
+        점검 회차의 AI 분석 진행률을 폴링용으로 반환한다(dev-05-04, API 명세서 v0.3 AP-006 연장).
+        Redis 진행률 캐시를 우선 쓰고 캐시가 없으면(TTL 만료·서버 재기동 등) DB(defects 실측치)로
+        최선 재구성한다 — 분석이 끝난 적 없는 회차는 stage=upload/progressPercent=0으로, 완료 이력이
+        있으면 stage=done/progressPercent=100으로 재구성한다. 캐시는 있지만 하트비트(updatedAt)가
+        15분 넘게 갱신되지 않았으면 워커 크래시로 보고 stage=failed로 바꿔 반환한다(읽기 전용이라
+        DB/Redis 실제 상태는 건드리지 않음 — 실제 복구는 POST 재시작에서 일어난다). 소유권은 점검
+        회차를 통해 검증하며 미존재/타인 소유 모두 404로 통일한다.
+      security:
+        - SessionCookie: []
+      tags: [inspection]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnalysisStatusApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 점검 회차 미존재 또는 타인 소유 (INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    delete:
+      summary: AI 분석 취소
+      description: >
+        진행 중인 AI 분석을 취소한다("한 번에 하나만" 정책, 2026-07-27 팀 결정) — 분석 실행/상태 화면
+        이탈 확인창의 "나가기" 클릭 시 호출된다. 세대 토큰을 새로 발급해 워커를 펜싱하는 방식으로
+        구현되며(워커의 다음 DB 쓰기 직전 토큰 불일치를 감지해 스스로 중단, successCount==0이면 월
+        분석 사용량도 보상), 이 메서드 자체는 워커 종료를 기다리지 않고 즉시 반환한다. 회차 상태가
+        ANALYZING이 아니면(이미 완료/실패로 종료됐거나 애초에 시작 전) 아무 효과 없이 성공 처리한다
+        (멱등). 소유권은 점검 회차를 통해 검증하며 미존재/타인 소유 모두 404로 통일한다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [inspection]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "204":
+          description: 취소 성공 또는 이미 ANALYZING이 아니어서 멱등하게 무시됨(본문 없음)
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 점검 회차 미존재 또는 타인 소유 (INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -3192,6 +3255,38 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "409":
           description: 이미 확정된 보고서 (INVALID_STATE_TRANSITION)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    delete:
+      summary: 보고서 초안 삭제 (ReportController, #446 / HAJA-283)
+      description: >
+        DRAFT 상태 보고서만 soft delete 처리한다. 이미 확정(FINALIZED)된 보고서는
+        INVALID_STATE_TRANSITION(409)로 거부한다(Report.markDeleted → requireDraft).
+        미존재/타인 소유(점검 기준 소유권) 모두 REPORT_NOT_FOUND(404)로 통일 응답한다.
+        `ReportController.deleteDraftReport` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [report]
+      responses:
+        "200":
+          description: 삭제 성공 (data=null)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (REPORT_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: DRAFT 가 아님(이미 확정된 보고서) (INVALID_STATE_TRANSITION)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -3919,6 +4014,2445 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+
+  # ══ 2026-08-05 계약 전수 최신화: 코드 실측 누락 엔드포인트 일괄 등재 ══
+
+  # ── admin (전사 관리자) ──
+  /api/admin/users:
+    get:
+      summary: 사용자 목록 조회 (관리자 콘솔, #405)
+      description: >
+        검색(이름·이메일)/필터(role·plan·status)/서버 페이징 + 요청 관리자 소속 회사 기준 통계를
+        반환한다(ADMIN 전용 — `/api/admin/**` 는 SecurityConfig 필터에서 hasRole(ADMIN) 로 강제).
+        요청 관리자와 같은 회사 소속 사용자만 조회되며, `stats` 는 검색/필터 조건과 무관하게 전체
+        사용자 기준으로 집계한다(계약). companyId 없는 관리자(개인 회원 등)는 FORBIDDEN(403).
+        `AdminUserController.list` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [admin]
+      parameters:
+        - { name: keyword, in: query, description: 이름·이메일 부분일치 검색어, schema: { type: string } }
+        - { name: role, in: query, schema: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN] } }
+        - { name: plan, in: query, schema: { type: string, enum: [FREE, STANDARD, ENTERPRISE] } }
+        - { name: status, in: query, schema: { type: string, enum: [ACTIVE, SUSPENDED, WAITING] } }
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, description: "1~100(초과 시 100으로 clamp)", schema: { type: integer, default: 10 } }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+    post:
+      summary: 사용자 등록 (관리자 콘솔, #405, Figma node-id 1147-2649)
+      description: >
+        관리자가 직접 사용자 계정을 생성한다(ADMIN 전용). 등록된 계정은 요청한 관리자와 같은 회사에
+        배선되고 role은 화이트리스트(ADMIN/INSPECTOR/USER)만 허용된다(그 외는
+        ADMIN_ROLE_NOT_ASSIGNABLE, 400). 활성화 직전 `QuotaService#reserveSeat` 로 좌석을 원자적으로
+        예약하므로 좌석이 가득 찬 회사는 등록이 거부된다(PLAN_SEAT_QUOTA_EXCEEDED, 403) — 초대 코드
+        발급과 동일한 좌석 잠금을 공유해 교차 경로 좌석 초과를 막는다. 이메일 중복은 409.
+        `AdminUserController.create` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminUserCreateRequest" }
+      responses:
+        "201":
+          description: 등록 성공 (plan은 신규 계정이라 항상 FREE 고정)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserResponseApiResponse" }
+        "400":
+          description: 입력값 검증 실패(INVALID_INPUT) 또는 배정 불가 역할(ADMIN_ROLE_NOT_ASSIGNABLE)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자(FORBIDDEN) / 좌석 한도 초과(PLAN_SEAT_QUOTA_EXCEEDED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 이메일 중복 (AUTH_EMAIL_DUPLICATED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/users/{id}/role:
+    patch:
+      summary: 사용자 역할 변경 (관리자 콘솔, #405)
+      description: >
+        대상 사용자의 role을 변경한다(ADMIN 전용). role은 화이트리스트(ADMIN/INSPECTOR/USER)만
+        배정 가능하다(ADMIN_ROLE_NOT_ASSIGNABLE, 400). 요청 관리자와 다른 회사 소속이면 존재 여부를
+        열거하지 않고 404(USER_NOT_FOUND)로 통일 응답한다. 대상이 현재 ADMIN이고 새 role이 ADMIN이
+        아니면, 자기 자신을 강등하거나 회사의 마지막 ACTIVE ADMIN을 강등하는 시도를 차단한다
+        (ADMIN_PROTECTED_ACCOUNT, 409 — 되돌릴 수 없는 회사 잠금 방지). `AdminUserController.changeRole` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminUserRoleUpdateRequest" }
+      responses:
+        "200":
+          description: 변경 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserRoleUpdateApiResponse" }
+        "400":
+          description: 입력값 검증 실패(INVALID_INPUT) 또는 배정 불가 역할(ADMIN_ROLE_NOT_ASSIGNABLE)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 대상 사용자 미존재 또는 타 회사 소속 (USER_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 자기 자신 또는 회사의 마지막 ADMIN 강등 시도 (ADMIN_PROTECTED_ACCOUNT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/users/{id}/status:
+    patch:
+      summary: 사용자 상태 변경 (관리자 콘솔, #405)
+      description: >
+        대상 사용자의 status를 변경한다(ADMIN 전용). status는 화이트리스트(ACTIVE/SUSPENDED)만
+        배정 가능하다 — WAITING(#794, 소셜 가입 전용 자동 상태)은 관리자가 임의로 부여할 수 없다
+        (ADMIN_STATUS_NOT_ASSIGNABLE, 400). 요청 관리자와 다른 회사 소속이면 404(USER_NOT_FOUND)로
+        통일 응답한다. 대상이 현재 ADMIN이고 새 status가 SUSPENDED이면, 자기 자신을 정지하거나 회사의
+        마지막 ACTIVE ADMIN을 정지하는 시도를 차단한다(ADMIN_PROTECTED_ACCOUNT, 409).
+        `AdminUserController.changeStatus` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminUserStatusUpdateRequest" }
+      responses:
+        "200":
+          description: 변경 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserStatusUpdateApiResponse" }
+        "400":
+          description: 입력값 검증 실패(INVALID_INPUT) 또는 배정 불가 상태(ADMIN_STATUS_NOT_ASSIGNABLE)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 대상 사용자 미존재 또는 타 회사 소속 (USER_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 자기 자신 또는 회사의 마지막 ADMIN 정지 시도 (ADMIN_PROTECTED_ACCOUNT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/invite-codes:
+    post:
+      summary: 초대 코드 발급 (관리자 콘솔, #794)
+      description: >
+        요청 관리자 소속 회사로 스코프된 1회용 초대 코드를 발급한다(ADMIN 전용). 코드는
+        InviteCodeStore(Redis)에만 존재하며 TTL 경과 시 자동 만료된다(app.auth.invite-code-ttl,
+        `ttlSeconds` 는 프론트 카운트다운 초기값). 발급 전 `QuotaService#hasAvailableSeat` 로 좌석
+        여유를 advisory 선검사하며, 여유가 없으면 코드를 만들지 않고 즉시 실패한다
+        (PLAN_SEAT_QUOTA_EXCEEDED, 403) — 최종 방어선은 redeem 시점의 `reserveSeat` 다.
+        `AdminInviteCodeController.issue` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      responses:
+        "201":
+          description: 발급 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InviteCodeIssueApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자(FORBIDDEN) / 좌석 한도 초과(PLAN_SEAT_QUOTA_EXCEEDED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "500":
+          description: 연속 코드 충돌(최대 5회 재시도 소진, 사실상 불가능한 확률) — INTERNAL_ERROR
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/invite-codes/revoke:
+    post:
+      summary: 초대 코드 폐기 (관리자 콘솔, #794, PR머신 리뷰 P3)
+      description: >
+        발급 모달을 닫을 때 호출한다(ADMIN 전용). 코드를 URL 경로가 아니라 바디로 받는다 — 배선
+        권한을 가진 1회용 크레덴셜이 nginx/서블릿 액세스 로그·브라우저 히스토리에 평문으로 남는 것을
+        막기 위함. 요청 관리자 소속 회사가 발급한 코드만 삭제되고, 그 외(미존재·만료·타 회사 소유)는
+        모두 조용히 무시한다(멱등 삭제 + 존재 여부 열거 방지). 응답은 `ResponseEntity<Void>`+204가
+        아니라 `ApiResponse` 봉투로 200을 내린다(프론트 axios 인터셉터가 항상 response.data.data를
+        읽어 204 본문 없음이면 크래시하기 때문, AuthController.logout과 동일 패턴).
+        `AdminInviteCodeController.revoke` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InviteCodeRevokeRequest" }
+      responses:
+        "200":
+          description: 처리 완료(멱등 — 미존재/만료/타 회사 소유도 200)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+        "400":
+          description: 입력값 검증 실패(INVALID_INPUT — code 누락/16자 초과)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/analysis-jobs:
+    get:
+      summary: AI 분석 작업 현황 조회 (관리자 콘솔)
+      description: >
+        요청 관리자 소속 회사의 점검 회차를 AI 분석 진행 상태(PENDING/ANALYZING/COMPLETED) 기준으로
+        조회한다(ADMIN 전용). `jobId` 는 별도 "분석 실행" 테이블이 없어 점검 회차 id(inspectionId)를
+        그대로 재사용한다. `progressPercent` 는 status=ANALYZING일 때만 값이 있을 수 있고, 그마저도
+        AnalysisProgressStore(Redis, TTL 있음) 캐시가 없으면 null이다(fail-soft). PENDING은 "아직
+        시작 안 함"과 "직전 시도가 실패해 대기로 롤백됨"을 구분하지 않는다(1차 스코프 제외).
+        `AdminAnalysisJobController.list` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [admin]
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [PENDING, ANALYZING, COMPLETED] } }
+        - { name: page, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: size, in: query, description: "1~100(초과 시 100으로 clamp)", schema: { type: integer, default: 10 } }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAnalysisJobItemPageApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: ADMIN 아님 / 회사 없는 관리자 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/rag-documents:
+    get:
+      summary: RAG 문서 목록 조회 (플랫폼 관리자 콘솔, #22/HAJA-35, PRD FR-8-B)
+      description: >
+        법규·지침 PDF 문서와 임베딩 상태를 최신 등록순으로 반환한다(PLATFORM_ADMIN 전용 —
+        `/api/admin/rag-documents/**` 는 SecurityConfig 필터에서 hasRole(PLATFORM_ADMIN) 로 강제하며,
+        `/api/admin/**`(ADMIN 전용)과는 별개 인가 경계다). company 스코핑은 없다 — 법규·지침 문서는
+        회사 소유 리소스가 아니라 플랫폼 전체가 공유하는 지식베이스 원본이다.
+        `RagDocumentController.list` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [admin]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RagDocumentListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+    post:
+      summary: RAG 문서 업로드 (플랫폼 관리자 콘솔, #22/HAJA-35, multipart/form-data)
+      description: >
+        법규·지침 PDF를 업로드해 텍스트를 추출하고 AI 서버 임베딩 파이프라인을 실행한다
+        (PLATFORM_ADMIN 전용). 텍스트가 없는 PDF는 파일 저장 자체를 하지 않고 실패한다
+        (RAG_TEXT_EXTRACTION_FAILED, 400). AI 서버 임베딩 실패는 업로드 자체를 실패시키지 않는다 —
+        생성된 문서는 embeddingStatus=FAILED로 남고 재임베딩(`POST /{id}/re-embed`)으로 복구한다.
+        `RagDocumentController.upload` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, title, sourceType, targetCollection]
+              properties:
+                file: { type: string, format: binary, description: "PDF 원본(application/pdf, 최대 20MB)" }
+                title: { type: string, maxLength: 300 }
+                sourceType: { type: string, enum: [LAW, GUIDELINE] }
+                targetCollection: { type: string, enum: [REGULATIONS, DEFECT_KB] }
+                effectiveDate: { type: string, format: date, nullable: true }
+                publisher: { type: string, maxLength: 200, nullable: true }
+                authoredAt: { type: string, format: date, nullable: true }
+      responses:
+        "201":
+          description: 업로드 성공(생성 직후 상태 — 임베딩은 비동기로 계속 진행될 수 있음)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RagDocumentApiResponse" }
+        "400":
+          description: >
+            입력값 검증 실패(INVALID_INPUT) | 파일 누락(FILE_REQUIRED) |
+            PDF 텍스트 추출 실패(RAG_TEXT_EXTRACTION_FAILED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/rag-documents/{id}:
+    delete:
+      summary: RAG 문서 삭제 (플랫폼 관리자 콘솔, #1394)
+      description: >
+        AI 서버 Chroma 청크를 먼저 삭제한 뒤 DB 로우와 원본 파일을 삭제한다(PLATFORM_ADMIN 전용).
+        AI 서버 삭제 실패 시 DB/파일은 그대로 유지되며 오류를 반환한다 — Chroma의 delete_document()가
+        idempotent라 관리자가 다시 시도하면 된다. `RagDocumentController.delete` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: 삭제 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: RAG 문서 미존재 (RAG_DOCUMENT_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/admin/rag-documents/{id}/re-embed:
+    post:
+      summary: RAG 문서 재임베딩 (플랫폼 관리자 콘솔, #22/HAJA-35 handoff)
+      description: >
+        기존 상태(PENDING/DONE/FAILED)와 무관하게 임베딩을 재실행한다(PLATFORM_ADMIN 전용, 명시적
+        관리자 액션으로만 트리거 — 자동 재임베딩 없음). 원본 PDF를 저장소에서 다시 읽어 텍스트를
+        재추출하고, AI 서버가 동일 문서의 기존 청크를 삭제 후 재삽입하는 idempotent 설계라 여러 번
+        실행해도 결과가 수렴한다. `RagDocumentController.reEmbed` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [admin]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: 재임베딩 요청 처리됨(임베딩은 비동기로 계속 진행될 수 있음)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RagDocumentApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: RAG 문서 미존재 (RAG_DOCUMENT_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/users/me/invite-code:
+    post:
+      summary: 초대 코드 적용 (#794)
+      description: >
+        발급받은 초대 코드를 입력해 회사 소속으로 전환한다(WAITING 상태 전용). WAITING이 아닌 계정의
+        redeem 시도는 코드를 소비하지 않고 즉시 거부한다(AUTH_ACCOUNT_WAITING 아닌 상태 전이 예외 —
+        griefing 방지, 정당한 WAITING 사용자가 코드를 계속 쓸 수 있도록). 코드가 유효하지 않거나
+        만료됐으면 400(AUTH_INVITE_CODE_INVALID) — 발급 회사가 이미 삭제된 경우도 동일 응답으로
+        통일한다(회사 존재 여부 비열거). 활성화 직전 좌석을 원자적으로 예약하므로 좌석이 가득 찬
+        회사의 코드는 403(PLAN_SEAT_QUOTA_EXCEEDED)으로 거절된다. redeem 시도는 사용자당 rate-limit이
+        걸려 있다(429). `UserController.redeemInviteCode` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InviteCodeRedeemRequest" }
+      responses:
+        "200":
+          description: 적용 성공(회사 소속·ACTIVE로 전환된 사용자 정보)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserApiResponse" }
+        "400":
+          description: >
+            입력값 검증 실패(INVALID_INPUT) | 유효하지 않거나 만료된 초대 코드(AUTH_INVITE_CODE_INVALID)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 좌석 한도 초과 (PLAN_SEAT_QUOTA_EXCEEDED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 사용자 미존재 (USER_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: WAITING 상태가 아닌 계정의 redeem 시도 (INVALID_STATE_TRANSITION)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "429":
+          description: 사용자당 redeem 시도 rate-limit 초과 (AUTH_TOO_MANY_REQUESTS)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+
+  # ── platform-admin (플랫폼 관리자) ──
+  /api/platform-admin/users:
+    get:
+      summary: 사용자 목록 조회 (플랫폼 관리자, #576)
+      description: >
+        검색(이름·이메일·기업명 부분일치, keyword)/필터(role·plan·status)/서버 페이징 + 전사 통계
+        (PLATFORM_ADMIN 전용). AdminUserController(#405, "/api/admin/users")와 완전히 분리된 별도
+        라우트로, companyId 스코프 없이 전사 사용자를 다룬다(PLATFORM_ADMIN 자신은 항상 목록에서
+        제외). ⚠️ page는 0부터 시작한다(다른 platform-admin 목록 API 다수가 1부터 시작하는 것과
+        다름 — PlatformAdminUserController 구현 그대로). stats(totalMembers/active/suspended/
+        newThisWeek/newThisWeekGrowthRate)는 검색어·필터와 무관하게 전사 기준(PLATFORM_ADMIN 제외)으로
+        집계하며, newThisWeek는 조회 시각 기준 롤링 7일 윈도우다. `PlatformAdminUserController.list`
+        구현됨.
+      security:
+        - SessionCookie: []
+      tags: [platform-admin]
+      parameters:
+        - name: keyword
+          in: query
+          description: 사용자 이름·이메일·소속 기업명 부분일치 검색(대소문자 무시)
+          schema: { type: string }
+        - name: role
+          in: query
+          schema: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN] }
+        - name: plan
+          in: query
+          schema: { type: string, enum: [FREE, STANDARD, ENTERPRISE] }
+        - name: status
+          in: query
+          schema: { type: string, enum: [ACTIVE, SUSPENDED, WAITING] }
+        - name: page
+          in: query
+          description: 0부터 시작
+          schema: { type: integer, default: 0, minimum: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, default: 10, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAdminUserListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    post:
+      summary: 사용자 등록 (플랫폼 관리자, #576)
+      description: >
+        플랫폼 관리자가 사용자 계정을 직접 생성한다(PLATFORM_ADMIN 전용). companyId가 null이면 회사
+        미소속(개인 계정)으로 등록된다. companyId를 지정하면 그 회사가 심사 승인(APPROVED) 상태여야
+        하고(그 외는 리소스 존재 여부 열거 방지를 위해 미존재와 동일하게 404 COMPANY_NOT_FOUND), 회사
+        좌석이 원자적으로 예약된다(잔여 좌석 없으면 409). role은 화이트리스트(ADMIN/INSPECTOR/USER/
+        COUNSELOR)만 허용 — PLATFORM_ADMIN은 이 화면 밖의 축이라 지정 시 400. skill은 role=COUNSELOR일
+        때만 의미가 있고(즉시 스킬 배정), 그 외 role이면 서버가 조용히 무시한다.
+        `PlatformAdminUserController.create` 구현됨.
+      security:
+        - SessionCookie: []
+        - XsrfToken: []
+      tags: [platform-admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlatformAdminUserCreateRequest" }
+      responses:
+        "201":
+          description: 등록 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAdminUserApiResponse" }
+        "400":
+          description: 입력값 오류(INVALID_INPUT) 또는 화이트리스트 밖 역할(ADMIN_ROLE_NOT_ASSIGNABLE)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 지정한 companyId의 승인된 기업 없음 (COMPANY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 이메일 중복(AUTH_EMAIL_DUPLICATED) 또는 회사 좌석 잔여 없음
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/platform-admin/users/{id}/role:
+    patch:
+      summary: 사용자 역할 변경 (플랫폼 관리자, #576)
+      description: >
+        대상 사용자의 role을 변경한다(PLATFORM_ADMIN 전용). role은 화이트리스트(ADMIN/INSPECTOR/USER/
+        COUNSELOR)만 허용(그 외는 400 ADMIN_ROLE_NOT_ASSIGNABLE). 대상이 소속 회사의 마지막 활성(ACTIVE)
+        ADMIN인데 role을 ADMIN 아닌 값으로 바꾸면 409(ADMIN_PROTECTED_ACCOUNT) — 그 회사가 관리자
+        콘솔 접근 수단을 영구히 잃는 것을 막는다. 대상이 PLATFORM_ADMIN이거나 존재하지 않으면 404
+        (리소스 존재 여부 열거 방지 — 둘을 구분해 응답하지 않음). `PlatformAdminUserController.changeRole`
+        구현됨.
+      security:
+        - SessionCookie: []
+        - XsrfToken: []
+      tags: [platform-admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlatformAdminUserRoleUpdateRequest" }
+      responses:
+        "200":
+          description: 변경 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAdminUserRoleUpdateApiResponse" }
+        "400":
+          description: 화이트리스트 밖 역할 (ADMIN_ROLE_NOT_ASSIGNABLE)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 대상 사용자 없음 (USER_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 대상이 소속 회사의 마지막 활성 ADMIN (ADMIN_PROTECTED_ACCOUNT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/platform-admin/users/{id}/status:
+    patch:
+      summary: 사용자 상태 변경 (플랫폼 관리자, #576)
+      description: >
+        대상 사용자의 status(ACTIVE/SUSPENDED/WAITING)를 변경한다(PLATFORM_ADMIN 전용). 대상이 소속
+        회사의 마지막 활성 ADMIN인데 status를 SUSPENDED로 바꾸면 409(ADMIN_PROTECTED_ACCOUNT). 대상이
+        PLATFORM_ADMIN이거나 존재하지 않으면 404(리소스 존재 여부 열거 방지). `PlatformAdminUserController
+        .changeStatus` 구현됨.
+      security:
+        - SessionCookie: []
+        - XsrfToken: []
+      tags: [platform-admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlatformAdminUserStatusUpdateRequest" }
+      responses:
+        "200":
+          description: 변경 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAdminUserStatusUpdateApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 대상 사용자 없음 (USER_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 대상이 소속 회사의 마지막 활성 ADMIN (ADMIN_PROTECTED_ACCOUNT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/platform-admin/users/{id}/skills:
+    get:
+      summary: 상담원 스킬 조회 (플랫폼 관리자, #1001/HAJA-495)
+      description: >
+        대상 상담원의 현재 배정 스킬을 조회한다(PLATFORM_ADMIN 전용) — 스킬 변경 모달이 열릴 때 현재
+        배정을 채우는 용도. 대상 role이 COUNSELOR가 아니면 400(ADMIN_SKILL_TARGET_NOT_COUNSELOR).
+        `PlatformAdminUserController.getSkills` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [platform-admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAdminUserSkillsApiResponse" }
+        "400":
+          description: 대상이 COUNSELOR가 아님 (ADMIN_SKILL_TARGET_NOT_COUNSELOR)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 대상 사용자 없음 (USER_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    patch:
+      summary: 상담원 스킬 변경 (플랫폼 관리자, #1001/HAJA-495)
+      description: >
+        대상 상담원의 스킬을 전달받은 값 하나로 교체한다(PLATFORM_ADMIN 전용) — 라디오 버튼(단일 선택)
+        모달이라 "저장"은 항상 기존 배정 전체를 새 스킬 하나로 원자적으로 교체한다(부분 추가/제거 없음,
+        대상 사용자 행을 PESSIMISTIC_WRITE로 잠가 동시 요청을 직렬화). 대상 role이 COUNSELOR가 아니면
+        400(ADMIN_SKILL_TARGET_NOT_COUNSELOR). `PlatformAdminUserController.changeSkill` 구현됨.
+      security:
+        - SessionCookie: []
+        - XsrfToken: []
+      tags: [platform-admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdminUserSkillUpdateRequest" }
+      responses:
+        "200":
+          description: 변경 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserSkillUpdateApiResponse" }
+        "400":
+          description: 대상이 COUNSELOR가 아님 (ADMIN_SKILL_TARGET_NOT_COUNSELOR)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 대상 사용자 없음 (USER_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/platform-admin/companies:
+    get:
+      summary: 배정 가능 기업 목록 조회 (플랫폼 관리자, #576, PR #626 후속)
+      description: >
+        심사 승인(APPROVED)된 기업 목록(PLATFORM_ADMIN 전용) — 사용자 등록 모달의 기업명 selectbox용.
+        `PlatformAdminCompanyController.list` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [platform-admin]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CompanyOptionListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/platform-admin/stats:
+    get:
+      summary: 서비스 통계 조회 (플랫폼 관리자, #633)
+      description: >
+        가입자/분석 요청/상담 건수 KPI + 최근 6개월 추이·플랜 분포·월별 요약(PLATFORM_ADMIN 전용).
+        companyId 스코프 없이 플랫폼 전체를 집계한다. kpi.analysisRequests와 monthlySummary[].
+        analysisCount는 필드명은 "요청"이지만 실제 값은 분석한 이미지 장수다(#1407 후속, frontend
+        라벨과 정합). counselTypeDistribution은 현재 항상 빈 배열이다(counsel_tickets에 유형 분류
+        컬럼이 아직 없음 — 사용자 지시로 범위 밖, 후속 이슈에서 채움). analysisRequests/counselCount는
+        "이번 기간"(최근 6개월 추이 윈도우) 누적치로 monthlySummary 각 행의 analysisCount/counselCount
+        합계와 항상 일치한다. `PlatformAdminStatsController.getStats` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [platform-admin]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAdminServiceStatsApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/platform-admin/monitoring:
+    get:
+      summary: 시스템 모니터링 조회 (플랫폼 관리자, #728)
+      description: >
+        서버 헬스체크(API 서버/AI 분석 서버/DB) + 서버 자원(CPU/메모리/디스크, Actuator MetricsEndpoint
+        기준 현재 시점 라이브 값 — 시계열 아님) + 최근 에러 로그(PLATFORM_ADMIN 전용). jobQueue는
+        inspections 테이블 기준 최근 N건 실데이터(#1408) — status 매핑은 CREATED/UPLOADING/ANALYZING
+        → IN_PROGRESS, ANALYZED/REVIEWED/REPORTED → COMPLETED이며 FAILED/WAITING은 DB에 대응
+        상태가 아직 없어 현재는 나오지 않는다(계약 값 자체는 프론트 호환을 위해 유지). errorLogs[].
+        timestamp는 "yyyy-MM-dd HH:mm:ss"(Asia/Seoul) 포맷 문자열이다. `PlatformAdminMonitoringController
+        .getMonitoring` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [platform-admin]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SystemMonitoringApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: PLATFORM_ADMIN 아님 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+
+  # ── counsel·채팅 세션 ──
+  /api/counsel/scenarios/roots:
+    get:
+      summary: 최상위 시나리오 버튼 목록
+      description: >
+        FR-7(#20/HAJA-33). 버튼 선택형 챗봇 첫 화면의 최상위 버튼 목록(parent_id IS NULL,
+        sortOrder 오름차순)을 반환한다. 로그인 사용자면 누구나 접근 가능(SecurityConfig
+        anyRequest().authenticated()). 시나리오 트리는 조회 전용이며 관리자 시드로만 관리한다.
+        `BotScenarioController.getRoots` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [counsel]
+      responses:
+        "200":
+          description: 조회 성공(트리가 비어 있으면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BotScenarioButtonListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/counsel/scenarios/{id}:
+    get:
+      summary: 시나리오 노드 상세
+      description: >
+        FR-7(#20/HAJA-33). 노드의 응답 텍스트(responseText)와 자식 버튼 목록(sortOrder 오름차순)을
+        반환한다. leadsToCounselor=true 인 리프 노드는 프론트에서 "상담원 연결"
+        (POST /api/counsel/tickets)로 이어진다. `BotScenarioController.getNode` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [counsel]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BotScenarioNodeApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 노드 없음 (COUNSEL_SCENARIO_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/counsel/tickets/{id}:
+    get:
+      summary: 상담 티켓 단건 조회(#1506)
+      description: >
+        FR-7(#20/HAJA-33). WS 재연결 등으로 놓친 상태 변경을 REST로 백필하기 위한 폴백. 당사자
+        (사용자 본인/담당 상담원) 또는 PLATFORM_ADMIN — 비당사자·미존재 모두 열거 방지를 위해 통일된
+        404로 응답한다(PLATFORM_ADMIN 은 미존재만 404). `CounselTicketController.getTicket` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [counsel]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CounselTicketApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 비당사자 (COUNSEL_TICKET_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/counsel/tickets/{id}/customer-history:
+    get:
+      summary: 고객 상담 이력
+      description: >
+        FR-7(#20/HAJA-33, #1001 후속). 이 티켓(id)의 담당 상담원 본인 또는 PLATFORM_ADMIN이 그
+        고객(ticket.userId)의 과거 상담 이력을 조회한다(최신순 최대 20건, 현재 조회 중인 티켓 자신은
+        제외). userId만으로 임의 고객의 이력을 열람하지 못하게 "지금 담당 중인 티켓"이라는 정당한
+        접점을 요구한다(resolve와 동일한 인가 패턴). `CounselTicketController.getCustomerHistory`
+        구현됨.
+      security:
+        - SessionCookie: []
+      tags: [counsel]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 조회 성공(이력 없으면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CounselTicketSummaryListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 담당 상담원 본인도 PLATFORM_ADMIN 도 아님 (COUNSEL_TICKET_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 티켓 없음 (COUNSEL_TICKET_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/counsel/tickets/{id}/customer-history/{historyId}/messages:
+    get:
+      summary: 고객 이력 티켓 대화 조회
+      description: >
+        FR-7(#20/HAJA-33, #1001 후속). customer-history 목록에 나온 과거 티켓(historyId)의 대화
+        내용을 조회한다. historyId 티켓의 담당자가 요청자와 달라도(과거에 다른 상담원이 처리),
+        "지금 담당 중인 id 티켓과 같은 고객(userId)의 티켓인가"로 접근을 허용한다 — 다른 고객의
+        티켓 id 를 끼워 넣으면 미존재와 통일된 404. `CounselTicketController.getCustomerHistoryMessages`
+        구현됨.
+      security:
+        - SessionCookie: []
+      tags: [counsel]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 현재 담당 중인 앵커 티켓 id
+          schema: { type: integer, format: int64 }
+        - name: historyId
+          in: path
+          required: true
+          description: 조회할 과거 상담 티켓 id
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 조회 성공(대화 없으면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatMessageListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 앵커 티켓(id)의 담당 상담원 본인도 PLATFORM_ADMIN 도 아님 (COUNSEL_TICKET_FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: >
+            앵커 티켓 없음 또는 historyId 티켓이 없거나 앵커와 같은 고객 소유가 아님
+            (COUNSEL_TICKET_NOT_FOUND — 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/counsel/tickets/{ticketId}/attachments:
+    post:
+      summary: 상담 첨부 업로드
+      description: >
+        FR-7(#20/HAJA-33). 이미지(JPG/PNG) 1건을 업로드하고 저장키(attachmentKey)를 반환한다.
+        티켓 당사자(사용자 본인/담당 상담원)만 — 비당사자·미존재 모두 통일된 404. 매직바이트(파일
+        시그니처)로 선언된 Content-Type 을 재검증하며 불일치 시 400. 프론트는 이 저장키를 WS
+        `/app/counsel/{ticketId}/send` 메시지 바디에 실어 보내고, 서버가 `chat_messages`에 직접
+        스냅샷한다(Media 도메인 테이블에는 기록하지 않음). `CounselAttachmentController.upload`
+        구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [counsel]
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 업로드할 이미지(JPG/PNG, 최대 20MB — MediaUploadProperties 공용 정책)
+      responses:
+        "201":
+          description: 업로드 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CounselAttachmentApiResponse" }
+        "400":
+          description: >
+            파일 미첨부 (FILE_REQUIRED), 매직바이트 불일치·허용 외 형식 (FILE_INVALID_TYPE) 또는
+            용량 초과 (FILE_TOO_LARGE)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 비당사자 (COUNSEL_TICKET_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/counsel/tickets/{ticketId}/messages/{messageId}/attachment:
+    get:
+      summary: 상담 첨부 조회
+      description: >
+        FR-7(#20/HAJA-33). 메시지에 첨부된 이미지 원본 바이트를 반환한다. 티켓 당사자(사용자
+        본인/담당 상담원)만 — 원본을 정적 URL 로 노출하지 않고 매 요청 인가한다. messageId 가
+        이 ticketId 의 세션 소속이 아니면(다른 티켓 메시지 id 대입) 열거 방지를 위해 첨부 없음과
+        동일한 404. 개인 대화라 `Cache-Control: no-store, private` 로 공유 캐시(프록시/CDN)를
+        금지한다. `CounselAttachmentController.getAttachment` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [counsel]
+      parameters:
+        - name: ticketId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+        - name: messageId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 조회 성공 — 원본 이미지 바이트(Content-Type=image/jpeg 또는 image/png)
+          headers:
+            Cache-Control:
+              schema: { type: string, example: "no-store, private" }
+          content:
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: >
+            티켓 미존재·비당사자, 메시지가 이 티켓 세션 소속이 아님, 또는 메시지에 첨부 없음
+            (COUNSEL_TICKET_NOT_FOUND 또는 FILE_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/chat-sessions:
+    post:
+      summary: 채팅 세션 생성
+      description: >
+        #1467/HAJA-647. 로그인 사용자 소유의 채팅 세션을 생성한다(RAG 챗봇은 sessionType=RAG). 소유자
+        (userId)는 `@AuthenticationPrincipal` 에서만 취득하며 요청 바디로 받지 않는다 — 임의 사용자
+        명의 세션 생성을 막기 위함. `ChatSessionController.createSession` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [counsel]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatSessionCreateRequest" }
+      responses:
+        "201":
+          description: 생성 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatSessionApiResponse" }
+        "400":
+          description: sessionType 누락/유효하지 않은 값 (VALIDATION_ERROR)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/chat-sessions/{sessionId}/messages:
+    get:
+      summary: 채팅 세션 이력 조회
+      description: >
+        #1467/HAJA-647. 세션의 메시지를 생성순으로 반환하며, RAG 답변이 인용한 근거
+        (chat_message_citations)를 메시지별로 함께 실어 새로고침 후에도 출처를 복원할 수 있게 한다.
+        세션 식별자는 요청자가 보내는 입력값이므로 신뢰하지 않고 (id, userId) 복합 조건으로 조회한다
+        — 세션 소유자만 조회 가능하며, 타인 세션·미존재 세션은 모두 동일하게 403(열거 방지 통일
+        응답, COUNSEL_TICKET_FORBIDDEN 관례와 동일). `ChatSessionController.findMessages` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [counsel]
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "200":
+          description: 조회 성공(메시지 없으면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatSessionMessageListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 미존재 또는 타인 소유 (CHAT_SESSION_FORBIDDEN — 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+
+  # ── facilities·inspections·defects 보강 ──
+  /api/facilities/assignable-users:
+    get:
+      summary: 배정 가능한 담당자 목록 조회 (#690)
+      description: >
+        로그인 사용자의 회사 소속 사용자 중 시설물/점검/조치 담당자로 배정 가능한(활성·INSPECTOR
+        또는 ADMIN이며 유효한 승인 멤버십을 보유) 목록을 반환한다. email은 노출하지 않는 경량 DTO다
+        (배정 피커 UI는 id/name/role만 필요 — PR머신 리뷰 P3, #690). 점검 생성(assignedInspectorId)·
+        조치 담당자(actionAssigneeId) 지정 폼이 공통으로 사용하는 옵션 소스다. ⚠️ 요청자 자신이 이
+        회사의 유효 승인 멤버십을 갖고 있지 않으면(companyId 없음 포함) 400 AUTH_INVALID_INSPECTOR로
+        거부한다(다른 엔드포인트의 companyScopeGuard 403 FORBIDDEN 패턴과 다름 — 실 구현 그대로 반영).
+      security:
+        - SessionCookie: []
+      tags: [facility]
+      responses:
+        "200":
+          description: 조회 성공(빈 배열 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssignableUserListApiResponse" }
+        "400":
+          description: 요청자 본인이 이 회사의 유효 승인 멤버십이 없음 (AUTH_INVALID_INSPECTOR)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/facilities/status:
+    get:
+      summary: 시설물 현황 목록 조회 (#540 ⑥, HAJA-378)
+      description: >
+        로그인 사용자의 회사가 소유한 시설물의 현황(초기등급·다음점검일·D-day·담당자·최근점검일·
+        점검주기·최근 점검유형)을 반환한다 — 대시보드 스타일 현황 테이블 화면 전용. initialGrade는
+        시설물 등록 시 입력한 정적 값으로 점검 이력 기반 동적 등급과는 별개 개념이다. dDay는 호출
+        시점(today, KST) 기준 nextInspectionDueAt까지 잔여일이며 다음 점검일이 없으면 null이다.
+        inspectionType은 Facility 자체에 "기본 점검유형" 컬럼이 없어 가장 최근 점검 회차의 유형을
+        근사값으로 재사용한다(점검 이력 없으면 null). 회사당 최대 500건까지만 반환하며(FACILITY_LIST_MAX,
+        초과분은 서버 로그로만 경고) 시설물이 없으면 빈 배열을 반환한다.
+      security:
+        - SessionCookie: []
+      tags: [facility]
+      responses:
+        "200":
+          description: 조회 성공(빈 배열 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityStatusListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/facilities/{id}/inspections:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+    get:
+      summary: 시설물 점검 이력 조회 (#1359/HAJA-616)
+      description: >
+        로그인 사용자의 회사가 소유한 시설물의 전체 점검 회차 이력과 집계(전체 등급/회차수/누적
+        하자/미조치 건수)를 반환한다 — 시설물 상세 "점검 이력" 탭 전용. overallGrade는
+        facilities.initial_grade와 완전히 다른 개념으로, 최신 회차 하자 중 최악 등급의 계산값이며
+        null이면 최신 회차에 등급이 매겨진 하자가 없다는 뜻이다. 점검 이력이 없으면
+        overallGrade=null, totalRounds=0, history=[]로 응답한다. 최신 회차에만 이전 회차 대비 변화
+        메모(changeNote, 비교 가능한 상태일 때만)와 미리보기 썸네일(최대 2장)이 채워진다. 미존재/타인
+        소유 모두 404 FACILITY_NOT_FOUND로 통일한다.
+      security:
+        - SessionCookie: []
+      tags: [facility]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityInspectionOverviewApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/facilities/{facilityId}/media:
+    parameters:
+      - { name: facilityId, in: path, required: true, schema: { type: integer, format: int64 } }
+    get:
+      summary: 시설물 대표 사진 목록 조회 (#632/#652)
+      description: >
+        시설물에 등록된 대표 사진을 id 오름차순으로 반환한다. 점검 회차 미디어와 같은 MediaResponse를
+        재사용하지만, 이 목록의 각 항목은 point-in-time 점검이 아니라 시설물에 직접 귀속되므로
+        inspectionId는 항상 null이다. 소유권은 FacilityService.get()과 동일하게 회사 스코프로
+        검증하며, 미존재/타인 소유 모두 404 FACILITY_NOT_FOUND로 통일한다.
+      security:
+        - SessionCookie: []
+      tags: [media]
+      responses:
+        "200":
+          description: 조회 성공(빈 배열 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+    post:
+      summary: 시설물 대표 사진 업로드 (#632/#652)
+      description: >
+        시설물 대표 사진(JPG/PNG)을 다중 업로드한다. 시설물당 최대 4장까지만 허용하며(기존 보유분 +
+        이번 업로드 합계 기준, 애플리케이션 레벨 카운트) 초과 시 파일을 하나도 저장하지 않고
+        400(FACILITY_PHOTO_COUNT_EXCEEDED)으로 거부한다. 전체 파일을 먼저 매직바이트로 검증한 뒤
+        all-or-nothing으로 저장한다(하나라도 실패하면 아무것도 저장하지 않음). 원본은 어떤 응답에도
+        직접 노출되지 않는다 — thumbnailUrl/detailUrl은 인가된 다운로드 API 경로다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [media]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  minItems: 1
+                  items: { type: string, format: binary }
+                  description: >
+                    JPG/PNG만 허용(매직바이트 검증). 기존 보유분 + 이번 업로드 합계가 시설물당 4장을
+                    넘으면 전체 요청이 거부된다.
+      responses:
+        "201":
+          description: 업로드 성공(업로드된 각 파일에 대응하는 미디어 목록)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaListApiResponse" }
+        "400":
+          description: >
+            파일 누락(FILE_REQUIRED)/형식 불일치(매직바이트 검증 실패, FILE_INVALID_TYPE)/용량 초과
+            (FILE_TOO_LARGE)/시설물당 4장 초과(FACILITY_PHOTO_COUNT_EXCEEDED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/inspections/{id}:
+    get:
+      summary: 점검 회차 단건 조회
+      description: >
+        점검 회차 상세를 반환한다. 소유권은 회사 스코프로 검증하며, 시설물이 미존재/타인 소유이면
+        (FacilityService.get()이 FACILITY_NOT_FOUND를 던지는 경우) InspectionService.getInspection이
+        이를 INSPECTION_NOT_FOUND로 변환해 통일 응답한다(존재 여부 열거 방지).
+      security:
+        - SessionCookie: []
+      tags: [inspection]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InspectionApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 점검 회차 미존재 또는 타인 소유 (INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/inspections/{id}/confirm-review:
+    post:
+      summary: 점검 회차 검수 확정 (ANALYZED → REVIEWED)
+      description: >
+        결과 뷰어 "점검 요약" 버튼 클릭 시 호출된다. 이미 REVIEWED/REPORTED면 아무 효과 없이
+        성공 처리한다(멱등). ANALYZED가 아니면(아직 분석 전/진행 중 등) 409 INSPECTION_REVIEW_NOT_READY로
+        거부하고, 미검수(is_reviewed=false)인 비삭제 하자가 하나라도 남아 있으면 409
+        INSPECTION_REVIEW_INCOMPLETE로 거부한다. 상태 전이는 "여전히 ANALYZED일 때만" 전이하는
+        조건부 UPDATE로 처리되며, 사전 체크 이후 다른 요청(재분석 선점 등)이 먼저 상태를 바꿨으면
+        409 INSPECTION_ROUND_CONFLICT로 재시도를 안내한다(재조회 없이 클라이언트 재진입으로 자연
+        해소). 소유권은 회사 스코프로 검증하며 미존재/타인 소유 모두 404로 통일한다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [inspection]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "200":
+          description: 확정 성공 또는 이미 REVIEWED/REPORTED라 멱등하게 무시됨 (data=null)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoidApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 점검 회차 미존재 또는 타인 소유 (INSPECTION_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: >
+            아직 ANALYZED가 아님(INSPECTION_REVIEW_NOT_READY) · 미검수 하자가 남아 있음
+            (INSPECTION_REVIEW_INCOMPLETE) · 사전 체크 이후 상태가 먼저 바뀜(INSPECTION_ROUND_CONFLICT,
+            재시도 안내)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/defects/{id}/status:
+    patch:
+      summary: 하자 상태 전이 (HAJA-26 2차)
+      description: >
+        신규(DETECTED)→검수확정(CONFIRMED)→조치중(IN_PROGRESS)→조치완료(RESOLVED) 순서의 정방향
+        한 단계 전이는 사유 없이 허용한다. 역행/건너뛰기 전이(조치완료에서의 이탈 포함)는 reason이
+        있어야 하며 없으면 400 INVALID_INPUT이다. 현재 상태와 동일한 상태로 요청하면 409
+        INVALID_STATE_TRANSITION이다. 신규(DETECTED)에서 벗어나려면 등급이 먼저 확정돼 있어야
+        한다(없으면 400 INVALID_INPUT, #1397). 같은 사진(mediaId)의 하자들은 한 그룹으로 함께
+        전이된다(#1556/#1583) — 앞으로 진행시키는 요청은 정방향 한 단계로 따라올 수 있는 멤버만,
+        되돌리는 요청은 앞선 멤버까지 함께 전이한다(이미 목표 상태인 멤버는 제외). 그룹 내 하나라도
+        거부되면 트랜잭션 전체가 롤백된다(부분 반영 없음). 소유권은 회사 스코프로 검증하며 미존재/
+        타사 소유 모두 404 DEFECT_NOT_FOUND로 통일한다.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DefectStatusUpdateRequest" }
+      responses:
+        "200":
+          description: 전이 반영된 하자 상세(anchor 기준)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectResponseApiResponse" }
+        "400":
+          description: >
+            역행/건너뛰기 전이에 reason 누락, 등급 미확정 상태에서 DETECTED 이탈 시도 등
+            (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 하자 미존재 또는 타사 소유 (DEFECT_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "409":
+          description: 현재 상태와 동일한 상태로 재요청 (INVALID_STATE_TRANSITION)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/defects/{id}/action-logs:
+    get:
+      summary: 조치 등록 이력 조회 (#1193/HAJA-569)
+      description: >
+        조치중(IN_PROGRESS)/조치완료(RESOLVED) 단계별로 등록된 조치 결과 제출 이력을 최신순으로
+        전체 반환한다(조치중 단계 다중 등록 지원). 하자 상세 모달 사진 탭이 항목 2개 이상일 때
+        등록일 select로 넘겨보는 용도. phase 쿼리 파라미터는 필수이며 IN_PROGRESS/RESOLVED만
+        허용한다(그 외 값·누락은 400). 소유권은 회사 스코프로 검증하며 미존재/타사 소유 모두 404
+        DEFECT_NOT_FOUND로 통일한다.
+      security:
+        - SessionCookie: []
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - name: phase
+          in: query
+          required: true
+          description: 조회할 조치 단계. IN_PROGRESS/RESOLVED만 허용한다.
+          schema:
+            type: string
+            enum: [IN_PROGRESS, RESOLVED]
+      responses:
+        "200":
+          description: 조회 성공(빈 배열 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectActionLogListApiResponse" }
+        "400":
+          description: phase 누락 또는 IN_PROGRESS/RESOLVED가 아닌 값 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 하자 미존재 또는 타사 소유 (DEFECT_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/defects/{id}/revisions:
+    get:
+      summary: 하자 활동 기록(변경 이력) 조회 (HAJA-314)
+      description: >
+        하자 상태 변경 이력을 최신순으로 페이지 단위 반환한다 — 하자 상세 화면 활동 기록 타임라인용.
+        같은 사진(mediaId) 단위 그룹 확장(#1556)으로, 조회 대상 하자와 같은 그룹에 속한 모든 하자의
+        defect_revisions 이력을 함께 반환한다(mediaId가 없는 하자는 그룹 크기 1이라 단건 조회와
+        동일). 소유권은 회사 스코프로 검증하며 미존재/타사 소유 모두 404 DEFECT_NOT_FOUND로
+        통일한다.
+      security:
+        - SessionCookie: []
+      tags: [defect]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - name: page
+          in: query
+          description: 0부터 시작하는 페이지 번호
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          description: 페이지 크기
+          schema: { type: integer, minimum: 1, default: 20 }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectRevisionPageApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: 회사 멤버십 없음/회수·만료 (FORBIDDEN)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 하자 미존재 또는 타사 소유 (DEFECT_NOT_FOUND, 존재 여부 열거 방지 통일 응답)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+
+  # ── statistics·dashboard·menus·plans·마이페이지·reports 보강 ──
+  /api/statistics/summary:
+    get:
+      summary: 통계 KPI 요약 (StatisticsController)
+      description: >
+        로그인 사용자의 회사 시설물 기준 통계 KPI(총 하자·평균 조치일수·조치완료율·진행중 하자)를
+        반환한다. facilityId 미지정 또는 "all"이면 회사 전체 시설물, 그 외 숫자면 해당 시설물 단건으로
+        스코프를 좁힌다(타 회사 소유 시설물이면 FACILITY_NOT_FOUND). period 는 3m/1y 만 인식하고
+        그 외 값(미지정 포함)은 기본 6개월로 처리한다(StatisticsService.monthsOf, 알 수 없는 값이어도
+        400을 던지지 않고 조용히 기본값으로 대체). changeRate 는 동일 길이 직전 구간과 비교한 증감률(%)이며
+        직전 구간 값이 0이면 현재 값이 0보다 클 때만 100%, 그 외 0%다. `StatisticsController.getSummary` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [statistics]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: "3m | 1y (그 외/미지정은 기본 6개월)"
+          schema: { type: string }
+        - name: facilityId
+          in: query
+          required: false
+          description: "미지정 또는 all이면 회사 전체 시설물, 숫자 문자열이면 해당 시설물 단건"
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatisticsKpiSummaryApiResponse" }
+        "400":
+          description: facilityId 가 숫자도 all도 아님 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: facilityId 가 타 회사 소유이거나 미존재 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/statistics/grade-distribution:
+    get:
+      summary: 하자 등급별 분포 (StatisticsController)
+      description: >
+        로그인 사용자의 회사 시설물 기준(period·facilityId 스코프는 /api/statistics/summary 와 동일)
+        하자 등급(A~E) 분포를 반환한다. 등급 분류된 하자가 한 건이라도 있으면 A~E 5개 항목 전부
+        반환(집계 없는 등급은 percent=0), 0건이면 빈 목록. `StatisticsController.getGradeDistribution` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [statistics]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: "3m | 1y (그 외/미지정은 기본 6개월)"
+          schema: { type: string }
+        - name: facilityId
+          in: query
+          required: false
+          description: "미지정 또는 all이면 회사 전체 시설물, 숫자 문자열이면 해당 시설물 단건"
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공(등급 분류된 하자 0건이면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatisticsGradeDistributionListApiResponse" }
+        "400":
+          description: facilityId 가 숫자도 all도 아님 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: facilityId 가 타 회사 소유이거나 미존재 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/statistics/defect-type-distribution:
+    get:
+      summary: 하자 유형별 분포 (StatisticsController)
+      description: >
+        로그인 사용자의 회사 시설물 기준(period·facilityId 스코프는 /api/statistics/summary 와 동일)
+        하자 유형별 건수를 반환한다. 프론트 계약상 노출 유형은 균열/박리·박락/철근노출 3종으로
+        고정된다(StatisticsService.FRONTEND_CONTRACT_TYPES) — 그 외 DefectType 은 집계에서 제외.
+        `StatisticsController.getDefectTypeDistribution` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [statistics]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: "3m | 1y (그 외/미지정은 기본 6개월)"
+          schema: { type: string }
+        - name: facilityId
+          in: query
+          required: false
+          description: "미지정 또는 all이면 회사 전체 시설물, 숫자 문자열이면 해당 시설물 단건"
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공(대상 구간에 하자가 없으면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DefectTypeDistributionListApiResponse" }
+        "400":
+          description: facilityId 가 숫자도 all도 아님 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: facilityId 가 타 회사 소유이거나 미존재 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/statistics/monthly-trend:
+    get:
+      summary: 월별 하자 추이 (StatisticsController)
+      description: >
+        로그인 사용자의 회사 시설물 기준(period·facilityId 스코프는 /api/statistics/summary 와 동일)
+        월별 하자 건수를 반환한다. period 로 정해진 개월 수(기본 6개월)만큼의 월 라벨을 빠짐없이
+        반환한다 — 하자 0건인 달도 포함(StatisticsService.scope 의 monthLabels).
+        `StatisticsController.getMonthlyTrend` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [statistics]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: "3m | 1y (그 외/미지정은 기본 6개월)"
+          schema: { type: string }
+        - name: facilityId
+          in: query
+          required: false
+          description: "미지정 또는 all이면 회사 전체 시설물, 숫자 문자열이면 해당 시설물 단건"
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MonthlyDefectTrendListApiResponse" }
+        "400":
+          description: facilityId 가 숫자도 all도 아님 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: facilityId 가 타 회사 소유이거나 미존재 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/statistics/facility-summary:
+    get:
+      summary: 시설물별 통계 요약 (StatisticsController)
+      description: >
+        로그인 사용자의 회사 시설물별 하자 요약(스코프 내 시설물 전체, period·facilityId 의미는
+        /api/statistics/summary 와 동일)을 반환한다. totalDefects 는 조회 구간(period) 내 건수, latestGrade 는
+        조회 구간 내 점검들 중 가장 나쁜 등급(worst-case, 하자 없으면 null), lastInspectedAt 은 구간
+        제한 없이 전체 기간 기준 최근 점검일(ISO date 문자열, 이력 없으면 null)이다.
+        `StatisticsController.getFacilitySummary` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [statistics]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: "3m | 1y (그 외/미지정은 기본 6개월, totalDefects 집계 구간에만 영향)"
+          schema: { type: string }
+        - name: facilityId
+          in: query
+          required: false
+          description: "미지정 또는 all이면 회사 전체 시설물, 숫자 문자열이면 해당 시설물 단건"
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공(대상 시설물이 없으면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilitySummaryListApiResponse" }
+        "400":
+          description: facilityId 가 숫자도 all도 아님 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: facilityId 가 타 회사 소유이거나 미존재 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/statistics/facility-type-heatmap:
+    get:
+      summary: 시설물군별 히트맵 (StatisticsController)
+      description: >
+        로그인 사용자의 회사 시설물군(건물/교량/도로/기타, 시설물 type 문자열 접두로 분류—
+        StatisticsService.categoryOf)과 월 기준 하자 건수를 반환한다(period·facilityId 스코프는
+        /api/statistics/summary 와 동일). facilityTypeCategory·month 오름차순 정렬이며, 하자가 있는
+        (카테고리, 월) 조합만 반환한다(0건 조합은 생략). `StatisticsController.getFacilityTypeHeatmap` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [statistics]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: "3m | 1y (그 외/미지정은 기본 6개월)"
+          schema: { type: string }
+        - name: facilityId
+          in: query
+          required: false
+          description: "미지정 또는 all이면 회사 전체 시설물, 숫자 문자열이면 해당 시설물 단건"
+          schema: { type: string }
+      responses:
+        "200":
+          description: 조회 성공(하자 있는 조합이 없으면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FacilityTypeHeatmapListApiResponse" }
+        "400":
+          description: facilityId 가 숫자도 all도 아님 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: facilityId 가 타 회사 소유이거나 미존재 (FACILITY_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/dashboard/recent-inspections/search:
+    get:
+      summary: 최근 점검 전체보기(페이지네이션+검색) (DashboardController)
+      description: >
+        로그인 사용자 소유 시설물의 점검을 시설물/상태(한글 라벨)/텍스트(시설물명·담당자명)로
+        필터링해 페이지 단위로 반환한다. /api/dashboard/recent-inspections(위젯, 상위 10건 고정)와
+        별개 엔드포인트다 — 위젯 호출 경로에는 영향이 없다. status 는 "분석중"/"검수대기"/"검수확정"/"완료"
+        4개 한글 라벨만 인식하며(RECENT_STATUS_LABEL_GROUPS), 그 외 값은 INVALID_INPUT(400). size 는
+        최대 100으로 캡되고(RECENT_SEARCH_MAX_SIZE), page 는 상한이 없지만 offset(page*size)이
+        int 범위를 넘으면 500 대신 빈 페이지를 반환한다(PR머신 검수 P3 반영). query 는 시설물명 또는
+        담당자명 부분일치(LIKE, 와일드카드 문자는 리터럴로 이스케이프)다. `DashboardController.searchRecentInspections` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [dashboard]
+      parameters:
+        - name: facilityId
+          in: query
+          required: false
+          schema: { type: integer, format: int64 }
+        - name: facilityType
+          in: query
+          required: false
+          description: "시설물 type 문자열 부분/전체 일치 필터(레포지토리 구현 기준)"
+          schema: { type: string }
+        - name: status
+          in: query
+          required: false
+          description: "분석중 | 검수대기 | 검수확정 | 완료 (그 외 값은 INVALID_INPUT)"
+          schema: { type: string, enum: [분석중, 검수대기, 검수확정, 완료] }
+        - name: query
+          in: query
+          required: false
+          description: 시설물명·담당자명 검색어
+          schema: { type: string }
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          required: false
+          description: "최대 100으로 캡됨"
+          schema: { type: integer, minimum: 1, default: 10, maximum: 100 }
+      responses:
+        "200":
+          description: 조회 성공(0건이면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RecentInspectionPageApiResponse" }
+        "400":
+          description: status 가 인식되지 않는 값 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/menus:
+    get:
+      summary: 메뉴 트리 조회 (MenuController, #1003)
+      description: >
+        로그인 사용자의 role 기준으로 노출 가능한 메뉴 트리를 반환한다. role 은 인증 사용자
+        (@AuthenticationPrincipal)에서만 취득한다(요청 파라미터로 받지 않음). GROUP 노드는
+        path/activePathPattern 이 null 이고 children 이 채워지며, 리프(INTERNAL/EXTERNAL)는
+        children 이 빈 배열인 얕은 2단 트리(그룹→리프)다. `MenuController.getMenuTree` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [menu]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MenuTreeListApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/plans:
+    get:
+      summary: 공개 요금제 카탈로그 조회 (PublicPlanController)
+      description: >
+        랜딩페이지 및 공개 화면에 표시할 전체 요금제 목록(가격, 한도, 기능)을 반환한다. 인증
+        불필요(permitAll) — 비회원도 접근 가능한 공개 엔드포인트다.
+        `PublicPlanController.getPublicPlans` 구현됨.
+      tags: [membership]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicPlanCatalogApiResponse" }
+
+  /api/me/inspections:
+    get:
+      summary: 내 점검 이력 목록 (MyInspectionsController, #844)
+      description: >
+        assignedInspectorId 또는 createdBy가 요청자 본인인 점검 회차를 조회 기간(period) 필터와
+        함께 페이지 단위로 반환한다. roundNo·inspectionDate 는 조립/포맷 없이 그대로 반환하고
+        '24-03' 또는 '2024.03.15' 같은 화면 표기는 프론트가 담당한다. `MyInspectionsController.getInspections` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [mypage]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: "1M | 3M | 6M | 1Y | ALL (미지정 시 ALL, 그 외 값은 INVALID_INPUT)"
+          schema: { type: string, default: ALL }
+        - name: page
+          in: query
+          required: false
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, default: 8 }
+      responses:
+        "200":
+          description: 조회 성공(0건이면 빈 배열)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MyInspectionRowPageApiResponse" }
+        "400":
+          description: period 가 인식되지 않는 값 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/me/inspections/summary:
+    get:
+      summary: 내 점검 이력 요약 (MyInspectionsController, #844)
+      description: >
+        내가 참여한(담당자 또는 등록자) 점검 회차의 참여/검수확정/발급보고서/진행중 건수를 반환한다.
+        issuedReportCount 는 그 점검들에 연결된 Report 중 FINALIZED 건수라 participatedCount 와 합이
+        맞지 않는 것이 정상이다(점검 하나에 보고서 여러 버전 가능, ANALYZED 는 어느 카운트에도
+        포함되지 않음). `MyInspectionsController.getSummary` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [mypage]
+      responses:
+        "200":
+          description: 조회 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MyInspectionsSummaryApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  # ⚠️ 아래 두 항목은 기존 /api/reports/{id} path item(SoT 3125행)에 이미 get/patch가 있다.
+  # 이 fragment 를 그대로 paths: 밑에 새 키로 붙이면 YAML 키 중복이 되므로, 병합 시
+  # `delete:` 오퍼레이션은 기존 /api/reports/{id}: 블록 안에 patch: 다음 줄로 옮겨 넣고,
+  # 아래 /api/reports/{id}/clone: 은 새 top-level path로 그대로 추가한다.
+
+  /api/reports/{id}/clone:
+    post:
+      summary: 보고서 복제 (ReportController, #446 / HAJA-283)
+      description: >
+        기존 보고서의 content(contentJson)를 그대로 복제해 같은 점검의 다음 버전(version = 기존
+        최대 버전 + 1) DRAFT 보고서를 새로 생성한다(원본 상태는 DRAFT/FINALIZED 무관, 원본 자체는
+        변경되지 않는다). 미존재/타인 소유(점검 기준 소유권) 모두 REPORT_NOT_FOUND(404)로 통일 응답한다.
+        `ReportController.cloneReport` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [report]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        "201":
+          description: 복제 성공(새 DRAFT 보고서 생성)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReportDetailApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: 미존재 또는 타인 소유 (REPORT_NOT_FOUND)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/me/reports:
+    get:
+      summary: 내 발급 보고서 목록 (MyInspectionsController, #844)
+      description: >
+        FINALIZED 상태 보고서를 조회 기간(period) 필터와 함께 최신순으로 반환한다(페이지네이션 없음,
+        최대 100건 상한 — MY_REPORTS_MAX, 행마다 PDF 파일 stat I/O가 발생해 성능 방어 목적). title 은
+        반환하지 않는다(Report 엔티티에 제목 컬럼 없음, 화면 제목은 프론트가 조립). fileSizeBytes 는
+        PDF 조회 실패 시 예외 대신 null. `MyInspectionsController.getReports` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [mypage]
+      parameters:
+        - name: period
+          in: query
+          required: false
+          description: "1M | 3M | 6M | 1Y | ALL (미지정 시 ALL, 그 외 값은 INVALID_INPUT)"
+          schema: { type: string, default: ALL }
+      responses:
+        "200":
+          description: 조회 성공(0건이면 빈 배열, 최대 100건)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MyReportRowListApiResponse" }
+        "400":
+          description: period 가 인식되지 않는 값 (INVALID_INPUT)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+
+  # ── auth 진위확인·사업자등록증 파일·AI 프록시/내부 ──
+  /api/auth/business-verification:
+    post:
+      summary: 사업자 진위확인(실시간, 공개 프록시, #648)
+      description: >
+        회원가입 전(비로그인) [진위확인] 버튼 전용. 국세청 상태조회+진위확인 결과를 사용자 대면
+        결과 코드(VERIFIED/NOT_REGISTERED/MISMATCH/SUSPENDED/CLOSED/UNAVAILABLE)로 번역해 반환한다.
+        UNAVAILABLE(국세청 서비스 미설정·일시 장애)도 fail-open — 200 성공 응답이며 가입 자체를
+        막지 않는다(최종 차단은 회원가입 제출 시 서버 재검증이 담당). `/api/auth/**` permitAll(비로그인),
+        rate-limit(분당 전역 + 일일 절대캡, 초과 시 429) 적용. `BusinessVerificationController.verify` 구현됨.
+      tags: [auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BusinessVerificationRequest" }
+      responses:
+        "200":
+          description: 성공 — 국세청 장애로 인한 UNAVAILABLE 포함(fail-open, 에러 아님)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BusinessVerificationApiResponse" }
+        "400":
+          description: INVALID_INPUT — 사업자등록번호 형식 불량, 대표자명·개업일자 누락 등
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "429":
+          description: AUTH_TOO_MANY_REQUESTS — rate-limit 초과(분당 전역 또는 일일 캡)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/companies/{companyId}/business-license/{storageKey}:
+    get:
+      summary: 사업자등록증 파일 조회(보호 파일, 회사 스코프 재검증)
+      description: >
+        정적 리소스가 아닌 회사 소속(인가) 재검증 후에만 사업자등록증 바이너리를 반환하는 보호 파일
+        엔드포인트다. `{storageKey}`는 실제 라우팅에서 `{*storageKey}`(capture-the-rest) 로 매핑돼
+        `business-registration/...` 형태의 다중 슬래시 세그먼트를 그대로 포함할 수 있다(OpenAPI 3.0은
+        와일드카드 경로변수를 표현할 수 없어 단일 `{storageKey}` 파라미터로 표기 — 실제 값은
+        `business-registration/{파일명}`처럼 `/`를 포함하는 전체 잔여 경로다). 요청자와 `companyId`의
+        유효 소속(APPROVED)을 재검증하고, 회사에 저장된 URL에서 역산한 기대 storageKey와 요청값이
+        정확히 일치할 때만 파일을 반환한다(경로 조작·타 회사 파일 추측 차단). `BusinessLicenseFileController.download` 구현됨.
+      security:
+        - SessionCookie: []
+      tags: [auth]
+      parameters:
+        - name: companyId
+          in: path
+          required: true
+          schema: { type: integer, format: int64 }
+          example: 10
+        - name: storageKey
+          in: path
+          required: true
+          description: >
+            capture-the-rest 잔여 경로 전체(예: business-registration/1700000000000_license.png).
+            `/` 를 포함하는 다중 세그먼트가 그대로 하나의 경로 변수로 전달된다.
+          schema: { type: string }
+          example: "business-registration/1700000000000_license.png"
+      responses:
+        "200":
+          description: 파일 바이너리(Content-Type은 확장자로 결정 — image/jpeg, image/png, application/pdf 등)
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            application/pdf: { schema: { type: string, format: binary } }
+            application/octet-stream: { schema: { type: string, format: binary } }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: FORBIDDEN — 요청자가 해당 companyId의 유효(APPROVED) 소속이 아님
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "404":
+          description: >
+            COMPANY_NOT_FOUND(회사 미존재) 또는 FILE_NOT_FOUND(회사에 저장된 URL 미존재/파싱 실패,
+            storageKey 불일치·경로 조작 시도, 실제 파일 미존재 포함)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /api/ai/rag-chat:
+    post:
+      summary: 고객지원 RAG 챗봇 (인증 프록시, HAJA-32 / #467)
+      description: >
+        로그인 사용자 질의를 세션 인증 프록시로 내부 FastAPI `/ai/rag-chat` 에 전달해 법규·점검 기준
+        기반 답변과 출처를 반환한다. userId·companyId는 `@AuthenticationPrincipal` 에서만 취득해
+        전달한다(요청 바디 금지) — companyId는 AI 서버 시맨틱 캐시의 회사 스코프 키로 쓰여 바디에서
+        받으면 임의 회사의 캐시를 읽어갈 수 있다. `sessionId`(선택, #1467/HAJA-647)를 보내면 세션
+        소유자·`sessionType=RAG` 를 FastAPI 호출 전에 검증하고(불일치·미존재 시 403), 최근 3턴 이력을
+        함께 전달하며 응답 성공 시 질의/답변/출처를 best-effort로 저장한다(저장 실패는 답변 자체에
+        영향 없음). `sessionId` 없이 호출하면 기존과 동일한 무상태 단발 질의로 동작한다.
+        `AiProxyController.ragChat` 구현됨.
+      security:
+        - SessionCookie: []
+          XsrfToken: []
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RagChatProxyRequest" }
+      responses:
+        "200":
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RagChatApiResponse" }
+        "400":
+          description: INVALID_INPUT | AI_REQUEST_REJECTED
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "401":
+          description: 미인증 (UNAUTHORIZED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "403":
+          description: CHAT_SESSION_FORBIDDEN — sessionId가 타인 소유이거나 sessionType이 RAG가 아님
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "502":
+          description: AI_INVALID_RESPONSE | AI_SERVER_ERROR — 내부 FastAPI 오류를 그대로 전달하지 않고 이 코드로 통일
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "503":
+          description: AI_SERVER_UNREACHABLE
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+        "504":
+          description: AI_SERVER_TIMEOUT
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
+
+  /ai/detect-defects:
+    post:
+      summary: AI 하자 탐지 (dev-05-04, AP-006, 내부 전용)
+      description: >
+        점검 미디어 이미지 1장을 비전 모델로 추론해 하자 탐지 결과 목록을 반환한다. Spring이 회차의
+        미디어를 순회하며 이미지 1장당 1회 호출한다. `image_base64`는 점검 미디어 업로드 상한(20MB)의
+        base64 상당치를 초과하면 FastAPI가 요청 파싱 단계에서 422로 거부한다. 디코딩 실패·모델 로드
+        실패·추론 오류는 예외를 삼키지 않고 로그만 남긴 뒤 VISION_INFERENCE_FAILED 로 반환한다(LLM
+        호출 없는 비전 전용 경로라 다른 /ai/* 엔드포인트와 달리 LLM 계열 에러코드를 쓰지 않는다).
+        `ai-server/routers/ai_router.py` `detect_defects` 구현됨.
+      x-internal: true
+      security:
+        - InternalKey: []
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DetectDefectsRequest" }
+      responses:
+        "200":
+          description: 성공/실패 모두 200 — success 필드로 구분(추론 실패 시 error.code=VISION_INFERENCE_FAILED)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DetectDefectsAIResponse" }
+        "422":
+          description: image_base64 누락 또는 상한(max_length) 초과 — FastAPI detail[] 형식
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FastApiValidationError" }
+
+  /ai/rag-documents/embed:
+    post:
+      summary: RAG 문서 임베딩 (#22 / HAJA-35, PRD FR-8-B, 내부 전용)
+      description: >
+        Spring RagDocumentService가 PDF에서 추출한 텍스트와 문서 메타데이터를 실어 보내면, 청킹(텍스트
+        분할)만 동기로 즉시 수행해 청크 개수와 이번 배치 식별자(`embed_batch_id`)를 반환하고, 실제
+        bge-m3 임베딩 연산은 BackgroundTasks로 넘겨 504 Gateway Timeout을 방지한다(#1393). doc_id 단위
+        직렬화 락으로 재임베딩 중 원본/재임베딩 배경 태스크의 경합을 막는다. `target_collection`은
+        `regulations` 또는 `defect_kb`만 허용하며 그 외 값은 VALIDATION_ERROR. Spring은 이 응답의
+        chunk_count·embed_batch_id를 임베딩 상태 폴링(`/ai/rag-documents/{doc_id}/embedding-status`)의
+        완료 판정 기준으로 쓴다. `ai-server/routers/ai_router.py` `rag_documents_embed` 구현됨.
+      x-internal: true
+      security:
+        - InternalKey: []
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RagDocumentEmbedRequest" }
+      responses:
+        "200":
+          description: 성공(청킹 완료, 임베딩은 백그라운드 진행 중) 또는 실패 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RagDocumentEmbedAIResponse" }
+        "422":
+          description: 필수 필드(doc_id/title/doc_type/target_collection/text) 누락 등 — FastAPI detail[] 형식
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FastApiValidationError" }
+
+  /ai/rag-documents/{doc_id}/embedding-status:
+    get:
+      summary: RAG 문서 백그라운드 임베딩 완료 여부 조회 (#1328, 내부 전용)
+      description: >
+        `/ai/rag-documents/embed` 가 청킹만 동기로 끝내고 실제 임베딩은 BackgroundTasks로 넘기므로,
+        Spring이 즉시 완료 처리하면 실제로는 아직 Chroma에 반영되지 않은 거짓 완료가 생길 수 있다.
+        Spring은 이 엔드포인트를 폴링해 Chroma의 실제 chunk_count가 기대치와 일치할 때만 완료로
+        확정한다. 적재된 청크 전부가 같은 배치에서 나왔을 때만 `embed_batch_id`를 반환하고, 재임베딩
+        도중처럼 신·구 배치 청크가 섞여 있으면 `null`(재임베딩 도중 거짓 완료 방지, #1393). 임베딩 모델
+        호출 없이 Chroma 메타데이터 조회만 수행하는 가벼운 read-only 엔드포인트다.
+        `ai-server/routers/ai_router.py` `rag_documents_embedding_status` 구현됨.
+      x-internal: true
+      security:
+        - InternalKey: []
+      tags: [ai]
+      parameters:
+        - name: doc_id
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[1-9][0-9]*$" }
+          example: "42"
+        - name: target_collection
+          in: query
+          required: true
+          schema: { type: string, enum: [regulations, defect_kb] }
+          example: regulations
+      responses:
+        "200":
+          description: 성공(조회) 또는 실패 — success 필드로 구분(target_collection 미상 값은 VALIDATION_ERROR)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RagEmbeddingStatusAIResponse" }
+
+  /ai/rag-documents/{doc_id}:
+    delete:
+      summary: RAG 문서 Chroma 청크 삭제 (#1394, PLATFORM_ADMIN 콘솔 문서 삭제, 내부 전용)
+      description: >
+        Spring RagDocumentService가 DB 로우·원본 파일을 지우기 전에 먼저 호출해 Chroma의 해당 doc_id
+        청크를 삭제한다. doc_id에 매치되는 청크가 없어도(이미 삭제됐거나 애초에 없던 경우) 에러 없이
+        조용히 성공하는 idempotent 엔드포인트라 Spring이 실패 후 재시도해도 안전하게 수렴한다. 삭제도
+        doc_id 단위 직렬화 락으로 감싸(#1412) 진행 중인 재임베딩 배경 태스크가 끝난 뒤 실행되도록 해,
+        "삭제 직후 배경 ingest가 청크를 다시 써 넣는" 고아 청크(삭제된 문서를 근거로 챗봇이 답변하는
+        사용자 노출 오동작)를 방지한다. `ai-server/routers/ai_router.py` `rag_documents_delete` 구현됨.
+      x-internal: true
+      security:
+        - InternalKey: []
+      tags: [ai]
+      parameters:
+        - name: doc_id
+          in: path
+          required: true
+          schema: { type: string }
+          example: "42"
+        - name: target_collection
+          in: query
+          required: true
+          schema: { type: string, enum: [regulations, defect_kb] }
+          example: regulations
+      responses:
+        "200":
+          description: 성공(삭제 완료 또는 애초에 청크 없음, 둘 다 success=true) 또는 실패 — success 필드로 구분
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RagDeleteAIResponse" }
 
 components:
   securitySchemes:
@@ -6662,3 +9196,1699 @@ components:
         success: { type: boolean, example: true }
         data: { $ref: "#/components/schemas/ReportPdfResponse" }
         error: { type: object, nullable: true, example: null }
+
+    # ══ 2026-08-05 계약 전수 최신화 신규 스키마 ══
+
+    # ── admin (전사 관리자) ──
+    # ── admin/users 도메인 (관리자 콘솔 사용자 관리, #405) ──
+    AdminUserResponse:
+      type: object
+      description: 관리자 콘솔 사용자 목록/등록 응답 항목. plan은 활성 구독이 없으면 FREE로 보정된다.
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        name: { type: string, example: 김검사 }
+        email: { type: string, example: inspector@haja.com }
+        avatarUrl: { type: string, nullable: true, example: null }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN], example: INSPECTOR }
+        plan: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: FREE }
+        joinedAt: { type: string, format: date-time, example: "2026-07-01T09:00:00" }
+        lastAccessAt: { type: string, format: date-time, nullable: true, example: "2026-08-01T10:12:00Z" }
+        status: { type: string, enum: [ACTIVE, SUSPENDED, WAITING], example: ACTIVE }
+
+    AdminUserStatsResponse:
+      type: object
+      description: 사용자 관리 통계 카드 — 검색/필터 조건과 무관하게 회사 전체 사용자 기준으로 집계한다(계약).
+      properties:
+        totalMembers: { type: integer, format: int64, example: 42 }
+        active: { type: integer, format: int64, example: 38 }
+        suspended: { type: integer, format: int64, example: 4 }
+        newThisWeek: { type: integer, format: int64, description: 롤링 7일 윈도우 기준, example: 3 }
+        newThisWeekGrowthRate:
+          type: number
+          description: 직전 7일 대비 증감률(%). 직전 주 0건이면 이번 주도 0건일 때 0, 1건 이상이면 100으로 고정.
+          example: 50.0
+
+    AdminUserListResponse:
+      type: object
+      description: >
+        GET /api/admin/users 응답 — global.common.PageResponse가 아니라 size/stats를 더 가진 전용
+        envelope다(AdminUserListResponse.java, PageResponse와 다른 계약이므로 혼동 주의).
+      required: [content, page, size, totalElements, stats]
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/AdminUserResponse" }
+        page: { type: integer, minimum: 0, example: 0 }
+        size: { type: integer, example: 10 }
+        totalElements: { type: integer, format: int64, example: 42 }
+        stats: { $ref: "#/components/schemas/AdminUserStatsResponse" }
+
+    AdminUserListApiResponse:
+      type: object
+      description: 성공 envelope — data=AdminUserListResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/AdminUserListResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    AdminUserResponseApiResponse:
+      type: object
+      description: 성공 envelope — data=AdminUserResponse(사용자 등록 응답)
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/AdminUserResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    AdminUserCreateRequest:
+      type: object
+      description: >
+        관리자 콘솔 — 사용자 등록 요청(Figma node-id 1147-2649). 비밀번호 확인 일치 여부는 클라이언트
+        검증에서 끝내고 서버로는 password만 전달한다(CompanySignupRequest와 동일 트레이드오프).
+      required: [email, password, name, role]
+      properties:
+        email: { type: string, format: email, example: newuser@haja.com }
+        password: { type: string, format: password, minLength: 8, description: "영문+숫자 포함 8자 이상", example: "pw123456" }
+        name: { type: string, maxLength: 100, example: 홍길동 }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER], description: "배정 가능 화이트리스트(COUNSELOR/PLATFORM_ADMIN 불가)", example: USER }
+
+    AdminUserRoleUpdateRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER], example: INSPECTOR }
+
+    AdminUserRoleUpdateResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64, example: 12 }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN], example: INSPECTOR }
+
+    AdminUserRoleUpdateApiResponse:
+      type: object
+      description: 성공 envelope — data=AdminUserRoleUpdateResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/AdminUserRoleUpdateResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    AdminUserStatusUpdateRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ACTIVE, SUSPENDED], example: SUSPENDED }
+
+    AdminUserStatusUpdateResponse:
+      type: object
+      properties:
+        id: { type: integer, format: int64, example: 12 }
+        status: { type: string, enum: [ACTIVE, SUSPENDED, WAITING], example: SUSPENDED }
+
+    AdminUserStatusUpdateApiResponse:
+      type: object
+      description: 성공 envelope — data=AdminUserStatusUpdateResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/AdminUserStatusUpdateResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    # ── invite-codes 도메인 (#794) ──
+    InviteCodeIssueResponse:
+      type: object
+      description: ttlSeconds는 프론트 카운트다운 초기값으로 그대로 쓰인다.
+      properties:
+        code: { type: string, example: "A1B-2C3" }
+        ttlSeconds: { type: integer, format: int64, example: 180 }
+
+    InviteCodeIssueApiResponse:
+      type: object
+      description: 성공 envelope — data=InviteCodeIssueResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/InviteCodeIssueResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    InviteCodeRevokeRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, maxLength: 16, example: "A1B-2C3" }
+
+    InviteCodeRedeemRequest:
+      type: object
+      description: >
+        발급 포맷은 6자(대시 포함 "XXX-XXX")로 고정이지만, 대시·공백이 섞여도 넉넉하도록 16자까지 허용한다.
+      required: [code]
+      properties:
+        code: { type: string, maxLength: 16, example: "A1B-2C3" }
+
+    # ── admin/analysis-jobs 도메인 (AI 분석 현황 모니터링) ──
+    AdminAnalysisJobStatus:
+      type: string
+      description: >
+        DB InspectionStatus(6단계)를 화면 3단계로 축약. PENDING=CREATED/UPLOADING,
+        ANALYZING=ANALYZING, COMPLETED=ANALYZED/REVIEWED/REPORTED. FAILED 상태는 없다 — 분석 실패
+        시 ANALYZING에서 분석 전 상태로 롤백되어 PENDING에 다시 합류한다.
+      enum: [PENDING, ANALYZING, COMPLETED]
+
+    AdminAnalysisJobItem:
+      type: object
+      description: >
+        jobId는 별도 "분석 실행" 테이블이 없어 점검 회차 id(inspectionId)를 그대로 재사용한다.
+        progressPercent는 status=ANALYZING일 때만 값이 있을 수 있고, Redis 캐시(TTL)가 없으면
+        null이다(fail-soft).
+      properties:
+        jobId: { type: integer, format: int64, example: 501 }
+        facilityName: { type: string, example: 강남 오피스텔 }
+        inspectorId: { type: integer, format: int64, example: 7 }
+        inspectorName: { type: string, example: 김검사 }
+        inspectionDate: { type: string, format: date, example: "2026-08-01" }
+        status: { $ref: "#/components/schemas/AdminAnalysisJobStatus" }
+        progressPercent: { type: integer, nullable: true, minimum: 0, maximum: 100, example: 45 }
+
+    AdminAnalysisJobItemPage:
+      type: object
+      description: global.common.PageResponse<AdminAnalysisJobItem> 매핑(content/page/totalElements 3필드).
+      required: [content, page, totalElements]
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/AdminAnalysisJobItem" }
+        page: { type: integer, minimum: 0, example: 0 }
+        totalElements: { type: integer, format: int64, minimum: 0, example: 12 }
+
+    AdminAnalysisJobItemPageApiResponse:
+      type: object
+      description: 성공 envelope — data=AdminAnalysisJobItemPage
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/AdminAnalysisJobItemPage" }
+        error: { type: object, nullable: true, example: null }
+
+    # ── admin/rag-documents 도메인 (#22/HAJA-35, PRD FR-8-B, PLATFORM_ADMIN 전용) ──
+    RagDocumentResponse:
+      type: object
+      description: >
+        RAG 문서 응답 — fileUrl(내부 저장키)은 노출하지 않는다(관리자 화면은 메타데이터·임베딩 상태만
+        다룬다).
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        title: { type: string, example: 공동주택관리법 시행규칙 }
+        sourceType: { type: string, enum: [LAW, GUIDELINE], example: LAW }
+        targetCollection: { type: string, enum: [REGULATIONS, DEFECT_KB], example: REGULATIONS }
+        effectiveDate: { type: string, format: date, nullable: true, example: "2026-01-01" }
+        publisher: { type: string, nullable: true, example: 국토교통부 }
+        authoredAt: { type: string, format: date, nullable: true, example: "2025-12-15" }
+        verificationStatus: { type: string, enum: [UNVERIFIED, VERIFIED], example: UNVERIFIED }
+        embeddingStatus: { type: string, enum: [PENDING, EMBEDDING, DONE, FAILED], example: DONE }
+        chunkCount: { type: integer, nullable: true, example: 128 }
+        embeddedAt: { type: string, format: date-time, nullable: true, example: "2026-08-01T10:00:00Z" }
+        createdAt: { type: string, format: date-time, example: "2026-08-01T09:55:00" }
+
+    RagDocumentListApiResponse:
+      type: object
+      description: 성공 envelope — data=RagDocumentResponse[]
+      properties:
+        success: { type: boolean, example: true }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/RagDocumentResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    RagDocumentApiResponse:
+      type: object
+      description: 성공 envelope — data=RagDocumentResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/RagDocumentResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    # ── platform-admin (플랫폼 관리자) ──
+    PlatformAdminUserStatsResponse:
+      type: object
+      description: 사용자 관리 통계 카드 — 검색/필터 조건과 무관하게 전체 사용자(플랫폼 관리자 콘솔은
+        PLATFORM_ADMIN 제외) 기준으로 집계한다. newThisWeek는 조회 시각 기준 롤링 7일 윈도우.
+      required: [totalMembers, active, suspended, newThisWeek, newThisWeekGrowthRate]
+      properties:
+        totalMembers: { type: integer, format: int64, example: 128 }
+        active: { type: integer, format: int64, example: 110 }
+        suspended: { type: integer, format: int64, example: 5 }
+        newThisWeek: { type: integer, format: int64, example: 6 }
+        newThisWeekGrowthRate: { type: number, description: "전주 대비 증감률(%), 전주 0건이면 0 또는 100", example: 20.0 }
+
+    PlatformAdminUserResponse:
+      type: object
+      description: 전사 사용자 1명 — companyId 스코프 없음(AdminUserResponse #405와 구조 동일, 전사 범위).
+      required: [id, name, email, role, plan, joinedAt, status]
+      properties:
+        id: { type: integer, format: int64, example: 42 }
+        name: { type: string, example: 김민준 }
+        email: { type: string, example: minjun.kim@company.com }
+        avatarUrl: { type: string, nullable: true, example: "https://.../p.png" }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN], example: USER }
+        plan: { type: string, enum: [FREE, STANDARD, ENTERPRISE], description: "활성 구독 없으면 FREE로 표시", example: FREE }
+        companyId: { type: integer, format: int64, nullable: true, example: 3 }
+        companyName: { type: string, nullable: true, example: 그린타워시설관리 }
+        joinedAt: { type: string, format: date-time, example: "2026-07-01T09:00:00" }
+        lastAccessAt: { type: string, format: date-time, nullable: true, description: "로그인 이력 없으면 null", example: "2026-08-04T10:20:00Z" }
+        status: { type: string, enum: [ACTIVE, SUSPENDED, WAITING], example: ACTIVE }
+
+    PlatformAdminUserListResponse:
+      type: object
+      required: [content, page, size, totalElements, stats]
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformAdminUserResponse" }
+        page: { type: integer, description: "0부터 시작", example: 0 }
+        size: { type: integer, example: 10 }
+        totalElements: { type: integer, format: int64, example: 128 }
+        stats: { $ref: "#/components/schemas/PlatformAdminUserStatsResponse" }
+
+    PlatformAdminUserListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/PlatformAdminUserListResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    PlatformAdminUserCreateRequest:
+      type: object
+      description: companyId가 null이면 회사 미소속(개인 계정)으로 등록. skill은 role=COUNSELOR일 때만 의미가 있다.
+      required: [email, password, name, role]
+      properties:
+        email: { type: string, format: email, example: newuser@company.com }
+        password: { type: string, minLength: 8, description: "영문+숫자 포함 8자 이상", example: "Passw0rd!" }
+        name: { type: string, maxLength: 100, example: 홍길동 }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR], example: USER }
+        companyId: { type: integer, format: int64, nullable: true, example: 3 }
+        skill: { type: string, nullable: true, enum: [USAGE, ANALYSIS_RESULT, BILLING_ETC], description: "role=COUNSELOR일 때만 사용, 그 외 무시됨" }
+
+    PlatformAdminUserApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/PlatformAdminUserResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    PlatformAdminUserRoleUpdateRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR], example: INSPECTOR }
+
+    PlatformAdminUserRoleUpdateResponse:
+      type: object
+      required: [id, role]
+      properties:
+        id: { type: integer, format: int64, example: 42 }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN], example: INSPECTOR }
+
+    PlatformAdminUserRoleUpdateApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/PlatformAdminUserRoleUpdateResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    PlatformAdminUserStatusUpdateRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ACTIVE, SUSPENDED, WAITING], example: SUSPENDED }
+
+    PlatformAdminUserStatusUpdateResponse:
+      type: object
+      required: [id, status]
+      properties:
+        id: { type: integer, format: int64, example: 42 }
+        status: { type: string, enum: [ACTIVE, SUSPENDED, WAITING], example: SUSPENDED }
+
+    PlatformAdminUserStatusUpdateApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/PlatformAdminUserStatusUpdateResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    PlatformAdminUserSkillsResponse:
+      type: object
+      required: [id, skills]
+      properties:
+        id: { type: integer, format: int64, example: 42 }
+        skills:
+          type: array
+          items: { type: string, enum: [USAGE, ANALYSIS_RESULT, BILLING_ETC] }
+
+    PlatformAdminUserSkillsApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/PlatformAdminUserSkillsResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    AdminUserSkillUpdateRequest:
+      type: object
+      required: [skill]
+      properties:
+        skill: { type: string, enum: [USAGE, ANALYSIS_RESULT, BILLING_ETC], example: USAGE }
+
+    AdminUserSkillUpdateResponse:
+      type: object
+      required: [id, skill]
+      properties:
+        id: { type: integer, format: int64, example: 42 }
+        skill: { type: string, enum: [USAGE, ANALYSIS_RESULT, BILLING_ETC], example: USAGE }
+
+    AdminUserSkillUpdateApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AdminUserSkillUpdateResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    CompanyOptionResponse:
+      type: object
+      description: 사용자 등록 모달의 기업명 selectbox 옵션.
+      required: [id, name]
+      properties:
+        id: { type: integer, format: int64, example: 3 }
+        name: { type: string, example: 그린타워시설관리 }
+
+    CompanyOptionListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          nullable: true
+          items: { $ref: "#/components/schemas/CompanyOptionResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    PlatformAdminServiceStatsKpi:
+      type: object
+      description: >
+        analysisRequests 필드명은 유지하지만 값은 요청 건수가 아니라 분석한 이미지 장수다(#1407 후속).
+        analysisRequests/counselCount는 최근 6개월 추이 윈도우 누적치로 monthlySummary 각 행의
+        analysisCount/counselCount 합계와 항상 일치한다.
+      required: [totalSubscribers, totalSubscribersDelta, newSubscribersThisMonth,
+        newSubscribersChangePercent, analysisRequests, counselCount]
+      properties:
+        totalSubscribers: { type: integer, format: int64, example: 320 }
+        totalSubscribersDelta: { type: integer, format: int64, example: 12 }
+        newSubscribersThisMonth: { type: integer, format: int64, example: 28 }
+        newSubscribersChangePercent: { type: integer, example: 15 }
+        analysisRequests: { type: integer, format: int64, description: "분석한 이미지 장수(요청 건수 아님)", example: 4820 }
+        counselCount: { type: integer, format: int64, example: 96 }
+
+    PlatformAdminSubscriberTrendPoint:
+      type: object
+      required: [month, subscribers]
+      properties:
+        month: { type: string, example: "2026-07" }
+        subscribers: { type: integer, format: int64, example: 320 }
+
+    PlatformAdminAnalysisRequestTrendPoint:
+      type: object
+      description: requests 필드명은 유지하지만 값은 분석한 이미지 장수다(usage_counters.analyzedImageCount, #1407 후속).
+      required: [month, requests]
+      properties:
+        month: { type: string, example: "2026-07" }
+        requests: { type: integer, format: int64, example: 4820 }
+
+    PlatformAdminPlanDistributionItem:
+      type: object
+      required: [plan, percent]
+      properties:
+        plan: { type: string, enum: [FREE, STANDARD, ENTERPRISE], example: STANDARD }
+        percent: { type: integer, example: 45 }
+
+    PlatformAdminCounselTypeDistributionItem:
+      type: object
+      description: >
+        이번 구현 범위 밖(사용자 지시, 2026-07-23) — counsel 도메인에 유형 분류 데이터가 아직 없어
+        PlatformAdminServiceStatsService는 항상 빈 목록을 반환한다.
+      required: [type, count]
+      properties:
+        type: { type: string, example: USAGE }
+        count: { type: integer, format: int64, example: 0 }
+
+    PlatformAdminMonthlyTrend:
+      type: string
+      enum: [UP, DOWN, FLAT]
+
+    PlatformAdminMonthlySummaryRow:
+      type: object
+      description: analysisCount는 분석 요청 건수가 아니라 분석한 이미지 장수다(#1407 후속).
+      required: [month, newSubscribers, analysisCount, counselCount, upgradeConversions, trend]
+      properties:
+        month: { type: string, example: "2026-07" }
+        newSubscribers: { type: integer, format: int64, example: 28 }
+        analysisCount: { type: integer, format: int64, description: "분석한 이미지 장수", example: 4820 }
+        counselCount: { type: integer, format: int64, example: 96 }
+        upgradeConversions: { type: integer, format: int64, example: 4 }
+        trend: { $ref: "#/components/schemas/PlatformAdminMonthlyTrend" }
+
+    PlatformAdminServiceStatsResponse:
+      type: object
+      required: [kpi, subscriberTrend, analysisRequestTrend, planDistribution, counselTypeDistribution, monthlySummary]
+      properties:
+        kpi: { $ref: "#/components/schemas/PlatformAdminServiceStatsKpi" }
+        subscriberTrend:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformAdminSubscriberTrendPoint" }
+        analysisRequestTrend:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformAdminAnalysisRequestTrendPoint" }
+        planDistribution:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformAdminPlanDistributionItem" }
+        counselTypeDistribution:
+          type: array
+          description: 현재 항상 빈 배열(범위 밖, 위 설명 참고)
+          items: { $ref: "#/components/schemas/PlatformAdminCounselTypeDistributionItem" }
+        monthlySummary:
+          type: array
+          items: { $ref: "#/components/schemas/PlatformAdminMonthlySummaryRow" }
+
+    PlatformAdminServiceStatsApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/PlatformAdminServiceStatsResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    ServerHealthStatus:
+      type: string
+      enum: [HEALTHY, DEGRADED, DOWN]
+
+    ServerHealthItemResponse:
+      type: object
+      description: 서버 헬스 카드 1개. metric은 부가 지표(가동률 등) — 없으면 null.
+      required: [id, name, status]
+      properties:
+        id: { type: string, example: api-server }
+        name: { type: string, example: "API 서버" }
+        status: { $ref: "#/components/schemas/ServerHealthStatus" }
+        metric: { type: string, nullable: true, example: "99.9%" }
+
+    AnalysisJobStatus:
+      type: string
+      description: >
+        inspections.status 매핑: CREATED/UPLOADING/ANALYZING → IN_PROGRESS, ANALYZED/REVIEWED/
+        REPORTED → COMPLETED. FAILED/WAITING은 DB에 대응 상태가 아직 없어 현재는 나오지 않는다
+        (계약 값 자체는 프론트 호환을 위해 유지, #1408).
+      enum: [IN_PROGRESS, COMPLETED, FAILED, WAITING]
+
+    AnalysisJobQueueItemResponse:
+      type: object
+      description: >
+        분석 잡 큐 항목 — inspections 테이블 기준 실데이터(#1408). facilityAddress는 시설물명이
+        아니라 facilities.address 주소 텍스트. durationLabel은 "mm:ss" 소요 시간이며 진행 중이거나
+        진행률 캐시가 만료(TTL 6h)돼 계산할 수 없으면 null.
+      required: [id, facilityAddress, imageCount, status, recordedAt]
+      properties:
+        id: { type: string, example: "1024" }
+        facilityAddress: { type: string, example: "서울시 강남구 테헤란로 123" }
+        imageCount: { type: integer, example: 12 }
+        status: { $ref: "#/components/schemas/AnalysisJobStatus" }
+        durationLabel: { type: string, nullable: true, example: "03:12" }
+        recordedAt: { type: string, example: "2026-08-04 10:20:00" }
+
+    AnalysisJobQueueSummaryResponse:
+      type: object
+      required: [inProgress, completed, failed]
+      properties:
+        inProgress: { type: integer, format: int64, example: 2 }
+        completed: { type: integer, format: int64, example: 40 }
+        failed: { type: integer, format: int64, example: 0 }
+
+    AnalysisJobQueueResponse:
+      type: object
+      required: [summary, jobs]
+      properties:
+        summary: { $ref: "#/components/schemas/AnalysisJobQueueSummaryResponse" }
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/AnalysisJobQueueItemResponse" }
+
+    ServerResourceUsageResponse:
+      type: object
+      description: Actuator MetricsEndpoint로 조회한 현재 시점(라이브) 값 — 시계열 아님.
+      required: [cpuUsagePercent, memoryUsagePercent, diskUsagePercent]
+      properties:
+        cpuUsagePercent: { type: number, example: 34.2 }
+        memoryUsagePercent: { type: number, example: 61.5 }
+        diskUsagePercent: { type: number, example: 45.0 }
+
+    ErrorLogLevel:
+      type: string
+      enum: [ERROR, WARN]
+
+    ErrorLogItemResponse:
+      type: object
+      description: service는 로그를 발생시킨 로거 이름의 단순 클래스명.
+      required: [id, timestamp, level, service, message]
+      properties:
+        id: { type: string, example: "log-9931" }
+        timestamp: { type: string, description: "yyyy-MM-dd HH:mm:ss (Asia/Seoul)", example: "2026-08-04 10:20:00" }
+        level: { $ref: "#/components/schemas/ErrorLogLevel" }
+        service: { type: string, example: PlatformAdminUserService }
+        message: { type: string, example: "Connection timeout" }
+
+    SystemMonitoringResponse:
+      type: object
+      description: >
+        분석 잡 큐는 AI 자동 분석 파이프라인 도입 전까지 jobQueue.jobs가 항상 빈 값일 수 있다(스킬
+        미도입 구간 폴백, PlatformAdminMonitoringController 설명 참고).
+      required: [serverHealth, jobQueue, resourceUsage, errorLogs]
+      properties:
+        serverHealth:
+          type: array
+          items: { $ref: "#/components/schemas/ServerHealthItemResponse" }
+        jobQueue: { $ref: "#/components/schemas/AnalysisJobQueueResponse" }
+        resourceUsage: { $ref: "#/components/schemas/ServerResourceUsageResponse" }
+        errorLogs:
+          type: array
+          items: { $ref: "#/components/schemas/ErrorLogItemResponse" }
+
+    SystemMonitoringApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/SystemMonitoringResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    # ── counsel·채팅 세션 ──
+    BotScenarioButtonResponse:
+      type: object
+      description: 시나리오 버튼(노드) 요약 — 목록·자식 버튼 렌더링용.
+      properties:
+        id: { type: integer, format: int64, example: 1 }
+        category: { type: string, example: INSPECTION_REPORT }
+        buttonLabel: { type: string, example: 점검 보고서 문의 }
+        leadsToCounselor:
+          type: boolean
+          description: true 면 이 노드가 리프이며 상담원 연결(POST /api/counsel/tickets)로 이어진다
+          example: false
+
+    BotScenarioButtonListApiResponse:
+      type: object
+      description: 성공 envelope — data=BotScenarioButtonResponse[]
+      properties:
+        success: { type: boolean, example: true }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/BotScenarioButtonResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    BotScenarioNodeResponse:
+      type: object
+      description: 시나리오 노드 상세 — 응답 텍스트 + 자식 버튼 목록.
+      properties:
+        id: { type: integer, format: int64, example: 5 }
+        parentId: { type: integer, format: int64, nullable: true, example: 1 }
+        category: { type: string, example: INSPECTION_REPORT }
+        buttonLabel: { type: string, example: 분석 결과가 이상해요 }
+        responseText:
+          type: string
+          nullable: true
+          description: 이 노드 선택 시 챗봇이 보여주는 안내 텍스트(리프가 아니면 null 일 수 있음)
+          example: 분석 결과 관련 문의는 상담원 연결을 통해 도와드릴게요.
+        leadsToCounselor: { type: boolean, example: true }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/BotScenarioButtonResponse" }
+
+    BotScenarioNodeApiResponse:
+      type: object
+      description: 성공 envelope — data=BotScenarioNodeResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/BotScenarioNodeResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    CounselTicketSummaryListApiResponse:
+      type: object
+      description: >
+        성공 envelope — data=CounselTicketSummaryResponse[] (페이지네이션 없는 단순 목록, 고객
+        상담 이력 GET /api/counsel/tickets/{id}/customer-history 전용). customer* 4필드는 이
+        경로에서 항상 null.
+      properties:
+        success: { type: boolean, example: true }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/CounselTicketSummaryResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    CounselAttachmentResponse:
+      type: object
+      description: >
+        채팅 이미지 업로드 응답 — 저장키와 MIME. 프론트는 attachmentKey 를 WS SEND 메시지 바디에
+        실어 보낸다(서버가 저장키 확장자로 MIME 을 재도출하므로 mimeType 은 표시용 참고값).
+      properties:
+        attachmentKey:
+          type: string
+          description: FileStorageService 저장키(counsel-attachment/ 접두, 원본 URL 아님)
+          example: counsel-attachment/2026/07/27/9f1c2e.jpg
+        mimeType: { type: string, example: image/jpeg }
+
+    CounselAttachmentApiResponse:
+      type: object
+      description: 성공 envelope — data=CounselAttachmentResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/CounselAttachmentResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    ChatSessionType:
+      type: string
+      description: PostgreSQL chat_session_type 과 일치하는 채팅 세션 유형.
+      enum: [RAG, SCENARIO_BOT, COUNSEL]
+
+    ChatSessionCreateRequest:
+      type: object
+      description: >
+        채팅 세션 생성 요청(#1467/HAJA-647). 소유자(userId)는 요청 바디에서 받지 않고
+        인증 컨텍스트에서만 취득한다 — 바디로 받으면 임의 사용자 명의 세션 생성이 가능해진다.
+      required: [sessionType]
+      properties:
+        sessionType: { $ref: "#/components/schemas/ChatSessionType" }
+
+    ChatSessionResponse:
+      type: object
+      description: >
+        채팅 세션 생성 응답(#1467/HAJA-647). 소유자 userId 는 응답에 노출하지 않는다(요청자 본인
+        것이 자명하므로).
+      properties:
+        sessionId: { type: integer, format: int64, example: 42 }
+        sessionType: { $ref: "#/components/schemas/ChatSessionType" }
+        startedAt: { type: string, format: date-time, example: "2026-07-27T10:00:00Z" }
+
+    ChatSessionApiResponse:
+      type: object
+      description: 성공 envelope — data=ChatSessionResponse
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/ChatSessionResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    ChatSessionMessageCitation:
+      type: object
+      description: >
+        RAG 답변 1건이 인용한 근거. Chroma 청크 식별자(chunkRef)는 PostgreSQL FK 가 아니다.
+      properties:
+        documentId: { type: integer, format: int64, nullable: true, example: 12 }
+        chunkRef: { type: string, nullable: true, example: "doc-12#chunk-3" }
+        locator: { type: string, nullable: true, example: "3장 2절" }
+        snippet: { type: string, nullable: true, example: "균열 폭 0.3mm 이상은 정밀안전점검 대상이다." }
+
+    ChatSessionMessageResponse:
+      type: object
+      description: >
+        채팅 세션 이력 메시지 응답(#1467/HAJA-647). citations 는 인용 저장 로직이 후속 이슈 범위라
+        현재는 빈 배열이 정상이다.
+      properties:
+        id: { type: integer, format: int64, example: 901 }
+        sessionId: { type: integer, format: int64, example: 42 }
+        sender: { $ref: "#/components/schemas/ChatSenderType" }
+        content: { type: string, example: "균열 보수 기준은 무엇인가요?" }
+        citations:
+          type: array
+          items: { $ref: "#/components/schemas/ChatSessionMessageCitation" }
+        createdAt: { type: string, format: date-time, example: "2026-07-27T10:00:05" }
+
+    ChatSessionMessageListApiResponse:
+      type: object
+      description: 성공 envelope — data=ChatSessionMessageResponse[]
+      properties:
+        success: { type: boolean, example: true }
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ChatSessionMessageResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    # ── facilities·inspections·defects 보강 ──
+    AssignableUserResponse:
+      type: object
+      additionalProperties: false
+      required: [id, name, role]
+      description: >
+        배정 가능한 담당자 후보(#690 PR머신 P3) — UserResponse와 달리 email을 포함하지 않는 경량
+        DTO다("같은 회사 구성원이면 누구나 조회 가능"한 배정 피커 응답이라 개인정보 노출 표면을
+        줄인다).
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        role: { type: string, enum: [ADMIN, INSPECTOR, USER, COUNSELOR, PLATFORM_ADMIN], example: INSPECTOR }
+
+    AssignableUserListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/AssignableUserResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    FacilityStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [facilityId, facilityName]
+      description: >
+        시설물 현황 전용 목록 항목(#540 ⑥, HAJA-378) — 대시보드 스타일 현황 테이블 화면 전용이라
+        FacilityResponse(CRUD 상세)와 별도 DTO다. initialGrade는 시설물 등록 시 입력한 정적 초기
+        등급이며, 점검 이력 기반으로 계산되는 하자 등급(DefectGrade)과는 다른 개념이다.
+      properties:
+        facilityId: { type: integer, format: int64 }
+        facilityName: { type: string }
+        initialGrade:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, E]
+          description: 시설물 등록 시 입력한 정적 초기 등급 — 미입력이면 null(DefectGrade와 별개 개념)
+        nextInspectionDueAt: { type: string, format: date, nullable: true }
+        dDay:
+          type: integer
+          format: int64
+          nullable: true
+          description: 오늘(KST) 기준 nextInspectionDueAt까지 잔여일 — nextInspectionDueAt이 없으면 null
+        assigneeUserId: { type: integer, format: int64, nullable: true }
+        assigneeName: { type: string, nullable: true, description: 담당자 미배정 시 null }
+        lastInspectedAt: { type: string, format: date, nullable: true, description: 점검 이력이 없으면 null }
+        inspectionCycleMonths: { type: integer, nullable: true }
+        inspectionType:
+          nullable: true
+          description: 가장 최근 점검 회차의 유형(근사값) — 점검 이력이 없으면 null
+          oneOf:
+            - { $ref: "#/components/schemas/InspectionTypeCode" }
+
+    FacilityStatusListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/FacilityStatusResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    FacilityInspectionGradeCount:
+      type: object
+      additionalProperties: false
+      required: [grade, count]
+      properties:
+        grade: { $ref: "#/components/schemas/DefectGradeCode" }
+        count: { type: integer, format: int64, minimum: 0 }
+
+    FacilityInspectionHistoryItem:
+      type: object
+      additionalProperties: false
+      required: [id, status, imageCount, defectGradeBreakdown, thumbnailUrls]
+      properties:
+        id: { type: integer, format: int64 }
+        roundNo: { type: integer, nullable: true, minimum: 1 }
+        inspectionDate: { type: string, format: date, nullable: true }
+        inspectorName: { type: string, nullable: true }
+        status: { type: string, description: InspectionStatusCode 문자열 표현 }
+        imageCount: { type: integer, format: int64, minimum: 0 }
+        defectGradeBreakdown:
+          type: array
+          items: { $ref: "#/components/schemas/FacilityInspectionGradeCount" }
+        changeNote:
+          type: string
+          nullable: true
+          description: 이전 회차 대비 변화 메모 — 최신 회차에만 존재(비교 가능한 상태일 때만), 그 외 null
+        thumbnailUrls:
+          type: array
+          items: { type: string }
+          description: 미리보기 썸네일 URL(최대 2장) — 최신 회차에만 채워짐(#1549), 이전 회차는 빈 배열
+
+    FacilityInspectionOverviewResponse:
+      type: object
+      additionalProperties: false
+      required: [totalRounds, cumulativeDefectCount, unresolvedDefectCount, history]
+      description: >
+        시설물 상세 "점검 이력" 탭 응답(#1359/HAJA-616). overallGrade는 facilities.initial_grade(등록
+        시 입력값)와 완전히 다른 개념이다 — 최신 회차 하자 중 최악 등급의 계산값이며, null이면 최신
+        회차에 등급이 매겨진 하자가 없다는 뜻이다.
+      properties:
+        overallGrade:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/DefectGradeCode" }
+        totalRounds: { type: integer, minimum: 0 }
+        cumulativeDefectCount: { type: integer, format: int64, minimum: 0 }
+        unresolvedDefectCount: { type: integer, format: int64, minimum: 0 }
+        history:
+          type: array
+          items: { $ref: "#/components/schemas/FacilityInspectionHistoryItem" }
+
+    FacilityInspectionOverviewApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/FacilityInspectionOverviewResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    AnalysisFileProgress:
+      type: object
+      additionalProperties: false
+      required: [mediaId, fileName, status]
+      properties:
+        mediaId: { type: integer, format: int64 }
+        fileName: { type: string }
+        status:
+          type: string
+          enum: [waiting, analyzing, completed, failed]
+        defectCount: { type: integer, nullable: true }
+        elapsedOrEta: { type: string, nullable: true }
+
+    AnalysisStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+        [inspectionId, stage, progressPercent, totalFileCount, analyzedFileCount, files,
+         detectedDefectCount, riskyCrackCount, severityDistribution, failedCount, updatedAt]
+      description: >
+        AI 분석 실행/상태 폴링 응답(dev-05-04, API 명세서 v0.3 AP-006 연장). stage는 프론트 5단계
+        트래커 키(upload/frameExtraction/aiDetection/postProcessing/done)에 실패 표시용 failed를
+        더한 값이다. severityDistribution은 등급별(A~E) "개수"이며 퍼센트 변환은 프론트가 total로
+        나눠 계산한다. updatedAt은 이 진행률이 마지막으로 갱신된 시각(하트비트) — 15분 이상 갱신이
+        없으면 고착으로 간주해 stage=failed로 노출된다.
+      properties:
+        inspectionId: { type: integer, format: int64 }
+        stage:
+          type: string
+          enum: [upload, frameExtraction, aiDetection, postProcessing, done, failed]
+        progressPercent: { type: integer, minimum: 0, maximum: 100 }
+        totalFileCount: { type: integer, minimum: 0 }
+        analyzedFileCount: { type: integer, minimum: 0 }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/AnalysisFileProgress" }
+        detectedDefectCount: { type: integer, minimum: 0 }
+        riskyCrackCount:
+          type: integer
+          minimum: 0
+          description: type=CRACK이면서 grade가 D 또는 E인 하자 건수
+        severityDistribution:
+          type: object
+          description: 등급(A~E)별 하자 개수 — 5개 키 항상 포함
+          additionalProperties: { type: integer, minimum: 0 }
+          example: { A: 0, B: 2, C: 1, D: 0, E: 0 }
+        failedCount: { type: integer, minimum: 0 }
+        updatedAt: { type: string, format: date-time }
+
+    AnalysisStatusApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AnalysisStatusResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    DefectStatusUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [status]
+      description: >
+        하자 상태 전이 요청(HAJA-26 2차). 정방향 한 단계 전이(DETECTED→CONFIRMED→IN_PROGRESS→RESOLVED)는
+        reason 없이 허용되고, 역행/건너뛰기 전이는 reason이 없으면 400으로 거부된다.
+      properties:
+        status: { $ref: "#/components/schemas/DefectStatusCode" }
+        reason:
+          type: string
+          nullable: true
+          maxLength: 500
+          description: 역행/건너뛰기 전이 시 필수(정방향 한 단계 전이는 생략 가능)
+          example: 재점검 결과 조치가 미흡해 재작업 필요
+
+    DefectActionLogResponse:
+      type: object
+      additionalProperties: false
+      required: [id, photoUrl, actionContent, actionDate, actionAssigneeId, createdAt]
+      description: >
+        조치 등록 제출 이력 1건(#1193/HAJA-569). photoUrl은 DefectResponse.actionPhotoUrl과 동일
+        패턴으로 인가된 썸네일 엔드포인트를 재사용한다.
+      properties:
+        id: { type: integer, format: int64 }
+        photoUrl: { type: string, example: /api/media/4821/thumbnail }
+        actionContent: { type: string }
+        actionDate: { type: string, format: date }
+        actionAssigneeId: { type: integer, format: int64 }
+        actionAssigneeName: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    DefectActionLogListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/DefectActionLogResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    DefectRevisionResponse:
+      type: object
+      additionalProperties: false
+      required: [id, revisedBy, fieldChanged, createdAt]
+      description: >
+        하자 활동 기록(변경 이력) 1건(HAJA-314) — defect_revisions를 그대로 노출하는 조회 전용
+        DTO. fieldChanged는 "grade"/"isDeleted"/"status" 등 변경된 컬럼명 문자열이다.
+      properties:
+        id: { type: integer, format: int64 }
+        revisedBy: { type: integer, format: int64, description: 변경을 수행한 user id }
+        fieldChanged: { type: string, example: status }
+        oldValue: { type: string, nullable: true }
+        newValue: { type: string, nullable: true }
+        reason: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    DefectRevisionPage:
+      type: object
+      description: >
+        global.common.PageResponse<DefectRevisionResponse> 매핑(content/page/totalElements 3필드 —
+        size/totalPages는 이 envelope에 없음, InspectionListItemPage와 동일 패턴).
+      required: [content, page, totalElements]
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/DefectRevisionResponse" }
+        page: { type: integer, minimum: 0, example: 0 }
+        totalElements: { type: integer, format: int64, minimum: 0, example: 5 }
+
+    DefectRevisionPageApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/DefectRevisionPage" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    # ── statistics·dashboard·menus·plans·마이페이지·reports 보강 ──
+    # ── 통계 (구현됨, backend/core/statistics, StatisticsController) ──
+    StatisticsKpiSummaryResponse:
+      type: object
+      description: >
+        로그인 사용자의 회사 시설물 기준 통계 KPI. period(기본 6개월)로 잡은 현재 구간과 그 직전
+        동일 길이 구간을 비교해 changeRate 를 계산한다(StatisticsService.changeRate) — 직전 구간
+        값이 0이면 현재 값이 0보다 클 때만 100%, 그 외 0%로 처리한다.
+      required:
+        - totalDefects
+        - totalDefectsChangeRate
+        - avgResolutionDays
+        - avgResolutionDaysChangeRate
+        - actionCompletionRate
+        - actionCompletionRateChangeRate
+        - progressingDefects
+        - progressingDefectsChangeRate
+      properties:
+        totalDefects: { type: integer, format: int64, minimum: 0 }
+        totalDefectsChangeRate: { type: number, format: double, description: "직전 동일 길이 구간 대비 증감률(%)" }
+        avgResolutionDays: { type: number, format: double, description: "RESOLVED 하자의 평균 조치 소요일(생성~조치일)" }
+        avgResolutionDaysChangeRate: { type: number, format: double }
+        actionCompletionRate: { type: number, format: double, description: "전체 하자 중 RESOLVED 비율(%)" }
+        actionCompletionRateChangeRate: { type: number, format: double }
+        progressingDefects: { type: integer, format: int64, minimum: 0, description: "총 하자 - RESOLVED 하자" }
+        progressingDefectsChangeRate: { type: number, format: double }
+
+    StatisticsKpiSummaryApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/StatisticsKpiSummaryResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    StatisticsGradeDistributionItem:
+      type: object
+      description: >
+        하자가 한 건이라도 있으면 A~E 5개 항목 전부(집계 없는 등급은 percent=0), 등급 분류된 하자가
+        0건이면 빈 목록(dashboard GradeDistributionItem 과 동일한 "데이터 없음" vs "전 등급 0%" 구분 원칙, #347).
+      required: [grade, percent]
+      properties:
+        grade: { type: string, enum: [A, B, C, D, E] }
+        percent: { type: number, format: double, minimum: 0, maximum: 100 }
+
+    StatisticsGradeDistributionListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/StatisticsGradeDistributionItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    DefectTypeDistributionItem:
+      type: object
+      description: >
+        프론트 계약상 노출되는 하자 유형은 균열/박리·박락/철근노출 3종으로 고정한다
+        (StatisticsService.FRONTEND_CONTRACT_TYPES) — 그 외 DefectType 값은 집계에서 제외된다.
+      required: [type, count]
+      properties:
+        type: { type: string, description: "하자 유형 한글 라벨", example: 균열 }
+        count: { type: integer, format: int64, minimum: 0 }
+
+    DefectTypeDistributionListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/DefectTypeDistributionItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    MonthlyDefectTrendItem:
+      type: object
+      required: [month, defectCount]
+      properties:
+        month: { type: string, description: "YearMonth 문자열(yyyy-MM)", example: "2026-05" }
+        defectCount: { type: integer, format: int64, minimum: 0 }
+
+    MonthlyDefectTrendListApiResponse:
+      type: object
+      description: >
+        period 로 정해진 개월 수(기본 6개월)만큼의 월 라벨을 빠짐없이 반환한다(하자 0건인 달도 포함,
+        StatisticsService.scope 의 monthLabels).
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/MonthlyDefectTrendItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    FacilitySummaryItem:
+      type: object
+      required: [facilityId, facilityName, facilityType, totalDefects, latestGrade, lastInspectedAt]
+      properties:
+        facilityId: { type: integer, format: int64 }
+        facilityName: { type: string }
+        facilityType: { type: string }
+        totalDefects: { type: integer, format: int64, minimum: 0, description: "조회 구간(period) 내 하자 건수" }
+        latestGrade:
+          type: string
+          nullable: true
+          enum: [A, B, C, D, E]
+          description: "조회 구간 내 점검들 중 가장 나쁜(worst) 등급 — 하자가 없으면 null"
+        lastInspectedAt:
+          type: string
+          nullable: true
+          description: "ISO date(yyyy-MM-dd) 문자열 — 전체 기간 기준 최근 점검일(구간 제한 없음), 점검 이력 없으면 null"
+
+    FacilitySummaryListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/FacilitySummaryItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    FacilityTypeHeatmapItem:
+      type: object
+      description: >
+        시설물 type 문자열 접두("건물"/"교량"/"도로")로 categoryOf 가 분류하고, 매칭되지 않으면 "기타"로
+        묶는다(StatisticsService.categoryOf). facilityTypeCategory·month 오름차순 정렬, 하자 0건인
+        (카테고리, 월) 조합은 반환하지 않는다(있는 조합만).
+      required: [facilityTypeCategory, month, defectCount]
+      properties:
+        facilityTypeCategory: { type: string, enum: [건물, 교량, 도로, 기타] }
+        month: { type: string, description: "YearMonth 문자열(yyyy-MM)", example: "2026-05" }
+        defectCount: { type: integer, format: int64, minimum: 0 }
+
+    FacilityTypeHeatmapListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/FacilityTypeHeatmapItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    # ── 대시보드 최근 점검 전체보기(검색+페이지네이션, DashboardController.searchRecentInspections) ──
+    RecentInspectionPage:
+      type: object
+      description: >
+        global.common.PageResponse<RecentInspectionResponse> 매핑(content/page/totalElements 3필드 —
+        size/totalPages 는 이 envelope 에 없음, InspectionListItemPage 와 동일 패턴). content 항목 구조는
+        /api/dashboard/recent-inspections(위젯)의 RecentInspectionItem 과 동일하다.
+      required: [content, page, totalElements]
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/RecentInspectionItem" }
+        page: { type: integer, minimum: 0 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+
+    RecentInspectionPageApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/RecentInspectionPage" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    # ── 메뉴 (구현됨, backend/menu, #1003) ──
+    MenuTreeItem:
+      type: object
+      description: >
+        GROUP 은 path/activePathPattern 이 null 이고 children 이 채워지며, 리프(INTERNAL/EXTERNAL)는
+        children 이 빈 배열인 얕은 2단 트리(그룹→리프)다. enabled=false 항목은 표시는 하되 클릭 시
+        "아직 구현되지 않은 페이지입니다" 안내로 이어져야 한다(#1003 팔로우업).
+      required: [code, name, menuType, iconKey, opensNewTab, enabled, children]
+      properties:
+        code: { type: string }
+        name: { type: string }
+        menuType: { type: string, enum: [GROUP, INTERNAL, EXTERNAL] }
+        iconKey: { type: string, nullable: true }
+        path: { type: string, nullable: true }
+        activePathPattern: { type: string, nullable: true }
+        opensNewTab: { type: boolean }
+        enabled: { type: boolean }
+        children:
+          type: array
+          items: { $ref: "#/components/schemas/MenuTreeItem" }
+
+    MenuTreeListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/MenuTreeItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    # ── 공개 요금제 (구현됨, backend/membership, PublicPlanController) ──
+    PublicPlanItem:
+      type: object
+      required:
+        - id
+        - name
+        - maxFacilities
+        - maxMonthlyAnalyses
+        - maxSeats
+        - hasPdfWatermark
+        - hasCounselorAccess
+        - hasAiAddon
+        - priceMonthly
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string, description: "Plan.PlanName enum 값(FREE/BASIC/PRO 등)" }
+        maxFacilities: { type: integer, nullable: true }
+        maxMonthlyAnalyses: { type: integer, nullable: true }
+        maxSeats: { type: integer, nullable: true }
+        hasPdfWatermark: { type: boolean }
+        hasCounselorAccess: { type: boolean }
+        hasAiAddon: { type: boolean }
+        priceMonthly: { type: number, format: double }
+
+    PublicPlanCatalogResponse:
+      type: object
+      required: [plans]
+      properties:
+        plans:
+          type: array
+          items: { $ref: "#/components/schemas/PublicPlanItem" }
+
+    PublicPlanCatalogApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/PublicPlanCatalogResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    # ── 마이페이지(#844, HAJA-442, backend/mypage) ──
+    MyInspectionsSummaryResponse:
+      type: object
+      description: >
+        issuedReportCount 는 "그 점검들에 연결된 Report 중 FINALIZED 건수"라 participatedCount 와 합이
+        맞지 않는 것이 정상이다(점검 하나에 보고서가 여러 버전 존재 가능, ANALYZED 상태는 검수대기라
+        reviewConfirmedCount/inProgressCount 어느 쪽에도 포함되지 않는다).
+      required: [participatedCount, reviewConfirmedCount, issuedReportCount, inProgressCount]
+      properties:
+        participatedCount: { type: integer, format: int64, minimum: 0, description: "assignedInspectorId 또는 createdBy가 본인인 점검 총 건수" }
+        reviewConfirmedCount: { type: integer, format: int64, minimum: 0, description: "REVIEWED 또는 REPORTED 상태" }
+        issuedReportCount: { type: integer, format: int64, minimum: 0 }
+        inProgressCount: { type: integer, format: int64, minimum: 0, description: "CREATED/UPLOADING/ANALYZING 또는 ANALYZED 상태" }
+
+    MyInspectionsSummaryApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/MyInspectionsSummaryResponse" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    MyInspectionRole:
+      type: string
+      enum: [INSPECTOR, OWNER]
+      description: "assignedInspectorId == 요청자면 INSPECTOR, 아니면(=createdBy만 일치) OWNER — 둘 다 해당하면 INSPECTOR 우선"
+
+    MyInspectionDisplayStatus:
+      type: string
+      enum: [REVIEW_DONE, REVIEW_PENDING, ANALYZING]
+      description: "실 InspectionStatus(6종)를 화면 3종으로 백엔드에서 매핑: REVIEWED/REPORTED→REVIEW_DONE, ANALYZED→REVIEW_PENDING, CREATED/UPLOADING/ANALYZING→ANALYZING"
+
+    MyInspectionRowItem:
+      type: object
+      description: >-
+        roundNo·inspectionDate 는 조립/포맷 없이 그대로 반환한다 — '24-03' 또는 '2024.03.15' 같은
+        화면 표기는 프론트 책임이다.
+      required: [id, facilityName, roundNo, inspectionDate, role, defectCount, status]
+      properties:
+        id: { type: integer, format: int64 }
+        facilityName: { type: string }
+        roundNo: { type: integer, minimum: 1 }
+        inspectionDate: { type: string, format: date }
+        role: { $ref: "#/components/schemas/MyInspectionRole" }
+        defectCount: { type: integer, format: int64, minimum: 0 }
+        status: { $ref: "#/components/schemas/MyInspectionDisplayStatus" }
+
+    MyInspectionRowPage:
+      type: object
+      description: >
+        global.common.PageResponse<MyInspectionRowResponse> 매핑(content/page/totalElements 3필드 —
+        size/totalPages 는 이 envelope 에 없음, InspectionListItemPage 와 동일 패턴).
+      required: [content, page, totalElements]
+      properties:
+        content:
+          type: array
+          items: { $ref: "#/components/schemas/MyInspectionRowItem" }
+        page: { type: integer, minimum: 0 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+
+    MyInspectionRowPageApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/MyInspectionRowPage" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    ReportGradeDotColor:
+      type: string
+      enum: [RED, ORANGE, GREEN]
+      description: "DefectGrade(A~E)를 3색으로 축약: E·D→RED, C→ORANGE, B·A→GREEN"
+
+    MyReportRowItem:
+      type: object
+      description: >
+        title 은 반환하지 않는다 — Report 엔티티에 제목 컬럼이 없어 화면 제목은 프론트가 조립한다.
+        issuedAt 은 Report.updatedAt(finalize 시점 근사, 별도 발급 timestamp 컬럼 없음).
+        fileSizeBytes 는 PDF 조회 실패 시 예외 대신 null. gradeDots 는 존재하는 색만 심각도순
+        (RED→ORANGE→GREEN)으로 중복 없이 반환한다.
+      required: [id, inspectionId, facilityName, roundNo, issuedAt, gradeDots, pdfUrl]
+      properties:
+        id: { type: integer, format: int64 }
+        inspectionId: { type: integer, format: int64 }
+        facilityName: { type: string }
+        roundNo: { type: integer, nullable: true, minimum: 1 }
+        issuedAt: { type: string, format: date-time }
+        fileSizeBytes: { type: integer, format: int64, nullable: true }
+        gradeDots:
+          type: array
+          items: { $ref: "#/components/schemas/ReportGradeDotColor" }
+        pdfUrl: { type: string, nullable: true }
+
+    MyReportRowListApiResponse:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          type: array
+          items: { $ref: "#/components/schemas/MyReportRowItem" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    # ── auth 진위확인·사업자등록증 파일·AI 프록시/내부 ──
+    BusinessVerificationRequest:
+      type: object
+      description: >
+        회원가입 전(비로그인) [진위확인] 버튼 요청(#648). CompanySignupRequest와 검증 규칙(형식·길이)을
+        동일하게 맞춘다.
+      required: [businessRegistrationNumber, representativeName, businessStartDate]
+      properties:
+        businessRegistrationNumber:
+          type: string
+          pattern: "\\d{3}-?\\d{2}-?\\d{5}"
+          example: "123-45-67890"
+        representativeName: { type: string, maxLength: 100, example: 김대표 }
+        businessStartDate: { type: string, format: date, example: "2020-01-01" }
+
+    BusinessVerificationResponse:
+      type: object
+      description: >
+        사용자 대면 결과. message는 결과 코드별 고정 문구이며 개인정보(사업자번호·대표자명·개업일자)를
+        포함하지 않는다. 내부 판정 SKIPPED(fail-open)는 이 API에서 UNAVAILABLE로 번역된다.
+      required: [result, message]
+      properties:
+        result:
+          type: string
+          enum: [VERIFIED, NOT_REGISTERED, MISMATCH, SUSPENDED, CLOSED, UNAVAILABLE]
+          example: VERIFIED
+        message: { type: string, example: 사업자 정보가 국세청 등록정보와 일치합니다. }
+
+    BusinessVerificationApiResponse:
+      type: object
+      description: 성공 envelope — data=BusinessVerificationResponse(UNAVAILABLE 포함 fail-open도 success=true)
+      properties:
+        success: { type: boolean, example: true }
+        data: { $ref: "#/components/schemas/BusinessVerificationResponse" }
+        error: { type: object, nullable: true, example: null }
+
+    RagChatProxyRequest:
+      type: object
+      description: >
+        POST /api/ai/rag-chat 요청 바디(HAJA-32, #467/#1467). 내부 FastAPI 계약의 question과 필드명이
+        달라(query) AiProxyService가 변환해 전달한다. sessionId는 선택 값 — 있으면 세션 소유·
+        sessionType=RAG를 검증하고 최근 3턴 이력을 함께 전달한다.
+      required: [query]
+      properties:
+        query: { type: string, maxLength: 2000, example: "균열 보수 기준은 무엇인가요?" }
+        sessionId:
+          type: integer
+          format: int64
+          nullable: true
+          description: POST /api/chat-sessions로 만든 채팅 세션 식별자. 없으면 기존과 동일한 단발 질의.
+          example: 42
+
+    RagChatApiResponse:
+      type: object
+      description: >
+        POST /api/ai/rag-chat 전용 Spring ApiResponse envelope — data 형태는 내부 AIResponse.data
+        (RagAnswerData, answer/sources[])와 동일.
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/RagAnswerData" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/ApiError" }
+
+    # ── /ai/detect-defects (구현됨, ai-server/ai/chains/defect_detection_chain.py) ──
+    DetectDefectsRequest:
+      type: object
+      description: >
+        이미지 1장당 1회 호출(dev-05-04, AP-006). image_base64 max_length는 점검 미디어 업로드 상한
+        20MB의 base64 상당치(DoS 방지).
+      required: [image_base64]
+      properties:
+        image_base64: { type: string, minLength: 1 }
+
+    DetectedDefect:
+      type: object
+      description: >
+        탐지 1건 — bbox_*는 원본 이미지 대비 0~1 정규화 비율, grade는 area_ratio(세그멘테이션 마스크
+        기반 면적비율 또는 bbox 근사치) 기반 A~E. area_px/length_px/width_px는 보고서 표기용 물리
+        측정값(픽셀 단위)이며 균열이 아니면 null, 등급 판정에는 쓰이지 않는다.
+      required: [type, bbox_x, bbox_y, bbox_w, bbox_h, confidence, grade, area_ratio]
+      properties:
+        type: { type: string, enum: [CRACK, SPALLING, REBAR_EXPOSURE], example: CRACK }
+        bbox_x: { type: number, format: float, example: 0.12 }
+        bbox_y: { type: number, format: float, example: 0.34 }
+        bbox_w: { type: number, format: float, example: 0.08 }
+        bbox_h: { type: number, format: float, example: 0.05 }
+        confidence: { type: number, format: float, maximum: 0.9999, example: 0.87 }
+        grade: { type: string, enum: [A, B, C, D, E], example: C }
+        area_ratio: { type: number, format: float, example: 0.0031 }
+        area_px: { type: number, format: float, nullable: true }
+        length_px: { type: number, format: float, nullable: true, description: 균열만 — 면적/폭 근사 }
+        width_px: { type: number, format: float, nullable: true, description: 균열만 — 2×면적/둘레 근사 }
+
+    DetectDefectsData:
+      type: object
+      description: AIResponse.data 의 실제 형태(성공 시)
+      required: [detections]
+      properties:
+        detections:
+          type: array
+          items: { $ref: "#/components/schemas/DetectedDefect" }
+
+    DetectDefectsAIResponse:
+      type: object
+      description: 내부 /ai/detect-defects 전용 AIResponse envelope(추론 실패 시 error.code=VISION_INFERENCE_FAILED)
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, example: true }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/DetectDefectsData" }
+        usage:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AIUsage" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AIError" }
+
+    # ── /ai/rag-documents/* (구현됨, #22/HAJA-35, #1328, #1394) ──
+    RagDocumentEmbedRequest:
+      type: object
+      description: Spring RagDocumentService가 PDF에서 추출한 텍스트와 문서 메타데이터를 그대로 실어 보낸다.
+      required: [doc_id, title, doc_type, target_collection, text]
+      properties:
+        doc_id: { type: string, pattern: "^[1-9][0-9]*$", example: "42" }
+        title: { type: string, minLength: 1, example: "시설물의 안전 및 유지관리에 관한 특별법" }
+        doc_type: { type: string, minLength: 1, example: regulation }
+        target_collection: { type: string, enum: [regulations, defect_kb], example: regulations }
+        text: { type: string, minLength: 1 }
+        effective_date: { type: string, nullable: true, example: "2020-01-01" }
+        publisher: { type: string, nullable: true }
+        authored_at: { type: string, nullable: true }
+        verification_status: { type: string, nullable: true }
+
+    RagDocumentEmbedData:
+      type: object
+      description: >
+        AIResponse.data — 청킹만 동기 완료된 시점의 결과. 실제 임베딩은 BackgroundTasks로 진행 중이며
+        embed_batch_id는 /ai/rag-documents/{doc_id}/embedding-status 완료 판정에 쓰인다(#1393).
+      required: [chunk_count, embed_batch_id]
+      properties:
+        chunk_count: { type: integer, example: 12 }
+        embed_batch_id: { type: string, example: "a1b2c3d4e5f6" }
+
+    RagDocumentEmbedAIResponse:
+      type: object
+      description: 내부 /ai/rag-documents/embed 전용 AIResponse envelope
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, example: true }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/RagDocumentEmbedData" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AIError" }
+
+    RagEmbeddingStatusData:
+      type: object
+      description: >
+        AIResponse.data — Chroma에 실제 적재된 청크 수. embed_batch_id는 적재된 청크 전부가 같은
+        배치일 때만 값이 있고, 재임베딩 도중처럼 신·구 배치가 섞여 있으면 null(#1393).
+      required: [chunk_count, embed_batch_id]
+      properties:
+        chunk_count: { type: integer, example: 12 }
+        embed_batch_id: { type: string, nullable: true, example: "a1b2c3d4e5f6" }
+
+    RagEmbeddingStatusAIResponse:
+      type: object
+      description: 내부 /ai/rag-documents/{doc_id}/embedding-status 전용 AIResponse envelope
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, example: true }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/RagEmbeddingStatusData" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AIError" }
+
+    RagDeleteData:
+      type: object
+      description: AIResponse.data — 삭제 요청한 doc_id를 그대로 반환(idempotent 확인용)
+      required: [doc_id]
+      properties:
+        doc_id: { type: string, example: "42" }
+
+    RagDeleteAIResponse:
+      type: object
+      description: 내부 DELETE /ai/rag-documents/{doc_id} 전용 AIResponse envelope
+      required: [success, data, error]
+      properties:
+        success: { type: boolean, example: true }
+        data:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/RagDeleteData" }
+        error:
+          nullable: true
+          oneOf:
+            - { $ref: "#/components/schemas/AIError" }

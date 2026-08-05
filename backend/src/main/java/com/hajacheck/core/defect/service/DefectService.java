@@ -105,11 +105,12 @@ public class DefectService {
         List<Defect> group = resolveActionGroup(anchor);
         // 그룹 멤버의 상태 전이 건너뛰기는 updateStatus와 완전히 같은 규칙을 쓴다(#1591 P2,
         // shouldSkipGroupMember). anchor의 현재 상태는 루프 안에서 바뀌므로 진입 전에 확정한다.
-        boolean anchorNotMovingBackward = targetStatus.isAtOrAfter(anchor.getStatus());
+        DefectStatus anchorOriginalStatus = anchor.getStatus();
+        boolean anchorNotMovingBackward = targetStatus.isAtOrAfter(anchorOriginalStatus);
         for (Defect defect : group) {
             boolean isAnchor = defect.getId().equals(anchor.getId());
-            boolean skipStatusTransition = !isAnchor
-                    && shouldSkipGroupMember(defect.getStatus(), targetStatus, anchorNotMovingBackward);
+            boolean skipStatusTransition = !isAnchor && shouldSkipGroupMember(
+                    defect.getStatus(), targetStatus, anchorNotMovingBackward, anchorOriginalStatus);
             applyActionResult(userId, defect, request, targetStatus, skipStatusTransition);
         }
 
@@ -352,10 +353,12 @@ public class DefectService {
         // (shouldSkipGroupMember 참조). anchor의 현재 상태는 루프 안에서 바뀌므로 진입 전에 확정한다.
         // 목표가 anchor의 현재 상태와 같은 경우도 true지만(엄밀히는 "제자리") anchor 자신이 어차피
         // changeStatus에서 거부되므로 동작에는 영향이 없다.
-        boolean anchorNotMovingBackward = status.isAtOrAfter(anchor.getStatus());
+        DefectStatus anchorOriginalStatus = anchor.getStatus();
+        boolean anchorNotMovingBackward = status.isAtOrAfter(anchorOriginalStatus);
         for (Defect defect : group) {
             boolean isAnchor = defect.getId().equals(anchor.getId());
-            if (!isAnchor && shouldSkipGroupMember(defect.getStatus(), status, anchorNotMovingBackward)) {
+            if (!isAnchor && shouldSkipGroupMember(
+                    defect.getStatus(), status, anchorNotMovingBackward, anchorOriginalStatus)) {
                 continue;
             }
             DefectStatus previousStatus = defect.getStatus();
@@ -375,7 +378,9 @@ public class DefectService {
      * 이력은 그대로 남는다(updateStatus는 상태 변경이 전부라 멤버 전체를 건너뛴다).
      *
      * <p><b>anchor가 진행을 앞으로 미는 요청이면, 그 목표로 "정방향 한 단계" 전이가 되는 멤버만
-     * 따라간다</b>({@link DefectStatus#isForwardStepTo}). 나머지는 전부 제자리에 둔다:
+     * 따라간다</b>({@link DefectStatus#isForwardStepTo}), <b>단 anchor와 같은 출발 상태였던 멤버는
+     * anchor의 건너뛰기 전이(두 단계 이상, 사유 필수)를 함께 따라간다</b>(#1609). 나머지는 전부
+     * 제자리에 둔다:
      * <ul>
      *   <li><b>이미 목표 상태</b>(#1562 P2) — changeStatus()가 동일 상태 재전이를 항상 거부해,
      *       한 멤버만 목표에 도달해 있어도 그룹 전체 요청이 실패했다.</li>
@@ -390,16 +395,28 @@ public class DefectService {
      *       따라오면 되므로 여기서 끌고 가지 않는다.</li>
      * </ul>
      *
+     * <p><b>anchor와 같은 출발 상태(anchorOriginalStatus)의 멤버는 예외적으로 함께 태운다</b>(#1609,
+     * 예: CONFIRMED→RESOLVED 건너뛰기 전이 시 같은 CONFIRMED 멤버 전원). anchor의 건너뛰기 전이는
+     * 사유가 이미 요청에 포함되어 changeStatus()를 통과하므로, 같은 출발 상태였던 멤버도 동일한
+     * 사유로 같은 건너뛰기를 함께 하는 것이 그룹 팬아웃(#1456)의 원 의도에 맞다 — anchor만 바뀌고
+     * 나머지 CONFIRMED 멤버가 그대로 남는 것은 "이미지 단위 그룹 팬아웃" 원칙 위반이었다.
+     * {@code memberStatus != targetStatus} 조건은 필수다 — registerActionResult의 IN_PROGRESS 유지
+     * 재제출(anchor IN_PROGRESS→IN_PROGRESS, #1193)에서 같은 IN_PROGRESS 멤버까지 이 예외에 걸려
+     * "동일 상태 재전이"로 오판되는 것을 막는다(anchorOriginalStatus == targetStatus인 경우, 즉
+     * 제자리 재제출인 경우는 이 예외를 적용하지 않는다).
+     *
      * <p>반대로 anchor를 <b>뒤로 되돌리는</b> 요청(예: RESOLVED → IN_PROGRESS 재검토)은 "이 사진의
      * 보수 작업 전체를 다시 연다"는 뜻이므로, 앞선 멤버도 함께 되돌리는 기존 동작(#1556)을 유지한다
      * (이미 목표 상태인 멤버만 제외 — #1562).
      */
     private boolean shouldSkipGroupMember(
-            DefectStatus memberStatus, DefectStatus targetStatus, boolean anchorNotMovingBackward) {
+            DefectStatus memberStatus, DefectStatus targetStatus, boolean anchorNotMovingBackward,
+            DefectStatus anchorOriginalStatus) {
         if (!anchorNotMovingBackward) {
             return memberStatus == targetStatus;
         }
-        return !memberStatus.isForwardStepTo(targetStatus);
+        boolean followsAnchorSkip = memberStatus == anchorOriginalStatus && memberStatus != targetStatus;
+        return !(memberStatus.isForwardStepTo(targetStatus) || followsAnchorSkip);
     }
 
 }

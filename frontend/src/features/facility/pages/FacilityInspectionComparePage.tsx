@@ -30,7 +30,8 @@ export function FacilityInspectionComparePage() {
     setExportError(null);
     try {
       await exportComparisonReportAsPdf(exportTargetRef.current, id);
-    } catch {
+    } catch (error) {
+      console.error('회차 비교 PDF 내보내기 실패', error);
       setExportError('내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       setIsExporting(false);

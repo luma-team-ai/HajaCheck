@@ -10,6 +10,33 @@ function buildFileName(facilityId: string): string {
   return `회차간비교_${facilityId}_${yyyy}${mm}${dd}.pdf`;
 }
 
+// html2canvas는 <select>처럼 OS/브라우저가 직접 그리는 네이티브 폼 컨트롤의 실제 픽셀을 읽어올
+// 방법이 없어, 캡처 시 선택된 옵션 텍스트가 겹쳐 그려지는 구조적 한계가 있다(2026-08-05 발견).
+// 캡처 직전 캡처 영역 안의 모든 select를 "선택된 옵션 텍스트를 보여주는 동일 스타일 span"으로
+// 잠깐 바꿔치기하고, 캡처 성공/실패와 무관하게 즉시 원래 select로 되돌린다 — 텍스트·레이아웃은
+// 그대로 유지되지만, 캡처가 끝날 때까지(수백ms~수초) select는 클릭/키보드 조작이 안 되는
+// 정적 텍스트가 된다(내보내기 버튼만 disabled, select 자체는 그대로 두는 것과의 트레이드오프).
+function swapSelectsForCapture(node: HTMLElement): () => void {
+  const selects = Array.from(node.querySelectorAll('select'));
+  const restorers = selects.map((select) => {
+    const selectedOption = select.options[select.selectedIndex];
+    const replacement = document.createElement('span');
+    replacement.className = select.className;
+    replacement.textContent = selectedOption?.text ?? '';
+
+    const originalDisplay = select.style.display;
+    select.insertAdjacentElement('afterend', replacement);
+    select.style.display = 'none';
+
+    return () => {
+      replacement.remove();
+      select.style.display = originalDisplay;
+    };
+  });
+
+  return () => restorers.forEach((restore) => restore());
+}
+
 // 메인 콘텐츠 영역(사이드바·헤더 제외)만 캡처해 PDF로 저장한다(#489 확정 범위 유지).
 // 이 페이지는 정형 데이터가 아니라 사진·표가 섞인 시각적 레이아웃이라, 표 전용인
 // exportReportToPdf/exportDefectsToPdf(jspdf-autotable로 처음부터 그리는 방식)를 재사용하지
@@ -17,7 +44,15 @@ function buildFileName(facilityId: string): string {
 // 같은 이미지를 다음 페이지에 위로 밀어(음수 y) 이어 그려 자동으로 페이지를 나눈다 — PDF
 // 페이지는 자기 영역 밖으로 나간 내용을 그리지 않으므로 페이지마다 다른 구간만 보인다.
 export async function exportComparisonReportAsPdf(node: HTMLElement, facilityId: string): Promise<void> {
-  const [{ default: jsPDF }, canvas] = await Promise.all([import('jspdf'), html2canvas(node)]);
+  const jsPdfModulePromise = import('jspdf');
+  const restoreSelects = swapSelectsForCapture(node);
+  let canvas;
+  try {
+    canvas = await html2canvas(node);
+  } finally {
+    restoreSelects();
+  }
+  const { default: jsPDF } = await jsPdfModulePromise;
   const imageData = canvas.toDataURL(PNG_MIME_TYPE);
 
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });

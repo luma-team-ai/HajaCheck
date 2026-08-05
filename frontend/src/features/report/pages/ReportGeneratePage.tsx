@@ -19,12 +19,9 @@ import { ReportEditorHero } from '../components/editor/ReportEditorHero';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { exportReportToPdf } from '../utils/exportReportToPdf';
-import {
-  getEmptyManualSectionLabels,
-  getMissingFinalReportRequiredLabels,
-} from '../utils/manualSectionValidation';
 import { buildReportPdfContext } from '../utils/reportPdfContext';
 import { buildReportPdfFileName, normalizePdfPreviewUrl } from '../../../shared/utils/reportPdf';
+import { runFinalizeReportFlow } from '../utils/finalizeReportFlow';
 
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string' && err.message) {
@@ -95,7 +92,6 @@ export function ReportGeneratePage() {
   const [savedContent, setSavedContent] = useState<ReportContent | null>(null);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [isRechecking, setIsRechecking] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
@@ -261,10 +257,6 @@ export function ReportGeneratePage() {
   }, [applyReport, reportQuery.data]);
 
   const dirty = content !== null && savedContent !== null && JSON.stringify(content) !== JSON.stringify(savedContent);
-  const emptyManualSectionLabels = useMemo(() => getEmptyManualSectionLabels(content), [content]);
-  const hasEmptyManualSections = emptyManualSectionLabels.length > 0;
-  const missingFinalRequiredLabels = useMemo(() => getMissingFinalReportRequiredLabels(content), [content]);
-  const hasMissingFinalRequiredContent = missingFinalRequiredLabels.length > 0;
   const isFinalized = report?.status === 'FINALIZED';
   const blocker = useBlocker(({ currentLocation, nextLocation }) => {
     if (!report || !dirty || isFinalized) return false;
@@ -328,17 +320,17 @@ export function ReportGeneratePage() {
 
   // 임시저장 — "임시저장" 버튼(원 저장 버튼)뿐 아니라 PDF 미리보기 가드, 최종 확정 통합 플로우에서도
   // 재사용한다(#1338). 성공 여부를 반환해 호출부가 다음 단계 진행 여부를 판단할 수 있게 한다.
-  const handleSave = async (): Promise<boolean> => {
-    if (!report || !content || isSaving) return false;
+  const handleSave = async (): Promise<ReportDetailResponse | null> => {
+    if (!report || !content || isSaving) return null;
     setIsSaving(true);
     try {
       const response = await reportApi.updateContent(report.id, content);
       applyReport(response.data);
-      return true;
+      return response.data;
     } catch (err) {
       const message = extractErrorMessage(err, '저장에 실패했습니다.');
       setAlertModal({ open: true, title: '저장 실패', message });
-      return false;
+      return null;
     } finally {
       setIsSaving(false);
     }
@@ -350,25 +342,6 @@ export function ReportGeneratePage() {
 
   const handleConfirmLeave = () => {
     blocker.proceed?.();
-  };
-
-  const handleGroundingRecheck = async (): Promise<{
-    success: boolean;
-    data?: ReportDetailResponse;
-    message?: string;
-  }> => {
-    if (!report || isRechecking) return { success: false };
-    setIsRechecking(true);
-    try {
-      const response = await reportApi.groundingRecheck(report.id);
-      applyReport(response.data);
-      return { success: true, data: response.data };
-    } catch (err) {
-      const message = extractErrorMessage(err, '확정 검증에 실패했습니다.');
-      return { success: false, message };
-    } finally {
-      setIsRechecking(false);
-    }
   };
 
   // "PDF 미리보기" 클릭 핸들러 — 미리보기는 확정 전 편집 중인 내용을 보기 위한 기능이므로
@@ -383,65 +356,25 @@ export function ReportGeneratePage() {
   // 각 단계 실패 시 AlertModal로 알리고 다음 단계로 넘어가지 않는다.
   const handleFinalizeAll = async () => {
     if (!report || !content || isFinalized) return;
-    if (isSaving || isRechecking || isFinalizing) return;
+    if (isSaving || isFinalizing) return;
 
+    let currentReport = report;
     if (dirty) {
-      const saved = await handleSave();
-      if (!saved) return;
-    }
-
-    if (hasEmptyManualSections) {
-      setAlertModal({
-        open: true,
-        title: '확정할 수 없습니다',
-        message: `내용이 비어 있거나 필수값이 누락된 추가 섹션이 있습니다: ${emptyManualSectionLabels.join(', ')}`,
-      });
-      return;
-    }
-
-    if (hasMissingFinalRequiredContent) {
-      setAlertModal({
-        open: true,
-        title: '확정할 수 없습니다',
-        message: `최종 보고서 확정 전 필수 항목을 작성해 주세요: ${missingFinalRequiredLabels.join(', ')}`,
-      });
-      return;
-    }
-
-    const recheckResult = await handleGroundingRecheck();
-    if (!recheckResult.success) {
-      setAlertModal({
-        open: true,
-        title: '확정 검증 실패',
-        message: recheckResult.message ?? '확정 검증에 실패했습니다.',
-      });
-      return;
-    }
-
-    if (recheckResult.data?.groundingCheckPassed !== true) {
-      setAlertModal({
-        open: true,
-        title: '검증 실패',
-        message: '검증 실패 — 내용을 확인 후 다시 시도하세요.',
-      });
-      return;
+      const savedReport = await handleSave();
+      if (!savedReport) return;
+      currentReport = savedReport;
     }
 
     setIsFinalizing(true);
     setFinalizeError(null);
     try {
-      const pdfBlob = await exportReportToPdf(
-        content,
-        buildReportPdfContext(report, inspectionData, includeReportPhotos),
-      );
-      const fileName = buildReportPdfFileName(report.inspectionId);
-      const uploadResponse = await reportApi.uploadPdf(report.id, pdfBlob, fileName);
-      const finalizeResponse = await reportApi.finalizeReport(report.id, uploadResponse.data.pdfUrl);
-      applyReport(finalizeResponse.data);
-    } catch (err) {
-      const message = extractErrorMessage(err, 'PDF 생성/확정에 실패했습니다.');
-      setFinalizeError(message);
-      setAlertModal({ open: true, title: 'PDF 생성/확정 실패', message });
+      const result = await runFinalizeReportFlow(report.id, currentReport, content, inspectionData);
+      if (result.ok) {
+        applyReport(result.report);
+      } else {
+        setFinalizeError(result.message);
+        setAlertModal({ open: true, title: result.title, message: result.message });
+      }
     } finally {
       setIsFinalizing(false);
     }
@@ -465,7 +398,7 @@ export function ReportGeneratePage() {
       const objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
-      anchor.download = buildReportPdfFileName(currentReport.inspectionId);
+      anchor.download = buildReportPdfFileName(currentReport.inspectionId, currentReport.status === 'DRAFT');
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -528,14 +461,12 @@ export function ReportGeneratePage() {
   // "무엇이 비었는지" 알려준다(#1341 원 설계) — hasEmptyManualSections를 canFinalize에 넣어
   // 버튼을 조용히 비활성화했던 것은 #1375/#1377에서 이 주석과 모순되게 들어간 회귀였다(#1409).
   const canFinalize = !isFinalized;
-  const isFinalizeBusy = isSaving || isRechecking || isFinalizing;
+  const isFinalizeBusy = isSaving || isFinalizing;
   const finalizeLabel = isSaving
     ? '저장 중...'
-    : isRechecking
-      ? '검증 중...'
-      : isFinalizing
-        ? 'PDF 생성/확정 중...'
-        : '최종 보고서 확정';
+    : isFinalizing
+      ? 'PDF 생성/확정 중...'
+      : '최종 보고서 확정';
   const reportStepViews = REPORT_STEPS.map((step) => ({
     key: step.key,
     label: step.label,
@@ -731,7 +662,7 @@ export function ReportGeneratePage() {
         <ReportContentEditor
           content={content}
           onChange={setContent}
-          readOnly={isFinalized || isSaving || isRechecking || isFinalizing}
+          readOnly={isFinalized || isSaving || isFinalizing}
           defectPhotos={defectPhotos}
           defectPhotoGroups={defectPhotoGroups}
         />

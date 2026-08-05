@@ -11,7 +11,9 @@
 > 계기: 열린 이슈 72건 누적 조사. GitHub `Closes #N` 자동종료는 **기본 브랜치(main)에 머지될 때만** 발동한다. 기능 PR은 `dev`로 머지되므로 dev 머지로는 이슈가 **자동으로 닫히지 않는다**. 그대로 두면 완결 이슈가 무한 누적된다.
 - **이슈는 "실배포(main 승격)" 시점에 닫는다.** open = "아직 프로덕션 미배포", closed = "배포됨". (Jira `완료`와 정합 — dev 머지 단계는 아직 미배포이므로 open 유지가 정상.)
 - **dev 머지 시**: 이슈를 닫지 않고 **`awaiting-promotion` 라벨을 부여**한다(GitHub 보드에서 "승격대기 = 코드 끝남"과 "착수 전"을 구분 가능하게). Jira `dev-pr-check` 전환과 **세트로** 처리(같은 트리거 — Jira 연동 §4단계). native 자동화 아님 → Claude/운영자가 dev 머지 확인 시점에 `gh issue edit {N} --add-label awaiting-promotion`.
-- **main 승격 시**: **승격 PR 본문에 그 배치에 포함된 모든 이슈의 `Closes #N`을 나열**한다(의무). squash여도 본문 나열은 main 머지 시 전부 native 자동종료된다(라벨은 close로 소멸). Jira `완료` 전환과 세트(Jira 연동 §5단계).
+- **main 승격 시**: **승격 PR 본문에 그 배치에 포함된 모든 이슈의 `Closes #N`을 나열**한다(의무). squash여도 본문 나열은 main 머지 시 전부 native 자동종료된다. Jira `완료` 전환과 세트(Jira 연동 §5단계).
+- **⚠️ 종료 후 `awaiting-promotion` 라벨은 반드시 직접 제거한다** (2026-08-05 정정 — 과거엔 "close로 라벨 소멸"로 잘못 알고 있었음). **GitHub은 이슈를 닫아도 라벨을 떼지 않는다.** 방치하면 "승격 대기(=배포 전)" 상태 라벨이 closed(=배포됨) 이슈에 남아 정면 모순이 되고, `label:awaiting-promotion` 보드/쿼리가 실제 대기 건을 못 찾는다(2026-08-05 기준 317건 누적 → 일괄 정리). 승격 머지 직후 배치 이슈 전부에 `gh issue edit {N} --remove-label awaiting-promotion`.
+- **유형 라벨(`bug`/`enhancement`/`documentation`)은 종료 시에도 유지**한다 — 상태가 아니라 분류이며, 떼면 `is:closed label:bug` 회고·통계 쿼리가 깨진다. 종료 시 정리 대상은 **상태 라벨(`awaiting-promotion`, `ai:*`)뿐**.
 - **PR머신 repo / `.github/workflows`는 무수정** — 라벨·종료 모두 Claude/운영자 동작으로 처리(전역 원칙 유지).
 
 ## 검수 위임 (PR머신 가동 중일 때만)
@@ -96,7 +98,7 @@
   2. **브랜치 생성**(`git worktree add -b {branch}` 직후, 구현 서브 디스패치 직전) → Jira 상태를 **진행 중**으로 전환.
   3. **PR 생성**(`gh pr create`로 PR이 올라온 직후 = 검수 진입) → Jira 상태를 **INSPECTION CHECK**로 전환. 필요 시 PR 링크 코멘트. (사람/PR머신 검수가 여기서 일어남 — 반려되면 이 상태 유지, 통과·머지 시 다음 단계로.)
   4. **dev 머지**(PR머신 자동 머지 완료) → Jira 상태를 **dev-pr-check**로 전환(코드는 끝났지만 아직 미배포). 필요 시 dev PR 링크 코멘트. **+ GitHub 이슈에 `awaiting-promotion` 라벨 부여**(닫지 않음 — dev 머지로는 native 종료 안 되고, open=미배포가 정상). Jira 전환과 세트 → PR 흐름 §"GitHub 이슈 종료 규칙".
-  5. **main 승격**(사람 승인 완료, 실배포) → 승격 PR에 포함된 이슈들의 Jira 키를 식별해 각각 **완료(Done)**로 전환 + main PR 링크 코멘트. 개별 승격이든 스프린트 단위 배치 승격이든 상관없이, 그 PR에 걸린 이슈 전부 처리. **+ 승격 PR 본문에 포함 이슈 전부 `Closes #N` 나열**(main 머지 시 GitHub 이슈 native 자동종료, `awaiting-promotion` 라벨 소멸) → PR 흐름 §"GitHub 이슈 종료 규칙".
+  5. **main 승격**(사람 승인 완료, 실배포) → 승격 PR에 포함된 이슈들의 Jira 키를 식별해 각각 **완료(Done)**로 전환 + main PR 링크 코멘트. 개별 승격이든 스프린트 단위 배치 승격이든 상관없이, 그 PR에 걸린 이슈 전부 처리. **+ 승격 PR 본문에 포함 이슈 전부 `Closes #N` 나열**(main 머지 시 GitHub 이슈 native 자동종료) **+ 종료된 이슈에서 `awaiting-promotion` 라벨을 직접 제거**(닫아도 라벨은 자동으로 안 떨어짐) → PR 흐름 §"GitHub 이슈 종료 규칙".
 - **한계**: ①②③은 Claude가 직접 수행하는 동작(이슈 생성·브랜치 생성·PR 생성) 직후라 그 자리에서 트리거되지만, ④⑤(dev 머지·main 승격)는 PR머신/사람이 하는 동작이라 Claude가 자동으로 감지하지 못한다. 사용자가 알려주거나 Claude가 `gh pr view` 등으로 상태를 확인하는 시점에야 전환이 실행된다.
 - 정확한 transition ID는 이슈마다 `getTransitionsForJiraIssue`로 그때그때 조회해서 사용(상태명 하드코딩 금지 — Jira 워크플로우 스킴이 프로젝트별로 다를 수 있음).
 

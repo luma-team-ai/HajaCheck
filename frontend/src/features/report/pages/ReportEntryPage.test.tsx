@@ -261,11 +261,11 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(screen.queryByRole('button', { name: /종합 의견/ })).toBeNull();
     expect(screen.queryByRole('button', { name: '포함 섹션 보기' })).toBeNull();
 
-    const summaryButton = screen.getByRole('button', { name: '결과 요약' });
-    fireEvent.click(summaryButton);
-    expect(summaryButton.getAttribute('aria-pressed')).toBe('false');
-    fireEvent.click(summaryButton);
-    expect(summaryButton.getAttribute('aria-pressed')).toBe('true');
+    const detailsButton = screen.getByRole('button', { name: '진단 외관조사결과 기본사항' });
+    fireEvent.click(detailsButton);
+    expect(detailsButton.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(detailsButton);
+    expect(detailsButton.getAttribute('aria-pressed')).toBe('true');
 
     const photoToggle = screen.getByRole('button', { name: /대표 사진 자동 삽입/ });
     expect(photoToggle.hasAttribute('disabled')).toBe(false);
@@ -273,6 +273,26 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     fireEvent.click(photoToggle);
     expect(photoToggle.className).toContain('bg-border');
     expect(screen.queryByText(/아직 생성 결과에 반영되지 않습니다/)).toBeNull();
+  });
+
+  it('선택 가능한 수동 섹션을 해제해도 필수 섹션이 있어 초안 생성이 가능하다', async () => {
+    server.use(
+      http.post('/api/inspections/:id/reports', async () => {
+        return HttpResponse.json({
+          success: true,
+          data: { id: 77, inspectionId: 1, version: 1, content: {}, status: 'DRAFT', createdBy: 1, createdAt: '2026-07-22T10:00:00Z' },
+        });
+      }),
+    );
+    renderPage();
+    await screen.findByText(/점검 회차 요약/);
+
+    for (const name of ['진단 외관조사결과 기본사항', '보수ㆍ보강(안)']) {
+      fireEvent.click(screen.getByRole('button', { name }));
+    }
+
+    const generateButton = screen.getByRole('button', { name: '보고서 생성 시작' });
+    expect(generateButton.hasAttribute('disabled')).toBe(false);
   });
 
   it('생성 요청 바디에 설정 옵션(sections/includePhoto)을 실어 보낸다', async () => {
@@ -301,11 +321,9 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     expect(bodyStr).not.toContain('"opinion"');
   });
 
-  it('포함 섹션을 모두 해제하면 초안 생성 요청을 보내지 않는다', async () => {
-    let body: unknown = 'NOT_CALLED';
+  it('선택 가능한 수동 섹션을 해제해도 필수 섹션이 유지되어 초안 생성이 가능하다', async () => {
     server.use(
-      http.post('/api/inspections/:id/reports', async ({ request }) => {
-        body = await request.json().catch(() => null);
+      http.post('/api/inspections/:id/reports', async () => {
         return HttpResponse.json({
           success: true,
           data: { id: 77, inspectionId: 1, version: 1, content: {}, status: 'DRAFT', createdBy: 1, createdAt: '2026-07-22T10:00:00Z' },
@@ -315,15 +333,12 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     renderPage();
     await screen.findByText(/점검 회차 요약/);
 
-    for (const name of ['기본현황', '결과 요약', '진단 외관조사결과 기본사항', '보수ㆍ보강(안)']) {
+    for (const name of ['진단 외관조사결과 기본사항', '보수ㆍ보강(안)']) {
       fireEvent.click(screen.getByRole('button', { name }));
     }
 
     const generateButton = screen.getByRole('button', { name: '보고서 생성 시작' });
-    expect(generateButton.hasAttribute('disabled')).toBe(true);
-    fireEvent.click(generateButton);
-
-    expect(body).toBe('NOT_CALLED');
+    expect(generateButton.hasAttribute('disabled')).toBe(false);
   });
 
   // "미리보기"라는 이름이 지금 고른 섹션 설정을 미리 보여주는 기능처럼 오해를 사서, 실제
@@ -586,5 +601,18 @@ describe('ReportEntryPage (보고서 생성 진입점, #876)', () => {
     const editButton = await screen.findByRole('button', { name: '이어서 편집' });
     fireEvent.click(editButton);
     expect(await screen.findByText('편집화면')).not.toBeNull();
+  });
+
+  it('기본현황 및 결과 요약 섹션 해제 시도 시 필수 섹션 안내 모달을 띄운다', async () => {
+    renderPage();
+    await screen.findByText(/점검 회차 요약/);
+
+    const overviewButton = screen.getByRole('button', { name: '기본현황' });
+    fireEvent.click(overviewButton);
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('필수 섹션 안내')).toBeTruthy();
+    expect(within(dialog).getByRole('alert').textContent).toContain('기본현황 및 결과 요약은 보고서 초안 구성에');
+    expect(within(dialog).getByRole('alert').textContent).toContain('필수적인 섹션이므로 제외할 수 없습니다.');
   });
 });
