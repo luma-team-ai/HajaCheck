@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-08-05
+> 마지막 갱신: 2026-08-06
 
 ## 인프라
 
@@ -35,6 +35,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+> ✅ **2026-08-06 3차 승격 완료 — PR #1625 (dev→main, 5커밋 / 이슈 2건 자동종료 / merge commit `d8bb8b9a`).** 배치: #1624(IT-05 계약 SOT 전환)·#1621(stale 청크 index.html 폴백 차단)·README 배너·STATUS 2건. 승격 전 전체검수: backend `./gradlew test` 전건 PASS(로컬 재실행)·frontend build PASS·마이그레이션 0건·신규 env 0건·시크릿 0건. nginx 3파일 변경은 frontend 컨테이너 내장 설정(#1621 픽스 본체)이라 CD 재빌드로 자동 적용 — 호스트 공유 nginx 무변경. **prod 검증 완료**: CD success·front 200·`/api/plans` 200·**구청크 요청 404 실측**(#1619 픽스 실동작, 예전엔 200 html)·index.html `no-cache`·실청크 `immutable` 헤더 확인. Closes #1617·#1619 자동종료 실측, #1617 `awaiting-promotion` 라벨 제거, dev ff 역머지 완료. springdoc-baseline.json 최초 생성(승격 직후 `--update-baseline`, 별도 커밋).
 
 > ✅ **2026-08-05 2차 승격 완료 — PR #1618 (dev→main, 14커밋 / 이슈 2건 자동종료 / merge commit `0e763ae9`).** 오전 #1603 이후 배치(코드 PR 7건 전부 머신 머지 + 문서). 주요: 보고서 확정 서버측 검증(`ReportFinalizationValidator`)·확정 보고서 PDF 재업로드 차단·외부 `/api/ai/report` 제거·하자 팬아웃 건너뛰기 동반 전이(#1609)·프론트 픽스 4건. G6 PASS: 마이그레이션 0건·운영 config 영향 0·backend gradle test 전건·frontend build PASS(vitest 로컬 9건 실패는 main 동일 재현=환경성)·문서 A안 정합(openapi v0.45.0)·시크릿 0건. **prod 배포·검증 완료**: CD success, front 200, spring 응답, `/api/plans` 200. Closes #1605·#1609 자동종료 실측, `awaiting-promotion` 라벨 3건(#1605·#1608·#1609) 제거, dev ff 역머지 완료.
 > 잔여 후속(비차단): **PR #1604 커밋 메시지의 "보고서 변경 API 7종 INSPECTOR/ADMIN 제한"이 실제 코드에 부재**(소유권 스코프만 존재) — role 제한 추가 여부 이슈화 판단 대기 · nginx 컨테이너 `/api/` `proxy_read_timeout` 60s vs AI 180s 불일치 이슈화 판단 대기 · dist 내 `mockServiceWorker.js` 잔존(P3) · Jira 전환은 중단 지시(08-04)로 미수행.
