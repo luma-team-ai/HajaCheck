@@ -15,7 +15,7 @@ LLM(LangChain + RAG)이 점검 보고서 초안과 법규 질의응답까지 지
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)]()
 [![LangChain](https://img.shields.io/badge/LangChain-0.3-1C3C3C?logo=langchain&logoColor=white)]()
 
-🚀 **[라이브 데모](https://hajacheck.luma200ok.com)** · 📑 **[중간보고(PDF)](docs/report/interim-report/hajaCheck_중간보고_v2.pdf)** · 📋 **[진행 보드](docs/STATUS.md)**
+🚀 **[라이브 데모](https://hajacheck.luma200ok.com)** · 🎬 **[시연 영상](https://youtu.be/IagMc_vZxpA)** · 📑 **[최종보고서(PDF)](docs/report/hajaCheck%20최종보고서_final.pdf)** · 📋 **[진행 보드](docs/STATUS.md)**
 
 </div>
 
@@ -34,7 +34,21 @@ LLM(LangChain + RAG)이 점검 보고서 초안과 법규 질의응답까지 지
 
 ---
 
+## 👥 팀원 & 역할
+
+> AI 심화 과정 **8인 팀 프로젝트** · 2026.07.09 ~ 08.07 · 메뉴 담당제(전원 화면+API+AI 연동)
+
+| 🧑‍💻 김승현 (PM) | 🧑‍💻 정재봉 (PL) | 🧑‍💻 유병현 | 🧑‍💻 오영석 |
+|:---|:---|:---|:---|
+| └ PRD·아키텍처 설계, 일정·산출물 관리<br>└ 관리자 페이지 개발<br>└ RAG(검색) 코치 | └ 로그인·회원가입(OCR) 개발<br>└ DevOps 리드 — OCI 인프라·CI/CD<br>└ 공용 DB·배포 운영 | └ DB 스키마 기초 설계<br>└ 하자 관리 + 통계 개발<br>└ 데이터(DB·API 계약) 오너 | └ 점검 관리 B — 결과 뷰어·검수<br>└ 검수 API + AI 하자 설명<br>└ LLM(생성) 코치 |
+| **🧑‍💻 이은석** | **🧑‍💻 허남** | **🧑‍💻 김관영** | **🧑‍💻 황승현** |
+| └ 고객지원 개발 · 실시간(상담) 오너<br>└ RAG 챗봇 파이프라인<br>└ STOMP 서버·인증·대기열 | └ 대시보드 · 시설물 관리 개발<br>└ 미디어 파이프라인 오너<br>└ 청크 업로드·매직바이트 검증 | └ 랜딩 + 보고서 + 지도 뷰 개발<br>└ AI 풀스택 — LLM 보고서 생성 체인<br>└ 보고서 편집·PDF 화면 | └ 점검 관리 A — 업로드·분석<br>└ AI 추론(DL) 오너<br>└ 추론 API 연동·비동기 잡·폴링 규약 |
+
+---
+
 ## 🎬 데모
+
+▶️ **[시연 영상 보기 (YouTube)](https://youtu.be/IagMc_vZxpA)**
 
 | 대시보드 | 분석 결과 뷰어 | 보고서 |
 |:---:|:---:|:---:|
@@ -93,18 +107,6 @@ LLM(LangChain + RAG)이 점검 보고서 초안과 법규 질의응답까지 지
 | **프론트** | React 18.3 · Vite 6 · TypeScript 5.7 · Tailwind 4 · TanStack Query · MSW |
 | **관측** | MLflow(비전 실험 추적) · LangSmith(LLM 체인 트레이스 — OCR 등 개인정보 경로는 전송 차단) |
 | **인프라** | OCI(자체 서버) Docker Compose + nginx · GitHub Actions CI + PR머신 자동 검수 · main 승격 CD |
-
----
-
-## 👥 팀원 & 역할
-
-> AI 심화 과정 **8인 팀 프로젝트** · 2026.07.09 ~ 08.07 · 메뉴 담당제(전원 화면+API+AI 연동)
-
-| 🧑‍💻 김승현 (PM) | 🧑‍💻 정재봉 (PL) | 🧑‍💻 유병현 | 🧑‍💻 오영석 |
-|:---|:---|:---|:---|
-| └ PRD·아키텍처 설계, 일정·산출물 관리<br>└ 관리자 페이지 개발<br>└ RAG(검색) 코치 | └ 로그인·회원가입(OCR) 개발<br>└ DevOps 리드 — OCI 인프라·CI/CD<br>└ 공용 DB·배포 운영 | └ DB 스키마 기초 설계<br>└ 하자 관리 + 통계 개발<br>└ 데이터(DB·API 계약) 오너 | └ 점검 관리 B — 결과 뷰어·검수<br>└ 검수 API + AI 하자 설명<br>└ LLM(생성) 코치 |
-| **🧑‍💻 이은석** | **🧑‍💻 허남** | **🧑‍💻 김관영** | **🧑‍💻 황승현** |
-| └ 고객지원 개발 · 실시간(상담) 오너<br>└ RAG 챗봇 파이프라인<br>└ STOMP 서버·인증·대기열 | └ 대시보드 · 시설물 관리 개발<br>└ 미디어 파이프라인 오너<br>└ 청크 업로드·매직바이트 검증 | └ 랜딩 + 보고서 + 지도 뷰 개발<br>└ AI 풀스택 — LLM 보고서 생성 체인<br>└ 보고서 편집·PDF 화면 | └ 점검 관리 A — 업로드·분석<br>└ AI 추론(DL) 오너<br>└ 추론 API 연동·비동기 잡·폴링 규약 |
 
 ---
 
@@ -168,7 +170,8 @@ cd frontend && npm install && npm run dev
 - 📑 **[제품 요구사항 → PRD](docs/prd/PRD_hajaCheck.md)** — 요구사항·아키텍처·일정(배포 §6.1)
 - 🔌 **[API 계약 → openapi.yaml](docs/api-contract/openapi.yaml)** — 단일 진실 원본(83 path · 97 operation)
 - 🛠 **컨벤션** — [SpringBoot](docs/conventions/SpringBoot_코드_컨벤션.md) · [React](docs/conventions/React_코드_컨벤션.md) · [AI 체인](docs/conventions/AI_개발_컨벤션.md)
-- 📄 **보고서** — [착수](docs/report/interim-report/HajaCheck_착수_보고_v1.0.pdf) · [중간(PDF)](docs/report/interim-report/hajaCheck_중간보고_v2.pdf) · [중간 별첨](docs/report/interim-report/hajaCheck_중간보고_별첨.pdf)
+- 📄 **보고서** — [착수](docs/report/interim-report/HajaCheck_착수_보고_v1.0.pdf) · [중간(PDF)](docs/report/interim-report/hajaCheck_중간보고_v2.pdf) · [중간 별첨](docs/report/interim-report/hajaCheck_중간보고_별첨.pdf) · **[최종보고서](docs/report/hajaCheck%20최종보고서_final.pdf)** · **[최종 별첨](docs/report/hajaCheck%20최종보고_별첨_final.pdf)**
+- 🎬 **[시연 영상(YouTube)](https://youtu.be/IagMc_vZxpA)**
 
 ## 🔀 Git 규칙
 
