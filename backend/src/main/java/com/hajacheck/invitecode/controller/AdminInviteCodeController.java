@@ -39,6 +39,7 @@ public class AdminInviteCodeController {
     private final InviteCodeService inviteCodeService;
 
     @Operation(summary = "초대 코드 발급", description = "요청 관리자 소속 회사로 스코프된 1회용 초대 코드를 발급한다(ADMIN 전용). TTL 경과 시 자동 만료(app.auth.invite-code-ttl).")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping
     public ResponseEntity<ApiResponse<InviteCodeIssueResponse>> issue(
             @AuthenticationPrincipal LoginUser loginUser) {

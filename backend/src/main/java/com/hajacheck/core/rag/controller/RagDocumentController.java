@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -47,9 +47,10 @@ public class RagDocumentController {
     @Operation(summary = "RAG 문서 업로드",
             description = "법규·지침 PDF를 업로드해 텍스트를 추출하고 AI 서버 임베딩 파이프라인을 실행한다(PLATFORM_ADMIN 전용). "
                     + "AI 서버 임베딩 실패는 업로드 자체를 실패시키지 않는다 — FAILED 상태로 남고 재임베딩으로 복구한다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ApiResponse<RagDocumentResponse>> upload(
-            @RequestParam("file") MultipartFile file,
+            @RequestPart("file") MultipartFile file,
             @Valid @ModelAttribute RagDocumentUploadRequest request) {
         RagDocumentResponse response = ragDocumentService.upload(file, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));

@@ -17,6 +17,9 @@ import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import java.time.LocalDate;
@@ -60,6 +63,7 @@ public class CounselTicketController {
     @Operation(summary = "상담 티켓 생성",
             description = "시나리오 리프(leadsToCounselor=true)에서 상담원 연결을 요청한다(WAITING). "
                     + "has_counselor_access 활성 플랜만 허용, category/title 은 시나리오 트리에서 스냅샷.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping
     public ResponseEntity<ApiResponse<CounselTicketResponse>> createTicket(
             @AuthenticationPrincipal LoginUser loginUser,
@@ -141,6 +145,12 @@ public class CounselTicketController {
     }
 
     @Operation(summary = "대화 내보내기", description = "티켓의 전체 대화를 평문 텍스트(.txt)로 다운로드한다. 당사자만.")
+    // 문서 전용 표기 — 전역 default-produces-media-type(JSON)이 텍스트 다운로드를 JSON으로 오문서화하는 걸
+    // 덮는다. @GetMapping(produces=)는 MVC 요청 매칭까지 좁히므로 쓰지 않는다.
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "대화 전문 텍스트(.txt)",
+            headers = @Header(name = HttpHeaders.CONTENT_DISPOSITION, schema = @Schema(type = "string")),
+            content = @Content(mediaType = MediaType.TEXT_PLAIN_VALUE,
+                    schema = @Schema(type = "string", format = "binary")))
     @GetMapping("/{id}/export")
     public ResponseEntity<byte[]> exportTranscript(
             @PathVariable Long id,

@@ -363,3 +363,8 @@ management:
 springdoc:
   swagger-ui:
     path: /swagger-ui.html
+  # 컨트롤러가 produces를 명시 안 하면 springdoc이 */*로 문서화하는데, 실제 JSON 엔드포인트는
+  # MappingJackson2HttpMessageConverter가 application/json으로 응답한다 — */*보다 사실에 가깝고
+  # 문서로서 쓸모 있으므로 전역 기본값을 명시한다(IT-05 Swagger diff 검증 중 발견).
+  # 단 바이너리 응답까지 JSON으로 오문서화하므로, 해당 엔드포인트는 @ApiResponse(content=)로 덮는다.
+  default-produces-media-type: application/json

@@ -52,6 +52,7 @@ public class FacilityController {
     private final FacilityInspectionOverviewService facilityInspectionOverviewService;
 
     @Operation(summary = "시설물 등록", description = "로그인 사용자의 회사 소유로 시설물을 신규 등록한다")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping
     public ResponseEntity<ApiResponse<FacilityResponse>> create(
             @AuthenticationPrincipal LoginUser loginUser,

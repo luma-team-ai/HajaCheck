@@ -27,6 +27,7 @@ public class InspectionAnalysisController {
     private final InspectionAnalysisService analysisService;
 
     @Operation(summary = "AI 분석 시작", description = "점검 회차에 업로드된 이미지 전체에 대해 AI 하자 탐지를 비동기로 시작한다")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "202", description = "분석 접수됨(비동기)")
     @PostMapping
     public ResponseEntity<Void> analyze(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
@@ -44,6 +45,7 @@ public class InspectionAnalysisController {
 
     @Operation(summary = "AI 분석 취소", description =
             "진행 중인 AI 분석을 취소한다(\"한 번에 하나만\" 정책) — ANALYZING이 아니면 아무 효과 없이 성공 처리한다")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "204", description = "취소됨(본문 없음)")
     @DeleteMapping
     public ResponseEntity<Void> cancel(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {

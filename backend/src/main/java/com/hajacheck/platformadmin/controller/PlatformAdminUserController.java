@@ -70,6 +70,7 @@ public class PlatformAdminUserController {
     }
 
     @Operation(summary = "사용자 등록", description = "플랫폼 관리자가 사용자 계정을 직접 생성한다(PLATFORM_ADMIN 전용). companyId가 null이면 회사 미소속(개인 계정)으로 등록된다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping
     public ResponseEntity<ApiResponse<PlatformAdminUserResponse>> create(
             @Valid @RequestBody PlatformAdminUserCreateRequest request) {

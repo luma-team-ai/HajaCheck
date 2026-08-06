@@ -15,6 +15,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -81,7 +82,7 @@ public class DashboardController {
             @RequestParam(required = false) String facilityType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String query,
-            @PageableDefault(size = 10) Pageable pageable) {
+            @ParameterObject @PageableDefault(size = 10) Pageable pageable) {
         return ResponseEntity.ok(ApiResponse.ok(dashboardService.searchRecentInspections(
                 loginUser.getUserId(), loginUser.getCompanyId(), facilityId, facilityType, status, query,
                 pageable)));

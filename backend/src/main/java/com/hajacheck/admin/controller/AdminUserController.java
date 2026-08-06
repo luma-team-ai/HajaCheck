@@ -69,6 +69,9 @@ public class AdminUserController {
     }
 
     @Operation(summary = "사용자 등록", description = "관리자가 직접 사용자 계정을 생성한다(ADMIN 전용). 등록된 계정은 요청한 관리자와 같은 회사에 배선된다.")
+    // 실제 반환은 201(ResponseEntity.status(CREATED)). springdoc은 메서드 본문을 정적분석 못해 200으로만
+    // 문서화하므로 문서 전용 애노테이션으로 명시한다(@ResponseStatus는 MVC 동작에 관여하므로 쓰지 않는다).
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     @PostMapping
     public ResponseEntity<ApiResponse<AdminUserResponse>> create(
             @AuthenticationPrincipal LoginUser loginUser,
