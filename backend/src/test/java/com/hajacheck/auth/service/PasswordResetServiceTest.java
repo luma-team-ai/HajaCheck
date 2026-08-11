@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hajacheck.auth.config.AppMailProperties;
 import com.hajacheck.auth.config.AuthProperties;
+import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.dto.PasswordResetLinkRequest;
 import com.hajacheck.auth.dto.PasswordResetLinkResponse;
 import com.hajacheck.auth.dto.PasswordResetRequest;
@@ -86,7 +87,8 @@ class PasswordResetServiceTest {
         when(userRepository.findByEmail("nobody@haja.com")).thenReturn(Optional.empty());
 
         service = new PasswordResetService(userRepository, tokenStore, rateLimiter,
-                new PasswordResetMailDispatcher(mailSender), passwordEncoder, authProperties, mailProperties);
+                new PasswordResetMailDispatcher(mailSender), passwordEncoder, authProperties, mailProperties,
+                new DemoAccountGuard(new DemoProperties()));
     }
 
     private PasswordResetLinkResponse request(String email) {

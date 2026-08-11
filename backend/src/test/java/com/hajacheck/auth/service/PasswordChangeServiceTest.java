@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.config.AuthProperties;
+import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.dto.PasswordChangeRequest;
 import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
@@ -63,7 +64,8 @@ class PasswordChangeServiceTest {
         when(userRepository.findById(SOCIAL_USER_ID)).thenReturn(Optional.of(socialUser));
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
 
-        service = new PasswordChangeService(userRepository, passwordEncoder, rateLimiter, authProperties);
+        service = new PasswordChangeService(userRepository, passwordEncoder, rateLimiter, authProperties,
+                new DemoAccountGuard(new DemoProperties()));
     }
 
     private void change(long userId, String currentPassword, String newPassword) {
