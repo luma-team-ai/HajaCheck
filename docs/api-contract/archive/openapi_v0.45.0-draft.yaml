@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.46.0-draft"
+  version: "0.45.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -48,13 +48,6 @@ info:
     콘솔의 역할 변경(`PATCH /api/platform-admin/users/{id}/role`)은 대상 계정의 가입 방식을 검사하지
     않고 COUNSELOR를 배정할 수 있으므로(#1008), **소셜 가입 계정이 COUNSELOR로 승격되는 것이 정상 지원
     흐름**이고 그 계정은 소셜 식별자를 그대로 보유한 채 기업 화면의 소셜 버튼으로 로그인할 수 있다.
-
-
-    2026-08-11 데모 원클릭 로그인(#1626) — `POST /api/auth/demo-login` 신설(바디 없음, 서버 보관
-    크레덴셜로 기업 로그인과 동일 세션 발급, 비활성 시 404 `AUTH_DEMO_DISABLED`(신규), 전역 rate-limit
-    429). `UserResponse` 에 `isDemo`(boolean, 서버 계산) 추가. 데모 계정 대상 role/status/비밀번호
-    변경은 409 `DEMO_ACCOUNT_PROTECTED`(신규)로 통일 차단(관리자 콘솔 role/status 변경 ·
-    PATCH /api/users/me/password), 비로그인 이메일 재설정은 응답 통일 계약 유지를 위해 조용히 제외.
     승격된 소셜 계정은 password_hash가 null이라 비밀번호 로그인이 이미 차단되어 있어(소셜까지 막으면
     로그인 수단이 0개가 된다) 이번 PR에서는 막지 않는다 — **소셜 경로의 포털 분리는 후속 이슈 #1519**.
 
@@ -894,44 +887,6 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
         "403":
           description: 이 화면으로는 로그인할 수 없는 role (AUTH_ROLE_NOT_ALLOWED) — 세션 미발급
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-
-  /api/auth/demo-login:
-    post:
-      summary: 데모 원클릭 로그인 (요청 바디 없음)
-      description: >
-        라이브 데모 방문자용(#1626). 요청 바디 없이 서버가 보관한 데모 계정(기업 ADMIN) 크레덴셜로
-        인증해 **POST /api/auth/login 과 동일한 UserResponse + 동일한 세션(SESSION 쿠키)** 을 발급한다.
-        크레덴셜은 프론트에 절대 노출되지 않는다(응답에도 없음).
-
-        데모 기능이 꺼진 환경(`app.demo.enabled=false`, 기본값) 또는 크레덴셜(env DEMO_ADMIN_PASSWORD)
-        미설정 시 **404 AUTH_DEMO_DISABLED** 로 fail-closed 한다 — 기능 존재 자체를 드러내지 않는다.
-        전역 rate-limit(기본 분당 10회, IP 축 없음 — 전역축만) 초과 시 **429 AUTH_TOO_MANY_REQUESTS**.
-        데모 계정이 아직 시드되지 않았거나 크레덴셜이 어긋나면 기존 통일 401 AUTH_INVALID_CREDENTIALS.
-
-        role 화이트리스트는 기업 로그인과 동일(ADMIN/INSPECTOR/USER) — 설정 오류로 데모 loginId 가
-        PLATFORM_ADMIN 을 가리켜도 403 AUTH_ROLE_NOT_ALLOWED 로 세션이 발급되지 않는다.
-      tags: [auth]
-      responses:
-        "200":
-          description: 로그인 성공 — 기업 로그인과 동일 envelope(UserResponse.isDemo=true)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/UserApiResponse" }
-        "401":
-          description: 서버 보관 크레덴셜 인증 실패 — 시드 미실행/비밀번호 불일치 (AUTH_INVALID_CREDENTIALS)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "404":
-          description: 데모 기능 비활성 (AUTH_DEMO_DISABLED — app.demo.enabled=false 또는 크레덴셜 미설정)
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/ErrorApiResponse" }
-        "429":
-          description: 전역 rate-limit 초과 (AUTH_TOO_MANY_REQUESTS — 기본 분당 10회)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorApiResponse" }
@@ -6543,7 +6498,6 @@ components:
         profileImageUrl: { type: string, nullable: true, example: "https://.../p.png" }
         createdAt: { type: string, format: date-time, description: "가입일시(BaseTimeEntity, 항상 존재)", example: "2026-07-24T14:30:00" }
         companyName: { type: string, nullable: true, description: 소속 기업명(개인 회원/회사 미조회 시 null), example: 하자체크 }
-        isDemo: { type: boolean, description: "데모 계정 여부(#1626) — 서버가 설정(app.demo.login-id) 매칭으로 계산. 프론트는 이 값으로 데모 배너/안내 UI를 분기한다(추가 필드라 기존 클라이언트 호환)", example: false }
 
     ApiError:
       type: object
