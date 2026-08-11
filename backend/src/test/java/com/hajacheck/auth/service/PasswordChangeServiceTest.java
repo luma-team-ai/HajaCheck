@@ -72,6 +72,25 @@ class PasswordChangeServiceTest {
         service.changePassword(userId, new PasswordChangeRequest(currentPassword, newPassword));
     }
 
+    // ---------- 데모 계정 자기보호(#1626) ----------
+
+    @Test
+    void 데모_계정은_현재_비밀번호가_맞아도_409이고_비밀번호는_그대로다() {
+        // 비밀번호가 바뀌면 서버 보관 데모 크레덴셜과 어긋나 다음 방문자의 원클릭 로그인이 깨진다.
+        DemoProperties demoProperties = new DemoProperties();
+        demoProperties.setLoginId("owner@haja.com");
+        PasswordChangeService demoGuarded = new PasswordChangeService(
+                userRepository, passwordEncoder, rateLimiter, authProperties,
+                new DemoAccountGuard(demoProperties));
+
+        assertThatThrownBy(() -> demoGuarded.changePassword(
+                USER_ID, new PasswordChangeRequest(CURRENT_PASSWORD, NEW_PASSWORD)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.DEMO_ACCOUNT_PROTECTED);
+
+        assertThat(passwordEncoder.matches(CURRENT_PASSWORD, user.getPasswordHash())).isTrue();
+    }
+
     // ---------- 성공 ----------
 
     @Test
