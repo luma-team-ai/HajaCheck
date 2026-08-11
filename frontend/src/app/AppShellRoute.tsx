@@ -6,6 +6,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { Outlet, useLocation, useMatches, useNavigate, useSearchParams } from 'react-router-dom';
+import { DemoModeBanner } from '../features/auth/components/DemoModeBanner';
 import { useLogout } from '../features/auth/hooks/useLogout';
 import { MYPAGE_PLAN_ROUTE, MYPAGE_PROFILE_ROUTE } from '../features/auth/constants';
 import { useAuthStore } from '../features/auth/store/authStore';
@@ -133,6 +134,10 @@ export function AppShellRoute() {
 
   return (
     <div onMouseDownCapture={handleShellMouseDownCapture}>
+      {/* 데모 모드 안내 배너(#1627) — GET /api/users/me의 isDemo=true(#1626 계약)일 때 앱 셸
+          최상단(사이드바+헤더 위)에 고정 노출. isDemo가 아직 안 내려오는 환경(백엔드 미배포)에서는
+          authUser?.isDemo가 undefined라 === true가 false로 평가돼 조용히 미노출된다. */}
+      <DemoModeBanner visible={authUser?.isDemo === true} />
       <AppLayout
         breadcrumb={breadcrumb}
         activeHref={activeHref}
