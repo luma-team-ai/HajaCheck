@@ -5,6 +5,7 @@ import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.auth.service.AuthService;
+import com.hajacheck.auth.service.DemoLoginService;
 import com.hajacheck.auth.support.SessionTerminator;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
@@ -88,6 +89,7 @@ public class AuthController {
     private final SecurityContextRepository securityContextRepository;
     private final AuthService authService;
     private final SessionTerminator sessionTerminator;
+    private final DemoLoginService demoLoginService;
 
     @Operation(summary = "기업 로그인",
             description = "기업 화면(/login) 전용. ADMIN/INSPECTOR/USER 만 허용하며 그 외 role 은 "
@@ -98,6 +100,31 @@ public class AuthController {
             HttpServletRequest httpRequest,
             HttpServletResponse httpResponse) {
         return authenticateForPortal(request, COMPANY_PORTAL_ROLES, "company", httpRequest, httpResponse);
+    }
+
+    /**
+     * 데모 원클릭 로그인(#1626) — 요청 바디 없음. 서버가 보관한 데모 크레덴셜로
+     * {@link #authenticateForPortal} 을 <b>그대로</b> 재사용한다(role 게이트 → getSession(true) →
+     * changeSessionId() → saveContext() 순서 계약 유지 — 그 메서드 javadoc 참조). 따라서 성공 응답·세션
+     * 발급 형태는 기업 로그인({@code POST /api/auth/login})과 완전히 동일하다.
+     *
+     * <p>role 화이트리스트는 {@link #COMPANY_PORTAL_ROLES} — 데모 계정은 기업 ADMIN 이다.
+     * PLATFORM_ADMIN 은 절대 데모 대상이 될 수 없다(설정이 잘못돼 데모 loginId 가 PLATFORM_ADMIN
+     * 계정을 가리켜도 이 게이트가 403 으로 차단한다 — company_id 스코프 격리가 데모의 방어벽).
+     *
+     * <p>비활성(스위치 off/크레덴셜 미설정) 404 와 rate-limit 429 판정은 {@link DemoLoginService}.
+     */
+    @Operation(summary = "데모 원클릭 로그인",
+            description = "요청 바디 없이 서버 보관 데모 계정(기업 ADMIN)으로 로그인한다. 성공 응답·세션은 "
+                    + "기업 로그인과 동일. 데모 기능 비활성 시 404 AUTH_DEMO_DISABLED, "
+                    + "분당 전역 한도 초과 시 429 AUTH_TOO_MANY_REQUESTS.")
+    @PostMapping("/demo-login")
+    public ResponseEntity<ApiResponse<UserResponse>> demoLogin(
+            HttpServletRequest httpRequest,
+            HttpServletResponse httpResponse) {
+        demoLoginService.requireAvailable();
+        return authenticateForPortal(
+                demoLoginService.demoLoginRequest(), COMPANY_PORTAL_ROLES, "demo", httpRequest, httpResponse);
     }
 
     @Operation(summary = "플랫폼 관리자 로그인",

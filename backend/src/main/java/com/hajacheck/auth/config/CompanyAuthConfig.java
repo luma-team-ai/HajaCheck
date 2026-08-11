@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration
 @EnableConfigurationProperties({
-        FileStorageProperties.class, PolicyProperties.class, AuthProperties.class, AppMailProperties.class})
+        FileStorageProperties.class, PolicyProperties.class, AuthProperties.class, AppMailProperties.class,
+        DemoProperties.class})
 public class CompanyAuthConfig {
 }
