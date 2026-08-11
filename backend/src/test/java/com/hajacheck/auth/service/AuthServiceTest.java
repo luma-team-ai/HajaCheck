@@ -7,6 +7,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.dto.AssignableUserResponse;
 import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.entity.Company;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
@@ -41,6 +43,11 @@ class AuthServiceTest {
 
     @Mock
     private CompanyRepository companyRepository;
+
+    // isDemo(#1626) 판별용 — 실제 인스턴스(기본 login-id) 사용. 데모 loginId와 무관한 이메일은
+    // isDemoLoginId=false라 기존 getMe 단언에 영향이 없다.
+    @Spy
+    private DemoProperties demoProperties = new DemoProperties();
 
     @InjectMocks
     private AuthService authService;
