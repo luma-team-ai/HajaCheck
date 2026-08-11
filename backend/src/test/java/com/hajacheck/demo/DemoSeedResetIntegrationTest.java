@@ -17,6 +17,8 @@ import com.hajacheck.demo.service.DemoSeedService;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import java.util.List;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,10 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 것을 피한다) 시더는 테스트 안에서 로컬 인스턴스로 실행한다 — 모든 데이터는 테스트 트랜잭션과 함께
  * 롤백된다. 비밀번호 프로퍼티는 테스트 더미값이다.
  */
-@SpringBootTest(properties = {
-        "app.demo.login-id=demo-seed-it@hajacheck.demo",
-        "app.demo.admin-password=demo-it-dummy1"
-})
+@SpringBootTest
 @ActiveProfiles("test")
 @Transactional
 class DemoSeedResetIntegrationTest extends PostgresTestSupport {
@@ -63,6 +62,29 @@ class DemoSeedResetIntegrationTest extends PostgresTestSupport {
     private CompanyAccountWriter companyAccountWriter;
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    private String originalLoginId;
+    private String originalPassword;
+
+    /**
+     * ⚠️ 새 컨텍스트를 만들지 않는다 — {@code @SpringBootTest(properties=...)} 로 데모 설정을 주면 이
+     * 클래스만의 컨텍스트(+Hikari 풀)가 캐시에 쌓여 PG 테스트컨테이너 max_connections(100) 를 넘긴다
+     * (실측: 무관한 테스트가 "too many clients already" 로 붕괴). 기본 컨텍스트의 {@link DemoProperties}
+     * 빈을 테스트 중에만 변경하고 반드시 원복한다(DemoLoginIntegrationTest 와 동일 패턴).
+     */
+    @BeforeEach
+    void setUp() {
+        originalLoginId = demoProperties.getLoginId();
+        originalPassword = demoProperties.getAdminPassword();
+        demoProperties.setLoginId(DEMO_LOGIN_ID);
+        demoProperties.setAdminPassword("demo-it-dummy1");
+    }
+
+    @AfterEach
+    void tearDown() {
+        demoProperties.setLoginId(originalLoginId);
+        demoProperties.setAdminPassword(originalPassword);
+    }
 
     private Long demoCompanyId() {
         return userRepository.findByEmail(DEMO_LOGIN_ID).orElseThrow().getCompanyId();

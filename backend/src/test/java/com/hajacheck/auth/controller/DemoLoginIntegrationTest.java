@@ -7,12 +7,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.support.InMemoryRateLimiter;
 import com.hajacheck.support.PostgresTestSupport;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,15 +34,15 @@ import org.springframework.transaction.annotation.Transactional;
  * 동일한 응답 envelope + 세션 쿠키로 후속 요청 인증, {@code isDemo=true} 서버 계산, 전역 rate-limit
  * 의 실제 429 응답. (게이트 분기 자체는 {@code DemoLoginServiceTest} 가 단위로 고정.)
  *
- * <p>비밀번호 프로퍼티는 테스트 더미값이다(실크레덴셜 아님 — 운영은 env {@code DEMO_ADMIN_PASSWORD}).
+ * <p>⚠️ <b>새 컨텍스트를 만들지 않는다</b> — {@code @SpringBootTest(properties=...)} 로 데모 스위치를
+ * 켜면 이 클래스만의 컨텍스트(+Hikari 풀 10커넥션)가 캐시에 추가되는데, 이 스위트는 캐시된 컨텍스트가
+ * 이미 많아 PG 테스트컨테이너 {@code max_connections}(100) 를 넘겨 무관한 테스트가
+ * "too many clients already" 로 무너진다(실측). 대신 <b>기본 컨텍스트의 {@link DemoProperties} 빈을
+ * 테스트 중에만 변경하고 반드시 원복</b>한다 — 이 빈은 매 요청 시점에 읽히므로 런타임 변경이 즉시 반영된다.
+ *
+ * <p>비밀번호 값은 테스트 더미다(실크레덴셜 아님 — 운영은 env {@code DEMO_ADMIN_PASSWORD}).
  */
-@SpringBootTest(properties = {
-        "app.demo.enabled=true",
-        "app.demo.login-id=demo-it@hajacheck.demo",
-        "app.demo.admin-password=demo-it-dummy1",
-        // 429 검증이 bcrypt 로그인을 limit 번 반복하므로 테스트에서는 한도를 줄인다.
-        "app.demo.login-rate-limit.global-limit=3"
-})
+@SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional
@@ -58,11 +60,36 @@ class DemoLoginIntegrationTest extends PostgresTestSupport {
     private PasswordEncoder passwordEncoder;
     @Autowired
     private InMemoryRateLimiter rateLimiter;
+    @Autowired
+    private DemoProperties demoProperties;
+
+    private boolean originalEnabled;
+    private String originalLoginId;
+    private String originalPassword;
+    private int originalGlobalLimit;
 
     @BeforeEach
     void setUp() {
         // 전역 축 카운터라 테스트 간 누적되면 순서에 따라 무고한 테스트가 429 를 맞는다 — 매번 비운다.
         rateLimiter.reset();
+        originalEnabled = demoProperties.isEnabled();
+        originalLoginId = demoProperties.getLoginId();
+        originalPassword = demoProperties.getAdminPassword();
+        originalGlobalLimit = demoProperties.getLoginRateLimit().getGlobalLimit();
+        demoProperties.setEnabled(true);
+        demoProperties.setLoginId(LOGIN_ID);
+        demoProperties.setAdminPassword(PASSWORD);
+        // 429 검증이 bcrypt 로그인을 limit 번 반복하므로 한도를 줄인다.
+        demoProperties.getLoginRateLimit().setGlobalLimit(3);
+    }
+
+    @AfterEach
+    void tearDown() {
+        // 공유(기본) 컨텍스트의 싱글톤 빈이다 — 원복하지 않으면 이후 다른 클래스의 테스트에 새어 나간다.
+        demoProperties.setEnabled(originalEnabled);
+        demoProperties.setLoginId(originalLoginId);
+        demoProperties.setAdminPassword(originalPassword);
+        demoProperties.getLoginRateLimit().setGlobalLimit(originalGlobalLimit);
     }
 
     private void seedDemoAdmin() {
@@ -95,6 +122,26 @@ class DemoLoginIntegrationTest extends PostgresTestSupport {
         mockMvc.perform(get("/api/users/me").session(session))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.isDemo").value(true));
+    }
+
+    @Test
+    void 데모_기능이_꺼져_있으면_404_AUTH_DEMO_DISABLED다() throws Exception {
+        seedDemoAdmin();
+        demoProperties.setEnabled(false);
+
+        mockMvc.perform(post(DEMO_LOGIN).with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("AUTH_DEMO_DISABLED"));
+    }
+
+    @Test
+    void 크레덴셜이_비어_있으면_켜져_있어도_404로_fail_closed_한다() throws Exception {
+        seedDemoAdmin();
+        demoProperties.setAdminPassword("");
+
+        mockMvc.perform(post(DEMO_LOGIN).with(csrf()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("AUTH_DEMO_DISABLED"));
     }
 
     @Test
