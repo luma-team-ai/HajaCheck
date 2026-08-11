@@ -23,6 +23,11 @@ export interface User {
   companyName: string | null;
   // 초대 코드 입력 화면 분기용(#794, #799) — WAITING이면 ProtectedRoute가 INVITE_CODE_ROUTE로 리다이렉트.
   status: UserStatus;
+  // 데모 계정 여부(#1627, 백엔드 #1626 계약) — true면 DemoModeBanner가 "데이터는 매일 초기화됩니다"
+  // 안내를 노출한다. optional인 이유: 백엔드가 이 필드를 아직 내려주지 않는 환경(미배포)에서도
+  // undefined로 안전하게 폴백해(=배너 미노출) 화면이 깨지지 않아야 하기 때문 — 이 필드가 반드시
+  // 오는 것을 전제로 코드를 짜면 안 된다.
+  isDemo?: boolean;
 }
 
 // 백엔드 응답 DTO 형태 — 현재는 User와 동일 필드
