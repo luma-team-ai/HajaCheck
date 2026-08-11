@@ -245,6 +245,13 @@ ai:
 #      PLAN_EXPIRY_NOT_BEFORE 를 다시 설정하고 ENFORCE 로 올린다.
 # ────────────────────────────────────────────────────────────────────────────────────────────
 hajacheck:
+  # 데모 데이터 일일 리셋 배치(#1626) — 기본 꺼짐. 방문자 데이터를 지우고 시드 상태 복원(매일 04:10 KST).
+  demo:
+    reset:
+      enabled: false
+      cron: "0 10 4 * * *"
+      # 리셋 1회 시설물 수 상한 — 초과 시 아무것도 지우지 않고 중단(사고 신호 취급, DemoResetProperties 참조).
+      max-facilities-per-reset: 200
   plan:
     expiry:
       enabled: ${PLAN_EXPIRY_ENABLED:false}
