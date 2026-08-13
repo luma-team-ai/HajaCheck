@@ -4,7 +4,9 @@ import com.hajacheck.auth.dto.LoginRequest;
 import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.security.LoginUser;
+import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.service.AuthService;
+import com.hajacheck.auth.service.DemoAccountGuard;
 import com.hajacheck.auth.service.DemoLoginService;
 import com.hajacheck.auth.support.SessionTerminator;
 import com.hajacheck.global.common.ApiResponse;
@@ -90,6 +92,8 @@ public class AuthController {
     private final AuthService authService;
     private final SessionTerminator sessionTerminator;
     private final DemoLoginService demoLoginService;
+    private final DemoProperties demoProperties;
+    private final DemoAccountGuard demoAccountGuard;
 
     @Operation(summary = "기업 로그인",
             description = "기업 화면(/login) 전용. ADMIN/INSPECTOR/USER 만 허용하며 그 외 role 은 "
@@ -193,6 +197,19 @@ public class AuthController {
             throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS);
         }
         Long userId = principal.getUserId();
+
+        // ── 데모 계정 킬스위치(#1626 P2-2a) ──
+        // 데모 로그인이 비활성(스위치 off 또는 크레덴셜 미설정)인데 데모 계정으로 일반 로그인 엔드포인트를
+        // 통과하려는 시도를 막는다. 시드된 데모 계정은 ACTIVE 라, 스위치만 끄면 /api/auth/demo-login 은
+        // 404 가 되지만 크레덴셜을 아는 사람이 /api/auth/login 으로 그대로 들어올 수 있었다(로그인 축엔
+        // rate-limit 도 없다) — 크레덴셜 유출 시 스위치로 차단이 안 되던 구멍. 데모 로그인이 활성일 때는
+        // 데모 전용 경로(demoLogin)가 이 메서드를 호출하므로(이때 isLoginAvailable()==true) 막지 않는다.
+        // 계정 열거를 피해 일반 인증 실패와 동일한 401 로 응답한다.
+        if (!demoProperties.isLoginAvailable() && demoAccountGuard.isDemoAccount(principal.getEmail())) {
+            SecurityContextHolder.clearContext();
+            log.warn("데모 로그인 비활성 상태에서 데모 계정의 일반 로그인 차단 portal={} userId={}", portal, userId);
+            throw new BusinessException(ErrorCode.AUTH_INVALID_CREDENTIALS);
+        }
 
         // ── 포털 role 게이트 (세션을 만들기 전에) ──
         if (!allowedRoles.contains(principal.getRole())) {
