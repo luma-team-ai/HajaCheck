@@ -100,11 +100,21 @@ public class DemoSeedService {
     public static final String DEMO_BUSINESS_NUMBER = "0000000000";
 
     /**
-     * 데모 회사 provenance 표식(#1626 P1-2) — {@code companies.business_registration_ocr_raw}(jsonb)에
-     * 담기며, 리셋 가드가 이 부분 문자열의 존재를 확인한다. 시더만 기록하는 값이라 사람 설정 오류로
-     * 흔들리지 않는다.
+     * 데모 회사 provenance 표식(#1626 P1-2) — {@code companies.business_registration_ocr_raw}(jsonb)의
+     * {@code "source"} 필드 값이다. 시더만 기록하는 값이라 사람 설정 오류로 흔들리지 않는다.
+     *
+     * <p>⚠️ 리셋 가드는 이 값을 <b>substring 매칭이 아니라 JSON 파싱</b>({@code JsonValidator.readTextField})
+     * 으로 확인해야 한다(#1626 P1-A). {@code businessRegistrationOcrRaw} 는 {@code @JdbcTypeCode(JSON)}
+     * String 이라, Postgres 가 jsonb 를 canonical text 로 저장하며 콜론 뒤에 공백을 넣는다
+     * ({@code {"source": "DEMO_SEED"}}). 운영 리셋은 스케줄러=별도 트랜잭션=DB 재조회라 공백 포함
+     * 텍스트가 오므로, {@code "source":"DEMO_SEED"}(공백 없음) substring 매칭은 <b>항상 false</b> 가 되어
+     * provenance 가드가 매일 밤 리셋을 전면 무력화한다(Company#isNtsVerified 가 같은 컬럼을 파싱으로
+     * 읽는 이유와 동일).
      */
-    public static final String DEMO_SEED_PROVENANCE_MARKER = "\"source\":\"DEMO_SEED\"";
+    public static final String DEMO_SEED_PROVENANCE_SOURCE = "DEMO_SEED";
+
+    /** ocr_raw 의 provenance 필드명({@code "source"}) — 시드 기록·리셋 판정이 공유. */
+    public static final String DEMO_SEED_PROVENANCE_FIELD = "source";
 
     private static final String DEMO_COMPANY_NAME = "하자첵 데모 종합관리(주)";
     private static final String DEMO_ADMIN_NAME = "데모 관리자";
@@ -137,7 +147,8 @@ public class DemoSeedService {
                 passwordEncoder.encode(demoProperties.getAdminPassword()),
                 DEMO_COMPANY_NAME, DEMO_BUSINESS_NUMBER,
                 "서울특별시 강남구 테헤란로 100", "데모타워 10층",
-                license.url(), "{" + DEMO_SEED_PROVENANCE_MARKER + "}",
+                license.url(),
+                "{\"" + DEMO_SEED_PROVENANCE_FIELD + "\":\"" + DEMO_SEED_PROVENANCE_SOURCE + "\"}",
                 policyProperties.getTermsVersion(), policyProperties.getPrivacyVersion(),
                 LocalDate.of(2020, 1, 2));
 

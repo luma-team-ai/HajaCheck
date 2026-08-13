@@ -35,6 +35,8 @@ import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UsageCounterRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
@@ -98,6 +100,8 @@ class DemoSeedResetIntegrationTest extends PostgresTestSupport {
     private UsageCounterRepository usageCounterRepository;
     @Autowired
     private PlanRepository planRepository;
+    @PersistenceContext
+    private EntityManager entityManager;
 
     private String originalLoginId;
     private String originalPassword;
@@ -197,6 +201,36 @@ class DemoSeedResetIntegrationTest extends PostgresTestSupport {
         assertThat(reclaimedKeys).isEmpty();
         assertThat(demoResetRepository.countFacilities(other.getId())).isEqualTo(1);
         assertThat(userRepository.findByEmail("real-owner@haja.com")).isPresent();
+    }
+
+    @Test
+    void provenance_판정은_DB_round_trip의_공백_포함_jsonb에서도_통과한다() {
+        // #1626 P1-A 회귀 — businessRegistrationOcrRaw 는 @JdbcTypeCode(JSON) String 이라 Postgres 가
+        // jsonb 를 canonical text 로 저장하며 콜론 뒤 공백을 넣는다({"source": "DEMO_SEED"}). 운영 리셋은
+        // 별도 트랜잭션 재조회라 공백 포함 텍스트를 보는데, 시더 원본은 공백이 없다. 이 테스트는 시드 후
+        // flush+clear 로 1차 캐시를 비워 DB 재조회를 강제한다 — 그래야 공백 포함 canonical 텍스트가 오고,
+        // substring 매칭이면 여기서 provenance 가드가 false 로 무너져 리셋이 0건이 된다(테스트 실패로 검출).
+        demoSeedService.seedAll();
+        Long demoCompanyId = demoCompanyId();
+
+        // 방문자 흔적(리셋이 실제로 삭제·복원했는지 판별할 표식).
+        facilityRepository.save(Facility.builder()
+                .companyId(demoCompanyId).name("방문자 시설물").type("건물").build());
+        assertThat(demoResetRepository.countFacilities(demoCompanyId)).isEqualTo(SEEDED_FACILITIES + 1);
+
+        // DB round-trip 강제 — 시더가 넣은 원본 String(공백 없음)이 아니라 Postgres canonical 텍스트를 읽게 한다.
+        entityManager.flush();
+        entityManager.clear();
+
+        // 재조회한 ocr_raw 는 canonical 공백 형식이어야 한다(회귀 재현 조건을 함께 고정 — substring 회귀 방지).
+        Company reread = entityManager.find(Company.class, demoCompanyId);
+        assertThat(reread.getBusinessRegistrationOcrRaw()).contains("\"source\": \"DEMO_SEED\"");
+
+        List<String> reclaimed = demoResetService.resetToSeedState();
+
+        // provenance 가 파싱으로 통과해 리셋이 실제로 실행됐다 — 방문자 시설물 제거 + 시드 복원.
+        assertThat(reclaimed).isNotEmpty();
+        assertThat(demoResetRepository.countFacilities(demoCompanyId)).isEqualTo(SEEDED_FACILITIES);
     }
 
     @Test
