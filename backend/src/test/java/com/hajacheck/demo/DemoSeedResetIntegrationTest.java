@@ -10,10 +10,30 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.CompanyAccountWriter;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.facility.repository.FacilityRepository;
+import com.hajacheck.core.report.entity.Report;
+import com.hajacheck.core.report.repository.ReportRepository;
+import com.hajacheck.counsel.entity.ChatMessage;
+import com.hajacheck.counsel.entity.ChatSenderType;
+import com.hajacheck.counsel.entity.ChatSession;
+import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.entity.CounselTicket;
+import com.hajacheck.counsel.entity.CounselTicketNote;
+import com.hajacheck.counsel.entity.CounselType;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
+import com.hajacheck.counsel.repository.ChatSessionRepository;
+import com.hajacheck.counsel.repository.CounselTicketNoteRepository;
+import com.hajacheck.counsel.repository.CounselTicketRepository;
 import com.hajacheck.demo.init.DemoDataSeeder;
 import com.hajacheck.demo.repository.DemoResetRepository;
 import com.hajacheck.demo.service.DemoResetService;
 import com.hajacheck.demo.service.DemoSeedService;
+import com.hajacheck.membership.entity.PlanName;
+import com.hajacheck.membership.entity.UsageCounter;
+import com.hajacheck.membership.entity.UserPlan;
+import com.hajacheck.membership.entity.UserPlanStatus;
+import com.hajacheck.membership.repository.PlanRepository;
+import com.hajacheck.membership.repository.UsageCounterRepository;
+import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
 import java.util.List;
@@ -62,6 +82,22 @@ class DemoSeedResetIntegrationTest extends PostgresTestSupport {
     private CompanyAccountWriter companyAccountWriter;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private ReportRepository reportRepository;
+    @Autowired
+    private ChatSessionRepository chatSessionRepository;
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+    @Autowired
+    private CounselTicketRepository counselTicketRepository;
+    @Autowired
+    private CounselTicketNoteRepository counselTicketNoteRepository;
+    @Autowired
+    private UserPlanRepository userPlanRepository;
+    @Autowired
+    private UsageCounterRepository usageCounterRepository;
+    @Autowired
+    private PlanRepository planRepository;
 
     private String originalLoginId;
     private String originalPassword;
@@ -161,5 +197,126 @@ class DemoSeedResetIntegrationTest extends PostgresTestSupport {
         assertThat(reclaimedKeys).isEmpty();
         assertThat(demoResetRepository.countFacilities(other.getId())).isEqualTo(1);
         assertThat(userRepository.findByEmail("real-owner@haja.com")).isPresent();
+    }
+
+    @Test
+    void owner는_일치하지만_데모_provenance가_아니면_아무것도_지우지_않는다() {
+        // #1626 P1-2 — 최악의 오설정: app.demo.login-id 가 실사용 회사의 OWNER 를 가리킨다. owner 체크는
+        // 통과하지만, BRN·provenance 는 시더만 기록하므로 시드 상수(0000000000 · DEMO_SEED)와 달라
+        // provenance 가드가 삭제를 막아야 한다("owner 일치 + 데모 아님" 케이스 — handoff 필수 테스트).
+        Company real = companyAccountWriter.createAccount(
+                DEMO_LOGIN_ID, "실사용대표", passwordEncoder.encode("realpw1"),
+                "실사용건설", "1234567890", "서울시 실사용구", null,
+                "storage/real-license", "{\"source\":\"NTS\"}", "1.0", "1.0", LocalDate.of(2018, 5, 2));
+        facilityRepository.save(Facility.builder()
+                .companyId(real.getId()).name("실사용 시설물").type("건물").build());
+
+        List<String> reclaimedKeys = demoResetService.resetToSeedState();
+
+        assertThat(reclaimedKeys).isEmpty();
+        assertThat(demoResetRepository.countFacilities(real.getId())).isEqualTo(1);
+        assertThat(userRepository.findByEmail(DEMO_LOGIN_ID)).isPresent();
+    }
+
+    @Test
+    void 리셋은_상담_티켓_세션_메모까지_지우고_타사_상담은_건드리지_않는다() {
+        // #1626 P2-1 — counsel_tickets(user_id·session_id) FK 누락이면 리셋 트랜잭션이 통째로 롤백돼
+        // 무증상 영구 실패한다. 데모/타사 양쪽에 상담 세트를 심고 데모=0, 타사=무접촉을 증명한다.
+        demoSeedService.seedAll();
+        Long demoCompanyId = demoCompanyId();
+        Long demoAdminId = userRepository.findByEmail(DEMO_LOGIN_ID).orElseThrow().getId();
+
+        Company other = createOtherCompany("counsel-other@haja.com", "777-77-77777");
+        Long otherUserId = other.getOwnerUserId();
+
+        seedCounsel(demoAdminId);
+        Long otherTicketId = seedCounsel(otherUserId).getId();
+
+        demoResetService.resetToSeedState();
+
+        // 데모 회사 상담 데이터는 전부 사라진다.
+        assertThat(chatSessionRepository.findAll().stream()
+                .anyMatch(s -> s.getUserId().equals(demoAdminId))).isFalse();
+        assertThat(counselTicketRepository.findAll().stream()
+                .anyMatch(t -> t.getUserId().equals(demoAdminId))).isFalse();
+        // 타사 상담 데이터는 그대로다(격리).
+        assertThat(counselTicketRepository.findById(otherTicketId)).isPresent();
+        assertThat(counselTicketNoteRepository.findAll().stream()
+                .anyMatch(n -> n.getTicketId().equals(otherTicketId))).isTrue();
+    }
+
+    @Test
+    void 리셋_파일회수에_챗_첨부와_보고서_PDF_키가_포함된다() {
+        // #1626 P2-3 — Media 키만이 아니라 chat_messages.attachment_key 와 reports.pdf_url 의 저장키도
+        // 회수 대상에 포함돼야 방문자 입력 파일이 스토리지에 영구 잔존하지 않는다.
+        demoSeedService.seedAll();
+        Long demoAdminId = userRepository.findByEmail(DEMO_LOGIN_ID).orElseThrow().getId();
+
+        // 챗 첨부 1건.
+        ChatSession session = chatSessionRepository.save(ChatSession.start(demoAdminId, ChatSessionType.RAG));
+        chatMessageRepository.save(ChatMessage.create(session.getId(), ChatSenderType.USER,
+                "첨부 메시지", null, "chat/att-demo.bin", "application/octet-stream"));
+
+        // 시드된 보고서(DRAFT, pdf 없음)에 pdf_url 을 심어 확정 상태를 흉내낸다 — /pdf/ 뒤 저장키만 회수돼야 한다.
+        Report seededReport = reportRepository.findAll().stream().findFirst().orElseThrow();
+        ReflectionTestUtils.setField(seededReport, "pdfUrl",
+                "/api/reports/" + seededReport.getId() + "/pdf/demo-report-pdf-key");
+        reportRepository.saveAndFlush(seededReport);
+
+        List<String> reclaimed = demoResetService.resetToSeedState();
+
+        assertThat(reclaimed).contains("chat/att-demo.bin", "demo-report-pdf-key");
+    }
+
+    @Test
+    void 리셋은_FREE_플랜의_월누적_분석카운터를_보존한다() {
+        // #1626 P2-4 — usage_counters 를 통째로 지우면 FREE 월 50 분석이 매일 리셋돼 사실상 일 50 이 된다.
+        // FREE 플랜 카운터는 리셋이 건드리지 않아야 한다.
+        demoSeedService.seedAll();
+        Long demoCompanyId = demoCompanyId();
+        UserPlan freePlan = userPlanRepository
+                .findFirstByCompanyIdAndStatusOrderByStartedAtDesc(demoCompanyId, UserPlanStatus.ACTIVE)
+                .orElseThrow();
+        LocalDate period = LocalDate.now().withDayOfMonth(1);
+        usageCounterRepository.saveAndFlush(
+                UsageCounter.create(freePlan.getId(), period, 30, 3, 30, 1, 0, 0));
+
+        demoResetService.resetToSeedState();
+
+        assertThat(usageCounterRepository.findByUserPlanIdAndPeriod(freePlan.getId(), period))
+                .isPresent()
+                .get()
+                .extracting(UsageCounter::getAnalyzedImageCount)
+                .isEqualTo(30);
+    }
+
+    @Test
+    void 크레덴셜_회전시_시더가_데모계정_비밀번호_해시를_재동기화한다() {
+        // #1626 P2-2b — env DEMO_ADMIN_PASSWORD 를 회전하면 설정을 진실 소스로 DB 해시를 맞춰야
+        // 데모 로그인(서버가 설정 비밀번호로 인증)이 깨지지 않는다.
+        demoSeedService.seedAll();
+        User before = userRepository.findByEmail(DEMO_LOGIN_ID).orElseThrow();
+        assertThat(passwordEncoder.matches("demo-it-dummy1", before.getPasswordHash())).isTrue();
+
+        demoProperties.setAdminPassword("rotated-dummy2");
+        boolean rehashed = demoSeedService.syncAdminPasswordIfChanged();
+
+        assertThat(rehashed).isTrue();
+        User after = userRepository.findByEmail(DEMO_LOGIN_ID).orElseThrow();
+        assertThat(passwordEncoder.matches("rotated-dummy2", after.getPasswordHash())).isTrue();
+        assertThat(passwordEncoder.matches("demo-it-dummy1", after.getPasswordHash())).isFalse();
+        // 이미 일치하면 no-op(불필요한 쓰기 없음).
+        assertThat(demoSeedService.syncAdminPasswordIfChanged()).isFalse();
+    }
+
+    /** 주어진 사용자에게 챗 세션 + 상담 티켓(세션 참조) + 상담 메모 + 챗 메시지를 심는다. */
+    private CounselTicket seedCounsel(Long userId) {
+        ChatSession session = chatSessionRepository.save(ChatSession.start(userId, ChatSessionType.COUNSEL));
+        CounselTicket ticket = CounselTicket.request(userId, CounselType.USAGE, 1, "이용문의", "상담 제목");
+        ReflectionTestUtils.setField(ticket, "sessionId", session.getId());
+        ticket = counselTicketRepository.saveAndFlush(ticket);
+        counselTicketNoteRepository.saveAndFlush(CounselTicketNote.create(ticket.getId(), userId, "메모"));
+        chatMessageRepository.saveAndFlush(ChatMessage.createText(session.getId(), ChatSenderType.USER, "안녕"));
+        return ticket;
     }
 }

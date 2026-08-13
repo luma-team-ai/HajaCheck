@@ -3,6 +3,7 @@ package com.hajacheck.demo.service;
 import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.config.PolicyProperties;
 import com.hajacheck.auth.entity.Company;
+import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.CompanyAccountWriter;
 import com.hajacheck.auth.support.FileStorageService;
@@ -87,8 +88,24 @@ public class DemoSeedService {
     private static final int THUMBNAIL_MAX_DIMENSION = 400;
     private static final int DETAIL_MAX_DIMENSION = 1600;
 
-    /** 명백한 더미 사업자번호 — 국세청 형식(10자리)이지만 실존 불가 값(0 전부). unique 라 환경당 1회. */
-    private static final String DEMO_BUSINESS_NUMBER = "000-00-00000";
+    /**
+     * 명백한 더미 사업자번호(#1626 P3-1) — 레포 규약대로 <b>하이픈 제거 10자리</b>
+     * ({@code CompanySignupService.normalizeBrn} 과 동일 형식). 실존 불가 값(0 전부)이라 실사용
+     * 회사와 절대 충돌하지 않고, unique 제약이라 환경당 1회만 시드된다.
+     *
+     * <p>⚠️ {@code public} 인 이유: {@code DemoResetService} 가 리셋 대상 특정의 provenance 검증
+     * (#1626 P1-2)에서 이 값을 그대로 쓴다 — loginId 는 사람이 설정으로 바꾸지만 BRN·provenance 는
+     * 시더만 쓰므로, 실사용 회사가 데모로 오인돼 삭제되는 것을 막는 불변식의 기준값이다.
+     */
+    public static final String DEMO_BUSINESS_NUMBER = "0000000000";
+
+    /**
+     * 데모 회사 provenance 표식(#1626 P1-2) — {@code companies.business_registration_ocr_raw}(jsonb)에
+     * 담기며, 리셋 가드가 이 부분 문자열의 존재를 확인한다. 시더만 기록하는 값이라 사람 설정 오류로
+     * 흔들리지 않는다.
+     */
+    public static final String DEMO_SEED_PROVENANCE_MARKER = "\"source\":\"DEMO_SEED\"";
+
     private static final String DEMO_COMPANY_NAME = "하자첵 데모 종합관리(주)";
     private static final String DEMO_ADMIN_NAME = "데모 관리자";
 
@@ -120,7 +137,7 @@ public class DemoSeedService {
                 passwordEncoder.encode(demoProperties.getAdminPassword()),
                 DEMO_COMPANY_NAME, DEMO_BUSINESS_NUMBER,
                 "서울특별시 강남구 테헤란로 100", "데모타워 10층",
-                license.url(), "{\"source\":\"DEMO_SEED\"}",
+                license.url(), "{" + DEMO_SEED_PROVENANCE_MARKER + "}",
                 policyProperties.getTermsVersion(), policyProperties.getPrivacyVersion(),
                 LocalDate.of(2020, 1, 2));
 
@@ -130,6 +147,35 @@ public class DemoSeedService {
 
         seedContent(company.getId(), adminUserId);
         log.info("데모 시드 완료 — companyId={} adminUserId={}", company.getId(), adminUserId);
+    }
+
+    /**
+     * 데모 계정 비밀번호를 설정값(env {@code DEMO_ADMIN_PASSWORD})과 동기화한다(#1626 P2-2b) — 이미
+     * 시드된 데모 계정이 있는데 설정 비밀번호와 DB 해시가 어긋나면(=크레덴셜 회전) 설정을 진실 소스로
+     * 재해시한다. 그렇지 않으면 회전 후 데모 로그인(서버가 설정 비밀번호로 인증)이 계정 해시와 맞지 않아
+     * 깨지고, "가드는 데모 계정 비밀번호 변경을 막는데 설정만 바뀌어 로그인 불가"라는 모순이 남는다.
+     *
+     * <p>일치하면 no-op(불필요한 쓰기 없음). 크레덴셜이 비어 있으면 호출부가 부르지 않는다(빈 해시 방지).
+     *
+     * @return 재해시했으면 true
+     */
+    @Transactional
+    public boolean syncAdminPasswordIfChanged() {
+        String configured = demoProperties.getAdminPassword();
+        if (configured == null || configured.isBlank()) {
+            return false;
+        }
+        User demoAdmin = userRepository.findByEmail(demoProperties.getLoginId()).orElse(null);
+        if (demoAdmin == null || !demoAdmin.hasPassword()) {
+            return false;
+        }
+        if (passwordEncoder.matches(configured, demoAdmin.getPasswordHash())) {
+            return false;
+        }
+        // ⚠️ 평문 비밀번호는 로그에 남기지 않는다(userId 만).
+        demoAdmin.changePassword(passwordEncoder.encode(configured));
+        log.info("데모 계정 비밀번호 재동기화 — 설정값 회전 감지, 해시 갱신 (userId={})", demoAdmin.getId());
+        return true;
     }
 
     /**

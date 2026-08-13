@@ -48,7 +48,11 @@ public class DemoDataSeeder implements ApplicationRunner {
             return;
         }
         if (userRepository.findByEmail(demoProperties.getLoginId()).isPresent()) {
-            log.info("데모 계정 이미 존재 — 시드 스킵 (loginId={})", demoProperties.getLoginId());
+            // 이미 시드됨 — 콘텐츠 재시드는 리셋 배치의 몫이라 여기서 하지 않되(멱등), 크레덴셜 회전
+            // (env DEMO_ADMIN_PASSWORD 변경)만 반영한다(#1626 P2-2b). 설정을 진실 소스로 해시를 맞춰
+            // 두지 않으면 회전 후 데모 로그인이 깨진다.
+            demoSeedService.syncAdminPasswordIfChanged();
+            log.info("데모 계정 이미 존재 — 콘텐츠 시드 스킵, 크레덴셜만 동기화 (loginId={})", demoProperties.getLoginId());
             return;
         }
         try {

@@ -39,8 +39,14 @@ public class DemoResetScheduler {
         try {
             storageKeys = demoResetService.resetToSeedState();
         } catch (Exception e) {
-            // 배치 실패를 스케줄러 스레드 밖으로 던지지 않는다 — 다음 회차가 재시도한다.
-            log.error("데모 리셋 배치 실패 — 다음 회차에 재시도한다", e);
+            // 배치 실패를 스케줄러 스레드 밖으로 던지지 않는다(던지면 Spring 스케줄러가 삼켜 더 안 보인다) —
+            // 다음 회차가 재시도한다. ⚠️ 이 로그는 "무증상 영구 실패"의 유일한 신호다(#1626 P2-1): FK
+            // 누락 등으로 리셋 트랜잭션이 매일 밤 롤백되면 데모 데이터가 계속 오염된 채 쌓인다. ERROR 로
+            // 승격하고 스택을 남겨 원인을 특정 가능하게 한다. TODO(후속): 운영 알림 채널(Slack/이메일)
+            // 훅을 여기 연결해 로그를 넘어 능동 표면화(현재는 로그 관측에 의존 — NotificationService 는
+            // 사용자향이라 이 운영 경보엔 부적합).
+            log.error("데모 리셋 배치 실패 — 다음 회차에 재시도한다. 매일 반복되면 리셋이 영구 실패 중이니 "
+                    + "즉시 원인(FK/제약 위반 등)을 확인할 것", e);
             return;
         }
         demoResetService.deleteStoredFiles(storageKeys);
