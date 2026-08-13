@@ -81,6 +81,9 @@ class AdminPlanServiceTest {
     // 좌석 실측 단일 소스(#1473) — QuotaService#measureSeats 재사용 확인용.
     @Mock
     private com.hajacheck.membership.service.QuotaService quotaService;
+    // 데모 계정 플랜변경 차단(#1626 P1-1) — mock 이라 requireNotDemoAccountUser 는 no-op(일반 계정 경로).
+    @Mock
+    private com.hajacheck.auth.service.DemoAccountGuard demoAccountGuard;
 
     @InjectMocks
     private AdminPlanService service;

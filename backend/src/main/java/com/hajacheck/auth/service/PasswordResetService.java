@@ -58,6 +58,7 @@ public class PasswordResetService {
     private final PasswordEncoder passwordEncoder;
     private final AuthProperties authProperties;
     private final AppMailProperties mailProperties;
+    private final DemoAccountGuard demoAccountGuard;
 
     /**
      * 1단계 — 재설정 링크 발송 요청. <b>계정 존재 여부와 무관하게 항상 200 + 동일 바디</b>를 반환한다.
@@ -71,8 +72,13 @@ public class PasswordResetService {
         enforceRateLimits(emailHash);
 
         // 재설정 가능한 계정일 때만 발송. 여기서 분기해도 응답 바디·시점은 동일하다(발송은 @Async).
+        // 데모 계정(#1626)은 조용히 제외한다 — 비밀번호가 바뀌면 원클릭 데모 로그인이 깨진다. 이 경로는
+        // "존재 여부와 무관하게 항상 200" 계약이라 409(DEMO_ACCOUNT_PROTECTED)를 던지지 않고 필터로
+        // 거른다(응답 차이가 곧 계정 상태 열거다). SMTP 미설정 환경(LoggingPasswordResetMailSender)에서
+        // 재설정 링크가 로그로 새는 표면도 함께 닫힌다.
         userRepository.findByEmail(email)
                 .filter(PasswordResetService::isPasswordResettable)
+                .filter(user -> !demoAccountGuard.isDemoAccount(user.getEmail()))
                 .ifPresent(user -> issueAndDispatch(user, emailHash));
 
         // 감사 로그: 이메일 해시·시각(로거가 부착). ⚠️ 이메일 원문·토큰 평문 금지.
@@ -103,7 +109,9 @@ public class PasswordResetService {
         // 심층방어 — 1단계가 이미 걸러내지만, 토큰 발급 후 계정이 정지되거나 소셜 전용으로 바뀌었을 수 있다
         // (링크 유효 창이 10분이라 그 사이 정지된 계정이 재설정을 완주하는 일이 실제로 가능하다).
         // 사유는 노출하지 않는다(통일 메시지) — 정지 여부가 드러나면 그 자체가 계정 상태 열거다.
-        if (!isPasswordResettable(user)) {
+        // 데모 계정(#1626)도 동일하게 심층방어한다 — 1단계 필터 이전에 발급된 토큰이나 설정 변경으로
+        // 데모 loginId 가 뒤바뀐 경우까지 막는다(사유 비노출은 위와 같은 이유로 통일 메시지).
+        if (!isPasswordResettable(user) || demoAccountGuard.isDemoAccount(user.getEmail())) {
             throw new BusinessException(ErrorCode.AUTH_RESET_TOKEN_INVALID);
         }
         user.changePassword(passwordEncoder.encode(request.newPassword()));

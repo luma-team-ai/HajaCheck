@@ -9,6 +9,7 @@ import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
+import com.hajacheck.auth.service.DemoAccountGuard;
 import com.hajacheck.counsel.entity.CounselType;
 import com.hajacheck.counsel.entity.CounselorSkill;
 import com.hajacheck.counsel.repository.CounselorSkillRepository;
@@ -51,6 +52,7 @@ public class PlatformAdminUserService {
     private final PasswordEncoder passwordEncoder;
     private final QuotaService quotaService;
     private final CounselorSkillRepository counselorSkillRepository;
+    private final DemoAccountGuard demoAccountGuard;
 
     // AdminUserService.ASSIGNABLE_ROLES(회사 관리자 전용, ADMIN/INSPECTOR/USER)와 달리 플랫폼
     // 관리자 콘솔은 COUNSELOR(상담사)도 등록/역할변경할 수 있다(#1008). PLATFORM_ADMIN은 여전히
@@ -137,6 +139,9 @@ public class PlatformAdminUserService {
     public AdminUserRoleUpdateResponse changeRole(Long userId, Role role) {
         requireAssignableRole(role);
         User user = findUser(userId);
+        // 데모 계정 자기보호(#1626) — 플랫폼 관리자 콘솔 경로도 회사 관리자 콘솔(AdminUserService)과
+        // 동일하게 차단한다. 여기가 열려 있으면 회사 콘솔 가드가 이 경로로 그대로 우회된다.
+        demoAccountGuard.requireNotDemoAccount(user.getEmail());
         if (user.getRole() == Role.ADMIN && role != Role.ADMIN) {
             requireNotLastCompanyAdmin(user.getCompanyId());
         }
@@ -147,6 +152,8 @@ public class PlatformAdminUserService {
     @Transactional
     public AdminUserStatusUpdateResponse changeStatus(Long userId, UserStatus status) {
         User user = findUser(userId);
+        // 데모 계정 자기보호(#1626) — changeRole 과 동일.
+        demoAccountGuard.requireNotDemoAccount(user.getEmail());
         if (user.getRole() == Role.ADMIN && status == UserStatus.SUSPENDED) {
             requireNotLastCompanyAdmin(user.getCompanyId());
         }

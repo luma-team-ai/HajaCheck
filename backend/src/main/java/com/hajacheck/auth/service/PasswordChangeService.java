@@ -49,6 +49,7 @@ public class PasswordChangeService {
     private final PasswordEncoder passwordEncoder;
     private final RateLimiter rateLimiter;
     private final AuthProperties authProperties;
+    private final DemoAccountGuard demoAccountGuard;
 
     /**
      * 현재 비밀번호를 확인한 뒤 새 비밀번호로 교체한다.
@@ -69,6 +70,11 @@ public class PasswordChangeService {
                 // 인증된 세션의 principal 이므로 정상 경로에선 항상 존재한다(SessionUserRevalidationFilter 가
                 // 매 요청 재조회해 미존재를 401 로 끊는다). 방어적 처리.
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+        // 데모 계정 자기보호(#1626) — 데모 세션이 비밀번호를 바꾸면 서버 보관 크레덴셜과 어긋나
+        // 다음 방문자의 원클릭 로그인이 통째로 깨진다. 현재 비밀번호 검사보다 앞에 두어 409 로 즉시
+        // 차단한다(데모 크레덴셜은 서버만 아는 값이라 이 순서가 오라클이 되지 않는다 — DemoAccountGuard).
+        demoAccountGuard.requireNotDemoAccount(user.getEmail());
 
         // 소셜 전용 계정(passwordHash=null) — CustomUserDetailsService 가 비밀번호 로그인을 명시적으로
         // 금지한 계정이다. 여기서 비밀번호를 심어주면 그 계층 규칙을 이 경로가 말없이 뒤집는다
