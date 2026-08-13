@@ -88,7 +88,7 @@ class PasswordResetServiceTest {
 
         service = new PasswordResetService(userRepository, tokenStore, rateLimiter,
                 new PasswordResetMailDispatcher(mailSender), passwordEncoder, authProperties, mailProperties,
-                new DemoAccountGuard(new DemoProperties()));
+                new DemoAccountGuard(new DemoProperties(), org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
     }
 
     private PasswordResetLinkResponse request(String email) {
@@ -103,7 +103,7 @@ class PasswordResetServiceTest {
         demoMailProperties.setFrontendBaseUrl(BASE_URL);
         return new PasswordResetService(userRepository, tokenStore, rateLimiter,
                 new PasswordResetMailDispatcher(mailSender), passwordEncoder, authProperties,
-                demoMailProperties, new DemoAccountGuard(demoProperties));
+                demoMailProperties, new DemoAccountGuard(demoProperties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
     }
 
     // ---------- 데모 계정 자기보호(#1626) — 응답 통일 계약 유지한 채 조용히 차단 ----------

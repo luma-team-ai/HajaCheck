@@ -63,13 +63,15 @@ class PaymentServiceTest {
     private TossPaymentsClient tossPaymentsClient;
     @Mock
     private MembershipService membershipService;
+    @Mock
+    private com.hajacheck.auth.service.DemoAccountGuard demoAccountGuard;
 
     private PaymentService service;
 
     @BeforeEach
     void setUp() {
         service = new PaymentService(paymentWriter, paymentRepository, tossPaymentsClient,
-                new TossPaymentsProperties(), membershipService);
+                new TossPaymentsProperties(), membershipService, demoAccountGuard);
         when(membershipService.getMyPlan(USER_ID)).thenReturn(myPlan("ENTERPRISE"));
     }
 
@@ -403,6 +405,39 @@ class PaymentServiceTest {
         service.confirm(USER_ID, request());
 
         verify(tossPaymentsClient).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
+    }
+
+    // ---------- 데모 계정 결제 차단(#1626 P1-1) ----------
+
+    @Test
+    void 데모_계정_주문생성은_가드에서_막히고_PaymentWriter를_호출하지_않는다() {
+        org.mockito.Mockito.doThrow(new com.hajacheck.global.exception.BusinessException(
+                        com.hajacheck.global.exception.ErrorCode.DEMO_ACCOUNT_PROTECTED))
+                .when(demoAccountGuard).requireNotDemoAccountUser(USER_ID);
+
+        assertThatThrownBy(() -> service.createOrder(USER_ID,
+                new com.hajacheck.payment.dto.PaymentOrderRequest(
+                        com.hajacheck.membership.entity.PlanName.ENTERPRISE)))
+                .isInstanceOf(com.hajacheck.global.exception.BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.hajacheck.global.exception.ErrorCode.DEMO_ACCOUNT_PROTECTED);
+
+        verify(paymentWriter, never()).createOrder(anyLong(), any());
+    }
+
+    @Test
+    void 데모_계정_결제승인은_가드에서_막히고_PG를_호출하지_않는다() {
+        org.mockito.Mockito.doThrow(new com.hajacheck.global.exception.BusinessException(
+                        com.hajacheck.global.exception.ErrorCode.DEMO_ACCOUNT_PROTECTED))
+                .when(demoAccountGuard).requireNotDemoAccountUser(USER_ID);
+
+        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
+                .isInstanceOf(com.hajacheck.global.exception.BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(com.hajacheck.global.exception.ErrorCode.DEMO_ACCOUNT_PROTECTED);
+
+        verify(paymentWriter, never()).prepareConfirm(anyLong(), any());
+        verify(tossPaymentsClient, never()).confirm(anyString(), anyString(), anyLong());
     }
 
     private static MyPlanResponse myPlan(String planName) {

@@ -24,7 +24,7 @@ class DemoAccountGuardTest {
     void setUp() {
         properties = new DemoProperties();
         properties.setLoginId(DEMO_LOGIN_ID);
-        guard = new DemoAccountGuard(properties);
+        guard = new DemoAccountGuard(properties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class));
     }
 
     @Test
