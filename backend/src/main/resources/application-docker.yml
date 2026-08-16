@@ -56,6 +56,13 @@ server:
 
 # 소셜 로그인 성공/실패 후 프론트 리다이렉트 대상 — dev 도메인(hajacheck.luma200ok.com).
 app:
+  # 라이브 데모 활성화(#1635) — prod 공개 데모. DEMO_ADMIN_PASSWORD 는 서버 .env 주입(설정 완료).
+  # 비밀번호 미설정 시 데모 로그인은 fail-closed(404)라 스위치만 켜도 안전.
+  demo:
+    enabled: true
+  # 기동 시 데모 회사·계정·샘플 데이터 시드(멱등). 이미 시드된 계정이 있으면 비밀번호만 동기화.
+  demo-seed:
+    enabled: true
   oauth2:
     success-redirect: https://hajacheck.luma200ok.com/dashboard
     failure-redirect: https://hajacheck.luma200ok.com/login?error=oauth
@@ -69,3 +76,9 @@ app:
   #   docker-compose(arm1) spring 서비스에 이 경로로 전용 볼륨(report_uploads)을 마운트해야 유실되지 않는다.
   report-pdf-storage:
     base-dir: /app/uploads/hajacheck-report-pdf
+
+# 라이브 데모(#1635) — 매일 04:10 KST 데모 회사 데이터를 시드 상태로 리셋(provenance 가드로 데모 회사만).
+hajacheck:
+  demo:
+    reset:
+      enabled: true
