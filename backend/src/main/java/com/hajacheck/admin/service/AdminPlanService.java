@@ -16,7 +16,6 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
-import com.hajacheck.auth.service.DemoAccountGuard;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -99,8 +98,6 @@ public class AdminPlanService {
     // 좌석 실측 단일 소스(#1473) — QuotaService#measureSeats 를 재사용해 MembershipService 와 같은
     // 값이 나오도록 한다(usage_counters.seat_count 저장 카운터와의 드리프트 차단).
     private final QuotaService quotaService;
-    // 데모 계정 플랜변경 차단(#1626 P1-1).
-    private final DemoAccountGuard demoAccountGuard;
 
     /** 제공 요금제 카탈로그(변경 선택지) — 회사 스코프와 무관한 참조 데이터라 ADMIN 이면 조회 가능. */
     public AdminPlanCatalogResponse getPlanCatalog() {
@@ -140,9 +137,6 @@ public class AdminPlanService {
     @Transactional
     public AdminPlanResponse changePlan(
             Long adminUserId, PlanName targetPlanName, boolean overflowConfirmed, List<Long> keepUserIds) {
-        // 데모 계정 플랜변경 차단(#1626 P1-1) — 결제 경로와 대칭. 이 화면은 하향·FREE 전환 전용이지만,
-        // 데모 계정은 어떤 플랜변경도 하지 않는다(리셋이 FREE 로 강제 정합하는 상태를 사람이 흔들지 않게).
-        demoAccountGuard.requireNotDemoAccountUser(adminUserId);
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
@@ -264,8 +258,6 @@ public class AdminPlanService {
     @Transactional
     public AdminScheduledPlanChangeResponse scheduleChange(
             Long adminUserId, PlanName targetPlanName, boolean overflowConfirmed, List<Long> keepUserIds) {
-        // 데모 계정 플랜변경 예약 차단(#1626 P1-1) — changePlan 과 동일 취지.
-        demoAccountGuard.requireNotDemoAccountUser(adminUserId);
         Long companyId = resolveInheritedCompanyId(adminUserId);
         requireCompanyOwner(companyId, adminUserId);
         UserPlan current = resolveCurrentCompanyPlan(companyId);
