@@ -18,13 +18,15 @@ class DemoAccountGuardTest {
     private static final String DEMO_LOGIN_ID = "demo-admin@hajacheck.demo";
 
     private DemoProperties properties;
+    private com.hajacheck.auth.repository.UserRepository userRepository;
     private DemoAccountGuard guard;
 
     @BeforeEach
     void setUp() {
         properties = new DemoProperties();
         properties.setLoginId(DEMO_LOGIN_ID);
-        guard = new DemoAccountGuard(properties);
+        userRepository = org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class);
+        guard = new DemoAccountGuard(properties, userRepository);
     }
 
     @Test
@@ -58,5 +60,39 @@ class DemoAccountGuardTest {
         assertThatCode(() -> guard.requireNotDemoAccount(null)).doesNotThrowAnyException();
         assertThat(guard.isDemoAccount("normal@haja.com")).isFalse();
         assertThat(guard.isDemoAccount(DEMO_LOGIN_ID)).isTrue();
+    }
+
+    // ---------- requireNotDemoAccountUser(Long) — 상담 티켓 생성 차단용(#1631) ----------
+
+    @Test
+    void userId가_데모계정이면_409로_차단한다() {
+        Long userId = 1L;
+        com.hajacheck.auth.entity.User demoUser = com.hajacheck.auth.entity.User.builder()
+                .email(DEMO_LOGIN_ID).name("데모").passwordHash("$2a$10$hashed").build();
+        org.mockito.Mockito.when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(demoUser));
+
+        assertThatThrownBy(() -> guard.requireNotDemoAccountUser(userId))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.DEMO_ACCOUNT_PROTECTED);
+    }
+
+    @Test
+    void userId가_일반계정이면_통과한다() {
+        Long userId = 2L;
+        com.hajacheck.auth.entity.User normalUser = com.hajacheck.auth.entity.User.builder()
+                .email("normal@haja.com").name("일반").passwordHash("$2a$10$hashed").build();
+        org.mockito.Mockito.when(userRepository.findById(userId)).thenReturn(java.util.Optional.of(normalUser));
+
+        assertThatCode(() -> guard.requireNotDemoAccountUser(userId)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void userId가_존재하지않거나_null이면_방어적으로_통과한다() {
+        Long missingUserId = 999L;
+        org.mockito.Mockito.when(userRepository.findById(missingUserId)).thenReturn(java.util.Optional.empty());
+
+        assertThatCode(() -> guard.requireNotDemoAccountUser(missingUserId)).doesNotThrowAnyException();
+        assertThatCode(() -> guard.requireNotDemoAccountUser(null)).doesNotThrowAnyException();
+        org.mockito.Mockito.verify(userRepository, org.mockito.Mockito.never()).findById(null);
     }
 }

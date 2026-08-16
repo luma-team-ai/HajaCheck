@@ -43,7 +43,7 @@ class PlatformAdminUserServiceDemoGuardTest {
         demoProperties.setLoginId(DEMO_LOGIN_ID);
         service = new PlatformAdminUserService(platformAdminUserRepository, mock(CompanyRepository.class),
                 mock(PasswordEncoder.class), mock(QuotaService.class), mock(CounselorSkillRepository.class),
-                new DemoAccountGuard(demoProperties));
+                new DemoAccountGuard(demoProperties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
 
         demoUser = mock(User.class);
         when(demoUser.getEmail()).thenReturn(DEMO_LOGIN_ID);

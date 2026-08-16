@@ -65,7 +65,7 @@ class PasswordChangeServiceTest {
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
 
         service = new PasswordChangeService(userRepository, passwordEncoder, rateLimiter, authProperties,
-                new DemoAccountGuard(new DemoProperties()));
+                new DemoAccountGuard(new DemoProperties(), org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
     }
 
     private void change(long userId, String currentPassword, String newPassword) {
@@ -81,7 +81,7 @@ class PasswordChangeServiceTest {
         demoProperties.setLoginId("owner@haja.com");
         PasswordChangeService demoGuarded = new PasswordChangeService(
                 userRepository, passwordEncoder, rateLimiter, authProperties,
-                new DemoAccountGuard(demoProperties));
+                new DemoAccountGuard(demoProperties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
 
         assertThatThrownBy(() -> demoGuarded.changePassword(
                 USER_ID, new PasswordChangeRequest(CURRENT_PASSWORD, NEW_PASSWORD)))
