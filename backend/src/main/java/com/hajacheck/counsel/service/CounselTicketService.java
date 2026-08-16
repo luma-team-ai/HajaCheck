@@ -3,6 +3,7 @@ package com.hajacheck.counsel.service;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.auth.service.DemoAccountGuard;
 import com.hajacheck.counsel.dto.ChatMessageResponse;
 import com.hajacheck.counsel.dto.CounselTicketResponse;
 import com.hajacheck.counsel.dto.CounselTicketSummaryResponse;
@@ -101,15 +102,25 @@ public class CounselTicketService {
     private final PaymentGraceService paymentGraceService;
     private final CompanyMembershipRepository companyMembershipRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    // 데모 계정 상담 티켓 생성 차단(#1631 security P2) — 결제 가드 해제로 데모도 유료 플랜을 얻어
+    // 상담원 접근권을 가질 수 있게 됐지만, WAITING 대기열·브로드캐스트는 실상담원 콘솔과 공유돼
+    // 데모 티켓이 실사용자 순번을 왜곡하고 실직원 시간을 뺏는다(리셋으로도 되돌릴 수 없는 표면).
+    private final DemoAccountGuard demoAccountGuard;
 
     /**
      * 상담 티켓 생성(WAITING). {@code has_counselor_access=true} 활성 플랜 게이트를 통과한 요청만 허용한다.
      * {@code scenarioId}는 상담원 연결을 유발하는 리프(leadsToCounselor=true)여야 하며, 그 트리를 타고 올라가
      * 최상위 category와 바로 위 부모 라벨을 스냅샷으로 저장한다(시나리오 트리 변경과 무관하게 이력 고정).
      * ticket_number 는 PK 확정 후 부여하므로 같은 트랜잭션 내 2단계 저장한다.
+     *
+     * <p><b>데모 계정은 차단된다</b>(#1631 security P2, {@link DemoAccountGuard} javadoc 참고) — 결제로
+     * 상담사 접근권을 얻더라도 티켓 생성은 실상담원 대기열을 오염시켜 예외적으로 막는다.
      */
     @Transactional
     public CounselTicketResponse createTicket(Long userId, Long scenarioId) {
+        // 데모 계정 상담 티켓 생성 차단(#1631 security P2) — DemoAccountGuard javadoc 참고. 결제·플랜
+        // 변경은 열려 있지만 상담 티켓만은 실직원 보호를 위해 막는다.
+        demoAccountGuard.requireNotDemoAccountUser(userId);
         requireCounselorAccess(userId);
         ScenarioSnapshot snapshot = resolveScenarioSnapshot(scenarioId);
 

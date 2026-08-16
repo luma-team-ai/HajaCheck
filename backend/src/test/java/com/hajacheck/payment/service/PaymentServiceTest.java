@@ -63,15 +63,13 @@ class PaymentServiceTest {
     private TossPaymentsClient tossPaymentsClient;
     @Mock
     private MembershipService membershipService;
-    @Mock
-    private com.hajacheck.auth.service.DemoAccountGuard demoAccountGuard;
 
     private PaymentService service;
 
     @BeforeEach
     void setUp() {
         service = new PaymentService(paymentWriter, paymentRepository, tossPaymentsClient,
-                new TossPaymentsProperties(), membershipService, demoAccountGuard);
+                new TossPaymentsProperties(), membershipService);
         when(membershipService.getMyPlan(USER_ID)).thenReturn(myPlan("ENTERPRISE"));
     }
 
@@ -407,37 +405,36 @@ class PaymentServiceTest {
         verify(tossPaymentsClient).confirm(PAYMENT_KEY, ORDER_ID, AMOUNT);
     }
 
-    // ---------- 데모 계정 결제 차단(#1626 P1-1) ----------
+    // ---------- 데모 계정 결제·플랜변경 허용(#1631 — #1626 P1-1 결제 가드 해제) ----------
 
     @Test
-    void 데모_계정_주문생성은_가드에서_막히고_PaymentWriter를_호출하지_않는다() {
-        org.mockito.Mockito.doThrow(new com.hajacheck.global.exception.BusinessException(
-                        com.hajacheck.global.exception.ErrorCode.DEMO_ACCOUNT_PROTECTED))
-                .when(demoAccountGuard).requireNotDemoAccountUser(USER_ID);
+    void 데모_계정도_주문생성이_가드없이_그대로_통과한다() {
+        // #1631 — PaymentService 는 더 이상 DemoAccountGuard 를 의존하지 않는다. 데모 계정 여부와
+        // 무관하게 일반 흐름 그대로 PaymentWriter 를 호출해야 한다(회귀 방지). 실결제 없는 토스
+        // 샌드박스 + 매일 04:10 리셋(DemoResetService)이 FREE 로 강제 정합하는 것이 안전판이다.
+        when(paymentWriter.createOrder(USER_ID, PlanName.ENTERPRISE))
+                .thenReturn(new PaymentOrderResponse(ORDER_ID, "ENTERPRISE", 99000L, 0L, 99000L, "엔터프라이즈"));
 
-        assertThatThrownBy(() -> service.createOrder(USER_ID,
-                new com.hajacheck.payment.dto.PaymentOrderRequest(
-                        com.hajacheck.membership.entity.PlanName.ENTERPRISE)))
-                .isInstanceOf(com.hajacheck.global.exception.BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo(com.hajacheck.global.exception.ErrorCode.DEMO_ACCOUNT_PROTECTED);
+        PaymentOrderResponse response = service.createOrder(USER_ID, new PaymentOrderRequest(PlanName.ENTERPRISE));
 
-        verify(paymentWriter, never()).createOrder(anyLong(), any());
+        assertThat(response.orderId()).isEqualTo(ORDER_ID);
+        verify(paymentWriter).createOrder(USER_ID, PlanName.ENTERPRISE);
     }
 
     @Test
-    void 데모_계정_결제승인은_가드에서_막히고_PG를_호출하지_않는다() {
-        org.mockito.Mockito.doThrow(new com.hajacheck.global.exception.BusinessException(
-                        com.hajacheck.global.exception.ErrorCode.DEMO_ACCOUNT_PROTECTED))
-                .when(demoAccountGuard).requireNotDemoAccountUser(USER_ID);
+    void 데모_계정도_결제승인이_가드없이_그대로_통과한다() {
+        // #1631 — createOrder 와 대칭. confirm 도 DemoAccountGuard 없이 정상 승인 흐름을 탄다.
+        TossPaymentApproval approval = new TossPaymentApproval(
+                PAYMENT_KEY, PaymentMethod.CARD, "https://receipt", Instant.now());
+        when(paymentWriter.prepareConfirm(eq(USER_ID), any()))
+                .thenReturn(PaymentConfirmPreparation.readyToApprove(PAYMENT_ID, AMOUNT));
+        when(tossPaymentsClient.confirm(PAYMENT_KEY, ORDER_ID, AMOUNT)).thenReturn(approval);
 
-        assertThatThrownBy(() -> service.confirm(USER_ID, request()))
-                .isInstanceOf(com.hajacheck.global.exception.BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo(com.hajacheck.global.exception.ErrorCode.DEMO_ACCOUNT_PROTECTED);
+        MyPlanResponse response = service.confirm(USER_ID, request());
 
-        verify(paymentWriter, never()).prepareConfirm(anyLong(), any());
-        verify(tossPaymentsClient, never()).confirm(anyString(), anyString(), anyLong());
+        assertThat(response.plan().name()).isEqualTo("ENTERPRISE");
+        verify(paymentWriter).markApproved(PAYMENT_ID, approval);
+        verify(paymentWriter).applyPlanTransition(PAYMENT_ID);
     }
 
     private static MyPlanResponse myPlan(String planName) {
