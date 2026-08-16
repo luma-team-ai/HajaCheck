@@ -1,6 +1,5 @@
 package com.hajacheck.payment.service;
 
-import com.hajacheck.auth.service.DemoAccountGuard;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.dto.MyPlanResponse;
@@ -38,7 +37,6 @@ public class PaymentService {
     private final TossPaymentsClient tossPaymentsClient;
     private final TossPaymentsProperties tossPaymentsProperties;
     private final MembershipService membershipService;
-    private final DemoAccountGuard demoAccountGuard;
 
     /**
      * 주문 사전 등록 — 서버가 orderId·금액을 확정한다(보안 요구 1·2). 검증·저장은 단일 트랜잭션.
@@ -54,9 +52,6 @@ public class PaymentService {
      * {@code PaymentWriter} 안에서 잡으면 이미 롤백 전용으로 오염된 트랜잭션이라 재조회가 불가능하다.
      */
     public PaymentOrderResponse createOrder(Long userId, PaymentOrderRequest request) {
-        // 데모 계정 결제 차단(#1626 P1-1) — 읽기 위주 데모라 결제는 불필요하고, 열어 두면 데모 세션이
-        // 샌드박스 결제로 유료 플랜을 영구 획득한다(리셋도 되돌리지 못하던 표면). 주문 생성 진입에서 막는다.
-        demoAccountGuard.requireNotDemoAccountUser(userId);
         try {
             return paymentWriter.createOrder(userId, request.planName());
         } catch (DataIntegrityViolationException e) {
@@ -88,9 +83,6 @@ public class PaymentService {
      * </ol>
      */
     public MyPlanResponse confirm(Long userId, PaymentConfirmRequest request) {
-        // 데모 계정 결제 승인 차단(#1626 P1-1) — createOrder 를 막았어도, 스위치 전환 전 남아 있던 READY
-        // 주문이나 직접 호출로 승인이 새는 것까지 봉쇄한다(주문 생성과 승인은 별 요청이라 양쪽 모두 가드).
-        demoAccountGuard.requireNotDemoAccountUser(userId);
         PaymentConfirmPreparation preparation = paymentWriter.prepareConfirm(userId, request);
 
         if (preparation.requiresClosing()) {
