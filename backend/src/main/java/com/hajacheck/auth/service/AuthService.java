@@ -1,5 +1,6 @@
 package com.hajacheck.auth.service;
 
+import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.dto.AssignableUserResponse;
 import com.hajacheck.auth.dto.UserResponse;
 import com.hajacheck.auth.entity.Company;
@@ -30,6 +31,7 @@ public class AuthService {
     private final UserRepository userRepository;
     private final CompanyMembershipRepository companyMembershipRepository;
     private final CompanyRepository companyRepository;
+    private final DemoProperties demoProperties;
 
     /**
      * 로그인 성공 후 lastLoginAt 갱신(dirty checking).
@@ -51,7 +53,9 @@ public class AuthService {
     public UserResponse getMe(Long userId) {
         User user = findUser(userId);
         String companyName = resolveCompanyName(user.getCompanyId());
-        return UserResponse.from(user, companyName);
+        // isDemo(#1626) — 스키마 변경 없이 설정(app.demo.login-id) 매칭으로 판별한다. 스위치(enabled)와
+        // 무관하게 loginId 매칭만 본다: 데모를 잠시 꺼도 이미 발급된 데모 세션의 화면 표식이 사라지면 안 된다.
+        return UserResponse.from(user, companyName, demoProperties.isDemoLoginId(user.getEmail()));
     }
 
     private String resolveCompanyName(Long companyId) {

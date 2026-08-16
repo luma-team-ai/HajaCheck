@@ -99,6 +99,9 @@ class CounselTicketServiceTest {
     private SimpMessagingTemplate messagingTemplate;
     @Mock
     private PaymentGraceService paymentGraceService;
+    // 데모 계정 상담 티켓 생성 차단(#1631 security P2).
+    @Mock
+    private com.hajacheck.auth.service.DemoAccountGuard demoAccountGuard;
 
     private CounselTicketService service;
 
@@ -106,7 +109,7 @@ class CounselTicketServiceTest {
     void setUp() {
         service = new CounselTicketService(ticketRepository, chatSessionRepository, chatMessageRepository,
                 botScenarioRepository, counselorSkillRepository, userRepository, userPlanRepository, planRepository,
-                paymentGraceService, companyMembershipRepository, messagingTemplate);
+                paymentGraceService, companyMembershipRepository, messagingTemplate, demoAccountGuard);
     }
 
     /**
@@ -216,6 +219,24 @@ class CounselTicketServiceTest {
         assertThatThrownBy(() -> service.createTicket(USER_ID, SCENARIO_LEAF_ID))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.COUNSEL_PLAN_REQUIRED);
+    }
+
+    @Test
+    void 티켓생성_데모계정은_플랜접근권과무관하게_409_DEMO_ACCOUNT_PROTECTED() {
+        // #1631 security P2 — 결제 가드 해제로 데모 계정도 STANDARD/ENTERPRISE(hasCounselorAccess=true)를
+        // 얻을 수 있지만, 상담 티켓 생성만은 실상담원 대기열 오염을 막기 위해 여전히 차단한다. 플랜 게이트
+        // (requireCounselorAccess) 조회 전에 막혀야 하므로, 이후 조회가 전혀 일어나지 않았음도 함께 고정한다.
+        org.mockito.Mockito.doThrow(new BusinessException(ErrorCode.DEMO_ACCOUNT_PROTECTED))
+                .when(demoAccountGuard).requireNotDemoAccountUser(USER_ID);
+
+        assertThatThrownBy(() -> service.createTicket(USER_ID, SCENARIO_LEAF_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.DEMO_ACCOUNT_PROTECTED);
+
+        verify(userPlanRepository, never())
+                .findFirstByUserIdAndStatusOrderByStartedAtDesc(any(), any());
+        verify(botScenarioRepository, never()).findById(any());
+        verify(ticketRepository, never()).saveAndFlush(any());
     }
 
     // ── 내 상담 이력(IDOR: userId 는 세션 주체만) ──

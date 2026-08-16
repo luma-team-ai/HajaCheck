@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AuthFooterLinks } from './AuthFooterLinks';
 import { Button } from '../../../shared/components/Button';
 import { ERROR_CLASSES, LABEL_CLASSES, LOGIN_INPUT_CLASSES, PASSWORD_TOGGLE_CLASSES } from '../formClasses';
+import { useDemoLogin } from '../hooks/useDemoLogin';
 import { useLogin } from '../hooks/useLogin';
 import {
   clearSavedLoginId,
@@ -28,12 +29,25 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 const DEFAULT_ERROR_MESSAGE = '로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 
+// 데모 계정으로 둘러보기(#1627) 실패 안내 — 계약(handoff)상 실패는 코드가 아니라 HTTP status로만
+// 구분되므로(비활성=404 계열, rate limit=429), 위 ERROR_MESSAGES(error.code 매핑)와 달리
+// status를 직접 분기한다(메시지 매칭 금지 컨벤션).
+const DEMO_RATE_LIMITED_MESSAGE = '데모 계정 이용이 많아 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.';
+const DEMO_DEFAULT_ERROR_MESSAGE = '데모 계정 로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
+
+function resolveDemoErrorMessage(status: number | undefined): string {
+  if (status === 429) return DEMO_RATE_LIMITED_MESSAGE;
+  return DEMO_DEFAULT_ERROR_MESSAGE;
+}
+
 export function CompanyLoginTab() {
   const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isSaveIdChecked, setIsSaveIdChecked] = useState(false);
   const { login, isPending, error } = useLogin();
+  const { demoLogin, isPending: isDemoPending, error: demoError, isUnavailable: isDemoUnavailable } =
+    useDemoLogin();
 
   useEffect(() => {
     const savedLoginId = getSavedLoginId();
@@ -133,10 +147,36 @@ export function CompanyLoginTab() {
         type="submit"
         size="lg"
         className="w-full"
-        disabled={isPending || !isLoginFormValid(loginId, password)}
+        disabled={isPending || isDemoPending || !isLoginFormValid(loginId, password)}
       >
         {isPending ? '로그인 중...' : '로그인'}
       </Button>
+
+      {/* 데모 계정으로 둘러보기(#1627) — 크레덴셜 없이 원클릭 진입. 위 크레덴셜 폼(primary)과
+          시각적으로 구분되도록 보조 스타일(variant="secondary")을 쓴다. 404(비활성)면 재시도해도
+          계속 실패할 뿐이므로 버튼 자체를 숨기고 안내만 남긴다(handoff "버튼 숨김 또는 안내"). */}
+      {isDemoUnavailable ? (
+        <p role="status" className={ERROR_CLASSES}>
+          지금은 데모 계정 체험을 이용할 수 없습니다.
+        </p>
+      ) : (
+        <Button
+          type="button"
+          variant="secondary"
+          size="lg"
+          className="w-full"
+          disabled={isPending || isDemoPending}
+          onClick={() => demoLogin()}
+        >
+          {isDemoPending ? '데모 계정 접속 중...' : '데모 계정으로 둘러보기'}
+        </Button>
+      )}
+
+      {demoError && !isDemoUnavailable && (
+        <p role="alert" className={ERROR_CLASSES}>
+          {resolveDemoErrorMessage(demoError.status)}
+        </p>
+      )}
 
       <AuthFooterLinks />
     </form>

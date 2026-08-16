@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hajacheck.auth.config.AppMailProperties;
 import com.hajacheck.auth.config.AuthProperties;
+import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.dto.PasswordResetLinkRequest;
 import com.hajacheck.auth.dto.PasswordResetLinkResponse;
 import com.hajacheck.auth.dto.PasswordResetRequest;
@@ -86,11 +87,52 @@ class PasswordResetServiceTest {
         when(userRepository.findByEmail("nobody@haja.com")).thenReturn(Optional.empty());
 
         service = new PasswordResetService(userRepository, tokenStore, rateLimiter,
-                new PasswordResetMailDispatcher(mailSender), passwordEncoder, authProperties, mailProperties);
+                new PasswordResetMailDispatcher(mailSender), passwordEncoder, authProperties, mailProperties,
+                new DemoAccountGuard(new DemoProperties(), org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
     }
 
     private PasswordResetLinkResponse request(String email) {
         return service.requestResetLink(new PasswordResetLinkRequest(email));
+    }
+
+    /** 데모 loginId 를 {@link #EMAIL} 로 잡은 서비스 — 데모 계정 자기보호(#1626) 시나리오 전용. */
+    private PasswordResetService demoGuardedService() {
+        DemoProperties demoProperties = new DemoProperties();
+        demoProperties.setLoginId(EMAIL);
+        AppMailProperties demoMailProperties = new AppMailProperties();
+        demoMailProperties.setFrontendBaseUrl(BASE_URL);
+        return new PasswordResetService(userRepository, tokenStore, rateLimiter,
+                new PasswordResetMailDispatcher(mailSender), passwordEncoder, authProperties,
+                demoMailProperties, new DemoAccountGuard(demoProperties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
+    }
+
+    // ---------- 데모 계정 자기보호(#1626) — 응답 통일 계약 유지한 채 조용히 차단 ----------
+
+    @Test
+    void 데모_계정에는_재설정_메일을_보내지_않고_응답은_동일하다() throws Exception {
+        PasswordResetService demoService = demoGuardedService();
+
+        PasswordResetLinkResponse response =
+                demoService.requestResetLink(new PasswordResetLinkRequest(EMAIL));
+
+        // 메일이 나가면 SMTP 미설정 환경(LoggingPasswordResetMailSender)에서 링크가 로그로 새고,
+        // 링크를 완주하면 데모 원클릭 로그인이 깨진다. 응답은 항상 200 동일 바디(열거 방지 계약 유지).
+        assertThat(mailSender.nothingSentWithin(Duration.ofMillis(300))).isTrue();
+        assertThat(response).isEqualTo(PasswordResetLinkResponse.accepted());
+    }
+
+    @Test
+    void 데모_계정은_유효한_토큰으로도_재설정이_거부된다() {
+        // 심층방어 — 1단계 필터 이전에 발급됐거나 설정 변경으로 데모 loginId 가 바뀐 경우의 토큰.
+        PasswordResetService demoService = demoGuardedService();
+        String token = tokenStore.issueAndRotate(USER_ID, authProperties.getPasswordResetTtl());
+        String hashBefore = user.getPasswordHash();
+
+        assertThatThrownBy(() -> demoService.reset(new PasswordResetRequest(token, "newpass1")))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.AUTH_RESET_TOKEN_INVALID);
+
+        assertThat(user.getPasswordHash()).isEqualTo(hashBefore);
     }
 
     private String tokenFromMail() throws Exception {

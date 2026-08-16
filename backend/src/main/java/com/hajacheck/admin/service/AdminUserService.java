@@ -11,6 +11,7 @@ import com.hajacheck.admin.repository.AdminUserRepository;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.service.DemoAccountGuard;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.membership.entity.PlanName;
@@ -36,6 +37,7 @@ public class AdminUserService {
     private final AdminUserRepository adminUserRepository;
     private final PasswordEncoder passwordEncoder;
     private final QuotaService quotaService;
+    private final DemoAccountGuard demoAccountGuard;
 
     // 관리자 콘솔이 프론트에 노출하는 배정 가능 역할(ROLE_CHANGE_OPTIONS: USER/INSPECTOR/ADMIN)과 동일한
     // 화이트리스트 — COUNSELOR 등 이 화면 밖의 Role은 요청을 크래프팅해도 서버가 거부한다(리뷰 P2).
@@ -102,6 +104,10 @@ public class AdminUserService {
     public AdminUserRoleUpdateResponse changeRole(Long userId, Role role, Long companyId, Long requestingUserId) {
         requireAssignableRole(role);
         User user = findUser(userId, companyId);
+        // 데모 계정 자기보호(#1626) — 데모 세션(기업 ADMIN)이 콘솔에서 데모 계정 자신을 강등하면
+        // 다음 방문자의 원클릭 로그인 권한이 깨진다. requireNotLastOrSelfAdmin(마지막 관리자 보호)과
+        // 별개 축의 보호라 나란히 얹는다(가드 근거는 DemoAccountGuard javadoc).
+        demoAccountGuard.requireNotDemoAccount(user.getEmail());
         if (user.getRole() == Role.ADMIN && role != Role.ADMIN) {
             requireNotLastOrSelfAdmin(userId, companyId, requestingUserId);
         }
@@ -114,6 +120,8 @@ public class AdminUserService {
                                                         Long requestingUserId) {
         requireAssignableStatus(status);
         User user = findUser(userId, companyId);
+        // 데모 계정 자기보호(#1626) — 정지되면 데모 로그인(CustomUserDetailsService의 정지 차단)이 깨진다.
+        demoAccountGuard.requireNotDemoAccount(user.getEmail());
         if (user.getRole() == Role.ADMIN && status == UserStatus.SUSPENDED) {
             requireNotLastOrSelfAdmin(userId, companyId, requestingUserId);
         }

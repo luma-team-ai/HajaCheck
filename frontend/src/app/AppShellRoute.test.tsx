@@ -304,4 +304,23 @@ describe('AppShellRoute', () => {
     fireEvent.click(bell);
     expect(await screen.findByRole('menu', { name: '알림' })).not.toBeNull();
   });
+
+  // 데모 모드 배너(#1627) — GET /api/users/me의 isDemo=true(#1626 계약)일 때 앱 셸 상단에 노출된다.
+  it('로그인 사용자가 isDemo=true면 데모 모드 배너를 상단에 노출한다', () => {
+    useAuthStore.setState({ user: { ...baseUser, isDemo: true } });
+
+    renderAt('/dashboard');
+
+    expect(screen.getByText('데모 모드 — 데이터는 매일 초기화됩니다')).not.toBeNull();
+  });
+
+  // isDemo 필드가 아직 안 내려오는 환경(백엔드 미배포)에서도 undefined로 안전하게 폴백해 배너가
+  // 조용히 미노출되어야 한다(신규 optional 필드 방어) — baseUser는 isDemo를 갖지 않는다.
+  it('isDemo가 없거나 false면 데모 모드 배너를 노출하지 않는다', () => {
+    useAuthStore.setState({ user: baseUser });
+
+    renderAt('/dashboard');
+
+    expect(screen.queryByText('데모 모드 — 데이터는 매일 초기화됩니다')).toBeNull();
+  });
 });

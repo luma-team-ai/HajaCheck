@@ -38,6 +38,11 @@ public enum ErrorCode {
     // "비밀번호가 올바르지 않습니다"로 오안내하지 않는 UX를 택했다(#1514 설계 결정).
     AUTH_ROLE_NOT_ALLOWED(HttpStatus.FORBIDDEN, "이 화면으로는 로그인할 수 없는 계정입니다."),
 
+    // 데모 원클릭 로그인(#1626) — app.demo.enabled=false(기본)일 때. 404 인 이유: 기능 스위치가 꺼진
+    // 환경에서는 이 엔드포인트가 "존재하지 않는 것"과 같아야 한다 — 403 등으로 구분 응답하면 꺼진
+    // 환경에서도 데모 기능의 존재가 열거된다(RESOURCE_NOT_FOUND 의 "내부 유추 차단"과 동일 기조).
+    AUTH_DEMO_DISABLED(HttpStatus.NOT_FOUND, "데모 기능을 사용할 수 없습니다."),
+
     // 기업 인증(회원가입·아이디/비밀번호 찾기) — 검증 실패는 절대 401 금지(400/404/409만).
     AUTH_EMAIL_DUPLICATED(HttpStatus.CONFLICT, "이미 사용 중인 이메일입니다."),
     AUTH_BUSINESS_NUMBER_DUPLICATED(HttpStatus.CONFLICT, "이미 등록된 사업자등록번호입니다."),
@@ -307,6 +312,12 @@ public enum ErrorCode {
 
     // 플랫폼 관리자 콘솔 — 사용자 관리(#576). 사용자 등록 시 지정한 companyId가 존재하지 않는 경우.
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "기업을 찾을 수 없습니다."),
+
+    // 데모 계정 자기보호(#1626) — 데모 계정을 대상으로 한 role/status/비밀번호 변경을 통일 차단.
+    // 비밀번호가 바뀌면 원클릭 데모 로그인 자체가 깨지고, 강등/정지되면 데모 세션이 전 기능을 잃는다.
+    // ADMIN_PROTECTED_ACCOUNT(마지막 관리자 보호)와 같은 409 계열 — 재시도로 풀리지 않는 보호 대상이지만
+    // 관례를 따라 CONFLICT 로 통일한다.
+    DEMO_ACCOUNT_PROTECTED(HttpStatus.CONFLICT, "데모 계정은 변경할 수 없습니다."),
 
     // 도메인별 예시 — 각 담당이 추가
     DEFECT_NOT_FOUND(HttpStatus.NOT_FOUND, "하자를 찾을 수 없습니다."),

@@ -229,7 +229,7 @@ class InviteCodeServiceTest {
         when(inviteCodeStore.peek("ABC123")).thenReturn(Optional.of("10"));
         when(companyRepository.existsById(10L)).thenReturn(true);
         UserResponse expected = new UserResponse(1L, "a@haja.com", "홍길동", Role.USER, 10L, null, null, null,
-                UserStatus.ACTIVE);
+                UserStatus.ACTIVE, false);
         when(authService.getMe(1L)).thenReturn(expected);
 
         UserResponse result = inviteCodeService.redeem("ABC123", 1L);
@@ -350,7 +350,8 @@ class InviteCodeServiceTest {
         when(inviteCodeStore.peek("ABC123")).thenReturn(Optional.of("10"));
         when(companyRepository.existsById(10L)).thenReturn(true);
         when(authService.getMe(7L)).thenReturn(
-                new UserResponse(7L, "e@haja.com", "정약용", Role.USER, 10L, null, null, null, UserStatus.ACTIVE));
+                new UserResponse(7L, "e@haja.com", "정약용", Role.USER, 10L, null, null, null,
+                        UserStatus.ACTIVE, false));
 
         inviteCodeService.redeem("ABC123", 7L);
         // 커밋 트리거를 호출하지 않음(=DB 커밋 실패/롤백 시나리오와 동일하게 afterCommit 미발화).

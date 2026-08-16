@@ -136,4 +136,91 @@ describe('CompanyLoginTab', () => {
     await screen.findByRole('alert');
     expect(requestedPaths).toEqual(['/api/auth/login']);
   });
+
+  // 데모 계정으로 둘러보기(#1627) — 크레덴셜 없이 원클릭 진입, POST /api/auth/demo-login으로 요청한다.
+  it('데모 계정으로 둘러보기 버튼 클릭 시 POST /api/auth/demo-login으로 요청한다', async () => {
+    server.use(
+      http.post('/api/auth/demo-login', () => {
+        const success: ApiResponse<{
+          id: number;
+          email: string;
+          name: string;
+          role: string;
+          companyId: number;
+          profileImageUrl: null;
+          createdAt: string;
+          companyName: string;
+          status: string;
+          isDemo: boolean;
+        }> = {
+          success: true,
+          data: {
+            id: 999,
+            email: 'demo@example.com',
+            name: '데모 계정',
+            role: 'ADMIN',
+            companyId: 1,
+            profileImageUrl: null,
+            createdAt: '2026-01-01T00:00:00',
+            companyName: '데모 회사',
+            status: 'ACTIVE',
+            isDemo: true,
+          },
+        };
+        return HttpResponse.json(success);
+      }),
+    );
+    renderTab();
+
+    fireEvent.click(screen.getByRole('button', { name: '데모 계정으로 둘러보기' }));
+
+    await waitFor(() => expect(requestedPaths).toEqual(['/api/auth/demo-login']));
+    expect(useAuthStore.getState().user?.isDemo).toBe(true);
+  });
+
+  // 계약(handoff) — 비활성 시 404 계열. 재시도해도 계속 실패하므로 버튼을 숨기고 안내로 대체한다.
+  it('데모 로그인이 404(비활성)면 버튼을 숨기고 안내 문구를 표시한다', async () => {
+    server.use(
+      http.post('/api/auth/demo-login', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'DEMO_LOGIN_DISABLED', message: '데모 로그인이 비활성화되어 있습니다.' },
+        };
+        return HttpResponse.json(failure, { status: 404 });
+      }),
+    );
+    renderTab();
+
+    fireEvent.click(screen.getByRole('button', { name: '데모 계정으로 둘러보기' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe('지금은 데모 계정 체험을 이용할 수 없습니다.'),
+    );
+    expect(screen.queryByRole('button', { name: '데모 계정으로 둘러보기' })).toBeNull();
+  });
+
+  // 429는 재시도 여지가 있으므로 버튼을 계속 노출하고 재시도 안내 문구만 보여준다.
+  it('데모 로그인이 429(rate limit)면 버튼은 유지하고 재시도 안내 문구를 표시한다', async () => {
+    server.use(
+      http.post('/api/auth/demo-login', () => {
+        const failure: ApiResponse<null> = {
+          success: false,
+          data: null,
+          error: { code: 'RATE_LIMITED', message: '요청이 너무 많습니다.' },
+        };
+        return HttpResponse.json(failure, { status: 429 });
+      }),
+    );
+    renderTab();
+
+    fireEvent.click(screen.getByRole('button', { name: '데모 계정으로 둘러보기' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toBe(
+        '데모 계정 이용이 많아 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.',
+      ),
+    );
+    expect(screen.getByRole('button', { name: '데모 계정으로 둘러보기' })).not.toBeNull();
+  });
 });

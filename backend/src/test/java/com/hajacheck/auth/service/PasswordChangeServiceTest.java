@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.config.AuthProperties;
+import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.dto.PasswordChangeRequest;
 import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
@@ -63,11 +64,31 @@ class PasswordChangeServiceTest {
         when(userRepository.findById(SOCIAL_USER_ID)).thenReturn(Optional.of(socialUser));
         when(userRepository.findById(999L)).thenReturn(Optional.empty());
 
-        service = new PasswordChangeService(userRepository, passwordEncoder, rateLimiter, authProperties);
+        service = new PasswordChangeService(userRepository, passwordEncoder, rateLimiter, authProperties,
+                new DemoAccountGuard(new DemoProperties(), org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
     }
 
     private void change(long userId, String currentPassword, String newPassword) {
         service.changePassword(userId, new PasswordChangeRequest(currentPassword, newPassword));
+    }
+
+    // ---------- 데모 계정 자기보호(#1626) ----------
+
+    @Test
+    void 데모_계정은_현재_비밀번호가_맞아도_409이고_비밀번호는_그대로다() {
+        // 비밀번호가 바뀌면 서버 보관 데모 크레덴셜과 어긋나 다음 방문자의 원클릭 로그인이 깨진다.
+        DemoProperties demoProperties = new DemoProperties();
+        demoProperties.setLoginId("owner@haja.com");
+        PasswordChangeService demoGuarded = new PasswordChangeService(
+                userRepository, passwordEncoder, rateLimiter, authProperties,
+                new DemoAccountGuard(demoProperties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
+
+        assertThatThrownBy(() -> demoGuarded.changePassword(
+                USER_ID, new PasswordChangeRequest(CURRENT_PASSWORD, NEW_PASSWORD)))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.DEMO_ACCOUNT_PROTECTED);
+
+        assertThat(passwordEncoder.matches(CURRENT_PASSWORD, user.getPasswordHash())).isTrue();
     }
 
     // ---------- 성공 ----------

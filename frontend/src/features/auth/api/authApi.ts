@@ -66,6 +66,10 @@ export const authApi = {
     api.post<UserResponse>('/auth/platform-admin/login', body),
   /** 상담원 로그인 화면(/counsel-console/login) 전용 — POST /auth/counselor/login, COUNSELOR 허용 */
   counselorLogin: (body: LoginRequest) => api.post<UserResponse>('/auth/counselor/login', body),
+  // 데모 계정으로 둘러보기(#1627, 백엔드 #1626 계약) — 기업회원 로그인(/login) 전용, 요청 바디
+  // 없음. 200 응답은 POST /auth/login과 동일한 UserResponse + 세션 쿠키. 비활성 시 404 계열,
+  // rate limit 시 429 — 호출부(useDemoLogin)가 error.status로 분기한다(메시지 매칭 금지).
+  demoLogin: () => api.post<UserResponse>('/auth/demo-login'),
   logout: () => api.post('/auth/logout'),
   // 세션 확인(부트스트랩 AuthGate·로그인 화면 마운트 시 CSRF 프리밍) — 401은 미로그인으로 간주(호출부에서 무시).
   // skipAuthRedirect: 401이어도 전역 /login 하드 리다이렉트를 하지 않는다 — 공개 랜딩('/')이 안 뜨던 회귀 방지(#276).

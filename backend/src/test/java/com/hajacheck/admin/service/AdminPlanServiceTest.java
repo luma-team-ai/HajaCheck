@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.admin.dto.AdminPlanResponse;
 import com.hajacheck.admin.repository.AdminPlanRepository;
 import com.hajacheck.admin.repository.AdminUserRepository;
 import com.hajacheck.auth.entity.Company;
@@ -343,6 +344,37 @@ class AdminPlanServiceTest {
         verify(planDowngradeService).preview(eq(companyId), plans.capture(), plans.capture(), any());
         assertThat(plans.getAllValues()).extracting(Plan::getName)
                 .containsExactly(PlanName.ENTERPRISE, PlanName.STANDARD);
+        verify(planDowngradeService).applyOverflow(eq(companyId), any(Plan.class), any(DowngradeOverflow.class));
+    }
+
+    @Test
+    void 데모_계정_이메일이어도_플랜변경이_가드없이_그대로_동작한다() {
+        // #1631 — AdminPlanService 는 더 이상 DemoAccountGuard 를 의존하지 않는다(#1626 P1-1 결제·
+        // 플랜변경 차단 해제). 데모 로그인 이메일이어도 다른 회사 owner 와 동일하게 정상 처리돼야 한다
+        // — 매일 04:10 리셋(DemoResetService)이 FREE 로 강제 정합하는 것이 안전판이다.
+        Long adminUserId = 1L;
+        Long companyId = 10L;
+        User admin = User.builder().companyId(companyId).email("demo-admin@hajacheck.demo").name("데모 관리자")
+                .passwordHash("hash").build();
+        UserPlan current = UserPlan.forCompany(companyId, 100L);
+        Plan targetPlan = Plan.create(PlanName.STANDARD, 10, 1000, 3, false, true, true,
+                new BigDecimal("29000.00"));
+        Company company = Company.createPendingReview(adminUserId, "회사", "123-45-67890",
+                "대표", "주소", null, "url", "{\"source\":\"MANUAL_INPUT\"}");
+
+        when(userRepository.findById(adminUserId)).thenReturn(Optional.of(admin));
+        when(companyRepository.findById(companyId)).thenReturn(Optional.of(company));
+        when(adminPlanRepository.findFirstByCompanyIdAndStatusOrderByStartedAtDescIdDesc(
+                companyId, UserPlanStatus.ACTIVE)).thenReturn(Optional.of(current));
+        when(planRepository.findByName(PlanName.STANDARD)).thenReturn(Optional.of(targetPlan));
+        when(planDowngradeService.preview(anyLong(), any(Plan.class), any(Plan.class), any()))
+                .thenReturn(DowngradeOverflow.none());
+        when(adminPlanRepository.saveAndFlush(any(UserPlan.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdminPlanResponse response = service.changePlan(adminUserId, PlanName.STANDARD, false, List.of());
+
+        assertThat(response).isNotNull();
         verify(planDowngradeService).applyOverflow(eq(companyId), any(Plan.class), any(DowngradeOverflow.class));
     }
 
