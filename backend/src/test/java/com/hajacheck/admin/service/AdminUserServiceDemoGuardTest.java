@@ -43,7 +43,7 @@ class AdminUserServiceDemoGuardTest {
         DemoProperties demoProperties = new DemoProperties();
         demoProperties.setLoginId(DEMO_LOGIN_ID);
         service = new AdminUserService(adminUserRepository, mock(PasswordEncoder.class),
-                mock(QuotaService.class), new DemoAccountGuard(demoProperties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
+                mock(QuotaService.class), new DemoAccountGuard(demoProperties));
 
         demoUser = mock(User.class);
         when(demoUser.getEmail()).thenReturn(DEMO_LOGIN_ID);
