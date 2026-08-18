@@ -175,8 +175,25 @@ class FacilityRepositoryTest extends PostgresTestSupport {
         assertThat(projection.getId()).isEqualTo(saved.getId());
         assertThat(projection.getName()).isEqualTo("지도테스트빌딩");
         assertThat(projection.getType()).isEqualTo("BUILDING");
+        // #1656 리뷰 보강 — address가 지도 검색(주소 매칭)·지오코딩 백필에 쓰이므로 프로젝션에 반드시 포함.
+        assertThat(projection.getAddress()).isEqualTo("서울시 강남구");
         assertThat(projection.getLatitude()).isEqualByComparingTo("37.123456");
         assertThat(projection.getLongitude()).isEqualByComparingTo("127.123456");
+    }
+
+    @Test
+    void findMapProjectionsByCompanyId_주소없는시설_address는null() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        // newFacility() 헬퍼는 address를 채우므로, address 미입력 케이스는 빌더를 직접 써서 재현한다.
+        facilityRepository.save(Facility.builder()
+                .companyId(ownerId)
+                .name("주소없음시설")
+                .type("BUILDING")
+                .build());
+
+        List<FacilityMapProjection> found = facilityRepository.findMapProjectionsByCompanyId(ownerId);
+
+        assertThat(found.get(0).getAddress()).isNull();
     }
 
     @Test

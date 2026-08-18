@@ -10,6 +10,10 @@ import java.math.BigDecimal;
  * {@code facilityType} 으로 명시돼 있고 프론트 #1657 이 이 스니펫을 그대로 참조한다(임의 변경 금지).
  * 같은 이슈 본문의 다른 구절("기존 목록 응답 필드명과 동일 유지")은 FacilityResponse.type 과 이름이
  * 상충하는데, 계약으로 명시된 스니펫을 우선했다 — 프론트 구현 시 실제 소비 필드명과 일치하는지 재확인 필요.
+ *
+ * <p><b>address 추가(#1656 리뷰 보강, #1657 리뷰에서 발견)</b> — 구 지도 흐름(GET /facilities)이 내려주던
+ * address를 지도 검색(주소 매칭)·지오코딩 백필이 사용하는데, 최초 경량 계약에서 빠져 주소 검색이 조용히
+ * 무력화되는 회귀가 있었다. nullable(시설물 등록 시 주소 미입력 가능 — Facility.address 참고)이다.
  */
 public record FacilityMapItemResponse(
         Long id,
@@ -17,6 +21,7 @@ public record FacilityMapItemResponse(
         BigDecimal latitude,
         BigDecimal longitude,
         String facilityType,
+        String address,
         String highestGrade,
         Long warningCount,
         Long cautionCount,
@@ -28,11 +33,13 @@ public record FacilityMapItemResponse(
             BigDecimal latitude,
             BigDecimal longitude,
             String facilityType,
+            String address,
             String highestGrade,
             Long warningCount,
             Long cautionCount,
             String thumbnailUrl) {
         return new FacilityMapItemResponse(
-                id, name, latitude, longitude, facilityType, highestGrade, warningCount, cautionCount, thumbnailUrl);
+                id, name, latitude, longitude, facilityType, address,
+                highestGrade, warningCount, cautionCount, thumbnailUrl);
     }
 }

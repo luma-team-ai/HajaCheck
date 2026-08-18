@@ -538,6 +538,7 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .companyId(companyId)
                 .name("지도테스트빌딩")
                 .type("BUILDING")
+                .address("서울시 강남구 테헤란로")
                 .latitude(lat)
                 .longitude(lng)
                 .build());
@@ -555,6 +556,9 @@ class FacilityControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data.facilities[0].latitude").value(37.123456))
                 .andExpect(jsonPath("$.data.facilities[0].longitude").value(127.123456))
                 .andExpect(jsonPath("$.data.facilities[0].facilityType").value("BUILDING"))
+                // #1656 리뷰 보강 — 구 지도 흐름(GET /facilities)의 address가 경량 계약에서 빠지면서
+                // 지도 검색(주소 매칭)·지오코딩 백필이 조용히 무력화되던 회귀(#1657 리뷰 발견) 재발 방지.
+                .andExpect(jsonPath("$.data.facilities[0].address").value("서울시 강남구 테헤란로"))
                 .andExpect(jsonPath("$.data.facilities[0].highestGrade").value("E"))
                 .andExpect(jsonPath("$.data.facilities[0].warningCount").value(1))
                 .andExpect(jsonPath("$.data.facilities[0].cautionCount").value(1));

@@ -1087,6 +1087,12 @@ class FacilityServiceTest {
 
     private static com.hajacheck.core.facility.repository.FacilityMapProjection facilityMapProjection(
             Long id, String name, String type, java.math.BigDecimal latitude, java.math.BigDecimal longitude) {
+        return facilityMapProjection(id, name, type, "서울시 강남구", latitude, longitude);
+    }
+
+    private static com.hajacheck.core.facility.repository.FacilityMapProjection facilityMapProjection(
+            Long id, String name, String type, String address,
+            java.math.BigDecimal latitude, java.math.BigDecimal longitude) {
         return new com.hajacheck.core.facility.repository.FacilityMapProjection() {
             public Long getId() {
                 return id;
@@ -1098,6 +1104,10 @@ class FacilityServiceTest {
 
             public String getType() {
                 return type;
+            }
+
+            public String getAddress() {
+                return address;
             }
 
             public java.math.BigDecimal getLatitude() {
@@ -1144,7 +1154,7 @@ class FacilityServiceTest {
         java.math.BigDecimal lat = new java.math.BigDecimal("37.123456");
         java.math.BigDecimal lng = new java.math.BigDecimal("127.123456");
         when(facilityRepository.findMapProjectionsByCompanyId(OWNER_ID))
-                .thenReturn(List.of(facilityMapProjection(10L, "한강대교 북단", "BRIDGE", lat, lng)));
+                .thenReturn(List.of(facilityMapProjection(10L, "한강대교 북단", "BRIDGE", "서울시 용산구 한강대로", lat, lng)));
         Inspection inspection = Inspection.builder()
                 .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
                 .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.REVIEWED).build();
@@ -1165,6 +1175,7 @@ class FacilityServiceTest {
         assertThat(item.latitude()).isEqualByComparingTo(lat);
         assertThat(item.longitude()).isEqualByComparingTo(lng);
         assertThat(item.facilityType()).isEqualTo("BRIDGE");
+        assertThat(item.address()).isEqualTo("서울시 용산구 한강대로");
         assertThat(item.highestGrade()).isEqualTo("E");
         assertThat(item.warningCount()).isEqualTo(1L);
         assertThat(item.cautionCount()).isEqualTo(2L);
@@ -1183,6 +1194,18 @@ class FacilityServiceTest {
         assertThat(item.warningCount()).isEqualTo(0L);
         assertThat(item.cautionCount()).isEqualTo(0L);
         assertThat(item.thumbnailUrl()).isNull();
+    }
+
+    // #1656 리뷰 보강 — address는 시설물 등록 시 선택 입력(Facility.address nullable)이라
+    // 미입력 시설물도 나머지 필드 조립이 깨지지 않고 address만 null로 반환돼야 한다.
+    @Test
+    void listForMap_주소없는시설_address는null() {
+        when(facilityRepository.findMapProjectionsByCompanyId(OWNER_ID))
+                .thenReturn(List.of(facilityMapProjection(10L, "주소없음시설", "BUILDING", null, null, null)));
+
+        com.hajacheck.core.facility.dto.FacilityMapResponse result = facilityService.listForMap(USER_ID, OWNER_ID);
+
+        assertThat(result.facilities().get(0).address()).isNull();
     }
 
     // 코드 리뷰 P2(#1656) — 대량 반환 관측 임계값(5000) 도달 시에도 하드 캡 없이 전체 반환해야 한다

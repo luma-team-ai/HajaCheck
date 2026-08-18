@@ -230,6 +230,7 @@ public class FacilityService {
                         facility.getLatitude(),
                         facility.getLongitude(),
                         facility.getType(),
+                        facility.getAddress(),
                         defectSummary.highestGradeByFacilityId().get(facility.getId()),
                         defectSummary.warningCountByFacilityId().getOrDefault(facility.getId(), 0L),
                         defectSummary.cautionCountByFacilityId().getOrDefault(facility.getId(), 0L),

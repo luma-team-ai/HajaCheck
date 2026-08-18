@@ -63,7 +63,11 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
     // 상한에 걸리면 500건 초과 회사의 지도 마커가 무고지로 누락된다(P1). 지도는 회사 보유 시설물 전체
     // 좌표가 필요하므로 상한을 두지 않고, 무거운 엔티티 전체 로딩 대신 마커 렌더링에 필요한 컬럼만
     // 프로젝션한다. id asc 로 정렬해 다른 목록 조회와 동일하게 결정적 순서를 유지한다.
-    @Query("select f.id as id, f.name as name, f.type as type, f.latitude as latitude, f.longitude as longitude "
+    // address(#1656 리뷰 보강, #1657 리뷰에서 발견) — 구 지도 흐름(GET /facilities)의 address를 지도
+    // 검색(주소 매칭)·지오코딩 백필이 쓰는데 최초 경량 계약에서 빠져 주소 검색이 조용히 무력화됐다.
+    // 컬럼 하나만 추가해 경량 취지는 유지한다.
+    @Query("select f.id as id, f.name as name, f.type as type, f.address as address, "
+            + "f.latitude as latitude, f.longitude as longitude "
             + "from Facility f where f.companyId = :companyId order by f.id asc")
     List<FacilityMapProjection> findMapProjectionsByCompanyId(@Param("companyId") Long companyId);
 }
