@@ -41,7 +41,7 @@ function renderModal(defectId: number) {
 
 function renderModalGroup(defects: InspectionDefect[], initialDefectId: number) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <DefectDetailModal defects={defects} initialDefectId={initialDefectId} onClose={() => {}} />
     </QueryClientProvider>,
@@ -323,5 +323,105 @@ describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#119
     expect(screen.getByText('DEF-0022')).not.toBeNull();
     expect(screen.getByRole('img', { name: '균열 촬영 이미지' })).toBe(image);
     expect(document.activeElement).toBe(nextChip);
+  });
+});
+
+// 사진(그룹) 단위 조치 상태·등록 통합(#1644) — 데모 피드백("조치는 사진 한 장에 한 번")에 따라
+// 하자(bbox) 단위였던 상태 칩·조치 등록 폼을 사진 단위로 통합한다. defectGroupSummary.ts의 순수
+// 판정 로직 자체는 defectGroupSummary.test.ts에서 별도로 검증하고, 여기서는 모달 통합 동작만 본다.
+describe('DefectDetailModal — 사진(그룹) 단위 상태·등록(#1644)', () => {
+  it('같은 사진의 하자가 여럿이면 헤더 상태 칩에 그룹 상태·건수를 표시하고, 개별 bbox 선택과 무관하게 일관된다', async () => {
+    const group: InspectionDefect[] = [
+      { ...mockInspectionDefects[0], id: 11, mediaId: 901, status: 'CONFIRMED' },
+      {
+        ...mockInspectionDefects[0],
+        id: 12,
+        mediaId: 901,
+        type: 'CRACK',
+        typeLabel: '균열',
+        status: 'IN_PROGRESS',
+        confidence: 0.8,
+      },
+    ];
+    server.use(
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = group.find((item) => item.id === Number(params.id));
+        return HttpResponse.json({ success: true, data: found ? detailFromSummary(found) : null });
+      }),
+      mockActionLogsHandler({}),
+    );
+
+    renderModalGroup(group, 11);
+    await screen.findByText('DEF-0011');
+
+    const dialog = screen.getByRole('dialog', { name: '하자 상세' });
+    // id=12가 IN_PROGRESS라 그룹 전체는 아직 RESOLVED가 아니다 — 백엔드 aggregateGroupStatus와
+    // 동일 규칙("하나라도 IN_PROGRESS 이상이면 IN_PROGRESS")으로 IN_PROGRESS가 대표값이 된다.
+    expect(dialog.querySelector('.defect-chip--warning')?.textContent).toBe(
+      '이 사진의 조치 상태: 조치중 (하자 2건)',
+    );
+
+    // 다른 bbox(id=12)를 선택해도 그룹 상태 표시는 그대로다(개별 하자 상태가 아니라 그룹 집계 기준).
+    fireEvent.click(screen.getByRole('button', { name: 'DEF-0012 · 균열' }));
+    await screen.findByText('DEF-0012');
+    expect(dialog.querySelector('.defect-chip--warning')?.textContent).toBe(
+      '이 사진의 조치 상태: 조치중 (하자 2건)',
+    );
+  });
+
+  it('mediaId가 없는 하자(수동 추가)는 개별 상태만 보여주고 그룹 건수를 붙이지 않는다(폴백)', async () => {
+    const manualDefect: InspectionDefect = {
+      ...mockInspectionDefects[0],
+      id: 31,
+      mediaId: null,
+      status: 'CONFIRMED',
+    };
+    server.use(
+      http.get('/api/defects/:id', () =>
+        HttpResponse.json({ success: true, data: detailFromSummary(manualDefect) }),
+      ),
+      mockActionLogsHandler({}),
+    );
+
+    renderModalGroup([manualDefect], 31);
+    await screen.findByText('DEF-0031');
+
+    const dialog = screen.getByRole('dialog', { name: '하자 상세' });
+    expect(dialog.querySelector('.defect-chip--warning')?.textContent).toBe('검수확정');
+  });
+
+  it('같은 사진 그룹 내에서 bbox를 전환해도 조치 등록 폼에 입력 중이던 내용이 유지된다', async () => {
+    const group: InspectionDefect[] = [
+      { ...mockInspectionDefects[0], id: 41, mediaId: 901, status: 'CONFIRMED' },
+      {
+        ...mockInspectionDefects[0],
+        id: 42,
+        mediaId: 901,
+        type: 'CRACK',
+        typeLabel: '균열',
+        status: 'CONFIRMED',
+        confidence: 0.8,
+      },
+    ];
+    server.use(
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = group.find((item) => item.id === Number(params.id));
+        return HttpResponse.json({ success: true, data: found ? detailFromSummary(found) : null });
+      }),
+      mockActionLogsHandler({}),
+    );
+
+    renderModalGroup(group, 41);
+    await screen.findByText('DEF-0041');
+
+    const contentInput = await screen.findByLabelText('조치 내용');
+    fireEvent.change(contentInput, { target: { value: '입력 중이던 초안' } });
+    // 그룹 사전 안내(#1644)도 같은 폼에 함께 뜬다 — 등록 전부터 그룹 반영 사실을 미리 알린다.
+    expect(screen.getByText('같은 사진의 하자 2건에 함께 반영됩니다.')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'DEF-0042 · 균열' }));
+    await screen.findByText('DEF-0042');
+
+    expect((screen.getByLabelText('조치 내용') as HTMLTextAreaElement).value).toBe('입력 중이던 초안');
   });
 });
