@@ -886,6 +886,7 @@ create table media
     mime_type               varchar(100),
     original_filename       varchar(255),
     purpose                 varchar(30)              default 'INSPECTION_SOURCE'::character varying not null,
+    analyzed_at             timestamp with time zone,
     constraint chk_media_inspection_xor_facility
         check ((inspection_id is not null) <> (facility_id is not null)),
     constraint chk_media_purpose
@@ -923,6 +924,8 @@ comment on column media.mime_signature_verified is '파일 시그니처와 MIME 
 comment on column media.created_at is '미디어 레코드 생성 시각';
 
 comment on column media.purpose is '미디어 용도(#1641) — INSPECTION_SOURCE(원본 촬영, 분석·분석결과뷰어 대상) / DEFECT_ACTION(조치 후 사진, 분석·분석결과뷰어 제외)';
+
+comment on column media.analyzed_at is '이 미디어(원본 촬영사진)가 AI 분석을 거친 시각(#1654) — null이면 미분석(증분 분석 대상). DEFECT_ACTION(조치 후 사진)은 애초에 분석 대상이 아니라 항상 null.';
 
 comment on column media.mime_type is '미디어 MIME 타입(예: image/jpeg, video/mp4)';
 
