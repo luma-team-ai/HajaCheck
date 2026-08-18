@@ -400,7 +400,8 @@ public class ReportService {
     /**
      * 확정 하자 목록과 보고서 본문(detail.items)을 defectId 기준으로 비교한 차이(#1653 P2) —
      * grounding-recheck(진단만)와 resync-defects(실제 재구성) 모두 이 결과를 반환한다. defectId가
-     * 없는(구버전 저장분) 항목은 비교 대상에서 제외한다(비교 불가능한 항목을 임의로 판정하지 않는다).
+     * 없는(구버전 저장분) 항목은 누락/잉여로 판정하지 않고 {@code unmatchedItems}로 분류해 노출만
+     * 하며(리뷰 P1-1), rebuild에서도 삭제 없이 그대로 보존한다 — diff와 rebuild의 원칙 일치.
      */
     private ReportDefectDiffResponse computeDefectDiff(List<Defect> confirmedDefects, String contentJson) {
         Map<Long, Defect> confirmedById = new LinkedHashMap<>();
