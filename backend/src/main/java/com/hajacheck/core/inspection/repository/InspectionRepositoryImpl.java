@@ -12,6 +12,7 @@ import jakarta.persistence.criteria.AbstractQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
@@ -43,6 +44,29 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
 
     private final EntityManager em;
 
+    /**
+     * 점검 목록 3종 공용 정렬(HAJA-393 + #1667 P3) — findPageByCompanyIdAndFilters/
+     * findMyInspectionsPage/findRecentInspectionsPage 전부 "동일 정렬 기준" 계약을 문서화하고 있으므로,
+     * tie-break를 여기 한 곳에서만 확장하면 세 메서드가 항상 같은 순서를 낸다(한쪽만 고치고 다른 쪽을
+     * 빠뜨려 같은 데이터의 화면 간 순서가 갈리는 회귀를 원천 차단).
+     *
+     * <p>inspection_date desc, performed_at desc nulls last, id desc(id는 생성 순서일 뿐 실제 수행
+     * 순서의 대리값이 아니었다 — #1667). 표준 JPA Criteria {@link Order} 인터페이스에는 nulls-last
+     * 지정 수단이 없어(Hibernate 전용 확장 없이는 불가), performedAt이 null이면 1 아니면 0인 보조
+     * 정렬키를 asc로 먼저 적용해 null 그룹을 뒤로 미는 표준 우회를 쓴다
+     * (findRecentByFacilityIds/findLatestByFacilityIds의 JPQL/native {@code nulls last}와 동일한
+     * 결과 순서 계약을 Criteria API에서 재현).
+     */
+    private static List<Order> recentInspectionOrderBy(CriteriaBuilder cb, Root<Inspection> root) {
+        return List.of(
+                cb.desc(root.get("inspectionDate")),
+                cb.asc(cb.<Integer>selectCase()
+                        .when(cb.isNull(root.get("performedAt")), 1)
+                        .otherwise(0)),
+                cb.desc(root.get("performedAt")),
+                cb.desc(root.get("id")));
+    }
+
     @Override
     public Page<Inspection> findPageByCompanyIdAndFilters(
             InspectionSearchCriteria criteria, Pageable pageable) {
@@ -57,7 +81,9 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         query.select(root)
                 .where(buildPredicates(cb, query, root, facility, criteria)
                         .toArray(new Predicate[0]))
-                .orderBy(cb.desc(root.get("inspectionDate")), cb.desc(root.get("id")));
+                // #1667 P3 — recentInspectionOrderBy(공용) 참고: findMyInspectionsPage/
+                // findRecentInspectionsPage와 동일 정렬 기준을 유지한다.
+                .orderBy(recentInspectionOrderBy(cb, root));
 
         List<Inspection> content = em.createQuery(query)
                 .setFirstResult((int) pageable.getOffset())
@@ -181,8 +207,8 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
 
     /**
      * 마이페이지 "내 점검 이력" 목록(#844) — assignedInspectorId 또는 createdBy가 요청자 본인인
-     * 점검을 회사 스코프 안에서 조회한다. 정렬 기준은 findPageByCompanyIdAndFilters와 동일
-     * (inspectionDate desc, id desc).
+     * 점검을 회사 스코프 안에서 조회한다. 정렬 기준은 findPageByCompanyIdAndFilters/
+     * findRecentInspectionsPage와 동일(recentInspectionOrderBy 공용 — #1667 P3).
      */
     @Override
     public Page<Inspection> findMyInspectionsPage(
@@ -198,7 +224,7 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
         query.select(root)
                 .where(buildMyPredicates(cb, root, facility, userId, companyId, periodFrom)
                         .toArray(new Predicate[0]))
-                .orderBy(cb.desc(root.get("inspectionDate")), cb.desc(root.get("id")));
+                .orderBy(recentInspectionOrderBy(cb, root));
 
         List<Inspection> content = em.createQuery(query)
                 .setFirstResult((int) pageable.getOffset())
@@ -251,18 +277,9 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
                         .toArray(new Predicate[0]))
                 // 대시보드 기존 최근 점검 정렬(findRecentByFacilityIds)과 동일 기준 — 기본 호출(필터 없음)의
                 // 결과 순서가 오늘의 위젯과 100% 일치해야 하므로 Pageable.getSort()는 쓰지 않는다.
-                //
-                // #1667 — performed_at을 id보다 먼저 tie-break로 확장(inspection_date desc, performed_at
-                // desc nulls last, id desc). 표준 JPA Criteria API에는 nulls-last 지정 수단이 없어(Order
-                // 인터페이스에 nullPrecedence가 없다 — Hibernate 전용 확장 없이는 불가), performedAt이
-                // null이면 1, 아니면 0인 보조 정렬키를 asc로 먼저 적용해 null 그룹을 뒤로 미는 표준 우회를
-                // 쓴다(findRecentByFacilityIds/findLatestByFacilityIds와 결과 순서 계약을 유지하기 위함).
-                .orderBy(cb.desc(root.get("inspectionDate")),
-                        cb.asc(cb.<Integer>selectCase()
-                                .when(cb.isNull(root.get("performedAt")), 1)
-                                .otherwise(0)),
-                        cb.desc(root.get("performedAt")),
-                        cb.desc(root.get("id")));
+                // recentInspectionOrderBy(공용, #1667 P3) — findPageByCompanyIdAndFilters/
+                // findMyInspectionsPage와 동일 정렬 기준을 유지한다.
+                .orderBy(recentInspectionOrderBy(cb, root));
 
         List<Inspection> content = em.createQuery(selectQuery)
                 .setFirstResult((int) pageable.getOffset())
