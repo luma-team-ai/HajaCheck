@@ -393,6 +393,43 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(button.hasAttribute('disabled')).toBe(true);
   });
 
+  // #1643 1.1안 — 등급수정 API(PATCH /defects/{id})가 백엔드에서 reviewed=true를 세워 검수
+  // 카운트가 이미 오른 상태다. status는 여전히 DETECTED일 수 있으므로(별개 축), status만으로는
+  // 이 버튼을 잠글 수 없었다 — isReviewed를 직접 반영해 중복 확정을 막는다.
+  it('status가 DETECTED여도 isReviewed=true면 "검수 확정" 버튼이 비활성화된다(#1643)', async () => {
+    const alreadyReviewedMock = [
+      { ...mockDefects[0], isReviewed: true }, // id=1: DETECTED 그대로, isReviewed만 true
+      ...mockDefects.slice(1),
+    ] as DefectDetailItem[];
+
+    server.use(
+      http.get('/api/inspections/:id/defects', () => {
+        const body: ApiResponse<DefectDetailItem[]> = { success: true, data: alreadyReviewedMock };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('DEF-0001');
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+    fireEvent.click(screen.getByTitle(/균열 · C등급/));
+
+    const button = screen.getByRole('button', { name: '이 하자 검수 확정' });
+    expect(button.hasAttribute('disabled')).toBe(true);
+    expect(button.getAttribute('title')).toBe('등급 수정으로 이미 검수가 완료된 하자입니다.');
+  });
+
+  it('등급 수정 모달에 등급 확정이 검수 완료로 집계된다는 안내 문구가 있다(#1643)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.click(screen.getByRole('button', { name: '등급 수정' }));
+
+    expect(
+      await screen.findByText('등급을 확정하면 이 하자는 별도 확정 없이 검수 완료로 집계됩니다.'),
+    ).not.toBeNull();
+  });
+
   it('이 이미지의 마지막 하자를 확정하면 안내 배너의 "다음 이미지" CTA로 이동한다(#1255)', async () => {
     // mediaId=67(이미지1)은 id=2(박리박락)만 DETECTED로 남기고 나머지는 이미 확정/해결 상태로,
     // mediaId=68(이미지2)에 별도 하자 하나를 추가한 2-이미지 시나리오.
@@ -473,7 +510,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     // id=1 확정 → 다음 미확정(id=2, 박리박락 B등급, confidence 81%)으로 자동 전환
     expect(await screen.findByText('81%')).not.toBeNull();
-    expect(screen.getByText('면적 비율')).not.toBeNull();
+    expect(screen.getByText('사진 내 비율')).not.toBeNull();
   });
 
   it('이 이미지 검수가 끝나면 오탐 삭제·등급 수정·누락 추가가 잠긴다(#1255)', async () => {
@@ -674,7 +711,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(await screen.findByText(/콘크리트 표면의 환경 노출로 인한 수축 응력/)).not.toBeNull();
   });
 
-  it('균열(CRACK) 하자는 면적 비율이 아니라 예상 폭(mm)을 표시한다(#881, #1588)', async () => {
+  it('균열(CRACK) 하자는 사진 내 비율이 아니라 예상 폭(mm)을 표시한다(#881, #1588)', async () => {
     // 백엔드는 type을 영문 코드로 내려주므로(#881), 훅에서 한글로 번역돼야만
     // '균열' 분기(예상 폭)를 탄다. id=1은 CRACK·crackWidthMm=3.2(#1588 — 길이가 아니라
     // 폭을 표시해야 함, ai-server가 실제로 계산하는 값은 폭뿐이다).
@@ -683,10 +720,12 @@ describe('ResultViewerPage (통합 테스트)', () => {
 
     expect(screen.getByText('예상 폭')).not.toBeNull();
     expect(screen.getByText('3.2mm')).not.toBeNull();
-    expect(screen.queryByText('면적 비율')).toBeNull();
+    expect(screen.queryByText('사진 내 비율')).toBeNull();
   });
 
-  it('박리박락(SPALLING) 하자는 면적 비율을 표시한다(#881)', async () => {
+  it('박리박락(SPALLING) 하자는 사진 내 비율을 표시한다(#881, 라벨 정직화 #1643)', async () => {
+    // "면적 비율"은 실측 면적으로 오해될 수 있어 "사진 내 비율"로 변경(#1643) — 표시값(areaRatio)
+    // 계산 자체는 그대로다.
     renderPage();
     await screen.findByText('DEF-0001');
 
@@ -695,7 +734,7 @@ describe('ResultViewerPage (통합 테스트)', () => {
     // id=2(박리박락) 마커 클릭 — areaRatio 미제공이라 '준비 중'으로 표시된다.
     fireEvent.click(screen.getByTitle(/박리박락 · B등급/));
 
-    expect(screen.getByText('면적 비율')).not.toBeNull();
+    expect(screen.getByText('사진 내 비율')).not.toBeNull();
     expect(screen.getByText('준비 중')).not.toBeNull();
     expect(screen.queryByText('예상 폭')).toBeNull();
   });

@@ -22,6 +22,13 @@ export interface Defect {
   grade: DefectGrade | null;
   status: DefectStatus;
   confidence: number; // 0~1
+  // 등급수정 API(PATCH /defects/{id})가 백엔드에서 reviewed=true를 세운다(Defect.java) — 검수
+  // 카운트(reviewedCount)는 이 값 기준으로 집계된다(현행 유지, #1643 1.1안). status와 별개 축이라
+  // status==='DETECTED'인 채로도 true일 수 있다 — "이 하자 검수 확정" 버튼의 중복 클릭(이미 등급수정
+  // 으로 검수 완료 집계된 하자를 다시 확정 시도)을 막는 데 쓴다. optional인 이유는 mock/테스트에서
+  // 버튼 비활성화 로직을 검증하지 않는 경우가 많아 필드 생략을 허용하기 위함(기존 다른 optional
+  // 필드들과 동일 관례).
+  isReviewed?: boolean;
   bbox: DefectBoundingBox;
   // 정량 실측은 유형별로 다르다(하자_심각도_등급_규칙.md §3.2) — 균열은 선형(폭·길이),
   // 박리박락·철근노출은 면적형이라 실측 mm가 아니라 마스크 면적 비율을 쓴다.
