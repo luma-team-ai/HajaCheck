@@ -1,8 +1,10 @@
 package com.hajacheck.core.inspection.entity;
 
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.global.common.KstFixedLocalDateTimeConverter;
 import com.hajacheck.global.exception.DomainStateTransitionException;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.FetchType;
@@ -89,9 +91,34 @@ public class Inspection {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    /**
+     * 점검 실제 수행 시각(V43, #1667) — 동일 {@code inspectionDate}(날짜만 저장) 내 여러 회차의 실제
+     * 수행 순서를 보장하기 위한 tie-break 값. 사용자 입력 UI는 없고, 회차의 INSPECTION_SOURCE 미디어
+     * 업로드 시 {@link com.hajacheck.core.inspection.repository.InspectionRepository#applyPerformedAtIfEarlier}
+     * 원자적 UPDATE로 자동 세팅된다(MediaWriter). nullable — 미디어가 아직 없는 회차는 null이며, 정렬 시
+     * {@code nulls last}로 취급한다(InspectionRepository 참고).
+     *
+     * <p>코드 리뷰 P1 — 엔티티 read-modify-write(dirty checking) 대신 원자적 조건부 UPDATE로만 갱신한다.
+     * 배치 업로드 두 건이 동시에 같은 회차에 미디어를 올리면 두 트랜잭션이 같은 스냅샷을 읽고 각자
+     * dirty-check flush하는 lost update가 가능했다(나중에 커밋되는 쪽이 먼저 커밋된 더 이른 값을 조용히
+     * 덮어씀) — startAnalyzingIfNotRunning/confirmReviewIfAnalyzed와 동일한 조건부 UPDATE 원칙으로
+     * 막는다. 이 엔티티에는 그래서 setter도 mutate 메서드도 없다 — 도메인 캡슐화가 아니라 값 자체가
+     * 원자적 UPDATE 경로로만 갱신돼야 하기 때문.
+     *
+     * <p>코드 리뷰 P1 — {@link com.hajacheck.core.media.entity.Media#getCapturedAt()}과 동일하게
+     * {@link KstFixedLocalDateTimeConverter}로 KST 고정 해석을 명시한다. 이 컨버터가 없으면 JVM 기본
+     * TZ가 운영(Asia/Seoul 고정)과 테스트/로컬(보장 없음)에서 갈릴 때 captured_at(컨버터 적용)과
+     * performed_at(컨버터 미적용) 사이에 절대시각 계산이 어긋나, tie-break 정렬·원자적 UPDATE의 대소
+     * 비교가 실제로는 같은 순간을 가리키는 값끼리도 다르게 비교될 수 있었다.
+     */
+    @Convert(converter = KstFixedLocalDateTimeConverter.class)
+    @Column(name = "performed_at")
+    private LocalDateTime performedAt;
+
     @Builder
     private Inspection(Long facilityId, Long createdBy, Long assignedInspectorId, Integer roundNo,
-                        LocalDate inspectionDate, InspectionType type, InspectionStatus status) {
+                        LocalDate inspectionDate, InspectionType type, InspectionStatus status,
+                        LocalDateTime performedAt) {
         this.facilityId = facilityId;
         this.createdBy = createdBy;
         this.assignedInspectorId = assignedInspectorId;
@@ -99,6 +126,7 @@ public class Inspection {
         this.inspectionDate = inspectionDate;
         this.type = type == null ? InspectionType.REGULAR : type;
         this.status = status == null ? InspectionStatus.CREATED : status;
+        this.performedAt = performedAt;
     }
 
     /**

@@ -832,6 +832,7 @@ create table inspections
     type            inspection_type          default 'REGULAR'::inspection_type        not null,
     status          inspection_status_type   default 'CREATED'::inspection_status_type not null,
     created_at      timestamp with time zone default now()                             not null,
+    performed_at    timestamp with time zone,
     unique (facility_id, round_no)
 );
 
@@ -854,6 +855,8 @@ comment on column inspections.type is '점검 유형(REGULAR=정기, DETAILED=�
 comment on column inspections.status is '점검 처리 상태';
 
 comment on column inspections.created_at is '점검 생성 시각';
+
+comment on column inspections.performed_at is '점검 실제 수행 시각(#1667) — 회차의 INSPECTION_SOURCE 미디어 EXIF 촬영시각(min) 또는 업로드 시각으로 자동 세팅(사용자 입력 없음). 동일 inspection_date 내 정렬 tie-break(inspection_date desc, performed_at desc nulls last, id desc)에 사용.';
 
 alter table inspections
     owner to postgres;
