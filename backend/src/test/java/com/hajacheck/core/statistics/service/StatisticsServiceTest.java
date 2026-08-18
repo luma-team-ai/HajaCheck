@@ -104,6 +104,8 @@ class StatisticsServiceTest {
         when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
                         eq(List.of(facility.getId())), eq(expectedQueryFrom(6)), eq(expectedQueryTo(6))))
                 .thenReturn(List.of(inspection));
+        when(inspectionRepository.findLatestByFacilityIds(List.of(facility.getId())))
+                .thenReturn(List.of(inspection));
         when(defectRepository.countGroupByInspectionId(List.of(inspection.getId()))).thenReturn(List.of(defectCount(100L, 2L)));
         when(defectRepository.countGroupByInspectionIdAndGrade(List.of(inspection.getId()))).thenReturn(List.of(
                 inspectionGradeCount(100L, DefectGrade.C, 1L),
@@ -117,6 +119,29 @@ class StatisticsServiceTest {
         assertThat(result.get(0).totalDefects()).isEqualTo(2L);
         assertThat(result.get(0).latestGrade()).isEqualTo("E");
         assertThat(result.get(0).lastInspectedAt()).isEqualTo(inspection.getInspectionDate().toString());
+    }
+
+    @Test
+    void getFacilitySummary_마지막점검이조회범위보다오래되어도최근점검일을반환한다() {
+        // #1655 — 조회 범위(range) 쿼리에는 해당 시설물 점검이 하나도 안 걸리지만(마지막 점검이
+        // 범위보다 오래됨), findLatestByFacilityIds(범위-독립)는 그 점검을 최신 1건으로 반환해야 한다.
+        Facility facility = facility(1L, "건물-정기-4개월");
+        LocalDate oldDate = expectedQueryFrom(6).minusYears(1);
+        Inspection oldInspection = inspection(200L, facility.getId(), oldDate);
+        when(facilityRepository.findByCompanyId(COMPANY_ID)).thenReturn(List.of(facility));
+        when(inspectionRepository.findByFacilityIdInAndInspectionDateGreaterThanEqualAndInspectionDateLessThan(
+                        eq(List.of(facility.getId())), eq(expectedQueryFrom(6)), eq(expectedQueryTo(6))))
+                .thenReturn(List.of());
+        when(inspectionRepository.findLatestByFacilityIds(List.of(facility.getId())))
+                .thenReturn(List.of(oldInspection));
+
+        List<FacilitySummaryResponse> result =
+                statisticsService.getFacilitySummary(USER_ID, COMPANY_ID, "6m", "all");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).totalDefects()).isZero();
+        assertThat(result.get(0).latestGrade()).isNull();
+        assertThat(result.get(0).lastInspectedAt()).isEqualTo(oldDate.toString());
     }
 
     @Test

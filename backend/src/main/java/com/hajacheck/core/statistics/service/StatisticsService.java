@@ -153,11 +153,16 @@ public class StatisticsService {
                     Long::sum);
         }
 
-        Map<Long, LocalDate> lastInspectedByFacilityId = scope.allInspections().stream()
-                .collect(Collectors.toMap(
-                        Inspection::getFacilityId,
-                        Inspection::getInspectionDate,
-                        (left, right) -> left.isAfter(right) ? left : right));
+        // #1655 — 최근 점검일은 조회 범위(scope)와 무관하게 시설물별 최신 회차를 봐야 한다.
+        // scope.currentInspections()/이전 range 쿼리 결과로 계산하면 마지막 점검이 조회 범위보다
+        // 오래된 시설물은 값이 통째로 빈다(#1655). InspectionRepository.findLatestByFacilityIds
+        // (DISTINCT ON 패턴, #540 ⑥에서 도입)는 범위-독립적으로 시설물별 최신 1건만 DB에서 골라오므로
+        // 그대로 재사용한다. 집계(current/previous)는 기존 range scope를 그대로 유지한다.
+        List<Long> facilityIds = scope.facilities().stream().map(Facility::getId).toList();
+        Map<Long, LocalDate> lastInspectedByFacilityId = facilityIds.isEmpty()
+                ? Map.of()
+                : inspectionRepository.findLatestByFacilityIds(facilityIds).stream()
+                        .collect(Collectors.toMap(Inspection::getFacilityId, Inspection::getInspectionDate));
 
         Map<Long, DefectGrade> highestGradeByFacilityId = highestGradeByFacility(scope.currentInspections());
 
@@ -198,7 +203,7 @@ public class StatisticsService {
                 .mapToObj(startMonth::plusMonths)
                 .toList();
 
-        return new StatisticsScope(facilities, inspections, currentInspections, previousInspections, monthLabels);
+        return new StatisticsScope(facilities, currentInspections, previousInspections, monthLabels);
     }
 
     private List<Facility> resolveFacilities(Long companyId, String facilityIdParam) {
@@ -338,7 +343,6 @@ public class StatisticsService {
 
     private record StatisticsScope(
             List<Facility> facilities,
-            List<Inspection> allInspections,
             List<Inspection> currentInspections,
             List<Inspection> previousInspections,
             List<YearMonth> months
