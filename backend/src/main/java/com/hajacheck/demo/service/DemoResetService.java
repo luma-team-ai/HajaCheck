@@ -9,7 +9,7 @@ import com.hajacheck.auth.support.FileStorageService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.demo.config.DemoResetProperties;
 import com.hajacheck.demo.repository.DemoResetRepository;
-import com.hajacheck.global.util.JsonValidator;
+import com.hajacheck.demo.support.DemoCompanyProvenance;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.repository.PlanRepository;
@@ -97,12 +97,12 @@ public class DemoResetService {
         // 데모 회사 provenance 검증(#1626 P1-2) — owner 일치만으로는 부족하다. 모든 회사는 생성자=owner라
         // loginId 에 실사용 owner 이메일이 들어가면 owner 체크를 통과한다. BRN·provenance 는 시더만
         // 기록하므로, 그 둘이 시드 상수와 일치해야만 "진짜 데모 회사"로 인정하고 삭제를 진행한다.
-        if (!isDemoProvenance(company)) {
+        if (!DemoCompanyProvenance.isDemoSeeded(company)) {
             log.error("데모 리셋 중단 — provenance 불일치(데모 회사가 아님). companyId={} brnMatch={} markerPresent={}. "
                             + "app.demo.login-id 설정이 실사용 회사를 가리키는지 확인할 것 (BRN·표식은 시더만 기록)",
                     companyId,
-                    DemoSeedService.DEMO_BUSINESS_NUMBER.equals(company.getBusinessRegistrationNumber()),
-                    hasDemoMarker(company));
+                    DemoCompanyProvenance.isDemoBrn(company),
+                    DemoCompanyProvenance.hasDemoMarker(company));
             return List.of();
         }
         long facilityCount = resetRepository.countFacilities(companyId);
@@ -158,24 +158,6 @@ public class DemoResetService {
                 ticketNotes, tickets, chatMessages, chatSessions, notifications, scheduledChanges, payments,
                 nonFreeCounters, nonFreePlans, memberships, users);
         return storageKeys;
-    }
-
-    /** 데모 회사 provenance — BRN 이 시드 상수와 일치 AND ocr_raw 에 데모 표식 존재(둘 다 시더만 기록). */
-    private boolean isDemoProvenance(Company company) {
-        return DemoSeedService.DEMO_BUSINESS_NUMBER.equals(company.getBusinessRegistrationNumber())
-                && hasDemoMarker(company);
-    }
-
-    private boolean hasDemoMarker(Company company) {
-        // ⚠️ JSON 파싱으로 판정한다(#1626 P1-A) — substring 매칭 금지. businessRegistrationOcrRaw 는
-        // @JdbcTypeCode(JSON) String 이라 Postgres 가 jsonb 를 canonical text 로 저장하며 콜론 뒤 공백을
-        // 넣는다({"source": "DEMO_SEED"}). 운영 리셋은 별도 트랜잭션 재조회라 공백 포함 텍스트가 오므로
-        // 공백 없는 substring 은 항상 false → 가드가 리셋을 전면 무력화한다. Company#isNtsVerified 와
-        // 동일하게 JsonValidator.readTextField 로 필드 값을 읽어 공백에 무관하게 판정한다.
-        return JsonValidator.readTextField(
-                        company.getBusinessRegistrationOcrRaw(), DemoSeedService.DEMO_SEED_PROVENANCE_FIELD)
-                .filter(DemoSeedService.DEMO_SEED_PROVENANCE_SOURCE::equals)
-                .isPresent();
     }
 
     /** 커밋 후 파일 회수(best-effort) — {@code FileStorageService#delete} 는 실패해도 예외를 던지지 않는다. */
