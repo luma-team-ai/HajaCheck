@@ -903,6 +903,18 @@
   font-size: 12px;
 }
 
+/* 등록 전 그룹 사전 안내(#1644) — 성공 문구(.defect-action-form__success)와 같은 톤이지만,
+   제출 전에도 상시 보이는 배너라는 걸 배경 필로 구분한다. */
+.defect-action-form__group-notice {
+  margin: 0;
+  border-radius: 10px;
+  background: var(--color-info-soft-bg);
+  padding: 8px 12px;
+  color: var(--color-info-soft-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .defect-action-form__summary {
   display: grid;
   grid-template-columns: max-content 1fr;

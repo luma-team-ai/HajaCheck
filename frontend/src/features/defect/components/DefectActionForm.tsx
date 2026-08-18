@@ -22,6 +22,10 @@ import { DefectStatusReasonModal } from './DefectStatusReasonModal';
 type Props = {
   defect: Defect;
   actionResult: DefectActionResult | null | undefined;
+  // 같은 사진(mediaId) 그룹의 하자 건수(#1644) — DefectDetailModal이 defectGroupSummary.ts로 미리
+  // 계산해 넘긴다. 1(단독 하자, 기본값)이면 그룹 안내를 표시하지 않는다 — 기존 호출부·테스트가
+  // 넘기지 않아도(옵셔널) 회귀 없이 단독 하자 취급되도록 기본값을 둔다.
+  groupSize?: number;
   onSubmitted?: () => void;
 };
 
@@ -73,7 +77,7 @@ function todayDateString(): string {
 // PATCH /api/defects/{id}/action(DefectActionResultRequest)을 호출하며, targetStatus로 IN_PROGRESS
 // (조치중)/RESOLVED(조치완료) 중 실제 전이할 상태를 명시한다 — 과거엔 항상 RESOLVED 고정이었으나
 // 이제 CONFIRMED→IN_PROGRESS 등록도 이 폼으로 한다.
-export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
+export function DefectActionForm({ defect, actionResult, groupSize = 1, onSubmitted }: Props) {
   const { id: defectId, inspectionId, status } = defect;
   const statusOptions = ACTION_STATUS_OPTIONS[status];
   const statusSelectOptions = buildStatusOptions(status);
@@ -347,6 +351,15 @@ export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
   return (
     <form className="defect-action-form" aria-label="조치 결과 등록" onSubmit={handleSubmit}>
       <h2>조치 결과 등록</h2>
+
+      {/* 등록 전 그룹 사전 안내(#1644) — 과거엔 제출 후(justSavedGroupSize)에만 그룹 반영 사실을
+          알려줘 "왜 다른 카드도 같이 바뀌었지" 하고 당황하는 문제가 있었다. 같은 사진의 하자가
+          여럿이면 등록 시작 전부터 미리 알린다. */}
+      {groupSize > 1 && (
+        <p className="defect-action-form__group-notice" role="note">
+          같은 사진의 하자 {groupSize}건에 함께 반영됩니다.
+        </p>
+      )}
 
       <div className="defect-action-form__section">
         <p className="defect-action-form__section-label">사진</p>
