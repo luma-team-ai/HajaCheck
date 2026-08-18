@@ -248,7 +248,8 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
                 )}
               </div>
 
-              {/* AI 분석 설명 + 지표 3개(신뢰도/균열 폭/균열 길이)를 한 블럭으로 묶는다. 이미지는
+              {/* AI 분석 설명 + 지표 4개(신뢰도/균열 폭/균열 길이/실측 면적, #1658/#1669 추가)를
+                  한 블럭으로 묶는다. 이미지는
                   이 블럭이 차지하는 만큼을 뺀 나머지 가로폭을 비율(3:4) 유지한 채 그대로 키워
                   채운다(.defect-detail-modal__image-col의 flex-grow, max-width 해제). */}
               <div className="defect-detail-modal__diagnosis-col">
@@ -289,6 +290,17 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
                     <strong>
                       {selectedDefect.crackLengthMm != null
                         ? `${selectedDefect.crackLengthMm}mm`
+                        : <span className="defect-metric-empty">측정 예정</span>}
+                    </strong>
+                  </article>
+                  {/* 실측 면적(mm², #1658/#1669) — crackWidthMm/crackLengthMm과 동일한 단독 null
+                      체크 패턴(다른 필드와 AND 묶기 금지, #1588 교훈). 박리박락·철근노출만 값이 있을
+                      수 있고, 카드 기준물 미검출이거나 균열 타입이면 null → '측정 예정'. */}
+                  <article className="defect-metric-card">
+                    <span>실측 면적</span>
+                    <strong>
+                      {selectedDefect.areaMm2 != null
+                        ? `${selectedDefect.areaMm2}mm²`
                         : <span className="defect-metric-empty">측정 예정</span>}
                     </strong>
                   </article>
