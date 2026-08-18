@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """카드 검출 모듈 테스트 (#1487)."""
+import base64
+import io
+
 import pytest
 from unittest.mock import MagicMock, patch
 from PIL import Image, ImageDraw
@@ -12,6 +15,19 @@ from ai.core.card_client import (
     CardDetectionResult,
     _pick_box,
 )
+
+
+class _NoBoxYoloModel:
+    """SPALLING/REBAR_EXPOSURE 탐지 0건을 흉내내는 가짜 YOLO 모델(#1658 통합 테스트 전용).
+
+    `run_defect_detection_chain`이 CRACK 외 두 유형도 항상 호출하므로, 카드검출↔CRACK 연결부만
+    검증하는 이 테스트들에서는 YOLO 경로를 조용히 빈 결과로 만들어 노이즈를 없앤다.
+    """
+
+    def predict(self, **_kwargs):
+        result = MagicMock()
+        result.boxes = None
+        return [result]
 
 
 def create_card_image(width: int, height: int, card_box: tuple | None = None) -> Image.Image:
@@ -207,24 +223,29 @@ class TestCrackMMIntegration:
 
 
 class TestCrackDetectionsIntegration:
-    """`_crack_detections()` 통합 테스트 — 카드검출→mm환산 연결부 회귀 방지 (#1547 P1 재발 방지).
+    """`_crack_detections()` + `_apply_crack_width_mm()` 통합 테스트 — 카드검출→mm환산 연결부
+    회귀 방지 (#1547 P1 재발 방지, #1658로 카드 검출 호출부가 run_defect_detection_chain으로
+    이동하면서 이 클래스도 두 함수의 조합을 검증하도록 갱신).
 
     measure_crack_width_mm 내부 CV 알고리즘은 TestCrackMMIntegration이 이미 검증하므로 여기선
-    mock으로 대체하고, _crack_detections가 그 함수에 "올바른 인자"를 넘기는지만 검증한다 —
+    mock으로 대체하고, _apply_crack_width_mm이 그 함수에 "올바른 인자"를 넘기는지만 검증한다 —
     스케일 공식 방향과 레터박스 크기 전달이 실제로 둘 다 틀렸었다(#1547).
     """
 
     @patch("ai.core.crack_mm_measurement.measure_crack_width_mm")
-    @patch("ai.core.card_client.detect_card")
     @patch("ai.chains.defect_detection_chain.predict_crack_probability")
     @patch("ai.chains.defect_detection_chain.get_crack_model")
     def test_scale_and_input_size_passed_correctly(
-        self, mock_get_model, mock_predict, mock_detect_card, mock_measure
+        self, mock_get_model, mock_predict, mock_measure
     ):
         """비정사각(세로) 사진 기준 — 스케일 공식 방향 + crack_input_size 고정값 + 패딩제거 마스크 검증."""
-        from ai.chains.defect_detection_chain import _crack_detections, CRACK_INPUT_SIZE
+        from ai.chains.defect_detection_chain import (
+            _crack_detections,
+            _apply_crack_width_mm,
+            CRACK_INPUT_SIZE,
+        )
         from ai.core.unet_client import CrackPrediction
-        from ai.core.card_client import CardDetectionResult, CARD_LONG_MM
+        from ai.core.card_client import CARD_LONG_MM
 
         # 세로 사진(2296x4080) — height가 max라 letterbox content_height=640, content_width=360
         # (정사각 이미지로 테스트하면 content_width가 우연히 640이 돼 이 버그가 안 잡힌다)
@@ -243,12 +264,12 @@ class TestCrackDetectionsIntegration:
             content_top=top, content_left=left,
             content_height=content_height, content_width=content_width,
         )
-        mock_detect_card.return_value = CardDetectionResult(
-            long_px=300.0, short_px=189.0, confidence=0.8, method="bbox"
-        )
         mock_measure.return_value = 2.0  # 반환값 자체는 안 씀 — 호출 인자만 검증 대상
 
-        _crack_detections(image)
+        detections, content_probability = _crack_detections(image)
+        # long_px=300 -> scale = 85.6/300 (run_defect_detection_chain이 카드 검출 1회로 산출하는 값)
+        card_scale_mm_per_px = CARD_LONG_MM / 300.0
+        _apply_crack_width_mm(detections, image, content_probability, card_scale_mm_per_px)
 
         assert mock_measure.called, "카드가 검출됐는데 measure_crack_width_mm이 호출되지 않음"
         call = mock_measure.call_args
@@ -271,24 +292,27 @@ class TestCrackDetectionsIntegration:
             f"(기대: {(content_height, content_width)})"
         )
 
-
-    @patch("ai.core.card_client.detect_card")
+    @patch("ai.chains.defect_detection_chain.detect_card")
     @patch("ai.chains.defect_detection_chain.predict_crack_probability")
     @patch("ai.chains.defect_detection_chain.get_crack_model")
+    @patch("ai.chains.defect_detection_chain.get_yolo_model")
     def test_card_detection_failure_does_not_break_crack_detection(
-        self, mock_get_model, mock_predict, mock_detect_card
+        self, mock_get_yolo_model, mock_get_model, mock_predict, mock_detect_card
     ):
         """detect_card가 예외를 던져도 균열 탐지 자체는 살아있어야 함(#1547 정재봉 P1 리뷰).
 
-        card_result = detect_card(image)에 가드가 없으면, _crack_detections 전체가 예외를
-        내며 상위 detect_defects의 유형별 try/except에 걸려 균열 결과가 통째로 사라진다
-        (failed_types=["CRACK"]) — mm 환산은 부가기능인데 그 실패가 핵심기능을 죽이는 구조였다.
+        #1658로 detect_card 호출부가 `run_defect_detection_chain`(→ `_safe_detect_card`)으로
+        옮겨갔다 — 이 가드가 없으면 카드 검출 실패가 이미 구한 CRACK/SPALLING/REBAR_EXPOSURE
+        detections 전체를 무너뜨린다. mm 환산은 부가기능인데 그 실패가 핵심기능을 죽이는 구조였다.
         """
-        from ai.chains.defect_detection_chain import _crack_detections
+        from ai.chains.defect_detection_chain import run_defect_detection_chain
         from ai.core.unet_client import CrackPrediction
 
         w_orig, h_orig = 2296, 4080
         image = Image.new("RGB", (w_orig, h_orig), color="white")
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        image_base64 = base64.b64encode(buf.getvalue()).decode("ascii")
 
         content_height, content_width = 640, 360
         top, left = 0, (640 - content_width) // 2
@@ -302,8 +326,9 @@ class TestCrackDetectionsIntegration:
             content_height=content_height, content_width=content_width,
         )
         mock_detect_card.side_effect = RuntimeError("카드 검출 모델 로드 실패(예: 네트워크)")
+        mock_get_yolo_model.return_value = _NoBoxYoloModel()
 
-        detections = _crack_detections(image)  # 예외 없이 반환돼야 함
+        detections = run_defect_detection_chain(image_base64)  # 예외 없이 반환돼야 함
 
         crack_detections = [d for d in detections if d.type == "CRACK"]
         assert crack_detections, "카드 검출 실패로 균열 탐지 결과 자체가 사라짐 — 가드 미작동"
@@ -311,32 +336,38 @@ class TestCrackDetectionsIntegration:
             "카드 검출 실패 시에도 width_mm이 채워짐 — None 유지돼야 함"
         )
 
-
-    @patch("ai.core.card_client.detect_card")
+    @patch("ai.chains.defect_detection_chain.detect_card")
     @patch("ai.chains.defect_detection_chain.predict_crack_probability")
     @patch("ai.chains.defect_detection_chain.get_crack_model")
+    @patch("ai.chains.defect_detection_chain.get_yolo_model")
     def test_no_crack_skips_card_detection(
-        self, mock_get_model, mock_predict, mock_detect_card
+        self, mock_get_yolo_model, mock_get_model, mock_predict, mock_detect_card
     ):
-        """균열이 하나도 없으면 고비용 카드 검출 자체를 건너뛰어야 함(#1547 P2)."""
-        from ai.chains.defect_detection_chain import _crack_detections
+        """세 유형 모두 detection이 없으면 고비용 카드 검출 자체를 건너뛰어야 함(#1547 P2를
+        CRACK 전용에서 세 유형 공통 스킵 조건으로 확장, #1658)."""
+        from ai.chains.defect_detection_chain import run_defect_detection_chain
         from ai.core.unet_client import CrackPrediction
 
         image = Image.new("RGB", (2296, 4080), color="white")
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        image_base64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
         mock_get_model.return_value = MagicMock()
         mock_predict.return_value = CrackPrediction(
             probability=np.zeros((640, 640), dtype=np.float32),  # 균열 없음
             content_top=0, content_left=140, content_height=640, content_width=360,
         )
+        mock_get_yolo_model.return_value = _NoBoxYoloModel()  # SPALLING/REBAR_EXPOSURE도 없음
 
-        detections = _crack_detections(image)
+        detections = run_defect_detection_chain(image_base64)
 
         assert detections == []
         assert not mock_detect_card.called, (
-            "균열 0건인데 카드 검출이 실행됨 — YOLO-World 추론 낭비 가드 미작동"
+            "detection 0건인데 카드 검출이 실행됨 — YOLO-World 추론 낭비 가드 미작동"
         )
 
-    @patch("ai.core.card_client.detect_card")
+    @patch("ai.chains.defect_detection_chain.detect_card")
     @patch("ai.chains.defect_detection_chain.predict_crack_probability")
     @patch("ai.chains.defect_detection_chain.get_crack_model")
     def test_multiple_cracks_get_individual_width_mm(
@@ -347,9 +378,9 @@ class TestCrackDetectionsIntegration:
         전체 마스크를 그대로 measure에 넘기면 내부의 최대-연결요소 선택 때문에 모든 detection이
         가장 큰 균열의 폭을 복사받는다 — detection별 bbox 스코핑으로 각자 측정하는지 검증한다.
         """
-        from ai.chains.defect_detection_chain import _crack_detections
+        from ai.chains.defect_detection_chain import _crack_detections, _apply_crack_width_mm
         from ai.core.unet_client import CrackPrediction
-        from ai.core.card_client import CardDetectionResult
+        from ai.core.card_client import CARD_LONG_MM
 
         # 세로 사진 2296x4080, content 640x360, content_scale = 4080/640 = 6.375
         w_orig, h_orig = 2296, 4080
@@ -371,12 +402,12 @@ class TestCrackDetectionsIntegration:
             probability=probability,
             content_top=0, content_left=left, content_height=640, content_width=360,
         )
-        # long_px=300 -> scale = 85.6/300 = 0.2853 mm/px
-        mock_detect_card.return_value = CardDetectionResult(
-            long_px=300.0, short_px=189.0, confidence=0.8, method="bbox"
-        )
 
-        detections = _crack_detections(image)
+        detections, content_probability = _crack_detections(image)
+        # long_px=300 -> scale = 85.6/300 = 0.2853 mm/px(run_defect_detection_chain이 공유하는 값)
+        card_scale_mm_per_px = CARD_LONG_MM / 300.0
+        _apply_crack_width_mm(detections, image, content_probability, card_scale_mm_per_px)
+
         cracks = [d for d in detections if d.type == "CRACK" and d.width_mm is not None]
         assert len(cracks) == 2, f"균열 2건 모두 width_mm이 있어야 함: {detections}"
 
