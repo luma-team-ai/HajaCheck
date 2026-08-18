@@ -124,4 +124,7 @@ export interface AnalysisStatusResponse {
   riskyCrackCount: number;
   severityDistribution: Record<'A' | 'B' | 'C' | 'D' | 'E', number>;
   failedCount: number;
+  // 증분 분석(#1654) — 이 회차의 원본 촬영사진 중 아직 AI 분석을 거치지 않은 사진 수.
+  // done 상태에서 0보다 크면 "추가 사진 분석" 액션을 노출한다(AiAnalysisStatusPage 참고).
+  unanalyzedMediaCount: number;
 }

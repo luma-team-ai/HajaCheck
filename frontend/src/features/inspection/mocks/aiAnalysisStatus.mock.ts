@@ -25,6 +25,7 @@ export interface AiAnalysisStatus {
   riskyProgressiveCrackCount: number;
   severityDistribution: SeverityDistributionEntry[];
   failedCount: number;
+  unanalyzedMediaCount: number;
 }
 
 // AI 분석 실행/상태 사이드바 직접 진입(:id 없는 정적 경로) 전용 — 실제 잡이 없으므로 항상 빈
@@ -41,5 +42,6 @@ export function buildEmptyAnalysisStatus(): AiAnalysisStatus {
     riskyProgressiveCrackCount: 0,
     severityDistribution: [],
     failedCount: 0,
+    unanalyzedMediaCount: 0,
   };
 }
