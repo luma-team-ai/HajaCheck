@@ -49,6 +49,11 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // 대신 id asc 첫 2건만 DB에서 바로 조회한다.
     List<Media> findTop2ByInspectionIdOrderByIdAsc(Long inspectionId);
 
+    // 시설물 상세 "점검 이력" 탭 썸네일 미리보기 purpose 필터판(#1641 P2) — 조치 후 사진(DEFECT_ACTION)이
+    // 미리보기 2장에 섞이면 안 되므로 원본 촬영사진(INSPECTION_SOURCE)만 대상으로 id asc 첫 2건을 가져온다.
+    // FacilityInspectionOverviewService가 위 findTop2ByInspectionIdOrderByIdAsc 대신 이 메서드를 쓴다.
+    List<Media> findTop2ByInspectionIdAndPurposeOrderByIdAsc(Long inspectionId, MediaPurpose purpose);
+
     // 시설물 대표 사진(#632/#652, HAJA-377) — 최대 4장 제한을 업로드 전 애플리케이션 레벨에서 검증하기
     // 위한 현재 보유 장수 집계. facility_id 만 채워진 로우(inspection_id=null)만 센다.
     long countByFacilityId(Long facilityId);
@@ -107,10 +112,20 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     }
 
     // 시설물 상세 "점검 이력" 탭 회차별 이미지 장수(#1359/HAJA-616) — 회차 목록을 한 번에 배치 집계.
+    // PlatformAdminMonitoringService는 운영 전체 사진 장수 집계라 조치 사진 포함이 맞으므로 이 원본
+    // 메서드를 그대로 쓴다(#1641 스코프 밖).
     @Query("select m.inspectionId as inspectionId, count(m) as cnt from Media m "
             + "where m.inspectionId in :inspectionIds group by m.inspectionId")
     List<InspectionMediaCountProjection> countGroupByInspectionIds(
             @Param("inspectionIds") Collection<Long> inspectionIds);
+
+    // 시설물 상세 "점검 이력" 탭 이미지 장수 배지 purpose 필터판(#1641 P2) — 사용자에게 보이는 "사진 N장"
+    // 배지가 조치 후 사진까지 세면 실제 하자 조사 사진 수보다 부풀려진다. FacilityInspectionOverviewService
+    // 가 위 countGroupByInspectionIds 대신 이 메서드를 쓴다.
+    @Query("select m.inspectionId as inspectionId, count(m) as cnt from Media m "
+            + "where m.inspectionId in :inspectionIds and m.purpose = :purpose group by m.inspectionId")
+    List<InspectionMediaCountProjection> countGroupByInspectionIdsAndPurpose(
+            @Param("inspectionIds") Collection<Long> inspectionIds, @Param("purpose") MediaPurpose purpose);
 
     interface InspectionMediaCountProjection {
         Long getInspectionId();
