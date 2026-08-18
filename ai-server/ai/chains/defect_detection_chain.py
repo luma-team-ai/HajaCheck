@@ -501,8 +501,17 @@ def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
         if card_result:
             # mm/px(카드 실제 크기 ÷ 카드 픽셀 길이) — px/mm과 방향 반대이니 헷갈리지 말 것(#1547 P1).
             card_scale_mm_per_px = CARD_LONG_MM / card_result.long_px
-            if crack_content_probability is not None:
-                _apply_crack_width_mm(detections, image, crack_content_probability, card_scale_mm_per_px)
-            _apply_area_mm2(detections, card_scale_mm_per_px)
+            # mm 병기(width_mm/area_mm2)는 부가 정보다 — measure_crack_width_mm의 CV 연산(BLACKHAT
+            # 재측정 등)이나 스케일 적용 도중 예외가 나면, 이미 확보한 세 유형 detections 전체가
+            # 라우터 최상위 except로 흘러가 응답 전체가 실패 처리된다(#1547 P1이 막았던 실패 모드가
+            # 카드 검출 호출부를 상위로 옮기며 이 블록 밖으로 새어나간 회귀, 코드 리뷰 P1 픽스).
+            # detect_card 자체는 이미 _safe_detect_card가 격리하므로, 여기서 격리할 대상은 스케일
+            # 적용(측정) 단계다.
+            try:
+                if crack_content_probability is not None:
+                    _apply_crack_width_mm(detections, image, crack_content_probability, card_scale_mm_per_px)
+                _apply_area_mm2(detections, card_scale_mm_per_px)
+            except Exception:
+                logger.exception("카드 스케일 적용 실패 — mm 병기 없이 하자 탐지 결과는 그대로 반환한다 (#1658)")
 
     return detections

@@ -634,6 +634,46 @@ def test_run_defect_detection_chain_card_miss_leaves_mm_fields_none(monkeypatch)
         assert detection.area_mm2 is None
 
 
+def test_run_defect_detection_chain_survives_card_scale_application_failure(monkeypatch):
+    """코드 리뷰 P1 — 카드 스케일 적용(_apply_crack_width_mm/_apply_area_mm2) 중 예외가 나도
+    이미 확보한 세 유형 detections는 그대로 반환돼야 한다.
+
+    카드 검출 호출부를 run_defect_detection_chain으로 끌어올리며(#1658) 스케일 적용 블록이
+    per-type try/except 밖으로 나갔다 — 여기서 예외가 새면 라우터 최상위 except가 응답 전체를
+    VISION_INFERENCE_FAILED로 실패 처리해, mm 병기라는 부가 정보 실패가 이미 확보한 핵심 탐지
+    결과까지 통째로 날린다(#1547 P1이 막았던 실패 모드의 확대 재발).
+    """
+    import numpy as np
+
+    from ai.core.card_client import CardDetectionResult
+
+    crack_detection = _make_crack_detection()
+    crack_detection.width_px = 4.0
+    fake_content_probability = np.zeros((10, 10), dtype=np.float32)
+    monkeypatch.setattr(
+        chain, "_crack_detections", lambda image: ([crack_detection], fake_content_probability)
+    )
+    monkeypatch.setattr(
+        chain,
+        "detect_card",
+        lambda image: CardDetectionResult(long_px=100.0, short_px=63.0, confidence=0.9, method="quad"),
+    )
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("measure_crack_width_mm boom")
+
+    monkeypatch.setattr(chain, "_apply_crack_width_mm", _boom)
+
+    fake_model = _FakeYoloModel(
+        _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.1, 0.1]], [0.9]), masks=None)
+    )
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    detections = chain.run_defect_detection_chain(_tiny_valid_png_base64())  # 예외 없이 반환돼야 함
+
+    assert sorted(d.type for d in detections) == ["CRACK", "REBAR_EXPOSURE", "SPALLING"]
+
+
 def test_apply_area_mm2_skips_crack_and_missing_area_px():
     crack = _make_crack_detection()
     assert crack.area_px is None
