@@ -21,6 +21,7 @@ import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.config.MediaUploadProperties;
 import com.hajacheck.core.media.dto.MediaResponse;
 import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -110,7 +111,7 @@ class MediaServiceTest {
         stubStorage();
         when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-        List<MediaResponse> result = service.uploadMedia(1L, 200L, 100L, List.of(file1, file2));
+        List<MediaResponse> result = service.uploadMedia(1L, 200L, 100L, List.of(file1, file2), MediaPurpose.INSPECTION_SOURCE);
 
         assertThat(result).hasSize(2);
         verify(inspectionService).getInspection(200L, 100L, 1L);
@@ -131,6 +132,37 @@ class MediaServiceTest {
         assertThat(saved.getThumbnailUrl()).isEqualTo("inspection-media-thumb/x.jpg");
         assertThat(saved.getDetailUrl()).isEqualTo("inspection-media-detail/x.jpg");
         assertThat(saved.getOriginalFilename()).isEqualTo("a.png");
+        assertThat(saved.getPurpose()).isEqualTo(MediaPurpose.INSPECTION_SOURCE);
+    }
+
+    @Test
+    void uploadMedia_purpose_DEFECT_ACTION_지정시_저장된_미디어에_그대로_반영된다() throws IOException {
+        // #1641 — 조치 후 사진 업로드 경로(defectMediaApi.uploadActionPhoto)가 DEFECT_ACTION을
+        // 명시하면 저장되는 Media 로우에 그대로 반영돼야 분석결과뷰어/AI 재분석 필터가 걸러낼 수 있다.
+        byte[] png = realPngBytes();
+        stubStorage();
+        when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.uploadMedia(1L, 200L, 100L, List.of(pngFile("action.png", png)), MediaPurpose.DEFECT_ACTION);
+
+        ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
+        verify(mediaWriter).saveAll(captor.capture());
+        assertThat(captor.getValue().get(0).getPurpose()).isEqualTo(MediaPurpose.DEFECT_ACTION);
+    }
+
+    @Test
+    void uploadMedia_purpose_null이면_INSPECTION_SOURCE로_기본처리된다() throws IOException {
+        // 컨트롤러가 @RequestParam defaultValue로 이미 채워 넘기지만, 서비스 레벨 null-세이프 기본값
+        // 자체도 고정한다(호출부가 컨트롤러 하나만이 아닐 가능성 방어).
+        byte[] png = realPngBytes();
+        stubStorage();
+        when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
+
+        service.uploadMedia(1L, 200L, 100L, List.of(pngFile("null-purpose.png", png)), null);
+
+        ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
+        verify(mediaWriter).saveAll(captor.capture());
+        assertThat(captor.getValue().get(0).getPurpose()).isEqualTo(MediaPurpose.INSPECTION_SOURCE);
     }
 
     @Test
@@ -143,7 +175,7 @@ class MediaServiceTest {
         stubStorage();
         when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.uploadMedia(1L, 200L, 100L, List.of(pngFile(longName, png)));
+        service.uploadMedia(1L, 200L, 100L, List.of(pngFile(longName, png)), MediaPurpose.INSPECTION_SOURCE);
 
         ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
         verify(mediaWriter).saveAll(captor.capture());
@@ -161,7 +193,7 @@ class MediaServiceTest {
         stubStorage();
         when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-        service.uploadMedia(1L, 200L, 100L, List.of(pngFile("   ", png)));
+        service.uploadMedia(1L, 200L, 100L, List.of(pngFile("   ", png)), MediaPurpose.INSPECTION_SOURCE);
 
         ArgumentCaptor<List<Media>> captor = ArgumentCaptor.forClass(List.class);
         verify(mediaWriter).saveAll(captor.capture());
@@ -170,7 +202,7 @@ class MediaServiceTest {
 
     @Test
     void uploadMedia_빈목록_FILE_REQUIRED_아무것도호출안함() {
-        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of()))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(), MediaPurpose.INSPECTION_SOURCE))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FILE_REQUIRED));
 
@@ -188,7 +220,7 @@ class MediaServiceTest {
         stubStorage();
         when(mediaWriter.saveAll(anyList())).thenAnswer(inv -> inv.getArgument(0));
 
-        List<MediaResponse> result = service.uploadMedia(1L, 200L, 100L, files);
+        List<MediaResponse> result = service.uploadMedia(1L, 200L, 100L, files, MediaPurpose.INSPECTION_SOURCE);
 
         assertThat(result).hasSize(21);
         verify(inspectionService).getInspection(200L, 100L, 1L);
@@ -202,7 +234,7 @@ class MediaServiceTest {
             files.add(pngFile("a" + i + ".png", png));
         }
 
-        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, files))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, files, MediaPurpose.INSPECTION_SOURCE))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.MEDIA_COUNT_EXCEEDED));
 
@@ -216,7 +248,7 @@ class MediaServiceTest {
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
                 .when(inspectionService).getInspection(200L, 999L, 1L);
 
-        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 999L, List.of(file)))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 999L, List.of(file), MediaPurpose.INSPECTION_SOURCE))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FACILITY_NOT_FOUND));
 
@@ -228,7 +260,7 @@ class MediaServiceTest {
         // content-type 은 image/jpeg 라고 선언했지만 실제 바이트는 JPEG 시그니처가 아니다.
         MultipartFile fakeJpeg = new MockMultipartFile("files", "fake.jpg", "image/jpeg", "not-a-real-jpeg".getBytes());
 
-        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(fakeJpeg)))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(fakeJpeg), MediaPurpose.INSPECTION_SOURCE))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.FILE_INVALID_TYPE));
 
@@ -244,7 +276,7 @@ class MediaServiceTest {
         stubStorage();
         when(mediaWriter.saveAll(anyList())).thenThrow(new RuntimeException("DB 저장 실패"));
 
-        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(file1, file2)))
+        assertThatThrownBy(() -> service.uploadMedia(1L, 200L, 100L, List.of(file1, file2), MediaPurpose.INSPECTION_SOURCE))
                 .isInstanceOf(RuntimeException.class);
 
         // 파일 2개 × (원본 + 썸네일 + 상세이미지) = 6건 보상삭제.
@@ -606,6 +638,8 @@ class MediaServiceTest {
         Media saved = captor.getValue().get(0);
         assertThat(saved.getFacilityId()).isEqualTo(7L);
         assertThat(saved.getInspectionId()).isNull();
+        // 시설물 대표 사진은 조치 후 사진 개념이 없다 — 항상 INSPECTION_SOURCE로 저장(#1641).
+        assertThat(saved.getPurpose()).isEqualTo(MediaPurpose.INSPECTION_SOURCE);
     }
 
     @Test

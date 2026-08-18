@@ -20,6 +20,7 @@ import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -136,7 +137,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.empty());
         when(progressStore.isAvailable()).thenReturn(true);
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
@@ -176,7 +177,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID))
                 .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)))));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
@@ -223,7 +224,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
-        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(any(), any(), any());
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
         verify(progressStore, never()).save(any());
@@ -243,7 +244,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
-        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(any(), any(), any());
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
     }
@@ -262,7 +263,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
-        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(any(), any());
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(any(), any(), any());
         verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
         verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
     }
@@ -288,7 +289,7 @@ class InspectionAnalysisServiceTest {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
         when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(false);
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
@@ -302,7 +303,7 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_이미지없으면_NO_MEDIA_원자적선점은시도하지않는다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of());
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
@@ -320,7 +321,7 @@ class InspectionAnalysisServiceTest {
         // 신선(fresh) → isStuck=false → 살아있는 것으로 카운트된다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
                 .thenReturn(List.of(analyzingWithId(201L), analyzingWithId(202L)));
@@ -339,7 +340,7 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_회사별_살아있는_동시실행이_상한미만이면_정상진행한다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
                 .thenReturn(List.of(analyzingWithId(201L)));
@@ -358,7 +359,7 @@ class InspectionAnalysisServiceTest {
         // 카운트에서 빠져야 한다. 안 그러면 워커 크래시가 쌓인 회사는 영구히 상한에 걸린다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
                 .thenReturn(List.of(analyzingWithId(201L), analyzingWithId(202L)));
@@ -402,7 +403,7 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_원자적선점실패시_ALREADY_RUNNING_워커호출안함() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         // 동시에 들어온 다른 요청이 먼저 선점했다고 가정 — 조건부 UPDATE 영향 행 0건.
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(false);
@@ -419,7 +420,7 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_정상흐름_워커에직전상태를넘긴다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L), image(2L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
@@ -439,7 +440,7 @@ class InspectionAnalysisServiceTest {
         // 없다는 것을 실행 순서로 고정한다 — worker.runAsync는 그 다음에야 호출된다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
@@ -458,7 +459,7 @@ class InspectionAnalysisServiceTest {
         // 워커를 스스로 중단시킬 방법이 없다(InspectionAnalysisWorker 참고).
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
@@ -481,7 +482,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID))
                 .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)))));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
 
@@ -494,7 +495,7 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_큐포화시_직전상태로롤백하고캐시를지운뒤_QUEUE_FULL던진다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
         org.mockito.Mockito.doThrow(new TaskRejectedException("full"))
@@ -517,7 +518,7 @@ class InspectionAnalysisServiceTest {
         when(quotaService.consumeAnalysisQuota(USER_ID, COMPANY_ID, 3)).thenReturn(CHARGE);
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L), image(2L), image(3L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
         Mockito.doThrow(new TaskRejectedException("full"))
@@ -539,7 +540,7 @@ class InspectionAnalysisServiceTest {
         when(quotaService.consumeAnalysisQuota(USER_ID, COMPANY_ID, 2)).thenReturn(CHARGE);
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L), image(2L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any()))
                 .thenReturn(false);
@@ -555,7 +556,7 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_보상차감이실패해도_원래실패원인을_그대로전파한다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
         Mockito.doThrow(new TaskRejectedException("full"))
@@ -573,7 +574,7 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_월분석한도초과면_선점도_워커위임도_하지않는다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         Mockito.doThrow(new BusinessException(ErrorCode.PLAN_ANALYSIS_QUOTA_EXCEEDED))
                 .when(quotaService).consumeAnalysisQuota(any(), any(), org.mockito.ArgumentMatchers.anyInt());
@@ -598,7 +599,7 @@ class InspectionAnalysisServiceTest {
         AnalysisStatusResponse result = service.getStatus(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         assertThat(result).isEqualTo(cached);
-        verify(mediaRepository, never()).findByInspectionIdAndFileTypeOrderByIdAsc(anyLong(), any());
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(anyLong(), any(), any());
     }
 
     @Test
@@ -641,7 +642,7 @@ class InspectionAnalysisServiceTest {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.empty());
-        when(mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
 
         AnalysisStatusResponse result = service.getStatus(USER_ID, COMPANY_ID, INSPECTION_ID);
