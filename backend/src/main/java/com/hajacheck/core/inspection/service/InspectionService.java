@@ -368,15 +368,20 @@ public class InspectionService {
      *                        소스 상태(ANALYSIS_ALLOWED_SOURCE_STATUSES)를 넘긴다. 조건부 UPDATE의
      *                        WHERE가 이 집합을 강제하므로, 사전 체크와 이 UPDATE 사이에 REVIEWED/
      *                        REPORTED 등으로 전이돼도 원자적으로 거부된다(사람 확정 하자 유실 TOCTOU 차단).
+     * @param allowExistingDefects 증분 분석 허용(V42, #1654) — true면 원자적 UPDATE의 "비삭제 하자
+     *                        없음" 조건을 건너뛴다. 호출부(InspectionAnalysisService)가 "이 실행은
+     *                        ANALYZED 회차에 새로 업로드된 미분석 사진만 append로 처리하는 증분
+     *                        분석"이라고 이미 판단했을 때만 true를 넘긴다 — 그 외(첫 분석·강제 전체
+     *                        재분석 시도)는 항상 false로, 기존 fail-closed 그대로 유지한다.
      * @return true = 이 호출이 ANALYZING을 선점함, false = 선점 불가(다른 요청이 선점했거나 허용되지
      *         않은 소스 상태) — 호출부는 ANALYSIS_ALREADY_RUNNING으로 응답해야 한다.
      */
     @Transactional
     public boolean tryStartAnalyzing(Long requesterUserId, Long companyId, Long inspectionId,
-            java.util.Collection<InspectionStatus> allowedStatuses) {
+            java.util.Collection<InspectionStatus> allowedStatuses, boolean allowExistingDefects) {
         getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
         return inspectionRepository.startAnalyzingIfNotRunning(
-                inspectionId, InspectionStatus.ANALYZING, allowedStatuses) > 0;
+                inspectionId, InspectionStatus.ANALYZING, allowedStatuses, allowExistingDefects) > 0;
     }
 
     // 점검일은 "실제로 점검을 수행한 날짜"를 기록하는 필드다(회차 생성과 동시에 촬영 데이터를

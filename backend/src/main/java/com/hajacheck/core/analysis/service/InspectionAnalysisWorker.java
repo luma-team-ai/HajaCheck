@@ -16,6 +16,7 @@ import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.service.MediaWriter;
 import com.hajacheck.global.config.AsyncConfig;
 import com.hajacheck.membership.service.AnalysisQuotaCharge;
 import com.hajacheck.membership.service.QuotaService;
@@ -42,7 +43,16 @@ import org.springframework.stereotype.Component;
  *
  * <p>회차의 이미지를 순서대로 하나씩 처리한다(병렬 아님) — FastAPI가 CPU 바운드 단일 워커 전제라
  * Spring 쪽에서 병렬로 던져도 처리량이 늘지 않고 대기열만 쌓인다(AsyncConfig 주석 참고). 이미지 1장
- * 실패는 그 이미지만 실패 처리하고 나머지는 계속 진행한다 — 회차 전체를 롤백하지 않는다.
+ * 실패는 그 이미지만 실패 처리하고 나머지는 계속 진행한다 — 회차 전체를 롤백하지 않는다. 처리에
+ * 성공한 이미지는 그 즉시 {@link Media#markAnalyzed}로 표시된다(V42, #1654) — 실패한 이미지는 표시하지
+ * 않아 다음 트리거에서 다시 분석 대상이 된다.
+ *
+ * <p><b>증분 분석(#1654)</b> — {@code images} 파라미터는 이미 {@link InspectionAnalysisService}가
+ * "아직 analyzed_at이 없는 원본 사진"만 좁혀서 넘긴다. 이 회차가 이미 한 번 분석을 완료한
+ * (ANALYZED) 상태에서 새로 업로드된 사진만 남아 있는 경우가 전형적인 증분 실행이다 —
+ * {@code preserveExistingDefects=true}로 호출되며, 이 워커는 기존 하자를 <b>절대 건드리지 않고</b>
+ * 새로 탐지된 하자만 append한다(append only 불변식). 이 불변식이 깨지면 검수 완료된 회차의 사람이
+ * 확정한 하자가 새 사진 업로드만으로 소리 없이 사라지는 회귀가 재발한다.
  *
  * <p>재분석 시 기존 하자 소프트삭제(멱등화)는 {@link InspectionAnalysisService}가 아니라 이 클래스가
  * 담당한다(코드 리뷰 P1/P2 픽스) — 실제로 첫 탐지가 성공한 시점에 지연 실행해, 트리거 메서드에서
@@ -103,6 +113,7 @@ public class InspectionAnalysisWorker {
     private final FileStorageService fileStorage;
     private final AiProxyService aiProxyService;
     private final DefectWriter defectWriter;
+    private final MediaWriter mediaWriter;
     private final AnalysisProgressStore progressStore;
     private final QuotaService quotaService;
     private final NotificationService notificationService;
@@ -112,6 +123,13 @@ public class InspectionAnalysisWorker {
      *                             픽스: 이미지 전체가 실패하면 이 값으로 되돌려 ANALYZED(완료)로
      *                             오인 전이하지 않는다(InspectionAnalysisService가 큐잉 실패 시
      *                             동일 값으로 롤백하는 것과 대칭 — 정상 완료가 아니면 항상 이 값으로 복귀).
+     * @param preserveExistingDefects 증분 분석 여부(#1654) — {@link InspectionAnalysisService}가 트리거
+     *                             시점에 이 회차에 비삭제 하자가 이미 있었으면(=ANALYZED 회차에 새로
+     *                             업로드된 미분석 사진만 골라 온 증분 실행) true를 넘긴다. true면 재분석
+     *                             멱등화(기존 하자 소프트삭제)를 아예 건너뛰고 항상 append(saveAll)만
+     *                             한다 — 증분 실행은 append only가 불변식이다(기존 하자 절대 비파괴).
+     *                             false면 기존과 동일하게 첫 탐지 성공 시점에 한 번 소프트삭제한다
+     *                             (이 경우 images는 애초에 전량 미분석 상태라 실질적으로 no-op).
      * @param generation 이 실행이 선점될 때 발급된 세대 토큰(코드 리뷰 P1, 클래스 javadoc "세대 토큰
      *                   펜싱" 참고) — DB 쓰기 직전마다 {@link #isCurrentGeneration}으로 유효성을 재확인한다.
      * @param charge {@link InspectionAnalysisService}가 큐 적재 전에 차감한 월 분석 사용량의 좌표
@@ -121,8 +139,8 @@ public class InspectionAnalysisWorker {
      */
     @Async(AsyncConfig.ANALYSIS_TASK_EXECUTOR)
     public void runAsync(Long requesterUserId, Long companyId, Long inspectionId, List<Media> images,
-                          InspectionStatus statusBeforeAnalysis, String generation,
-                          AnalysisQuotaCharge charge) {
+                          InspectionStatus statusBeforeAnalysis, boolean preserveExistingDefects,
+                          String generation, AnalysisQuotaCharge charge) {
         List<FileProgress> files = new ArrayList<>(images.size());
         for (int i = 0; i < images.size(); i++) {
             files.add(new FileProgress(
@@ -137,7 +155,10 @@ public class InspectionAnalysisWorker {
         // 성공한 시점에 딱 한 번만 지연 실행한다. InspectionAnalysisService가 미리 지워버리면
         // 이후 이미지 전체 실패로 롤백될 때 검수 완료된 회차의 기존 하자가 보상 없이 영구 유실된다
         // (이 필드가 false로 남으면 = 이번 실행이 아무 결실도 못 맺었으면 = 기존 데이터를 건드리지 않았다는 뜻).
-        boolean oldDefectsCleared = false;
+        //
+        // 증분 분석(#1654) — preserveExistingDefects가 true면 애초에 "이미 정리 끝난 것"으로 시작해
+        // softDeleteAllForInspectionThenSave를 절대 호출하지 않는다(항상 saveAll만) — append only 불변식.
+        boolean oldDefectsCleared = preserveExistingDefects;
         Map<DefectGrade, Integer> gradeCounts = new EnumMap<>(DefectGrade.class);
 
         for (int i = 0; i < images.size(); i++) {
@@ -185,6 +206,15 @@ public class InspectionAnalysisWorker {
                 } else {
                     defectWriter.saveAll(toSave);
                 }
+                // 증분 분석 대상 좁히기(V42, #1654) — 이 미디어는 방금 defect 저장까지 성공했으니
+                // 이번 실행에서 실제로 분석을 마쳤다. 별도 트랜잭션(MediaWriter)으로 즉시 기록해,
+                // 다음 트리거의 "미분석 사진" 조회(MediaRepository...AnalyzedAtIsNull...)에서 다시
+                // 대상이 되지 않게 한다. successCount/detectedDefectCount 집계보다 먼저 두는 이유 —
+                // 이 저장이 실패하면(극히 드묾) 아래 catch가 이 이미지 전체를 실패로 격리해야
+                // successCount·detectedDefectCount가 "실제로 마킹까지 끝난 이미지"만 정확히 반영한다.
+                media.markAnalyzed(java.time.LocalDateTime.now());
+                mediaWriter.saveAll(List.of(media));
+
                 detectedDefectCount += toSave.size();
                 successCount++;
 
@@ -231,10 +261,13 @@ public class InspectionAnalysisWorker {
             // StuckAnalysisReaper 가 복구한다.
             refundIfNothingPersisted(inspectionId, charge, successCount);
             inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, statusBeforeAnalysis);
+            // unanalyzedMediaCount(#1654) — 성공 0건이므로 이 실행이 받은 images 전량이 여전히
+            // analyzed_at=null(미분석)로 남는다. failedCount와 동일한 값이지만, "이 이미지들이 아직
+            // 분석되지 않은 상태로 남았다"는 의미를 명확히 하기 위해 별도 필드로 내려준다.
             AnalysisStatusResponse failedProgress = new AnalysisStatusResponse(
                     inspectionId, "failed", 0, images.size(), 0, files,
                     detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount,
-                    Instant.now());
+                    failedCount, Instant.now());
             progressStore.save(failedProgress);
             return;
         }
@@ -242,9 +275,14 @@ public class InspectionAnalysisWorker {
         Inspection inspection =
                 inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, InspectionStatus.ANALYZED);
         notifyAnalysisDone(inspection);
+        // unanalyzedMediaCount(#1654) — 성공한 이미지는 방금 media.markAnalyzed로 표시됐으니, 이번
+        // 실행이 받은 images 중 실제로 미분석 상태로 남는 건 실패한 장수(failedCount)뿐이다. 이 회차에
+        // 과거에 이미 분석 완료된 다른 사진(이번 images에 애초에 포함되지 않음)은 포함하지 않는다 —
+        // 그 사진들은 이미 analyzed_at이 채워져 있어 계산에 낄 이유가 없다.
         AnalysisStatusResponse done = new AnalysisStatusResponse(
                 inspectionId, "done", 100, images.size(), images.size(), files,
-                detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount, Instant.now());
+                detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount,
+                failedCount, Instant.now());
         progressStore.save(done);
     }
 
@@ -337,9 +375,14 @@ public class InspectionAnalysisWorker {
                           int detectedDefectCount, int riskyCrackCount, Map<DefectGrade, Integer> gradeCounts,
                           int failedCount) {
         int percent = total == 0 ? 0 : (int) Math.round(analyzedCount * 100.0 / total);
+        // unanalyzedMediaCount(#1654) — 진행 중 스냅샷에서는 "이번 실행에서 지금까지 실패로 끝난
+        // 장수"(failedCount)를 근사치로 쓴다. 아직 처리 전(waiting)인 이미지는 곧 처리될 예정이라
+        // "증분 분석이 더 필요하다"는 신호로 노출할 필요가 없다 — 이 필드는 stage=='done' 시점에
+        // 프론트 "추가 사진 N장 분석" 액션 노출 여부를 판단하는 용도다(클래스 javadoc 참고).
         AnalysisStatusResponse progress = new AnalysisStatusResponse(
                 inspectionId, "aiDetection", percent, total, analyzedCount, List.copyOf(files),
-                detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount, Instant.now());
+                detectedDefectCount, riskyCrackCount, toGradeCountMap(gradeCounts), failedCount,
+                failedCount, Instant.now());
         progressStore.save(progress);
     }
 

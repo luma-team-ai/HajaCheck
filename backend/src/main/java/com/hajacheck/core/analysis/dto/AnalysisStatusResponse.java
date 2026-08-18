@@ -18,6 +18,12 @@ import java.util.Map;
  * <p>{@code updatedAt}(코드 리뷰 P2, 하트비트)은 이 진행률이 마지막으로 갱신된 시각 — 워커가
  * JVM 재기동·OOM 등으로 크래시해도 Redis 진행률 캐시(TTL 6시간)는 살아남으므로,
  * InspectionAnalysisService가 이 값으로 "진짜 진행 중"과 "고착"을 구분한다.
+ *
+ * <p>{@code unanalyzedMediaCount}(#1654 증분 분석) — 이 회차의 원본 촬영사진 중 아직 AI 분석을
+ * 거치지 않은(media.analyzed_at IS NULL) 장수. 프론트가 stage=='done'일 때 이 값이 0보다 크면
+ * "추가 사진 N장 분석" 액션을 노출한다(같은 POST /analyze 엔드포인트를 재호출하면 서버가 자동으로
+ * 증분 분석으로 처리한다 — 새 엔드포인트 없음). 진행 중(aiDetection) 스냅샷에서는 "이번 실행에서
+ * 아직 처리 안 된(=실패로 남은) 이미지 수"의 근사치로 failedCount를 그대로 쓴다(worker 참고).
  */
 public record AnalysisStatusResponse(
         Long inspectionId,
@@ -30,6 +36,7 @@ public record AnalysisStatusResponse(
         int riskyCrackCount,
         Map<String, Integer> severityDistribution,
         int failedCount,
+        int unanalyzedMediaCount,
         Instant updatedAt) {
 
     /** {@code status}는 waiting/analyzing/completed/failed. */
@@ -45,6 +52,6 @@ public record AnalysisStatusResponse(
     public AnalysisStatusResponse withStage(String newStage) {
         return new AnalysisStatusResponse(inspectionId, newStage, progressPercent, totalFileCount,
                 analyzedFileCount, files, detectedDefectCount, riskyCrackCount, severityDistribution,
-                failedCount, updatedAt);
+                failedCount, unanalyzedMediaCount, updatedAt);
     }
 }
