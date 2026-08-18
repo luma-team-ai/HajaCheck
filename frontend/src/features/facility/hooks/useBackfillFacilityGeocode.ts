@@ -25,7 +25,9 @@ export interface BackfillResult {
 // 좌표(latitude/longitude)가 하나라도 비어 있으면 재계산 대상으로 취급한다(#618 — PM 확정: "NULL이거나
 // 부정확한 것으로 판단되는 건" 중 자동 판별 가능한 범위는 NULL). 주소가 없는 시설물은 애초에 좌표를
 // 계산할 방법이 없으므로 대상에서 제외하고 결과에 별도 카운트로 보고한다.
-function needsBackfill(facility: Facility): boolean {
+// export: 지도 화면의 일괄 보정 버튼(features/map/components/BackfillGeocodeButton, #1657)이 "보정
+// 대상 N건"을 실행 전에 미리 세어 보여줘야 해서 이 판정을 재사용한다.
+export function needsBackfill(facility: Facility): boolean {
   return facility.latitude == null || facility.longitude == null;
 }
 
