@@ -485,9 +485,12 @@ class InspectionServiceTest {
         when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
         when(defectRepository.existsByInspectionIdAndDeletedFalse(10L)).thenReturn(true);
 
-        service.revertStuckAnalyzing(10L);
+        InspectionStatus reverted = service.revertStuckAnalyzing(10L);
 
         assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.ANALYZED);
+        // 핫픽스(#1670 후속) — 반환값을 InspectionAnalysisService.startAnalysis 인라인 복구가
+        // statusBeforeAnalysis로 그대로 쓴다(중복 구현 금지). 실제로 되돌린 상태와 일치해야 한다.
+        assertThat(reverted).isEqualTo(InspectionStatus.ANALYZED);
     }
 
     @Test
@@ -496,20 +499,35 @@ class InspectionServiceTest {
         when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
         when(defectRepository.existsByInspectionIdAndDeletedFalse(10L)).thenReturn(false);
 
-        service.revertStuckAnalyzing(10L);
+        InspectionStatus reverted = service.revertStuckAnalyzing(10L);
 
         assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.UPLOADING);
+        assertThat(reverted).isEqualTo(InspectionStatus.UPLOADING);
     }
 
     @Test
-    void revertStuckAnalyzing_ANALYZING이아니면_상태를건드리지않는다() {
-        // 멱등 — 그 사이 정상 완료됐거나 다른 경로가 이미 정리한 경우.
+    void revertStuckAnalyzing_ANALYZING이아니면_상태를건드리지않고현재상태를그대로반환한다() {
+        // 멱등 — 그 사이 정상 완료됐거나 다른 경로가 이미 정리한 경우. 핫픽스(#1670 후속) — 반환값이
+        // 이제 InspectionAnalysisService.startAnalysis의 statusBeforeAnalysis로 그대로 쓰이므로,
+        // no-op이어도 "현재 상태"를 정확히 돌려줘야 그 이후 가드(ANALYSIS_ALLOWED_SOURCE_STATUSES 등)가
+        // 올바르게 판단한다.
         Inspection inspection = analyzedInspection();
         when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
 
-        service.revertStuckAnalyzing(10L);
+        InspectionStatus reverted = service.revertStuckAnalyzing(10L);
 
         assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.ANALYZED);
+        assertThat(reverted).isEqualTo(InspectionStatus.ANALYZED);
+        verify(defectRepository, never()).existsByInspectionIdAndDeletedFalse(any());
+    }
+
+    @Test
+    void revertStuckAnalyzing_회차를찾지못하면_null을반환한다() {
+        when(inspectionRepository.findById(999L)).thenReturn(Optional.empty());
+
+        InspectionStatus reverted = service.revertStuckAnalyzing(999L);
+
+        assertThat(reverted).isNull();
         verify(defectRepository, never()).existsByInspectionIdAndDeletedFalse(any());
     }
 
