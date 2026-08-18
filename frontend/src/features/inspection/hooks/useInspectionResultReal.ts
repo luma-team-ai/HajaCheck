@@ -89,6 +89,10 @@ export function useInspectionResultReal(inspectionId: number) {
       grade: d.grade,
       status: d.status,
       confidence: d.confidence,
+      // "이 하자 검수 확정" 버튼 비활성화 판단용(#1643) — 등급수정으로 이미 reviewed=true가 된
+      // 하자를 화면에서도 알 수 있게 그대로 전달한다. reviewedCount 집계 자체는 아래처럼 여전히
+      // defectsData(d.isReviewed)를 직접 필터링해서 구한다(변경 금지 대상).
+      isReviewed: d.isReviewed,
       bbox: {
         x: d.bboxX,
         y: d.bboxY,
