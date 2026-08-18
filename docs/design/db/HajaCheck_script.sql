@@ -885,8 +885,11 @@ create table media
     created_at              timestamp with time zone default now() not null,
     mime_type               varchar(100),
     original_filename       varchar(255),
+    purpose                 varchar(30)              default 'INSPECTION_SOURCE'::character varying not null,
     constraint chk_media_inspection_xor_facility
-        check ((inspection_id is not null) <> (facility_id is not null))
+        check ((inspection_id is not null) <> (facility_id is not null)),
+    constraint chk_media_purpose
+        check (purpose in ('INSPECTION_SOURCE', 'DEFECT_ACTION'))
 );
 
 comment on table media is '점검 과정에서 등록하거나 추출한 이미지 및 영상 정보를 관리한다.';
@@ -918,6 +921,8 @@ comment on column media.gps_lng is '미디어 촬영 위치의 경도';
 comment on column media.mime_signature_verified is '파일 시그니처와 MIME 타입의 일치 검증 여부';
 
 comment on column media.created_at is '미디어 레코드 생성 시각';
+
+comment on column media.purpose is '미디어 용도(#1641) — INSPECTION_SOURCE(원본 촬영, 분석·분석결과뷰어 대상) / DEFECT_ACTION(조치 후 사진, 분석·분석결과뷰어 제외)';
 
 comment on column media.mime_type is '미디어 MIME 타입(예: image/jpeg, video/mp4)';
 

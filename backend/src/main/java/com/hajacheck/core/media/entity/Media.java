@@ -6,6 +6,8 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -121,11 +123,27 @@ public class Media {
     @Column(name = "original_filename", length = 255)
     private String originalFilename;
 
+    /**
+     * 미디어 용도(V41, #1641) — INSPECTION_SOURCE(원본 촬영, 기본값)/DEFECT_ACTION(조치 후 사진).
+     * fileType과 달리 Postgres named enum이 아니라 VARCHAR+CHECK이므로 NAMED_ENUM이 아닌 일반
+     * {@code EnumType.STRING} 매핑을 쓴다(마이그레이션 V41 주석 참고 — named enum 값 추가의 트랜잭션
+     * 제약을 피하기 위한 설계). 이 클래스는 {@code @Builder}를 클래스가 아니라 생성자에 붙이는
+     * 컨벤션이라 {@code @Builder.Default}가 적용되지 않는다 — 대신 생성자 본문에서 null 이면
+     * INSPECTION_SOURCE로 채운다(아래 생성자 참고). 빌더 호출부가 purpose를 생략해도(기존
+     * uploadFacilityPhotos 등) 항상 명시적으로 INSPECTION_SOURCE가 저장된다 — JPA INSERT는 매핑된
+     * 모든 컬럼 값을 명시적으로 채우므로, DB DEFAULT는 이 엔티티를 거치지 않는 직접 SQL(마이그레이션
+     * 백필 등)에만 적용된다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "purpose", nullable = false, length = 30)
+    private MediaPurpose purpose;
+
     @Builder
     private Media(Long inspectionId, Long facilityId, MediaFileType fileType, String originalUrl,
                   String thumbnailUrl, String detailUrl, Long sourceVideoId, Integer frameIndex,
                   LocalDateTime capturedAt, BigDecimal gpsLat, BigDecimal gpsLng,
-                  boolean mimeSignatureVerified, String mimeType, String originalFilename) {
+                  boolean mimeSignatureVerified, String mimeType, String originalFilename,
+                  MediaPurpose purpose) {
         this.inspectionId = inspectionId;
         this.facilityId = facilityId;
         this.fileType = fileType;
@@ -140,5 +158,6 @@ public class Media {
         this.mimeSignatureVerified = mimeSignatureVerified;
         this.mimeType = mimeType;
         this.originalFilename = originalFilename;
+        this.purpose = purpose != null ? purpose : MediaPurpose.INSPECTION_SOURCE;
     }
 }
