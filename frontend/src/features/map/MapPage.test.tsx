@@ -12,6 +12,14 @@ vi.mock('../../shared/lib/kakaoMap/loadKakaoMapSdk', () => ({
   KakaoMapKeyMissingError: class KakaoMapKeyMissingError extends Error {},
 }));
 
+// BackfillGeocodeButton(#1657 ③)은 facility feature의 useFacilities/useBackfillFacilityGeocode를
+// 내부에서 호출한다 — 이 파일은 msw 서버 없이 mapApi만 모듈 목으로 대체하므로, 실제로 렌더하면
+// facility feature의 실 axios 호출이 그대로 나가 관련 없는 네트워크 에러가 섞인다. 이 버튼 자체의
+// 동작은 BackfillGeocodeButton.test.tsx가 별도로 검증하므로 여기서는 no-op으로 대체한다.
+vi.mock('./components/BackfillGeocodeButton', () => ({
+  BackfillGeocodeButton: () => null,
+}));
+
 const mockFacilities: FacilityLocation[] = [
   {
     id: 1,
@@ -45,6 +53,7 @@ vi.mock('./api/mapApi', () => ({
   mapApi: {
     getFacilityLocations: vi.fn(() => Promise.resolve(mockFacilities)),
   },
+  MAP_FACILITIES_QUERY_KEY: ['map', 'facilities'],
 }));
 
 // 위 vi.mock으로 대체된 모듈을 그대로 참조 — 개별 테스트에서 mockResolvedValueOnce로 응답을 override한다

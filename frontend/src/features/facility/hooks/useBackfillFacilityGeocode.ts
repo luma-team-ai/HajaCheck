@@ -5,12 +5,25 @@ import {
   geocodeAddress,
 } from '../../../shared/lib/kakaoMap/geocodeAddress';
 import { facilityApi } from '../api/facilityApi';
-import type { Facility } from '../types';
 
 export interface BackfillFailure {
   id: number;
   name: string;
   reason: string;
+}
+
+// 대상 판정(needsBackfill)/실행(run)에 필요한 최소 필드 — Facility(CRUD 전체 타입, facility/types.ts)와
+// map feature의 FacilityLocation(features/map/types.ts) 둘 다 구조적으로 이 인터페이스를 만족한다.
+// PUT 바디는 이 입력이 아니라 실행 시점에 facilityApi.getDetail(id)로 재조회한 최신 레코드(latest)로
+// 조립하므로(아래 run 참고, lost update 방지 #638) 이 훅이 Facility 전체 타입에 강결합할 필요가 없다.
+// #1657 메인 재검수(P2) — 백필 대상 산정을 500건 상한 CRUD 목록(useFacilities)이 아니라 지도의
+// 무상한 소스(mapApi/FacilityLocation)로 전환하면서, 훅 자체도 그 타입을 그대로 받을 수 있도록 좁혔다.
+export interface BackfillCandidate {
+  id: number;
+  name: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
 }
 
 export interface BackfillResult {
@@ -25,7 +38,9 @@ export interface BackfillResult {
 // 좌표(latitude/longitude)가 하나라도 비어 있으면 재계산 대상으로 취급한다(#618 — PM 확정: "NULL이거나
 // 부정확한 것으로 판단되는 건" 중 자동 판별 가능한 범위는 NULL). 주소가 없는 시설물은 애초에 좌표를
 // 계산할 방법이 없으므로 대상에서 제외하고 결과에 별도 카운트로 보고한다.
-function needsBackfill(facility: Facility): boolean {
+// export: 지도 화면의 일괄 보정 버튼(features/map/components/BackfillGeocodeButton, #1657)이 "보정
+// 대상 N건"을 실행 전에 미리 세어 보여줘야 해서 이 판정을 재사용한다.
+export function needsBackfill(facility: BackfillCandidate): boolean {
   return facility.latitude == null || facility.longitude == null;
 }
 
@@ -38,7 +53,7 @@ export function useBackfillFacilityGeocode() {
   const [isRunning, setIsRunning] = useState(false);
   const [lastResult, setLastResult] = useState<BackfillResult | null>(null);
 
-  const run = useCallback(async (facilities: Facility[]): Promise<BackfillResult> => {
+  const run = useCallback(async (facilities: BackfillCandidate[]): Promise<BackfillResult> => {
     setIsRunning(true);
     try {
       const withoutCoords = facilities.filter(needsBackfill);

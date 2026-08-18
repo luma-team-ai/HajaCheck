@@ -5,15 +5,18 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { mapApi } from './api/mapApi';
+import { MAP_FACILITIES_QUERY_KEY, mapApi } from './api/mapApi';
+import { BackfillGeocodeButton } from './components/BackfillGeocodeButton';
 import { FacilityListPanel } from './components/FacilityListPanel';
 import { MapControls, type MapDisplayType } from './components/MapControls';
 import { MapLegend } from './components/MapLegend';
 import { SelectedFacilityPopup } from './components/SelectedFacilityPopup';
 import { useDebouncedValue } from '../../shared/hooks/useDebouncedValue';
+import { hasValidCoordinate } from '../../shared/lib/isValidCoordinate';
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_LEVEL, ERROR_TEXT_COLOR, MAX_MAP_LEVEL, MIN_MAP_LEVEL } from './constants';
-import { createFacilityMarker, isValidCoordinate, updateFacilityMarkerImage } from './lib/createFacilityMarker';
+import { createFacilityMarker, updateFacilityMarkerImage } from './lib/createFacilityMarker';
 import { filterFacilities } from './lib/filterFacilities';
+import type { PositionedFacilityLocation } from './types';
 import {
   KakaoMapKeyMissingError,
   loadKakaoMapSdk,
@@ -63,7 +66,7 @@ export default function MapPage() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: ['map', 'facilities'],
+    queryKey: MAP_FACILITIES_QUERY_KEY,
     queryFn: mapApi.getFacilityLocations,
   });
 
@@ -183,17 +186,21 @@ export default function MapPage() {
 
     markersRef.current.forEach((marker) => marker.setMap(null));
 
-    // 좌표 런타임 검증 — 실 API 연동 시 서버가 null/NaN/범위밖 좌표를 줄 수 있으므로
-    // 마커 생성 전에 걸러내고, 걸러진 항목은 warn으로 남겨 추적 가능하게 한다
-    const validFacilities = markerFacilities.filter((facility) => {
-      const valid = isValidCoordinate(facility.latitude, facility.longitude);
-      if (!valid) {
-        console.warn(
-          `[MapPage] 유효하지 않은 좌표를 가진 시설물을 건너뜁니다: id=${facility.id}, latitude=${facility.latitude}, longitude=${facility.longitude}`,
-        );
-      }
-      return valid;
-    });
+    // 좌표 런타임 검증 — GET /api/facilities/map은 좌표 없는(NULL) 시설물도 그대로 내려주므로
+    // (#1657, 목록 패널은 이걸 '좌표 없음' 배지로 표시) 마커 생성 전에 여기서 걸러내고, 걸러진
+    // 항목은 warn으로 남겨 추적 가능하게 한다. hasValidCoordinate가 타입을 PositionedFacilityLocation
+    // (latitude/longitude가 number로 확정)으로 좁혀줘야 아래 createFacilityMarker 호출이 타입체크된다.
+    const validFacilities = markerFacilities.filter(
+      (facility): facility is PositionedFacilityLocation => {
+        const valid = hasValidCoordinate(facility);
+        if (!valid) {
+          console.warn(
+            `[MapPage] 유효하지 않은 좌표를 가진 시설물을 건너뜁니다: id=${facility.id}, latitude=${facility.latitude}, longitude=${facility.longitude}`,
+          );
+        }
+        return valid;
+      },
+    );
 
     const nextMarkers = new Map<number, KakaoMarker>();
     validFacilities.forEach((facility) => {
@@ -245,7 +252,10 @@ export default function MapPage() {
       overlayRef.current = null;
     }
 
-    if (!selectedFacility) return;
+    // 목록 패널에서는 좌표 없는(NULL/유효하지 않은) 시설물도 선택할 수 있다(#1657, '좌표 없음'
+    // 배지가 붙은 항목도 클릭 가능) — 그런 경우 지도 위에 앵커할 좌표가 없으므로 오버레이/panTo를
+    // 건너뛴다. hasValidCoordinate가 selectedFacility.latitude/longitude를 number로 좁혀준다.
+    if (!selectedFacility || !hasValidCoordinate(selectedFacility)) return;
 
     const position = new window.kakao.maps.LatLng(
       selectedFacility.latitude,
@@ -325,6 +335,7 @@ export default function MapPage() {
         onSelectCategory={setSelectedCategory}
         selectedFacilityId={selectedFacilityId}
         onSelectFacility={setSelectedFacilityId}
+        headerAction={<BackfillGeocodeButton />}
       />
       <div className="relative flex-1 overflow-hidden bg-white">
         <div ref={mapContainerRef} className="h-full w-full" />

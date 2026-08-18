@@ -11,15 +11,25 @@
  */
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 
-/** 지도 마커·목록 패널용 시설물 위치 정보 (EXIF GPS 기반 업로드 좌표) */
+/**
+ * 지도 마커·목록 패널용 시설물 위치 정보 (EXIF GPS 기반 업로드 좌표)
+ *
+ * latitude/longitude는 GET /api/facilities/map(#1656/#1657) 응답을 그대로 반영해 number | null이다 —
+ * 좌표가 없는(NULL) 시설물도 목록 패널에는 그대로 남기고 '좌표 없음' 배지로 표시하되, 지도 마커
+ * 생성에서만 제외한다(isValidCoordinate 단일 판정 기준, shared/lib/isValidCoordinate 참고). 예전에는
+ * mapApi.ts가 목록 단계에서부터 null 좌표를 걸러내 목록(null만 제외)과 마커(NaN/범위밖/(0,0)까지 제외)
+ * 판정 기준이 어긋나 "목록엔 있는데 마커가 없다" 불일치가 있었다(#1657).
+ */
 export interface FacilityLocation {
   id: number;
   name: string;
-  address: string;
+  /** 주소 — nullable(주소 미입력 시설물이 있을 수 있음, #1656 계약). 목록 패널 검색(filterFacilities)
+   * 대상이며, null이면 "주소 정보 없음"으로 폴백 표시한다. */
+  address: string | null;
   /** 시설물 유형 — features/facility Facility.type 필드 참고(로컬 재정의, import 금지) */
   category: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   /**
    * 해당 시설물에 등록된 하자 중 최고 등급.
    * 백엔드 FacilityResponse가 기존 점검/하자 데이터에서 계산한 시설물 내 최고 심각도 등급.
@@ -31,6 +41,14 @@ export interface FacilityLocation {
   /** 주의 건수 — 기존 하자 등급 C 집계 */
   cautionCount: number | null;
   thumbnailUrl: string | null;
-  /** 가장 최근 점검(회차) ID — API 하위 호환을 위해 유지한다. */
+  /** 가장 최근 점검(회차) ID — API 하위 호환을 위해 유지한다. GET /api/facilities/map 응답에는
+   * 없는 필드라 항상 undefined다. */
   latestInspectionId?: number | null;
 }
+
+/**
+ * 좌표가 확정된(마커 생성 가능한) 시설물 — hasValidCoordinate(shared/lib/isValidCoordinate)로 좁힌
+ * 결과 타입. createFacilityMarker 등 실제로 window.kakao.maps.LatLng를 구성하는 함수는 이 타입만
+ * 받아, "호출 전 유효성 검증을 거쳤는가"를 타입 시스템으로 강제한다(#1657).
+ */
+export type PositionedFacilityLocation = FacilityLocation & { latitude: number; longitude: number };
