@@ -1,8 +1,10 @@
 // 검색 + 카테고리 필터 + 시설물 목록 패널 (지도 뷰 좌측) — HAJA-150(#129) 재오픈 컨벤션 준수 작업
+import type { ReactNode } from 'react';
 import { FACILITY_CATEGORY_FILTERS, FALLBACK_GRADE_COLOR, GRADE_COLOR } from '../constants';
 import type { FacilityLocation } from '../types';
 import { ImageWithFallback } from '../../../shared/components/ImageWithFallback';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner';
+import { isValidCoordinate } from '../../../shared/lib/isValidCoordinate';
 import { GradeBadge } from './GradeBadge';
 
 // 결함/주의 건수 심각도 색상 — 등급 범례(MapLegend)와 동일한 GRADE_COLOR 팔레트를 재사용해
@@ -26,6 +28,8 @@ interface FacilityListPanelProps {
   onSelectCategory: (category: string) => void;
   selectedFacilityId: number | null;
   onSelectFacility: (id: number) => void;
+  /** 검색/필터 영역 하단에 배치할 부가 액션 — 좌표 없는 시설물 일괄 보정 버튼 등(#1657) */
+  headerAction?: ReactNode;
 }
 
 export function FacilityListPanel({
@@ -38,6 +42,7 @@ export function FacilityListPanel({
   onSelectCategory,
   selectedFacilityId,
   onSelectFacility,
+  headerAction,
 }: FacilityListPanelProps) {
   return (
     <div className="flex w-80 shrink-0 flex-col border-r border-border bg-surface-muted">
@@ -81,6 +86,7 @@ export function FacilityListPanel({
             </button>
           ))}
         </div>
+        {headerAction}
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -118,7 +124,18 @@ export function FacilityListPanel({
                       </span>
                       <GradeBadge grade={facility.highestGrade} />
                     </span>
-                    <span className="truncate text-xs text-text-muted">{facility.address}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-xs text-text-muted">
+                        {facility.address || '주소 정보 없음'}
+                      </span>
+                      {/* 좌표 없음 배지(#1657) — 목록엔 남기되(isValidCoordinate 판정 기준을
+                          지도 마커와 공유) 이 시설물은 지도 마커로 표시되지 않는다는 사실을 알린다. */}
+                      {!isValidCoordinate(facility.latitude, facility.longitude) && (
+                        <span className="inline-flex shrink-0 items-center rounded-full bg-surface-sunken px-1.5 py-0.5 text-[10px] font-medium text-text-muted">
+                          좌표 없음
+                        </span>
+                      )}
+                    </span>
                     <span className="flex items-center gap-3 text-[11px] text-text-muted">
                       <span className="flex items-center gap-1">
                         <span
