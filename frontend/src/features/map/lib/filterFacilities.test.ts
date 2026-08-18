@@ -110,6 +110,16 @@ describe('filterFacilities', () => {
     expect(result[0].id).toBe(1);
   });
 
+  it('address가 null(GET /api/facilities/map 경량 프로젝션 계약, #1657)이어도 예외 없이 이름으로 검색된다', () => {
+    const facilitiesWithNullAddress: FacilityLocation[] = [
+      { ...mockFacilities[0], address: null },
+    ];
+
+    expect(() => filterFacilities(facilitiesWithNullAddress, '아크로빌', '전체')).not.toThrow();
+    expect(filterFacilities(facilitiesWithNullAddress, '아크로빌', '전체')).toHaveLength(1);
+    expect(filterFacilities(facilitiesWithNullAddress, '역삼동', '전체')).toHaveLength(0);
+  });
+
   it('검색어와 카테고리 필터가 모두 매칭되어야 필터링된다', () => {
     const resultMatch = filterFacilities(mockFacilities, '강남', '오피스');
     expect(resultMatch).toHaveLength(2); // '아크로빌 빌딩' (역삼동 강남구 주소 매칭), '강남 타워' (명칭 매칭)
