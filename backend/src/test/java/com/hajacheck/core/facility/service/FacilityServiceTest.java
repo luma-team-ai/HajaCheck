@@ -1083,6 +1083,120 @@ class FacilityServiceTest {
                         .isEqualTo(ErrorCode.FORBIDDEN));
     }
 
+    // ── 지도 전용 경량 목록(#1656) ──
+
+    private static com.hajacheck.core.facility.repository.FacilityMapProjection facilityMapProjection(
+            Long id, String name, String type, java.math.BigDecimal latitude, java.math.BigDecimal longitude) {
+        return new com.hajacheck.core.facility.repository.FacilityMapProjection() {
+            public Long getId() {
+                return id;
+            }
+
+            public String getName() {
+                return name;
+            }
+
+            public String getType() {
+                return type;
+            }
+
+            public java.math.BigDecimal getLatitude() {
+                return latitude;
+            }
+
+            public java.math.BigDecimal getLongitude() {
+                return longitude;
+            }
+        };
+    }
+
+    @Test
+    void listForMap_회사시설없으면_빈배열_배치조회미호출() {
+        when(facilityRepository.findMapProjectionsByCompanyId(OWNER_ID)).thenReturn(List.of());
+
+        com.hajacheck.core.facility.dto.FacilityMapResponse result = facilityService.listForMap(USER_ID, OWNER_ID);
+
+        assertThat(result.facilities()).isEmpty();
+        verify(inspectionRepository, never()).findLatestByFacilityIds(any());
+        verify(mediaRepository, never()).findFirstIdsByFacilityIds(any(), any());
+    }
+
+    // #1656 — list()의 FACILITY_LIST_MAX(500) 상한 때문에 지도 마커가 무고지로 누락되던 문제(P1)의
+    // 핵심 회귀 테스트. 상한을 넘는 501건이 findMapProjectionsByCompanyId로부터 그대로 들어오면
+    // Pageable로 자르지 않고 전부 응답에 담겨야 한다.
+    @Test
+    void listForMap_500건상한초과_전체반환() {
+        List<com.hajacheck.core.facility.repository.FacilityMapProjection> projections =
+                java.util.stream.IntStream.range(0, 501)
+                        .mapToObj(i -> facilityMapProjection((long) (i + 1), "시설" + i, "BUILDING", null, null))
+                        .toList();
+        when(facilityRepository.findMapProjectionsByCompanyId(OWNER_ID)).thenReturn(projections);
+
+        com.hajacheck.core.facility.dto.FacilityMapResponse result = facilityService.listForMap(USER_ID, OWNER_ID);
+
+        assertThat(result.facilities()).hasSize(501);
+        // Pageable(상한) 인자를 받는 findByCompanyIdOrderByIdAsc가 아니라 무상한 전용 쿼리를 썼는지 확인.
+        verify(facilityRepository, never()).findByCompanyIdOrderByIdAsc(any(), any());
+    }
+
+    @Test
+    void listForMap_좌표유형좌표집계필드_계약대로매핑() {
+        java.math.BigDecimal lat = new java.math.BigDecimal("37.123456");
+        java.math.BigDecimal lng = new java.math.BigDecimal("127.123456");
+        when(facilityRepository.findMapProjectionsByCompanyId(OWNER_ID))
+                .thenReturn(List.of(facilityMapProjection(10L, "한강대교 북단", "BRIDGE", lat, lng)));
+        Inspection inspection = Inspection.builder()
+                .facilityId(10L).createdBy(USER_ID).assignedInspectorId(USER_ID).roundNo(1)
+                .inspectionDate(LocalDate.of(2026, 6, 21)).status(InspectionStatus.REVIEWED).build();
+        setInspectionId(inspection, 100L);
+        when(inspectionRepository.findLatestByFacilityIds(List.of(10L))).thenReturn(List.of(inspection));
+        when(defectRepository.countGroupByFacilityIdAndGrade(List.of(100L))).thenReturn(List.of(
+                facilityGradeCount(10L, DefectGrade.C, 2L),
+                facilityGradeCount(10L, DefectGrade.E, 1L)));
+        when(mediaRepository.findFirstIdsByFacilityIds(eq(List.of(10L)), eq(OWNER_ID)))
+                .thenReturn(List.of(mediaProjection(10L, 900L)));
+
+        com.hajacheck.core.facility.dto.FacilityMapResponse result = facilityService.listForMap(USER_ID, OWNER_ID);
+
+        assertThat(result.facilities()).hasSize(1);
+        var item = result.facilities().get(0);
+        assertThat(item.id()).isEqualTo(10L);
+        assertThat(item.name()).isEqualTo("한강대교 북단");
+        assertThat(item.latitude()).isEqualByComparingTo(lat);
+        assertThat(item.longitude()).isEqualByComparingTo(lng);
+        assertThat(item.facilityType()).isEqualTo("BRIDGE");
+        assertThat(item.highestGrade()).isEqualTo("E");
+        assertThat(item.warningCount()).isEqualTo(1L);
+        assertThat(item.cautionCount()).isEqualTo(2L);
+        assertThat(item.thumbnailUrl()).isEqualTo("/api/media/900/thumbnail");
+    }
+
+    @Test
+    void listForMap_하자없는시설_등급null_경고주의0_썸네일null() {
+        when(facilityRepository.findMapProjectionsByCompanyId(OWNER_ID))
+                .thenReturn(List.of(facilityMapProjection(10L, "강남 오피스타워", "BUILDING", null, null)));
+
+        com.hajacheck.core.facility.dto.FacilityMapResponse result = facilityService.listForMap(USER_ID, OWNER_ID);
+
+        var item = result.facilities().get(0);
+        assertThat(item.highestGrade()).isNull();
+        assertThat(item.warningCount()).isEqualTo(0L);
+        assertThat(item.cautionCount()).isEqualTo(0L);
+        assertThat(item.thumbnailUrl()).isNull();
+    }
+
+    @Test
+    void listForMap_타사스코프_FORBIDDEN예외() {
+        doThrow(new BusinessException(ErrorCode.FORBIDDEN))
+                .when(companyScopeGuard).requireEffectiveMembership(USER_ID, OWNER_ID);
+
+        assertThatThrownBy(() -> facilityService.listForMap(USER_ID, OWNER_ID))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo(ErrorCode.FORBIDDEN));
+        verify(facilityRepository, never()).findMapProjectionsByCompanyId(any());
+    }
+
     // ── 시설물 현황 전용 목록(#540 ⑥, HAJA-378) ──
 
     @Test

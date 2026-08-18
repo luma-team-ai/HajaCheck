@@ -38,6 +38,7 @@ import com.hajacheck.membership.service.PlanProvisioningService;
 import com.hajacheck.support.PostgresTestSupport;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import org.junit.jupiter.api.Test;
@@ -510,6 +511,73 @@ class FacilityControllerTest extends PostgresTestSupport {
     @Test
     void 현황목록_미인증_401() throws Exception {
         mockMvc.perform(get("/api/facilities/status"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ── 지도 전용 시설물 경량 목록(#1656) ──
+
+    @Test
+    void 지도목록_회사시설없으면_200_빈배열() throws Exception {
+        User owner = saveUser("map-owner1@haja.com");
+
+        mockMvc.perform(get("/api/facilities/map")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.facilities.length()").value(0));
+    }
+
+    @Test
+    void 지도목록_좌표하자등급집계_계약필드반환() throws Exception {
+        User owner = saveUser("map-owner2@haja.com");
+        Long companyId = owner.getCompanyId();
+        User inspector = saveInspector("map-inspector2@haja.com", companyId);
+        BigDecimal lat = new BigDecimal("37.123456");
+        BigDecimal lng = new BigDecimal("127.123456");
+        Facility facility = facilityRepository.save(Facility.builder()
+                .companyId(companyId)
+                .name("지도테스트빌딩")
+                .type("BUILDING")
+                .latitude(lat)
+                .longitude(lng)
+                .build());
+        Inspection inspection =
+                saveInspection(facility.getId(), owner.getId(), inspector.getId(), 1, LocalDate.now());
+        saveDefect(inspection.getId(), DefectGrade.C, DefectStatus.CONFIRMED);
+        saveDefect(inspection.getId(), DefectGrade.E, DefectStatus.CONFIRMED);
+
+        mockMvc.perform(get("/api/facilities/map")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.facilities.length()").value(1))
+                .andExpect(jsonPath("$.data.facilities[0].id").value(facility.getId()))
+                .andExpect(jsonPath("$.data.facilities[0].name").value("지도테스트빌딩"))
+                .andExpect(jsonPath("$.data.facilities[0].latitude").value(37.123456))
+                .andExpect(jsonPath("$.data.facilities[0].longitude").value(127.123456))
+                .andExpect(jsonPath("$.data.facilities[0].facilityType").value("BUILDING"))
+                .andExpect(jsonPath("$.data.facilities[0].highestGrade").value("E"))
+                .andExpect(jsonPath("$.data.facilities[0].warningCount").value(1))
+                .andExpect(jsonPath("$.data.facilities[0].cautionCount").value(1));
+    }
+
+    // #1656 P1 — GET /facilities(FACILITY_LIST_MAX=500)와 달리 500건을 넘는 회사도 전체가 응답에
+    // 담겨야 한다. MVC 통합 테스트에서 501건을 시드하면 느려지므로, 이 경계는 리포지토리/서비스 단위
+    // 테스트(FacilityRepositoryTest/FacilityServiceTest)에서 검증하고 여기서는 회사 스코프 격리만 확인한다.
+    @Test
+    void 지도목록_타회사시설물은응답에없음() throws Exception {
+        User owner = saveUser("map-owner3@haja.com");
+        User otherOwner = saveUser("map-owner4@haja.com");
+        saveFacility(otherOwner.getId());
+
+        mockMvc.perform(get("/api/facilities/map")
+                        .with(csrf()).with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.facilities.length()").value(0));
+    }
+
+    @Test
+    void 지도목록_미인증_401() throws Exception {
+        mockMvc.perform(get("/api/facilities/map"))
                 .andExpect(status().isUnauthorized());
     }
 

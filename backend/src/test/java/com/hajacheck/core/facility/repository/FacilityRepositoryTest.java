@@ -141,6 +141,58 @@ class FacilityRepositoryTest extends PostgresTestSupport {
                 .containsExactlyInAnyOrder("1번소유자시설A", "1번소유자시설B");
     }
 
+    // 지도 전용 경량 엔드포인트(#1656) — findByCompanyIdOrderByIdAsc(Pageable)의 500건 상한과 달리
+    // 상한 없이 회사 시설물 전체를 반환해야 한다(P1 재발 방지). 상한 500을 넘는 501건을 시드해 확인한다.
+    @Test
+    void findMapProjectionsByCompanyId_상한초과_501건도_상한없이전체반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        for (int i = 0; i < 501; i++) {
+            facilityRepository.save(newFacility(ownerId, "지도시설" + i));
+        }
+
+        List<FacilityMapProjection> found = facilityRepository.findMapProjectionsByCompanyId(ownerId);
+
+        assertThat(found).hasSize(501);
+    }
+
+    @Test
+    void findMapProjectionsByCompanyId_좌표유형필드_프로젝션반환() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Facility facility = Facility.builder()
+                .companyId(ownerId)
+                .name("지도테스트빌딩")
+                .type("BUILDING")
+                .address("서울시 강남구")
+                .latitude(new java.math.BigDecimal("37.123456"))
+                .longitude(new java.math.BigDecimal("127.123456"))
+                .build();
+        Facility saved = facilityRepository.save(facility);
+
+        List<FacilityMapProjection> found = facilityRepository.findMapProjectionsByCompanyId(ownerId);
+
+        assertThat(found).hasSize(1);
+        FacilityMapProjection projection = found.get(0);
+        assertThat(projection.getId()).isEqualTo(saved.getId());
+        assertThat(projection.getName()).isEqualTo("지도테스트빌딩");
+        assertThat(projection.getType()).isEqualTo("BUILDING");
+        assertThat(projection.getLatitude()).isEqualByComparingTo("37.123456");
+        assertThat(projection.getLongitude()).isEqualByComparingTo("127.123456");
+    }
+
+    @Test
+    void findMapProjectionsByCompanyId_타인소유는제외() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long otherOwnerId = seedOwner("owner-b@haja.com");
+        facilityRepository.save(newFacility(ownerId, "본인시설"));
+        facilityRepository.save(newFacility(otherOwnerId, "타인시설"));
+
+        List<FacilityMapProjection> found = facilityRepository.findMapProjectionsByCompanyId(ownerId);
+
+        assertThat(found).hasSize(1)
+                .extracting(FacilityMapProjection::getName)
+                .containsExactly("본인시설");
+    }
+
     // 시설물 목록 조회 상한(#484) — 상한 초과 데이터 시 limit(Pageable) 건수만 반환되는지 확인.
     @Test
     void findByCompanyIdOrderByIdAsc_상한초과시_limit건수만_id오름차순반환() {
