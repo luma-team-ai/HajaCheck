@@ -2,11 +2,14 @@ package com.hajacheck.demo.service;
 
 import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.config.PolicyProperties;
+import com.hajacheck.auth.entity.BusinessVerificationStatus;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.CompanyAccountWriter;
 import com.hajacheck.auth.support.FileStorageService;
+import com.hajacheck.demo.support.DemoCompanyProvenance;
 import com.hajacheck.auth.support.FileStorageService.StoredFile;
 import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.defect.entity.DefectGrade;
@@ -123,6 +126,7 @@ public class DemoSeedService {
     private final PolicyProperties policyProperties;
     private final PasswordEncoder passwordEncoder;
     private final CompanyAccountWriter companyAccountWriter;
+    private final CompanyRepository companyRepository;
     private final UserRepository userRepository;
     private final FacilityRepository facilityRepository;
     private final InspectionRepository inspectionRepository;
@@ -186,6 +190,40 @@ public class DemoSeedService {
         // ⚠️ 평문 비밀번호는 로그에 남기지 않는다(userId 만).
         demoAdmin.changePassword(passwordEncoder.encode(configured));
         log.info("데모 계정 비밀번호 재동기화 — 설정값 회전 감지, 해시 갱신 (userId={})", demoAdmin.getId());
+        return true;
+    }
+
+    /**
+     * 데모 회사가 국세청 재검증 배치({@code PendingBusinessReverifyScheduler})에 의해
+     * {@code FAILED}로 강등된 채 재기동됐다면 {@code VERIFIED}로 복구한다(#1648 자가복구) — 배치가
+     * 데모 회사를 스킵하도록 고쳤어도, 고치기 전에 이미 FAILED 로 찍힌 prod 데모 계정은 배치가 다시
+     * 만져주지 않으므로(재검증 대상에서 영구 제외) 재기동 시 여기서 되돌려야 자동 치유된다.
+     *
+     * <p>⚠️ {@code markBusinessVerified()}만 쓴다(provenance 미기록) — {@code markBusinessVerifiedByNts()}는
+     * 국세청이 실제로 확인해 준 적 없는 회사에 허위 {@code ntsOutcome} provenance 를 심는 것이라
+     * 금지한다(#1324 P1 재발, {@code PendingBusinessReverifyWriter#markVerified} 와 동일 이유로 여기선
+     * 반대로 "허위 기록 금지"가 핵심).
+     *
+     * <p>데모 회사가 아니거나(provenance 이중 판정 불일치), 이미 FAILED 가 아니면 아무것도 하지 않는다
+     * (no-op). {@code seedEnabled=false}면 호출부가 부르지 않는다.
+     *
+     * @return 복구했으면 true
+     */
+    @Transactional
+    public boolean healFailedVerificationIfNeeded() {
+        User demoAdmin = userRepository.findByEmail(demoProperties.getLoginId()).orElse(null);
+        if (demoAdmin == null || demoAdmin.getCompanyId() == null) {
+            return false;
+        }
+        Company company = companyRepository.findById(demoAdmin.getCompanyId()).orElse(null);
+        if (company == null || !DemoCompanyProvenance.isDemoSeeded(company)) {
+            return false;
+        }
+        if (company.getVerificationStatus() != BusinessVerificationStatus.FAILED) {
+            return false;
+        }
+        company.markBusinessVerified();
+        log.warn("데모 회사 재검증 FAILED 자가복구 — VERIFIED 로 되돌림 (companyId={})", company.getId());
         return true;
     }
 
