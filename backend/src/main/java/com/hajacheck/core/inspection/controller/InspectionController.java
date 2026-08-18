@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 점검(회차) 생성 — PRD §7 "🔍 점검 관리 A"(황승현 주담당) / dev-05-02.
+ * 점검(회차) 생성 — PRD §7 "🔍 점검 관리 A"(오영석 주담당) / dev-05-02.
  */
 @Tag(name = "Inspection", description = "점검 회차 API")
 @RestController
