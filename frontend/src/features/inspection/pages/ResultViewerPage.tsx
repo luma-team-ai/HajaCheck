@@ -826,12 +826,21 @@ export function ResultViewerPage() {
                   className="flex-[7]"
                   onClick={handleConfirmReview}
                   disabled={
-                    isUpdating || !selected || selected.status !== 'DETECTED' || selected.grade == null
+                    isUpdating ||
+                    !selected ||
+                    selected.status !== 'DETECTED' ||
+                    selected.grade == null ||
+                    // 등급수정이 이미 reviewed=true를 세웠다면(#1643 1.1안) 이 버튼으로 다시
+                    // 확정할 필요가 없다 — 등급수정만으로 검수 카운트가 오르는데 이 버튼까지
+                    // 별도로 눌리는 것을 버그로 오인하는 문제를 막는다.
+                    selected.isReviewed
                   }
                   title={
                     selected && selected.status === 'DETECTED' && selected.grade == null
                       ? '등급이 없는 하자입니다. 먼저 우측 «등급 수정»으로 등급을 지정하세요.'
-                      : ''
+                      : selected && selected.status === 'DETECTED' && selected.isReviewed
+                        ? '등급 수정으로 이미 검수가 완료된 하자입니다.'
+                        : ''
                   }
                 >
                   이 하자 검수 확정
@@ -878,7 +887,10 @@ export function ResultViewerPage() {
                         </div>
                       ) : (
                         <div className="flex-1 rounded-[12px] border border-border bg-surface-muted p-4">
-                          <div className="mb-2 text-xs text-text-muted">면적 비율</div>
+                          {/* "면적 비율"은 실측 면적으로 오해될 수 있어 정직화(#1643) — 실제로는
+                              마스크 면적/사진(이미지) 면적의 비율이지 실측 면적이 아니다. 표시값
+                              계산(areaRatio)은 변경하지 않는다. */}
+                          <div className="mb-2 text-xs text-text-muted">사진 내 비율</div>
                           <div className="text-xl font-bold text-text-default">
                             {selected.areaRatio !== undefined ? `${Math.round(selected.areaRatio * 100)}%` : '준비 중'}
                           </div>
@@ -1074,6 +1086,12 @@ export function ResultViewerPage() {
         <div className="flex flex-col gap-4">
           <p className="text-xs text-text-muted">
             보정된 심각도 등급 선택수동 검토에 기반하여
+          </p>
+          {/* 등급 확정=검수 완료 집계 안내(#1643) — 등급수정 API가 백엔드에서 reviewed=true를
+              세우므로(현행 유지), 별도로 '이 하자 검수 확정'을 누르지 않아도 이미 검수로
+              집계된다는 것을 여기서 먼저 알린다. */}
+          <p className="text-xs text-text-muted">
+            등급을 확정하면 이 하자는 별도 확정 없이 검수 완료로 집계됩니다.
           </p>
           {errorMessage && (
             <div className="rounded-lg bg-red-100 p-3 text-sm text-red-700">{errorMessage}</div>
