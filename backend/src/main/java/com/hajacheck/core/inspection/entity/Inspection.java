@@ -89,9 +89,19 @@ public class Inspection {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    /**
+     * 점검 실제 수행 시각(V43, #1667) — 동일 {@code inspectionDate}(날짜만 저장) 내 여러 회차의 실제
+     * 수행 순서를 보장하기 위한 tie-break 값. 사용자 입력 UI는 없고, 회차의 첫 INSPECTION_SOURCE 미디어
+     * 업로드 시 {@link #applyPerformedAt}으로 자동 세팅된다(MediaWriter). nullable — 미디어가 아직 없는
+     * 회차는 null이며, 정렬 시 {@code nulls last}로 취급한다(InspectionRepository 참고).
+     */
+    @Column(name = "performed_at")
+    private LocalDateTime performedAt;
+
     @Builder
     private Inspection(Long facilityId, Long createdBy, Long assignedInspectorId, Integer roundNo,
-                        LocalDate inspectionDate, InspectionType type, InspectionStatus status) {
+                        LocalDate inspectionDate, InspectionType type, InspectionStatus status,
+                        LocalDateTime performedAt) {
         this.facilityId = facilityId;
         this.createdBy = createdBy;
         this.assignedInspectorId = assignedInspectorId;
@@ -99,6 +109,7 @@ public class Inspection {
         this.inspectionDate = inspectionDate;
         this.type = type == null ? InspectionType.REGULAR : type;
         this.status = status == null ? InspectionStatus.CREATED : status;
+        this.performedAt = performedAt;
     }
 
     /**
@@ -122,5 +133,19 @@ public class Inspection {
                     "허용되지 않은 점검 상태 전이: " + this.status + " -> " + next + " (inspectionId=" + this.id + ")");
         }
         this.status = next;
+    }
+
+    /**
+     * 점검 수행 시각 자동 세팅(V43, #1667) — MediaWriter가 회차의 INSPECTION_SOURCE 미디어 저장 직후
+     * 호출한다. null candidate는 무시하고, 이미 값이 있으면 더 이른 시각일 때만 갱신한다(늦은 값으로
+     * 덮지 않음 — 가장 이른 촬영/업로드 시각이 "점검을 시작한 시점"에 가장 가깝다는 가정).
+     */
+    public void applyPerformedAt(LocalDateTime candidate) {
+        if (candidate == null) {
+            return;
+        }
+        if (this.performedAt == null || candidate.isBefore(this.performedAt)) {
+            this.performedAt = candidate;
+        }
     }
 }
