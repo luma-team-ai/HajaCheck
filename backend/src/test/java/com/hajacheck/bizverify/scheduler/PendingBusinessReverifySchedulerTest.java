@@ -16,6 +16,7 @@ import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.bizverify.config.PendingBusinessReverifyProperties;
 import com.hajacheck.bizverify.service.NtsBusinessVerifyClient;
 import com.hajacheck.bizverify.service.NtsVerificationOutcome;
+import com.hajacheck.demo.service.DemoSeedService;
 import java.time.LocalDate;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +55,16 @@ class PendingBusinessReverifySchedulerTest {
         lenient().when(company.getBusinessRegistrationNumber()).thenReturn(brn);
         lenient().when(company.getRepresentativeName()).thenReturn(rep);
         lenient().when(company.getBusinessStartDate()).thenReturn(START);
+        lenient().when(company.getBusinessRegistrationOcrRaw()).thenReturn("{\"source\":\"MANUAL_INPUT\"}");
+        return company;
+    }
+
+    /** BRN + provenance 표식이 모두 데모 시드 상수와 일치하는 "진짜 데모 회사" 목(이중 판정 양쪽 충족). */
+    private Company demoCompany(long id) {
+        Company company = pendingCompany(id, DemoSeedService.DEMO_BUSINESS_NUMBER, "데모 관리자");
+        lenient().when(company.getBusinessRegistrationOcrRaw())
+                .thenReturn("{\"" + DemoSeedService.DEMO_SEED_PROVENANCE_FIELD + "\":\""
+                        + DemoSeedService.DEMO_SEED_PROVENANCE_SOURCE + "\"}");
         return company;
     }
 
@@ -167,5 +178,50 @@ class PendingBusinessReverifySchedulerTest {
 
         verify(writer).markVerified(2L);
         verify(writer, never()).markFailed(eq(1L), any());
+    }
+
+    @Test
+    @DisplayName("#1648 데모 시드 회사는 국세청 호출·writer 갱신 없이 스킵되고, 비데모 회사는 기존대로 처리된다")
+    void 데모_회사는_국세청_호출없이_스킵되고_비데모_회사는_그대로_처리된다() {
+        Company demo = demoCompany(1L);
+        Company normal = pendingCompany(2L, "1234567890", "김민수");
+        stubTargets(List.of(demo, normal));
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("1234567890"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+
+        scheduler.reverifyPendingCompanies();
+
+        // 데모 회사는 국세청 클라이언트를 아예 타지 않는다(실존 불가 BRN이라 호출하면 항상 확정 불량).
+        verify(ntsBusinessVerifyClient, never())
+                .verifyRealtime(eq(DemoSeedService.DEMO_BUSINESS_NUMBER), anyString(), any());
+        verify(writer, never()).markVerified(1L);
+        verify(writer, never()).markFailed(eq(1L), any());
+        // 비데모 회사는 기존대로 국세청 호출·VERIFIED 반영이 이뤄진다.
+        verify(ntsBusinessVerifyClient).verifyRealtime(eq("1234567890"), anyString(), any());
+        verify(writer).markVerified(2L);
+    }
+
+    @Test
+    @DisplayName("#1648 BRN·provenance 이중 판정 — 한쪽만 일치하면 데모로 인정하지 않고 정상 처리한다")
+    void 이중판정_한쪽만_일치하면_스킵하지_않는다() {
+        // BRN은 데모 상수와 일치하지만 provenance 표식이 없다(실사용 회사가 우연히 같은 BRN을 못 쓰는
+        // 상수값이지만, 이중 판정 자체를 고정하는 회귀 테스트로 남긴다).
+        Company brnOnly = pendingCompany(1L, DemoSeedService.DEMO_BUSINESS_NUMBER, "A");
+        // provenance 표식은 있지만 BRN이 데모 상수와 다르다(실사용 회사에 표식만 잘못 심긴 경우 방어).
+        Company markerOnly = pendingCompany(2L, "5555555555", "B");
+        when(markerOnly.getBusinessRegistrationOcrRaw())
+                .thenReturn("{\"" + DemoSeedService.DEMO_SEED_PROVENANCE_FIELD + "\":\""
+                        + DemoSeedService.DEMO_SEED_PROVENANCE_SOURCE + "\"}");
+        stubTargets(List.of(brnOnly, markerOnly));
+        when(ntsBusinessVerifyClient.verifyRealtime(anyString(), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+
+        scheduler.reverifyPendingCompanies();
+
+        // 둘 다 데모로 인정되지 않아 정상적으로 국세청 호출·VERIFIED 반영된다.
+        verify(ntsBusinessVerifyClient).verifyRealtime(eq(DemoSeedService.DEMO_BUSINESS_NUMBER), anyString(), any());
+        verify(ntsBusinessVerifyClient).verifyRealtime(eq("5555555555"), anyString(), any());
+        verify(writer).markVerified(1L);
+        verify(writer).markVerified(2L);
     }
 }

@@ -5,6 +5,7 @@ import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.bizverify.config.PendingBusinessReverifyProperties;
 import com.hajacheck.bizverify.service.NtsBusinessVerifyClient;
 import com.hajacheck.bizverify.service.NtsVerificationOutcome;
+import com.hajacheck.demo.support.DemoCompanyProvenance;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +44,14 @@ import org.springframework.stereotype.Component;
  *   <li>{@link NtsVerificationOutcome#SKIPPED}(국세청 장애·미설정) → 아무 갱신도 하지 않는다(현 상태
  *       유지, 다음 회차 재시도) — 장애로 인한 SKIPPED를 FAILED로 잘못 확정하면 안 되는 것이 핵심.</li>
  * </ul>
+ *
+ * <p><b>데모 회사 스킵</b>(#1648): 데모 시더가 만든 회사는 BRN 이 실존 불가 값
+ * ({@code DemoSeedService#DEMO_BUSINESS_NUMBER})이라 국세청에 조회하면 항상 확정 불량으로 응답돼
+ * {@link PendingBusinessReverifyWriter#markFailed}(FAILED)로 강등되고, FAILED 는 재검증 대상에서 영구
+ * 제외돼 회사 스코프가 다시 열리지 않는다(prod 데모 계정 전 API 403 재발). 국세청 호출 <b>전에</b>
+ * {@link DemoCompanyProvenance#isDemoSeeded}(BRN+provenance 이중 판정, {@code DemoResetService}와 공유)로
+ * 걸러 국세청을 아예 호출하지 않는다 — {@code findNtsReverifyTargets} SQL 자체는 건드리지 않는다(데모
+ * 하드코딩을 쿼리에 넣지 않는다).
  *
  * <p><b>총량 통제</b>: {@link PendingBusinessReverifyProperties#isEnabled()} 킬스위치 +
  * {@link PendingBusinessReverifyProperties#getMaxBatchSize()} 회차당 상한(설정값, Properties Javadoc
@@ -91,7 +100,15 @@ public class PendingBusinessReverifyScheduler {
         int failed = 0;
         int skipped = 0;
         int errored = 0;
+        int demoSkipped = 0;
         for (Company company : targets) {
+            if (DemoCompanyProvenance.isDemoSeeded(company)) {
+                // 데모 회사는 국세청에 실재하지 않는 BRN 이라 호출하면 항상 확정 불량(FAILED)으로
+                // 강등되어 회사 스코프가 영구 차단된다(#1648) — 국세청 호출 전에 스킵한다.
+                demoSkipped++;
+                log.debug("사업자 재검증 스킵 — 데모 시드 회사 (companyId={})", company.getId());
+                continue;
+            }
             try {
                 NtsVerificationOutcome outcome = ntsBusinessVerifyClient.verifyRealtime(
                         company.getBusinessRegistrationNumber(),
@@ -118,7 +135,8 @@ public class PendingBusinessReverifyScheduler {
             }
         }
 
-        log.info("사업자 재검증 배치 완료 — 대상 {}건, VERIFIED {}건, FAILED {}건, 스킵 {}건, 오류 {}건",
-                targets.size(), verified, failed, skipped, errored);
+        log.info("사업자 재검증 배치 완료 — 대상 {}건, VERIFIED {}건, FAILED {}건, 스킵 {}건, "
+                        + "데모스킵 {}건, 오류 {}건",
+                targets.size(), verified, failed, skipped, demoSkipped, errored);
     }
 }
