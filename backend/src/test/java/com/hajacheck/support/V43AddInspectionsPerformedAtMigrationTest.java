@@ -20,9 +20,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * V43(inspections.performed_at 컬럼 추가 + 백필, #1667)의 컬럼/백필 <b>데이터 전이 범위</b>를 격리
  * 검증한다(V41AddMediaPurposeMigrationTest와 동일한 target(N)/target(N+1) 대조 패턴).
  *
- * <p>백필 우선순위: 회차의 INSPECTION_SOURCE 미디어 중 min(captured_at) → 없으면 min(created_at) →
- * 미디어가 아예 없으면 null 유지. DEFECT_ACTION 미디어는 백필 대상에서 제외한다(V41 purpose 구분과
- * 동일 원칙 — 조치 후 사진은 실제 점검 수행 이후 등록될 수 있다).
+ * <p>백필 우선순위: 회차의 INSPECTION_SOURCE 미디어 중 (2000-01-01 ~ now() 범위의) min(captured_at) →
+ * 없으면 min(created_at) → 미디어가 아예 없으면 null 유지. DEFECT_ACTION 미디어는 백필 대상에서
+ * 제외한다(V41 purpose 구분과 동일 원칙 — 조치 후 사진은 실제 점검 수행 이후 등록될 수 있다). 범위
+ * 가드(PR머신 리뷰 P2, #1673)는 라이브 경로(MediaWriter.resolveCandidate의 EXIF_SANITY_FLOOR)와 동일한
+ * 이상값 정의를 재현한다.
  *
  * <p>빈 DB(신규 설치) 경로는 {@code FlywayBaselineIntegrationTest}가, 캐노니컬 DDL 기존 DB 경로는
  * {@code FlywayBaselineOnExistingDbIntegrationTest}가 각각 V43 포함 전량 적용을 이미 검증한다.
@@ -102,6 +104,73 @@ class V43AddInspectionsPerformedAtMigrationTest {
 
         // 원본 촬영사진 시각만 반영 — 더 이른 조치 후 사진 시각에 끌려가지 않는다.
         assertThat(performedAtOf(jdbc, fx.inspectionId())).isEqualTo(sourceCapturedAt);
+    }
+
+    // ── EXIF 이상값 방어(PR머신 리뷰 P2, #1673) ──────────────────────────────
+    // MediaWriter.resolveCandidate(라이브 경로)는 captured_at이 2000-01-01 이전이거나 업로드 시각보다
+    // 미래면 이상값으로 보고 업로드 시각으로 폴백한다. 백필(V43)도 동일 경계(2000-01-01 ~ now())를
+    // 재현해야 라이브/백필이 같은 의미론을 갖는다 — 아래 테스트는 그 정합을 고정한다.
+
+    @Test
+    void 백필_captured_at이1999년이전이면_이상값으로보고created_at으로대체된다() {
+        migrateTo("41");
+        JdbcTemplate jdbc = jdbc();
+        Fixture fx = seedInspectionWithOwner(jdbc, "v43-bogus-past");
+        LocalDateTime bogusPast = LocalDateTime.of(1999, 12, 31, 23, 59); // MediaWriter.EXIF_SANITY_FLOOR 미만.
+        LocalDateTime uploadedAt = LocalDateTime.of(2026, 8, 10, 9, 0);
+        insertMedia(jdbc, fx.inspectionId(), "v43/bogus-past.png", "INSPECTION_SOURCE", bogusPast, uploadedAt);
+
+        migrateTo("43");
+
+        // 이상값(1999년)이 첫 서브쿼리의 범위 가드(>= 2000-01-01)에 걸려 min(captured_at) 후보에서
+        // 제외되므로 created_at 폴백으로 넘어간다 — 라이브 경로(MediaWriter.resolveCandidate)와 동일.
+        assertThat(performedAtOf(jdbc, fx.inspectionId())).isEqualTo(uploadedAt);
+    }
+
+    @Test
+    void 백필_captured_at이미래면_이상값으로보고created_at으로대체된다() {
+        migrateTo("41");
+        JdbcTemplate jdbc = jdbc();
+        Fixture fx = seedInspectionWithOwner(jdbc, "v43-bogus-future");
+        LocalDateTime bogusFuture = LocalDateTime.of(2099, 1, 1, 0, 0); // 마이그레이션 실행 시점 now() 이후.
+        LocalDateTime uploadedAt = LocalDateTime.of(2026, 8, 10, 9, 0);
+        insertMedia(jdbc, fx.inspectionId(), "v43/bogus-future.png", "INSPECTION_SOURCE", bogusFuture, uploadedAt);
+
+        migrateTo("43");
+
+        assertThat(performedAtOf(jdbc, fx.inspectionId())).isEqualTo(uploadedAt);
+    }
+
+    @Test
+    void 백필_captured_at이정확히2000년경계면_이상값이아니라그값그대로사용된다() {
+        // 라이브(MediaWriter.EXIF_SANITY_FLOOR)·백필(V43 range guard) 양쪽 다 경계값 자체는 유효로
+        // 취급한다(>=, isBefore 미해당) — 두 경로가 같은 경계 판정을 공유하는지 고정.
+        migrateTo("41");
+        JdbcTemplate jdbc = jdbc();
+        Fixture fx = seedInspectionWithOwner(jdbc, "v43-boundary-floor");
+        LocalDateTime floor = LocalDateTime.of(2000, 1, 1, 0, 0);
+        insertMedia(jdbc, fx.inspectionId(), "v43/floor.png", "INSPECTION_SOURCE", floor, null);
+
+        migrateTo("43");
+
+        assertThat(performedAtOf(jdbc, fx.inspectionId())).isEqualTo(floor);
+    }
+
+    @Test
+    void 백필_이상값과정상EXIF값이섞이면_범위가드통과한정상값의최솟값을사용한다() {
+        migrateTo("41");
+        JdbcTemplate jdbc = jdbc();
+        Fixture fx = seedInspectionWithOwner(jdbc, "v43-mixed-bogus-normal");
+        LocalDateTime bogus = LocalDateTime.of(1970, 1, 1, 0, 0); // 산술적으로는 더 이르지만 범위 밖.
+        LocalDateTime normal = LocalDateTime.of(2026, 8, 10, 9, 0);
+        insertMedia(jdbc, fx.inspectionId(), "v43/bogus.png", "INSPECTION_SOURCE", bogus, null);
+        insertMedia(jdbc, fx.inspectionId(), "v43/normal.png", "INSPECTION_SOURCE", normal, null);
+
+        migrateTo("43");
+
+        // 범위 가드가 min() 계산 전에 이상값을 걸러내므로, 산술적 최솟값(1970년)이 아니라 범위를
+        // 통과한 값 중 최솟값(정상 EXIF 1건뿐이므로 그 값 그대로)이 쓰인다.
+        assertThat(performedAtOf(jdbc, fx.inspectionId())).isEqualTo(normal);
     }
 
     @Test
