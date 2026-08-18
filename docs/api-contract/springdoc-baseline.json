@@ -6,7 +6,7 @@
     },
     "servers": [
         {
-            "url": "http://localhost:8080",
+            "url": "http://127.0.0.1:8080",
             "description": "Generated server url"
         }
     ],
@@ -466,6 +466,39 @@
                 }
             }
         },
+        "/api/reports/{id}/resync-defects": {
+            "post": {
+                "tags": [
+                    "Report"
+                ],
+                "summary": "\ubcf4\uace0\uc11c \ud558\uc790 \ubaa9\ub85d \uc7ac\ub3d9\uae30\ud654",
+                "description": "\ubcf8\ubb38(detail.items)\uc744 \ud604\uc7ac \ud655\uc815 \ud558\uc790 \ubaa9\ub85d \uae30\uc900\uc73c\ub85c \uc7ac\uad6c\uc131\ud55c\ub2e4(\uc790\ub3d9 \uc7ac\uad6c\uc131 \ubc84\ud2bc) \u2014 \uc5ec\uc804\ud788 \ud655\uc815 \uc0c1\ud0dc\uc778 \ud56d\ubaa9\uc740 \uc11c\uc220(\uc124\uba85\u00b7\uc6d0\uc778)\uc744 \ubcf4\uc874\ud558\uace0, \ud655\uc815\uc5d0\uc11c \ube60\uc9c4 \ud56d\ubaa9\ub9cc \uc81c\uac70\ud558\uba70, \uc0c8\ub85c \ud655\uc815\ub41c \ud558\uc790\ub294 \uad6c\uc870 \ud544\ub4dc\ub9cc \ucc44\uc6cc \ucd94\uac00\ud55c\ub2e4(\uc11c\uc220\uc740 \uc9c1\uc811 \uc791\uc131 \ud544\uc694). \ubcf8\ubb38\uc774 \ubc14\ub00c\ubbc0\ub85c grounding \ud310\uc815\uc740 \ucd08\uae30\ud654\ub41c\ub2e4 \u2014 DRAFT \ubcf4\uace0\uc11c\uc5d0\ub9cc \uc0ac\uc6a9\ud55c\ub2e4",
+                "operationId": "resyncDefects",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseReportDefectSyncResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/reports/{id}/pdf": {
             "post": {
                 "tags": [
@@ -523,7 +556,7 @@
                     "Report"
                 ],
                 "summary": "\ubcf4\uace0\uc11c \uadfc\uac70 \uc7ac\uac80\uc99d(\uad6c\uc870 \uac80\uc99d)",
-                "description": "AI \uc11c\ubc84 \uc7ac\ud638\ucd9c \uc5c6\uc774 \ubcf8\ubb38(detail.items)\uacfc \ud655\uc815 \ud558\uc790 \ubaa9\ub85d\uc744 \uc720\ud615+\ub4f1\uae09 \uae30\uc900\uc73c\ub85c \ub300\uc870\ud574 grounding \ud310\uc815\uc744 \ubcf5\uad6c\ud55c\ub2e4 \u2014 \ud3b8\uc9d1(PATCH) \ud6c4 \ud655\uc815\uc774 \ub9c9\ud78c DRAFT \ubcf4\uace0\uc11c\uc5d0\ub9cc \uc0ac\uc6a9\ud55c\ub2e4",
+                "description": "AI \uc11c\ubc84 \uc7ac\ud638\ucd9c \uc5c6\uc774 \ubcf8\ubb38(detail.items)\uacfc \ud655\uc815 \ud558\uc790 \ubaa9\ub85d\uc744 \uc720\ud615+\ub4f1\uae09 \uae30\uc900\uc73c\ub85c \ub300\uc870\ud574 grounding \ud310\uc815\uc744 \ubcf5\uad6c\ud55c\ub2e4 \u2014 \ud3b8\uc9d1(PATCH) \ud6c4 \ud655\uc815\uc774 \ub9c9\ud78c DRAFT \ubcf4\uace0\uc11c\uc5d0\ub9cc \uc0ac\uc6a9\ud55c\ub2e4. \uc751\ub2f5\uc758 diff\ub294 resync-defects\ub97c \ud638\ucd9c\ud558\uba74 \ubcf8\ubb38\uc774 \uc5b4\ub5bb\uac8c \ubc14\ub014\uc9c0 \ubbf8\ub9ac \ubcf4\uc5ec\uc900\ub2e4",
                 "operationId": "recheckGrounding",
                 "parameters": [
                     {
@@ -542,7 +575,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponseReportDetailResponse"
+                                    "$ref": "#/components/schemas/ApiResponseReportDefectSyncResponse"
                                 }
                             }
                         }
@@ -1188,7 +1221,7 @@
                     "Media"
                 ],
                 "summary": "\ucd2c\uc601 \ub370\uc774\ud130 \uc5c5\ub85c\ub4dc",
-                "description": "\uc810\uac80 \ud68c\ucc28\uc5d0 \uc774\ubbf8\uc9c0(JPG/PNG) \ub2e4\uc911 \uc5c5\ub85c\ub4dc",
+                "description": "\uc810\uac80 \ud68c\ucc28\uc5d0 \uc774\ubbf8\uc9c0(JPG/PNG) \ub2e4\uc911 \uc5c5\ub85c\ub4dc. purpose \ubbf8\uc9c0\uc815 \uc2dc INSPECTION_SOURCE(\uc6d0\ubcf8 \ucd2c\uc601)\ub85c \uc800\uc7a5\ub418\uba70, \uc870\uce58 \ud6c4 \uc0ac\uc9c4 \uc5c5\ub85c\ub4dc\ub294 DEFECT_ACTION\uc744 \uba85\uc2dc\ud55c\ub2e4(#1641) \u2014 \ubd84\uc11d\u00b7\ubd84\uc11d\uacb0\uacfc\ubdf0\uc5b4(#803) \uc81c\uc678 \ub300\uc0c1.",
                 "operationId": "uploadMedia",
                 "parameters": [
                     {
@@ -1198,6 +1231,19 @@
                         "schema": {
                             "type": "integer",
                             "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "purpose",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "default": "INSPECTION_SOURCE",
+                            "enum": [
+                                "INSPECTION_SOURCE",
+                                "DEFECT_ACTION"
+                            ]
                         }
                     }
                 ],
@@ -2082,6 +2128,28 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponseFindIdResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/auth/demo-login": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "\ub370\ubaa8 \uc6d0\ud074\ub9ad \ub85c\uadf8\uc778",
+                "description": "\uc694\uccad \ubc14\ub514 \uc5c6\uc774 \uc11c\ubc84 \ubcf4\uad00 \ub370\ubaa8 \uacc4\uc815(\uae30\uc5c5 ADMIN)\uc73c\ub85c \ub85c\uadf8\uc778\ud55c\ub2e4. \uc131\uacf5 \uc751\ub2f5\u00b7\uc138\uc158\uc740 \uae30\uc5c5 \ub85c\uadf8\uc778\uacfc \ub3d9\uc77c. \ub370\ubaa8 \uae30\ub2a5 \ube44\ud65c\uc131 \uc2dc 404 AUTH_DEMO_DISABLED, \ubd84\ub2f9 \uc804\uc5ed \ud55c\ub3c4 \ucd08\uacfc \uc2dc 429 AUTH_TOO_MANY_REQUESTS.",
+                "operationId": "demoLogin",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseUserResponse"
                                 }
                             }
                         }
@@ -4411,6 +4479,28 @@
                 }
             }
         },
+        "/api/facilities/map": {
+            "get": {
+                "tags": [
+                    "Facility"
+                ],
+                "summary": "\uc9c0\ub3c4 \uc804\uc6a9 \uc2dc\uc124\ubb3c \uacbd\ub7c9 \ubaa9\ub85d \uc870\ud68c",
+                "description": "\ub85c\uadf8\uc778 \uc0ac\uc6a9\uc790\uc758 \ud68c\uc0ac\uac00 \uc18c\uc720\ud55c \uc2dc\uc124\ubb3c \uc804\uccb4\ub97c \uc9c0\ub3c4 \ub9c8\ucee4 \ub80c\ub354\ub9c1\uc5d0 \ud544\uc694\ud55c \uc88c\ud45c\u00b7\uc720\ud615\u00b7\ud558\uc790 \ub4f1\uae09 \uc9d1\uacc4 \ud544\ub4dc\ub9cc \ud504\ub85c\uc81d\uc158\ud574 \uc0c1\ud55c \uc5c6\uc774 \ubc18\ud658\ud55c\ub2e4(#1656). \uae30\uc874 GET /facilities\uc758 500\uac74 \uc0c1\ud55c(FACILITY_LIST_MAX)\uc5d0 \uac78\ub9ac\uba74 \uc9c0\ub3c4 \ub9c8\ucee4\uac00 \ubb34\uace0\uc9c0\ub85c \ub204\ub77d\ub418\ub294 \ubb38\uc81c(P1)\ub97c \ud574\uc18c\ud55c\ub2e4.",
+                "operationId": "listForMap",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponseFacilityMapResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/facilities/assignable-users": {
             "get": {
                 "tags": [
@@ -6252,6 +6342,7 @@
                     "createdAt",
                     "email",
                     "id",
+                    "isDemo",
                     "name",
                     "profileImageUrl",
                     "role",
@@ -6300,10 +6391,13 @@
                             "SUSPENDED",
                             "WAITING"
                         ]
+                    },
+                    "isDemo": {
+                        "type": "boolean"
                     }
                 }
             },
-            "ApiResponseReportPdfResponse": {
+            "ApiResponseReportDefectSyncResponse": {
                 "required": [
                     "data",
                     "error",
@@ -6315,37 +6409,7 @@
                         "type": "boolean"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/ReportPdfResponse"
-                    },
-                    "error": {
-                        "$ref": "#/components/schemas/ErrorBody"
-                    }
-                }
-            },
-            "ReportPdfResponse": {
-                "required": [
-                    "pdfUrl"
-                ],
-                "type": "object",
-                "properties": {
-                    "pdfUrl": {
-                        "type": "string"
-                    }
-                }
-            },
-            "ApiResponseReportDetailResponse": {
-                "required": [
-                    "data",
-                    "error",
-                    "success"
-                ],
-                "type": "object",
-                "properties": {
-                    "success": {
-                        "type": "boolean"
-                    },
-                    "data": {
-                        "$ref": "#/components/schemas/ReportDetailResponse"
+                        "$ref": "#/components/schemas/ReportDefectSyncResponse"
                     },
                     "error": {
                         "$ref": "#/components/schemas/ErrorBody"
@@ -6488,6 +6552,26 @@
                     "actionAssigneeId": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "ExtraDefectItem": {
+                "required": [
+                    "defectId",
+                    "defectType",
+                    "severityGrade"
+                ],
+                "type": "object",
+                "properties": {
+                    "defectId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "defectType": {
+                        "type": "string"
+                    },
+                    "severityGrade": {
+                        "type": "string"
                     }
                 }
             },
@@ -6675,6 +6759,41 @@
                     }
                 }
             },
+            "MissingDefectItem": {
+                "required": [
+                    "defectId",
+                    "defectType",
+                    "location",
+                    "severityGrade",
+                    "typeLabel"
+                ],
+                "type": "object",
+                "properties": {
+                    "defectId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "defectType": {
+                        "type": "string",
+                        "enum": [
+                            "CRACK",
+                            "SPALLING",
+                            "LEAK_EFFLORESCENCE",
+                            "REBAR_EXPOSURE",
+                            "PAINT_DAMAGE"
+                        ]
+                    },
+                    "typeLabel": {
+                        "type": "string"
+                    },
+                    "severityGrade": {
+                        "type": "string"
+                    },
+                    "location": {
+                        "type": "string"
+                    }
+                }
+            },
             "ReportContext": {
                 "required": [
                     "assignedInspector",
@@ -6713,6 +6832,199 @@
                         "items": {
                             "$ref": "#/components/schemas/MediaContext"
                         }
+                    }
+                }
+            },
+            "ReportDefectDiffResponse": {
+                "required": [
+                    "extraItems",
+                    "missingDefects",
+                    "unmatchedItems"
+                ],
+                "type": "object",
+                "properties": {
+                    "missingDefects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MissingDefectItem"
+                        }
+                    },
+                    "extraItems": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExtraDefectItem"
+                        }
+                    },
+                    "unmatchedItems": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/UnmatchedItem"
+                        }
+                    }
+                }
+            },
+            "ReportDefectSyncResponse": {
+                "required": [
+                    "content",
+                    "context",
+                    "createdAt",
+                    "createdBy",
+                    "diff",
+                    "editedBy",
+                    "groundingCheckPassed",
+                    "id",
+                    "inspectionId",
+                    "pdfUrl",
+                    "status",
+                    "updatedAt",
+                    "version"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "inspectionId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "version": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "content": {
+                        "$ref": "#/components/schemas/JsonNode"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "DRAFT",
+                            "FINALIZED"
+                        ]
+                    },
+                    "groundingCheckPassed": {
+                        "type": "boolean"
+                    },
+                    "pdfUrl": {
+                        "type": "string"
+                    },
+                    "editedBy": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "createdBy": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "createdAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updatedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "context": {
+                        "$ref": "#/components/schemas/ReportContext"
+                    },
+                    "diff": {
+                        "$ref": "#/components/schemas/ReportDefectDiffResponse"
+                    }
+                }
+            },
+            "UnmatchedItem": {
+                "required": [
+                    "defectType",
+                    "severityGrade"
+                ],
+                "type": "object",
+                "properties": {
+                    "defectType": {
+                        "type": "string"
+                    },
+                    "severityGrade": {
+                        "type": "string"
+                    }
+                }
+            },
+            "UserContext": {
+                "required": [
+                    "id",
+                    "name",
+                    "role"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "role": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponseReportPdfResponse": {
+                "required": [
+                    "data",
+                    "error",
+                    "success"
+                ],
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ReportPdfResponse"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/ErrorBody"
+                    }
+                }
+            },
+            "ReportPdfResponse": {
+                "required": [
+                    "pdfUrl"
+                ],
+                "type": "object",
+                "properties": {
+                    "pdfUrl": {
+                        "type": "string"
+                    }
+                }
+            },
+            "FinalizeReportRequest": {
+                "required": [
+                    "pdfUrl"
+                ],
+                "type": "object",
+                "properties": {
+                    "pdfUrl": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ApiResponseReportDetailResponse": {
+                "required": [
+                    "data",
+                    "error",
+                    "success"
+                ],
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/ReportDetailResponse"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/ErrorBody"
                     }
                 }
             },
@@ -6779,37 +7091,6 @@
                     },
                     "context": {
                         "$ref": "#/components/schemas/ReportContext"
-                    }
-                }
-            },
-            "UserContext": {
-                "required": [
-                    "id",
-                    "name",
-                    "role"
-                ],
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "type": "integer",
-                        "format": "int64"
-                    },
-                    "name": {
-                        "type": "string"
-                    },
-                    "role": {
-                        "type": "string"
-                    }
-                }
-            },
-            "FinalizeReportRequest": {
-                "required": [
-                    "pdfUrl"
-                ],
-                "type": "object",
-                "properties": {
-                    "pdfUrl": {
-                        "type": "string"
                     }
                 }
             },
@@ -7486,6 +7767,7 @@
             },
             "DefectDetailItem": {
                 "required": [
+                    "areaMm2",
                     "areaRatio",
                     "bboxH",
                     "bboxW",
@@ -7577,6 +7859,10 @@
                         "format": "double"
                     },
                     "areaRatio": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "areaMm2": {
                         "type": "number",
                         "format": "double"
                     },
@@ -9286,6 +9572,7 @@
                     "actionContent",
                     "actionDate",
                     "actionPhotoUrl",
+                    "areaMm2",
                     "assigneeName",
                     "bboxH",
                     "bboxW",
@@ -9403,6 +9690,10 @@
                         "format": "double"
                     },
                     "crackLengthMm": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "areaMm2": {
                         "type": "number",
                         "format": "double"
                     },
@@ -11615,10 +11906,12 @@
                     "files",
                     "inspectionId",
                     "progressPercent",
+                    "reanalysisAllowed",
                     "riskyCrackCount",
                     "severityDistribution",
                     "stage",
                     "totalFileCount",
+                    "unanalyzedMediaCount",
                     "updatedAt"
                 ],
                 "type": "object",
@@ -11666,6 +11959,13 @@
                     "failedCount": {
                         "type": "integer",
                         "format": "int32"
+                    },
+                    "unanalyzedMediaCount": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "reanalysisAllowed": {
+                        "type": "boolean"
                     },
                     "updatedAt": {
                         "type": "string",
@@ -12112,6 +12412,89 @@
                             "DETAILED",
                             "EMERGENCY"
                         ]
+                    }
+                }
+            },
+            "ApiResponseFacilityMapResponse": {
+                "required": [
+                    "data",
+                    "error",
+                    "success"
+                ],
+                "type": "object",
+                "properties": {
+                    "success": {
+                        "type": "boolean"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/FacilityMapResponse"
+                    },
+                    "error": {
+                        "$ref": "#/components/schemas/ErrorBody"
+                    }
+                }
+            },
+            "FacilityMapItemResponse": {
+                "required": [
+                    "address",
+                    "cautionCount",
+                    "facilityType",
+                    "highestGrade",
+                    "id",
+                    "latitude",
+                    "longitude",
+                    "name",
+                    "thumbnailUrl",
+                    "warningCount"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "latitude": {
+                        "type": "number"
+                    },
+                    "longitude": {
+                        "type": "number"
+                    },
+                    "facilityType": {
+                        "type": "string"
+                    },
+                    "address": {
+                        "type": "string"
+                    },
+                    "highestGrade": {
+                        "type": "string"
+                    },
+                    "warningCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "cautionCount": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "thumbnailUrl": {
+                        "type": "string"
+                    }
+                }
+            },
+            "FacilityMapResponse": {
+                "required": [
+                    "facilities"
+                ],
+                "type": "object",
+                "properties": {
+                    "facilities": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FacilityMapItemResponse"
+                        }
                     }
                 }
             },
