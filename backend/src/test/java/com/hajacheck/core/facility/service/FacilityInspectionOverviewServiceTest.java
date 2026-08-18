@@ -3,6 +3,7 @@ package com.hajacheck.core.facility.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.entity.User;
@@ -21,6 +22,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -128,8 +130,8 @@ class FacilityInspectionOverviewServiceTest {
         Inspection round1 = inspection(11L, 1, InspectionStatus.REVIEWED);
         when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
         when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID)).thenReturn(List.of(round1));
-        when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
-        when(mediaRepository.findTop2ByInspectionIdOrderByIdAsc(any())).thenReturn(List.of());
+        when(mediaRepository.countGroupByInspectionIdsAndPurpose(any(), eq(MediaPurpose.INSPECTION_SOURCE))).thenReturn(List.of());
+        when(mediaRepository.findTop2ByInspectionIdAndPurposeOrderByIdAsc(any(), eq(MediaPurpose.INSPECTION_SOURCE))).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(any()))
                 .thenReturn(List.of(gradeCount(11L, DefectGrade.C, 2), gradeCount(11L, DefectGrade.E, 1)));
         when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
@@ -154,8 +156,8 @@ class FacilityInspectionOverviewServiceTest {
         when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
         when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID))
                 .thenReturn(List.of(round2, round1)); // 최신순
-        when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
-        when(mediaRepository.findTop2ByInspectionIdOrderByIdAsc(any())).thenReturn(List.of());
+        when(mediaRepository.countGroupByInspectionIdsAndPurpose(any(), eq(MediaPurpose.INSPECTION_SOURCE))).thenReturn(List.of());
+        when(mediaRepository.findTop2ByInspectionIdAndPurposeOrderByIdAsc(any(), eq(MediaPurpose.INSPECTION_SOURCE))).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(any())).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
         when(defectRepository.countByInspectionIdInAndDeletedFalseAndStatusNot(any(), any())).thenReturn(0L);
@@ -178,8 +180,8 @@ class FacilityInspectionOverviewServiceTest {
         when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
         when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID))
                 .thenReturn(List.of(round2, round1));
-        when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
-        when(mediaRepository.findTop2ByInspectionIdOrderByIdAsc(any())).thenReturn(List.of());
+        when(mediaRepository.countGroupByInspectionIdsAndPurpose(any(), eq(MediaPurpose.INSPECTION_SOURCE))).thenReturn(List.of());
+        when(mediaRepository.findTop2ByInspectionIdAndPurposeOrderByIdAsc(any(), eq(MediaPurpose.INSPECTION_SOURCE))).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionIdAndGrade(any())).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
         when(defectRepository.countByInspectionIdInAndDeletedFalseAndStatusNot(any(), any())).thenReturn(0L);
@@ -199,8 +201,8 @@ class FacilityInspectionOverviewServiceTest {
         when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
         when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID))
                 .thenReturn(List.of(round2, round1));
-        when(mediaRepository.countGroupByInspectionIds(any())).thenReturn(List.of());
-        when(mediaRepository.findTop2ByInspectionIdOrderByIdAsc(12L))
+        when(mediaRepository.countGroupByInspectionIdsAndPurpose(any(), eq(MediaPurpose.INSPECTION_SOURCE))).thenReturn(List.of());
+        when(mediaRepository.findTop2ByInspectionIdAndPurposeOrderByIdAsc(12L, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(media(501L), media(502L)));
         when(defectRepository.countGroupByInspectionIdAndGrade(any())).thenReturn(List.of());
         when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
@@ -215,6 +217,52 @@ class FacilityInspectionOverviewServiceTest {
         FacilityInspectionOverviewResponse.HistoryItem previous = response.history().get(1);
         assertThat(latest.thumbnailUrls()).containsExactly("/api/media/501/thumbnail", "/api/media/502/thumbnail");
         assertThat(previous.thumbnailUrls()).isEmpty();
+    }
+
+    // #1641 P2 — 사진 수 배지·미리보기 2장에 조치 후 사진이 섞이면 안 된다. 리포지토리 자체(실 PG 필터링)는
+    // MediaRepositoryTest가 검증하고, 여기서는 서비스가 purpose=INSPECTION_SOURCE를 실제로 전달해
+    // "원본 1장 + 조치 1장" 회차에서 배지가 1로, 미리보기에 조치 사진이 끼지 않는지 배선을 검증한다.
+    @Test
+    void get_원본1장_조치1장_회차에서_사진수배지는1이고_미리보기에조치사진은없다() {
+        Inspection round1 = inspection(11L, 1, InspectionStatus.REVIEWED);
+        when(facilityRepository.findByIdAndCompanyId(FACILITY_ID, COMPANY_ID)).thenReturn(Optional.of(facility()));
+        when(inspectionRepository.findByFacilityIdOrderByRoundNoDesc(FACILITY_ID)).thenReturn(List.of(round1));
+        // 리포지토리가 실제로 필터링한 결과를 흉내낸다 — 조치 사진(DEFECT_ACTION)은 카운트/목록 어디에도
+        // 나타나지 않는다(실 필터 로직 자체는 MediaRepositoryTest가 실 PG로 검증).
+        when(mediaRepository.countGroupByInspectionIdsAndPurpose(List.of(11L), MediaPurpose.INSPECTION_SOURCE))
+                .thenReturn(List.of(inspectionMediaCount(11L, 1L)));
+        when(mediaRepository.findTop2ByInspectionIdAndPurposeOrderByIdAsc(11L, MediaPurpose.INSPECTION_SOURCE))
+                .thenReturn(List.of(media(601L)));
+        when(defectRepository.countGroupByInspectionIdAndGrade(any())).thenReturn(List.of());
+        when(defectRepository.countGroupByInspectionId(any())).thenReturn(List.of());
+        when(defectRepository.countByInspectionIdInAndDeletedFalseAndStatusNot(any(), any())).thenReturn(0L);
+        when(userRepository.findAllById(any())).thenReturn(List.of(inspector()));
+
+        FacilityInspectionOverviewResponse response = service.get(USER_ID, COMPANY_ID, FACILITY_ID);
+
+        FacilityInspectionOverviewResponse.HistoryItem item = response.history().get(0);
+        assertThat(item.imageCount()).isEqualTo(1L); // 조치 사진은 배지에 포함되지 않는다.
+        assertThat(item.thumbnailUrls()).containsExactly("/api/media/601/thumbnail"); // 원본 사진만.
+        // 서비스가 "전체" 변형(countGroupByInspectionIds/findTop2ByInspectionIdOrderByIdAsc)이 아니라
+        // purpose 필터 변형을 호출했는지도 함께 고정한다(잘못된 오버로드로 되돌아가는 회귀 방지).
+        org.mockito.Mockito.verify(mediaRepository, org.mockito.Mockito.never())
+                .countGroupByInspectionIds(any());
+        org.mockito.Mockito.verify(mediaRepository, org.mockito.Mockito.never())
+                .findTop2ByInspectionIdOrderByIdAsc(any());
+    }
+
+    private MediaRepository.InspectionMediaCountProjection inspectionMediaCount(Long inspectionId, long cnt) {
+        return new MediaRepository.InspectionMediaCountProjection() {
+            @Override
+            public Long getInspectionId() {
+                return inspectionId;
+            }
+
+            @Override
+            public long getCnt() {
+                return cnt;
+            }
+        };
     }
 
     private InspectionGradeCountProjection gradeCount(Long inspectionId, DefectGrade grade, long cnt) {

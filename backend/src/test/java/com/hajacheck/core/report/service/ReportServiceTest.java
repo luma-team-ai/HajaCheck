@@ -31,6 +31,7 @@ import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
@@ -766,7 +767,8 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(1L, List.of(
                 DefectStatus.CONFIRMED, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED)))
                 .thenReturn(List.of(defect));
-        when(mediaRepository.findByInspectionIdOrderByIdAsc(1L)).thenReturn(List.of(media));
+        when(mediaRepository.findByInspectionIdAndPurposeOrderByIdAsc(1L, MediaPurpose.INSPECTION_SOURCE))
+                .thenReturn(List.of(media));
 
         ReportDetailResponse response = reportService.getReport(5L, 200L, 100L);
 
@@ -778,6 +780,36 @@ class ReportServiceTest {
         assertThat(response.context().defects().get(0).location()).isEqualTo("교량 하부 익명 위치");
         assertThat(response.context().media()).hasSize(1);
         assertThat(response.context().media().get(0).thumbnailUrl()).isNull();
+    }
+
+    /**
+     * #1641 P3 방어적 위생 — 보고서 컨텍스트의 media 목록은 실제로 ReportDetailResponse.context().media()
+     * 로 그대로 노출된다(lookup map이 아니라 직렬화 대상). 조치 후 사진(DEFECT_ACTION)이 이 목록에
+     * 섞이지 않는지, 그리고 서비스가 purpose 필터 없는 옛 메서드로 되돌아가지 않는지 함께 고정한다.
+     */
+    @Test
+    void getReport_조치후사진은보고서media목록에서제외된다() {
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        // 리포지토리가 실제로 필터링한 결과를 흉내낸다(원본만 반환) — 실 필터 로직 자체는
+        // MediaRepositoryTest가 실 PG로 검증한다.
+        Media source = Media.builder()
+                .inspectionId(1L)
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("stored-source")
+                .mimeSignatureVerified(true)
+                .build();
+        when(mediaRepository.findByInspectionIdAndPurposeOrderByIdAsc(1L, MediaPurpose.INSPECTION_SOURCE))
+                .thenReturn(List.of(source));
+
+        ReportDetailResponse response = reportService.getReport(5L, 200L, 100L);
+
+        assertThat(response.context().media()).hasSize(1);
+        verify(mediaRepository, never()).findByInspectionIdOrderByIdAsc(anyLong());
     }
 
     @Test
