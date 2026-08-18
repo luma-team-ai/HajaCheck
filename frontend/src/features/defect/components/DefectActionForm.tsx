@@ -119,6 +119,19 @@ export function DefectActionForm({ defect, actionResult, groupSize = 1, onSubmit
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  // 진행상태 select 재동기화(#1644 리뷰 P2) — 그룹 폼 유지(DefectDetailModal이 mediaId 기준으로
+  // key를 고정)로 같은 사진 내 bbox 전환 시 이 컴포넌트가 리마운트되지 않게 됐다. 그런데
+  // targetStatus/pendingReasonTarget은 최초 마운트 시점의 status로 고정된 useState라, 그룹
+  // 멤버끼리 status가 다르면(예: CONFIRMED와 IN_PROGRESS 공존 — 백엔드 DefectService.java:82-87
+  // shouldSkipGroupMember가 다루는 바로 그 시나리오) select 표시가 실제로는 유효하지 않은 옵션을
+  // 가리킨 채 남아, 그 값을 그대로 제출하면 백엔드가 전이를 거부한다(원인 불명 실패로 보임).
+  // status가 바뀔 때만 안전한 기본값으로 재동기화하고, 사용자가 입력 중인 사진/조치내용/조치일/
+  // 담당자 등 초안은 건드리지 않는다(그룹 폼 유지 의도 그대로 보존).
+  useEffect(() => {
+    setTargetStatus(ACTION_STATUS_OPTIONS[status]?.[0] ?? 'IN_PROGRESS');
+    setPendingReasonTarget(null);
+  }, [status]);
+
   const { data: assignableUsers, isLoading: isAssigneeLoading } = useDefectAssignableUsers();
   const { uploadActionPhoto, isPending: isUploading, error: uploadError } = useUploadDefectActionPhoto();
   const { submitAction, isPending: isSubmitting, error: submitError } = useSubmitDefectAction(

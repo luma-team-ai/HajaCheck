@@ -424,4 +424,53 @@ describe('DefectDetailModal — 사진(그룹) 단위 상태·등록(#1644)', ()
 
     expect((screen.getByLabelText('조치 내용') as HTMLTextAreaElement).value).toBe('입력 중이던 초안');
   });
+
+  // 리뷰 P2 — 그룹 폼 유지(키를 mediaId로 고정)로 bbox 전환 시 DefectActionForm이 리마운트되지
+  // 않게 되면서, targetStatus/pendingReasonTarget이 최초 마운트 시점 status로 고정된 채 남을 수
+  // 있었다. 그룹 멤버끼리 status가 다르면(CONFIRMED/IN_PROGRESS 공존 — 백엔드
+  // DefectService.java:82-87 shouldSkipGroupMember가 다루는 시나리오) select가 새 하자에는 없는
+  // 값을 그대로 들고 있어 제출 시 백엔드가 전이를 거부한다. status 변경 시 재동기화하는
+  // useEffect(DefectActionForm.tsx)로 고쳤다.
+  it('그룹 내 두 멤버가 서로 다른 status(CONFIRMED/IN_PROGRESS)일 때 bbox 전환 시 진행상태 select가 새 상태 옵션으로 리셋된다', async () => {
+    const group: InspectionDefect[] = [
+      { ...mockInspectionDefects[0], id: 61, mediaId: 901, status: 'CONFIRMED' },
+      {
+        ...mockInspectionDefects[0],
+        id: 62,
+        mediaId: 901,
+        type: 'CRACK',
+        typeLabel: '균열',
+        status: 'IN_PROGRESS',
+        confidence: 0.8,
+      },
+    ];
+    server.use(
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = group.find((item) => item.id === Number(params.id));
+        return HttpResponse.json({ success: true, data: found ? detailFromSummary(found) : null });
+      }),
+      mockActionLogsHandler({}),
+    );
+
+    // id=62(IN_PROGRESS)부터 진입해 select를 "조치완료"(RESOLVED)로 직접 바꿔둔다 — id=61은
+    // CONFIRMED라 RESOLVED가 애초에 유효 옵션이 아니므로, 재동기화가 없으면 전환 후에도 이
+    // 고아 값이 그대로 남아 있어야(버그) 한다.
+    renderModalGroup(group, 62);
+    await screen.findByText('DEF-0062');
+    const select = await screen.findByLabelText('진행상태 *');
+    fireEvent.change(select, { target: { value: 'RESOLVED' } });
+    expect((select as HTMLSelectElement).value).toBe('RESOLVED');
+
+    fireEvent.click(screen.getByRole('button', { name: 'DEF-0061 · 철근 노출' }));
+    await screen.findByText('DEF-0061');
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('IN_PROGRESS');
+    });
+    // CONFIRMED에서는 RESOLVED가 옵션 목록에 아예 없다 — 고아 값으로 남지 않았음을 재확인.
+    const options = Array.from((screen.getByLabelText('진행상태 *') as HTMLSelectElement).options).map(
+      (option) => option.value,
+    );
+    expect(options).not.toContain('RESOLVED');
+  });
 });

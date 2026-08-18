@@ -80,6 +80,11 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
   // 않도록 그 즉시 비우거나(detailDefect가 아직 없으면) 이미 로드돼 있으면 곧바로 새 값으로 채운다.
   const [actionFormDefect, setActionFormDefect] = useState<Defect | null>(null);
   const [actionFormDefectGroupKey, setActionFormDefectGroupKey] = useState<string | null>(null);
+  // (#1644 리뷰 P3, 정보성) 아래 `detailDefect !== actionFormDefect` 참조 동등성 비교는 react-query
+  // 기본 structuralSharing(동일 데이터면 이전 렌더의 참조를 그대로 재사용)이 안정적이라는 전제에
+  // 기대고 있다 — QueryClient 설정에서 structuralSharing을 끄거나 커스텀 비교자로 바꾸면 매 응답마다
+  // 새 참조가 생겨 이 블록이 더 이상 "값이 실제로 바뀔 때만" 수렴하지 않을 수 있으니, 그런 변경 시
+  // 이 수렴 전제를 다시 검토할 것.
   if (actionFormGroupKey !== actionFormDefectGroupKey) {
     setActionFormDefectGroupKey(actionFormGroupKey);
     setActionFormDefect(detailDefect ?? null);
