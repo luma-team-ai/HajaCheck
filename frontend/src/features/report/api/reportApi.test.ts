@@ -4,7 +4,8 @@ import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { reportApi } from './reportApi';
 import { reportHandlers } from './reportApi.handlers';
-import type { ReportDetailResponse } from './reportApi';
+import type { ApiResponse } from '../../../shared/api/types';
+import type { ReportDefectSyncResponse, ReportDetailResponse } from './reportApi';
 
 const mockReport: ReportDetailResponse = {
   id: 1,
@@ -99,6 +100,41 @@ describe('reportApi', () => {
   it('groundingRecheck는 groundingCheckPassed를 갱신한 응답을 받는다', async () => {
     const response = await reportApi.groundingRecheck(1);
     expect(response.data.groundingCheckPassed).toBe(true);
+  });
+
+  it('groundingRecheck 응답에는 diff(missingDefects/extraItems/unmatchedItems)가 최상위 필드로 함께 온다(#1666)', async () => {
+    const diffBody: ApiResponse<ReportDefectSyncResponse> = {
+      success: true,
+      data: {
+        ...mockReport,
+        groundingCheckPassed: false,
+        diff: {
+          missingDefects: [
+            { defectId: 9, defectType: 'CRACK', typeLabel: '균열', severityGrade: 'B', location: '1층' },
+          ],
+          extraItems: [{ defectId: 3, defectType: 'SPALLING', severityGrade: 'C' }],
+          unmatchedItems: [{ defectType: '누수', severityGrade: 'A' }],
+        },
+      },
+    };
+    server.use(
+      http.post('/api/reports/1/grounding-recheck', () => HttpResponse.json(diffBody)),
+    );
+
+    const response = await reportApi.groundingRecheck(1);
+
+    expect(response.data.groundingCheckPassed).toBe(false);
+    expect(response.data.diff.missingDefects).toHaveLength(1);
+    expect(response.data.diff.missingDefects[0]).toMatchObject({ defectId: 9, severityGrade: 'B' });
+    expect(response.data.diff.extraItems).toHaveLength(1);
+    expect(response.data.diff.unmatchedItems).toHaveLength(1);
+  });
+
+  it('resyncDefects는 재구성된 보고서를 diff와 함께 반환한다(#1666)', async () => {
+    const response = await reportApi.resyncDefects(1);
+
+    expect(response.data.id).toBe(1);
+    expect(response.data.diff).toEqual({ missingDefects: [], extraItems: [], unmatchedItems: [] });
   });
 
   it('uploadPdf는 파일을 업로드하고 pdfUrl을 받는다', async () => {
