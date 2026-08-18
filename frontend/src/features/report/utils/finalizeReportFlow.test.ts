@@ -162,6 +162,11 @@ describe('runFinalizeReportFlow unit tests', () => {
       expect(result.title).toBe('검증 실패');
       // #1666 — recheck 응답의 diff가 실패 결과에 그대로 실려 배너에서 소비할 수 있어야 한다.
       expect(result.diff).toEqual(diffOnMismatch);
+      // #1666 리뷰 P1 픽스 — recheck 응답의 report(groundingCheckPassed=false 포함)도 함께 실려야
+      // 호출부(ReportGeneratePage)가 로컬 상태를 갱신해 배너를 실제로 띄울 수 있다. 이게 없으면
+      // groundingCheckPassed가 null로 시작한 첫 확정 시도에서 로컬 report가 갱신되지 않아 배너
+      // 조건(=== false)이 참이 되지 않는 회귀가 있었다.
+      expect(result.report?.groundingCheckPassed).toBe(false);
     }
     expect(reportApi.groundingRecheck).toHaveBeenCalledWith(10);
     expect(reportApi.uploadPdf).not.toHaveBeenCalled();

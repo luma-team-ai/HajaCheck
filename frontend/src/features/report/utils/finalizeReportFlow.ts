@@ -14,9 +14,11 @@ import type { InspectionResult } from '../../inspection/types';
 
 export type FinalizeResult =
   | { ok: true; report: ReportDetailResponse }
-  // diff는 groundingRecheck가 실패(검증 실패)했을 때만 채워진다 — 배너에서 누락/잉여/legacy
-  // unmatched 목록을 보여주기 위함(#1666). PDF 생성/확정 단계 실패는 diff와 무관하므로 undefined.
-  | { ok: false; title: string; message: string; diff?: ReportDefectDiff };
+  // report/diff는 groundingRecheck가 실패(검증 실패)했을 때만 채워진다(#1666 리뷰 P1 픽스) —
+  // 호출부가 이 report로 로컬 상태를 갱신해야 groundingCheckPassed=false가 반영되고 배너·diff가
+  // 실제로 화면에 뜬다. recheck 자체가 호출되지 않은 다른 실패(발행 불가·필수값 누락·확정 검증
+  // 자체 실패·PDF 생성/확정 실패)는 report/diff가 없다.
+  | { ok: false; title: string; message: string; report?: ReportDetailResponse; diff?: ReportDefectDiff };
 
 export async function runFinalizeReportFlow(
   reportId: number,
@@ -70,6 +72,7 @@ export async function runFinalizeReportFlow(
           ok: false,
           title: '검증 실패',
           message: '검증 실패 — 내용을 확인 후 다시 시도하세요.',
+          report: recheckResp.data,
           diff: recheckResp.data.diff,
         };
       }
