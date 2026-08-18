@@ -251,7 +251,18 @@ public class InspectionRepositoryImpl implements InspectionRepositoryCustom {
                         .toArray(new Predicate[0]))
                 // 대시보드 기존 최근 점검 정렬(findRecentByFacilityIds)과 동일 기준 — 기본 호출(필터 없음)의
                 // 결과 순서가 오늘의 위젯과 100% 일치해야 하므로 Pageable.getSort()는 쓰지 않는다.
-                .orderBy(cb.desc(root.get("inspectionDate")), cb.desc(root.get("id")));
+                //
+                // #1667 — performed_at을 id보다 먼저 tie-break로 확장(inspection_date desc, performed_at
+                // desc nulls last, id desc). 표준 JPA Criteria API에는 nulls-last 지정 수단이 없어(Order
+                // 인터페이스에 nullPrecedence가 없다 — Hibernate 전용 확장 없이는 불가), performedAt이
+                // null이면 1, 아니면 0인 보조 정렬키를 asc로 먼저 적용해 null 그룹을 뒤로 미는 표준 우회를
+                // 쓴다(findRecentByFacilityIds/findLatestByFacilityIds와 결과 순서 계약을 유지하기 위함).
+                .orderBy(cb.desc(root.get("inspectionDate")),
+                        cb.asc(cb.<Integer>selectCase()
+                                .when(cb.isNull(root.get("performedAt")), 1)
+                                .otherwise(0)),
+                        cb.desc(root.get("performedAt")),
+                        cb.desc(root.get("id")));
 
         List<Inspection> content = em.createQuery(selectQuery)
                 .setFirstResult((int) pageable.getOffset())
