@@ -176,7 +176,7 @@ class MediaRepositoryTest extends PostgresTestSupport {
 
     /**
      * captured_at 은 DDL상 timestamptz 인데 엔티티 필드는 naive LocalDateTime(카메라 현지시각)이다
-     * (리뷰 P2). CapturedAtConverter 가 서버 TZ와 무관하게 고정 존(Asia/Seoul)으로 변환하는지
+     * (리뷰 P2). KstFixedLocalDateTimeConverter 가 서버 TZ와 무관하게 고정 존(Asia/Seoul)으로 변환하는지
      * 실제 PG 라운드트립으로 검증한다 — 저장 시점과 조회 시점의 JVM 기본 TZ 를 서로 다르게 바꿔도
      * 원문 벽시계 값이 그대로 복원되어야 한다.
      */

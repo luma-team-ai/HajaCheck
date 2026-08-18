@@ -535,6 +535,29 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 .containsExactly(sameDaySecond.getId(), newer.getId(), older.getId());
     }
 
+    @Test
+    void findPageByCompanyIdAndFilters_동일일자_performedAt이id보다우선하는tie_break() {
+        // #1667 P3 — findRecentInspectionsPage와 동일 정렬 계약(recentInspectionOrderBy 공용)이 이
+        // 메서드에도 적용됐는지 직접 고정한다. id 생성 순서(4→5→6)와 performed_at 실제 순서가 어긋나도
+        // 순수 id desc가 아니라 performed_at desc nulls last가 우선해야 한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection earlierPerformed = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 20),
+                java.time.LocalDateTime.of(2026, 7, 20, 9, 0)));
+        Inspection laterPerformed = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 20),
+                java.time.LocalDateTime.of(2026, 7, 20, 15, 0)));
+        Inspection noPerformedAt = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 20), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findPageByCompanyIdAndFilters(
+                companyId(ownerId), null, null, null, null, null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactly(laterPerformed.getId(), earlierPerformed.getId(), noPerformedAt.getId());
+    }
+
     // ── #878(HAJA-452): 하자 조건(자연어) 필터 확장 — EXISTS 서브쿼리 ──
 
     @Test
@@ -1075,6 +1098,78 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         assertThat(result).isEmpty();
     }
 
+    // ── 점검 수행 시각 자동 세팅 원자적 UPDATE(V43, #1667, 코드 리뷰 P1-1) ──
+    // 엔티티 read-modify-write(dirty checking) 대신 조건부 UPDATE로 교체한 이유는 lost update 방지다 —
+    // 이 DB 레벨 WHERE 조건(performed_at is null or performed_at > :candidate)이 실제로 "더 이른 값만
+    // 갱신"을 강제하는지를 여기서 직접 고정한다(MediaWriterTest는 호출 인자만 검증하는 순수 단위 테스트).
+
+    @Test
+    void applyPerformedAtIfEarlier_null이면_후보값그대로세팅되고1건갱신된다() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection inspection = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 8, 18), InspectionStatus.CREATED));
+        java.time.LocalDateTime candidate = java.time.LocalDateTime.of(2026, 8, 18, 9, 0);
+
+        int updated = inspectionRepository.applyPerformedAtIfEarlier(inspection.getId(), candidate);
+        em.flush();
+        em.clear();
+
+        assertThat(updated).isEqualTo(1);
+        assertThat(inspectionRepository.findById(inspection.getId()).orElseThrow().getPerformedAt())
+                .isEqualTo(candidate);
+    }
+
+    @Test
+    void applyPerformedAtIfEarlier_기존값보다늦은후보는_갱신되지않고0건반환된다() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        java.time.LocalDateTime existing = java.time.LocalDateTime.of(2026, 8, 18, 9, 0);
+        Inspection inspection = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 8, 18), existing));
+        java.time.LocalDateTime laterCandidate = java.time.LocalDateTime.of(2026, 8, 18, 15, 0);
+
+        int updated = inspectionRepository.applyPerformedAtIfEarlier(inspection.getId(), laterCandidate);
+        em.flush();
+        em.clear();
+
+        assertThat(updated).isEqualTo(0);
+        assertThat(inspectionRepository.findById(inspection.getId()).orElseThrow().getPerformedAt())
+                .isEqualTo(existing);
+    }
+
+    @Test
+    void applyPerformedAtIfEarlier_기존값보다이른후보는_갱신되고1건반환된다() {
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        java.time.LocalDateTime existing = java.time.LocalDateTime.of(2026, 8, 18, 15, 0);
+        Inspection inspection = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 8, 18), existing));
+        java.time.LocalDateTime earlierCandidate = java.time.LocalDateTime.of(2026, 8, 18, 9, 0);
+
+        int updated = inspectionRepository.applyPerformedAtIfEarlier(inspection.getId(), earlierCandidate);
+        em.flush();
+        em.clear();
+
+        assertThat(updated).isEqualTo(1);
+        assertThat(inspectionRepository.findById(inspection.getId()).orElseThrow().getPerformedAt())
+                .isEqualTo(earlierCandidate);
+    }
+
+    @Test
+    void applyPerformedAtIfEarlier_기존값과동일한후보는_갱신되지않고0건반환된다() {
+        // 동일값 재대입은 실질 변경이 없으므로 no-op — WHERE가 `>` (>=가 아님)라 갱신되지 않는다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        java.time.LocalDateTime existing = java.time.LocalDateTime.of(2026, 8, 18, 9, 0);
+        Inspection inspection = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 8, 18), existing));
+
+        int updated = inspectionRepository.applyPerformedAtIfEarlier(inspection.getId(), existing);
+
+        assertThat(updated).isEqualTo(0);
+    }
+
     // ── 마이페이지 "내 점검 이력"(#844) ──
 
     @Test
@@ -1140,6 +1235,28 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         assertThat(result.getTotalElements()).isEqualTo(2);
         assertThat(result.getContent()).extracting(Inspection::getId)
                 .containsExactlyInAnyOrder(asInspector.getId(), asCreator.getId());
+    }
+
+    @Test
+    void findMyInspectionsPage_동일일자_performedAt이id보다우선하는tie_break() {
+        // #1667 P3 — recentInspectionOrderBy 공용화로 findPageByCompanyIdAndFilters/
+        // findRecentInspectionsPage와 이 메서드가 동일 정렬 계약을 유지하는지 고정한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection earlierPerformed = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 20),
+                java.time.LocalDateTime.of(2026, 7, 20, 9, 0)));
+        Inspection laterPerformed = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 7, 20),
+                java.time.LocalDateTime.of(2026, 7, 20, 15, 0)));
+        Inspection noPerformedAt = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 20), InspectionStatus.CREATED));
+
+        Page<Inspection> result = inspectionRepository.findMyInspectionsPage(
+                ownerId, companyId(ownerId), null, PageRequest.of(0, 10));
+
+        assertThat(result.getContent()).extracting(Inspection::getId)
+                .containsExactly(laterPerformed.getId(), earlierPerformed.getId(), noPerformedAt.getId());
     }
 
     @Test
