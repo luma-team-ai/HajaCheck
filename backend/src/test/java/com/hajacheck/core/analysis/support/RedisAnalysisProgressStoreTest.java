@@ -150,6 +150,6 @@ class RedisAnalysisProgressStoreTest {
     private AnalysisStatusResponse sampleProgress() {
         return new AnalysisStatusResponse(
                 1L, "aiDetection", 0, 1, 0, List.of(), 0, 0,
-                Map.of("A", 0, "B", 0, "C", 0, "D", 0, "E", 0), 0, java.time.Instant.now());
+                Map.of("A", 0, "B", 0, "C", 0, "D", 0, "E", 0), 0, 0, java.time.Instant.now());
     }
 }

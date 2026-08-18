@@ -300,7 +300,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED)) {
             Inspection insp = inspectionRepository.save(newInspection(
                     facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), allowedSource));
-            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
+            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed, false))
                     .as("허용 소스 상태 %s 는 선점 성공(1행)", allowedSource)
                     .isEqualTo(1);
         }
@@ -309,7 +309,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 InspectionStatus.REVIEWED, InspectionStatus.REPORTED, InspectionStatus.ANALYZING)) {
             Inspection insp = inspectionRepository.save(newInspection(
                     facilityId, ownerId, ownerId, roundNo++, LocalDate.of(2026, 7, 1), blockedSource));
-            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed))
+            assertThat(inspectionRepository.startAnalyzingIfNotRunning(insp.getId(), InspectionStatus.ANALYZING, allowed, false))
                     .as("허용되지 않은 소스 상태 %s 는 선점 거부(0행)", blockedSource)
                     .isZero();
         }
@@ -335,7 +335,7 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 .build());
         em.flush();
 
-        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withDefect.getId(), InspectionStatus.ANALYZING, allowed))
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withDefect.getId(), InspectionStatus.ANALYZING, allowed, false))
                 .as("비삭제 하자가 있으면 허용 소스 상태여도 선점 실패(0행)")
                 .isZero();
 
@@ -350,8 +350,36 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         em.persist(deleted);
         em.flush();
 
-        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withOnlyDeletedDefect.getId(), InspectionStatus.ANALYZING, allowed))
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withOnlyDeletedDefect.getId(), InspectionStatus.ANALYZING, allowed, false))
                 .as("남은 하자가 전부 소프트삭제 상태면 선점 성공(1행)")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void startAnalyzingIfNotRunning_allowExistingDefects_true면_비삭제하자있어도선점성공(){
+        // 증분 분석(V42, #1654) — InspectionAnalysisService가 "ANALYZED 회차 + 미분석 사진 존재"를
+        // 이미 판단했을 때만 allowExistingDefects=true를 넘긴다. 이 원자적 UPDATE가 실제 방어선이므로,
+        // 서비스 계층 판단이 여기 그대로 반영돼 "비삭제 하자 없음" 조건이 건너뛰어져야 선점이 성공한다
+        // (그래야 증분 분석이 실제로 시작될 수 있다) — false(기본)일 때는 여전히 거부돼야 한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        java.util.EnumSet<InspectionStatus> allowed = java.util.EnumSet.of(
+                InspectionStatus.CREATED, InspectionStatus.UPLOADING, InspectionStatus.ANALYZED);
+
+        Inspection withDefect = inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 7, 1), InspectionStatus.ANALYZED));
+        em.persist(Defect.builder()
+                .inspectionId(withDefect.getId())
+                .type(DefectType.CRACK)
+                .confidence(1.0)
+                .build());
+        em.flush();
+
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withDefect.getId(), InspectionStatus.ANALYZING, allowed, false))
+                .as("allowExistingDefects=false(기본)면 비삭제 하자 존재만으로 여전히 거부(0행)")
+                .isZero();
+        assertThat(inspectionRepository.startAnalyzingIfNotRunning(withDefect.getId(), InspectionStatus.ANALYZING, allowed, true))
+                .as("allowExistingDefects=true면 비삭제 하자가 있어도 선점 성공(1행) — 증분 분석 허용")
                 .isEqualTo(1);
     }
 

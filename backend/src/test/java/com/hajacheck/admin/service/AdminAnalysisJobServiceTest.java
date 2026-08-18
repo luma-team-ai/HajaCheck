@@ -185,6 +185,6 @@ class AdminAnalysisJobServiceTest {
 
     private AnalysisStatusResponse statusResponse(Long inspectionId, int progressPercent) {
         return new AnalysisStatusResponse(
-                inspectionId, "aiDetection", progressPercent, 3, 1, List.of(), 0, 0, Map.of(), 0, null);
+                inspectionId, "aiDetection", progressPercent, 3, 1, List.of(), 0, 0, Map.of(), 0, 0, null);
     }
 }

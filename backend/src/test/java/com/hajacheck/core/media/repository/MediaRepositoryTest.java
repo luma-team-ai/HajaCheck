@@ -506,4 +506,75 @@ class MediaRepositoryTest extends PostgresTestSupport {
         assertThat(result).noneMatch(m -> m.getId().equals(action.getId()));
         assertThat(result).noneMatch(m -> m.getId().equals(source3.getId())); // 상한 2건 고정도 함께 확인.
     }
+
+    // ── 증분 분석 대상 조회(V42, #1654) ──────────────────────────────────────────────
+
+    @Test
+    void findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc_미분석원본사진만_id오름차순반환() {
+        // InspectionAnalysisService.startAnalysis가 그대로 쓰는 쿼리 — 이미 분석된 원본 사진(analyzed_at
+        // 존재)과 조치 후 사진(DEFECT_ACTION)은 결과에서 빠지고, 미분석 원본 사진만 id 오름차순으로 남아야
+        // "이번 실행이 처리할 이미지" 목록이 정확해진다.
+        Long inspectionId = seedInspection();
+        Media analyzed = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/analyzed.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        analyzed.markAnalyzed(LocalDateTime.of(2026, 8, 1, 10, 0));
+        mediaRepository.save(analyzed);
+        Media unanalyzed1 = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/unanalyzed1.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        Media unanalyzed2 = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/unanalyzed2.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/action-unanalyzed.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.DEFECT_ACTION).build());
+        em.flush();
+
+        List<Media> result = mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(
+                inspectionId, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE);
+
+        assertThat(result).extracting(Media::getId)
+                .containsExactly(unanalyzed1.getId(), unanalyzed2.getId());
+    }
+
+    @Test
+    void findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc_전부분석완료면빈목록() {
+        Long inspectionId = seedInspection();
+        Media done = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/done.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        done.markAnalyzed(LocalDateTime.of(2026, 8, 1, 10, 0));
+        mediaRepository.save(done);
+        em.flush();
+
+        List<Media> result = mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(
+                inspectionId, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void markAnalyzed_호출후저장하면_analyzedAt이재조회시그대로복원된다() {
+        Long inspectionId = seedInspection();
+        Media media = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/mark.png").mimeSignatureVerified(true)
+                .build());
+        assertThat(media.getAnalyzedAt()).isNull(); // 새 미디어는 항상 미분석 상태로 시작한다.
+
+        LocalDateTime analyzedAt = LocalDateTime.of(2026, 8, 18, 15, 30, 0);
+        media.markAnalyzed(analyzedAt);
+        mediaRepository.save(media);
+        em.flush();
+        em.clear();
+
+        Media reloaded = mediaRepository.findById(media.getId()).orElseThrow();
+        assertThat(reloaded.getAnalyzedAt()).isEqualTo(analyzedAt);
+    }
 }
