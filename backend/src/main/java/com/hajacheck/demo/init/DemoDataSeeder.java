@@ -52,6 +52,9 @@ public class DemoDataSeeder implements ApplicationRunner {
             // (env DEMO_ADMIN_PASSWORD 변경)만 반영한다(#1626 P2-2b). 설정을 진실 소스로 해시를 맞춰
             // 두지 않으면 회전 후 데모 로그인이 깨진다.
             demoSeedService.syncAdminPasswordIfChanged();
+            // 국세청 재검증 배치가 데모 회사를 FAILED 로 강등한 채 남아 있으면 재기동 시 자동 복구한다
+            // (#1648 — 회사 스코프 전면 403 재발 방지, 배치 자체도 데모 회사를 스킵하도록 함께 고쳤다).
+            demoSeedService.healFailedVerificationIfNeeded();
             log.info("데모 계정 이미 존재 — 콘텐츠 시드 스킵, 크레덴셜만 동기화 (loginId={})", demoProperties.getLoginId());
             return;
         }
