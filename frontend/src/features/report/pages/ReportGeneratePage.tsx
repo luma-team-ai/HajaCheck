@@ -8,7 +8,7 @@ import { AlertModal, Modal } from '../../../shared/components/Modal';
 import { useInspectionResult } from '../../inspection/hooks/useInspectionResult';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
 import { reportApi } from '../api/reportApi';
-import type { ReportDetailResponse } from '../api/reportApi';
+import type { ReportDefectDiff, ReportDetailResponse } from '../api/reportApi';
 import type { Defect } from '../../inspection/types';
 import { ReportContentEditor } from '../components/ReportContentEditor';
 import {
@@ -94,6 +94,10 @@ export function ReportGeneratePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
   const [finalizeError, setFinalizeError] = useState<string | null>(null);
+  // grounding 검증 실패 배너용 diff(#1666) — 최종 확정 시도 중 grounding-recheck가 실패를
+  // 반환했을 때만 채워진다. '현재 하자 기준으로 다시 맞추기' 성공 시에도 최신 diff로 갱신한다.
+  const [syncDiff, setSyncDiff] = useState<ReportDefectDiff | null>(null);
+  const [isResyncingDefects, setIsResyncingDefects] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [pdfPreviewKey, setPdfPreviewKey] = useState(0);
   const [pdfLoadError, setPdfLoadError] = useState<string | null>(null);
@@ -326,6 +330,9 @@ export function ReportGeneratePage() {
     try {
       const response = await reportApi.updateContent(report.id, content);
       applyReport(response.data);
+      // 본문이 바뀌면 groundingCheckPassed가 서버에서 null로 리셋되므로 이전 diff는 더 이상
+      // 유효하지 않다(#1666) — 다음 확정 시도의 recheck가 새로 채운다.
+      setSyncDiff(null);
       return response.data;
     } catch (err) {
       const message = extractErrorMessage(err, '저장에 실패했습니다.');
@@ -371,12 +378,49 @@ export function ReportGeneratePage() {
       const result = await runFinalizeReportFlow(report.id, currentReport, content, inspectionData);
       if (result.ok) {
         applyReport(result.report);
+        setSyncDiff(null);
       } else {
         setFinalizeError(result.message);
+        setSyncDiff(result.diff ?? null);
         setAlertModal({ open: true, title: result.title, message: result.message });
       }
     } finally {
       setIsFinalizing(false);
+    }
+  };
+
+  // "현재 하자 기준으로 다시 맞추기" 버튼 핸들러(#1666) — grounding 불일치 배너에서 사용자가
+  // resync-defects를 직접 호출해 본문을 확정 하자 목록 기준으로 재구성한다. 서버가 content를
+  // 실제로 재작성하므로, 저장하지 않은 로컬 편집이 있는 채로 호출하면 그 편집이 조용히 유실된다
+  // — 먼저 임시저장을 요구해 데이터 유실을 막는다.
+  const handleResyncDefects = async () => {
+    if (!report || isResyncingDefects || isFinalized) return;
+    if (dirty) {
+      setAlertModal({
+        open: true,
+        title: '재구성할 수 없습니다',
+        message: '저장하지 않은 변경 사항이 있습니다. 먼저 임시저장한 뒤 다시 시도해 주세요.',
+      });
+      return;
+    }
+    setIsResyncingDefects(true);
+    try {
+      const response = await reportApi.resyncDefects(report.id);
+      applyReport(response.data);
+      setSyncDiff(response.data.diff);
+      const hasNewBlankItems = response.data.diff.missingDefects.length > 0;
+      setAlertModal({
+        open: true,
+        title: '하자 목록을 다시 맞췄습니다',
+        message: hasNewBlankItems
+          ? '새로 확정된 항목이 추가되었습니다. 설명·원인이 비어 있으니 확정 전에 직접 작성해 주세요.'
+          : '현재 확정된 하자 목록 기준으로 보고서 내용을 갱신했습니다.',
+      });
+    } catch (err) {
+      const message = extractErrorMessage(err, '하자 목록 재동기화에 실패했습니다.');
+      setAlertModal({ open: true, title: '재동기화 실패', message });
+    } finally {
+      setIsResyncingDefects(false);
     }
   };
 
@@ -633,12 +677,70 @@ export function ReportGeneratePage() {
 
       {/* grounding 검증 실패 상태 — 통과 완료 표시는 상단 단계/확정 버튼 상태로만 드러낸다. */}
       {report.groundingCheckPassed === false && (
-        <div className="flex items-center gap-3 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg text-sm">
-          <svg className="h-5 w-5 shrink-0 text-warning-soft-fg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
-            <path d="M10 7v4.2M10 14.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-          <span className="font-medium">검증 실패 — 내용을 확인 후 다시 검증하세요.</span>
+        <div className="flex flex-col gap-3 rounded-lg border border-warning-soft-border bg-warning-soft-bg p-4 text-warning-soft-fg text-sm">
+          <div className="flex items-center gap-3">
+            <svg className="h-5 w-5 shrink-0 text-warning-soft-fg" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+              <path d="M10 2.4 18 17H2L10 2.4Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+              <path d="M10 7v4.2M10 14.2v.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            <span className="font-medium">검증 실패 — 내용을 확인 후 다시 검증하세요.</span>
+          </div>
+
+          {/* recheck 응답의 diff(#1666) — 최종 확정을 한 번 시도해야 채워진다(handleFinalizeAll이
+              내부적으로 grounding-recheck를 호출). */}
+          {syncDiff && (
+            <div className="flex flex-col gap-2 pl-8 text-xs">
+              {syncDiff.missingDefects.length > 0 && (
+                <div>
+                  <p className="m-0 font-medium">보고서에 누락된 확정 하자 ({syncDiff.missingDefects.length}건)</p>
+                  <ul className="m-0 list-disc pl-4">
+                    {syncDiff.missingDefects.map((item) => (
+                      <li key={item.defectId}>
+                        {item.typeLabel ?? item.defectType} · {item.severityGrade}등급 · {item.location ?? '위치 미입력'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {syncDiff.extraItems.length > 0 && (
+                <div>
+                  <p className="m-0 font-medium">더 이상 확정 상태가 아닌 항목 ({syncDiff.extraItems.length}건)</p>
+                  <ul className="m-0 list-disc pl-4">
+                    {syncDiff.extraItems.map((item) => (
+                      <li key={item.defectId}>
+                        {item.defectType} · {item.severityGrade}등급
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {syncDiff.unmatchedItems.length > 0 && (
+                <div>
+                  <p className="m-0 font-medium">
+                    비교할 수 없는 기존 항목 ({syncDiff.unmatchedItems.length}건, 재구성해도 그대로 유지됩니다)
+                  </p>
+                  <ul className="m-0 list-disc pl-4">
+                    {syncDiff.unmatchedItems.map((item, index) => (
+                      <li key={`${item.defectType}-${item.severityGrade}-${index}`}>
+                        {item.defectType} · {item.severityGrade}등급
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void handleResyncDefects()}
+              disabled={isResyncingDefects}
+            >
+              {isResyncingDefects ? '재구성 중...' : '현재 하자 기준으로 다시 맞추기'}
+            </Button>
+          </div>
         </div>
       )}
 
