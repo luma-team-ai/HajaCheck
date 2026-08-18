@@ -3,9 +3,11 @@ package com.hajacheck.demo;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.hajacheck.auth.config.DemoProperties;
+import com.hajacheck.auth.entity.BusinessVerificationStatus;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
+import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.service.CompanyAccountWriter;
 import com.hajacheck.core.facility.entity.Facility;
@@ -78,6 +80,8 @@ class DemoSeedResetIntegrationTest extends PostgresTestSupport {
     private DemoResetRepository demoResetRepository;
     @Autowired
     private UserRepository userRepository;
+    @Autowired
+    private CompanyRepository companyRepository;
     @Autowired
     private FacilityRepository facilityRepository;
     @Autowired
@@ -341,6 +345,42 @@ class DemoSeedResetIntegrationTest extends PostgresTestSupport {
         assertThat(passwordEncoder.matches("demo-it-dummy1", after.getPasswordHash())).isFalse();
         // 이미 일치하면 no-op(불필요한 쓰기 없음).
         assertThat(demoSeedService.syncAdminPasswordIfChanged()).isFalse();
+    }
+
+    @Test
+    void 데모_회사가_FAILED_상태로_재기동되면_시더가_VERIFIED로_자동복구한다() throws Exception {
+        // #1648 — 재검증 배치가 데모 회사를 FAILED로 강등한 채 남아 있던 prod 시나리오 재현. 배치 자체는
+        // 이제 데모 회사를 스킵하도록 고쳤지만, 고치기 전에 이미 FAILED가 찍힌 회사는 재기동 시 여기서
+        // 자동 복구돼야 한다(런타임 복구 경로가 이것뿐).
+        demoSeedService.seedAll();
+        Long companyId = demoCompanyId();
+        Company company = companyRepository.findById(companyId).orElseThrow();
+        company.markBusinessVerificationFailed();
+        companyRepository.saveAndFlush(company);
+        assertThat(companyRepository.findById(companyId).orElseThrow().getVerificationStatus())
+                .isEqualTo(BusinessVerificationStatus.FAILED);
+
+        DemoDataSeeder seeder = new DemoDataSeeder(demoProperties, userRepository, demoSeedService);
+        ReflectionTestUtils.setField(seeder, "seedEnabled", true);
+        seeder.run(null);
+
+        assertThat(companyRepository.findById(companyId).orElseThrow().getVerificationStatus())
+                .isEqualTo(BusinessVerificationStatus.VERIFIED);
+    }
+
+    @Test
+    void FAILED가_아니면_자가복구_호출은_아무것도_하지_않는다() {
+        // #1648 — VERIFIED(정상) 상태의 데모 회사에 자가복구를 호출해도 no-op이어야 한다(불필요한 쓰기 없음).
+        demoSeedService.seedAll();
+        Long companyId = demoCompanyId();
+        assertThat(companyRepository.findById(companyId).orElseThrow().getVerificationStatus())
+                .isEqualTo(BusinessVerificationStatus.VERIFIED);
+
+        boolean healed = demoSeedService.healFailedVerificationIfNeeded();
+
+        assertThat(healed).isFalse();
+        assertThat(companyRepository.findById(companyId).orElseThrow().getVerificationStatus())
+                .isEqualTo(BusinessVerificationStatus.VERIFIED);
     }
 
     /** 주어진 사용자에게 챗 세션 + 상담 티켓(세션 참조) + 상담 메모 + 챗 메시지를 심는다. */
