@@ -465,6 +465,54 @@ class InspectionServiceTest {
         verify(inspectionRepository, never()).confirmReviewIfAnalyzed(any(), any(), any());
     }
 
+    // ── revertStuckAnalyzing(리퍼 전용, 리뷰 P1 픽스 #1654) ──
+    // 되돌릴 대상 상태가 기존 하자 유무로 갈린다: 하자 있으면(증분 분석 ANALYZED→ANALYZING 고착)
+    // ANALYZED로, 하자 없으면(첫 분석 고착) 기존대로 UPLOADING으로.
+
+    private Inspection analyzingInspection() {
+        Inspection inspection = Inspection.builder().facilityId(1L).status(InspectionStatus.ANALYZING).build();
+        setId(inspection, 10L);
+        return inspection;
+    }
+
+    @Test
+    void revertStuckAnalyzing_기존하자가있으면_증분분석고착으로보고ANALYZED로되돌린다() {
+        // 배경 — 예전엔 무조건 UPLOADING으로 되돌렸는데, 증분 분석(ANALYZED 회차에 새로 업로드된
+        // 미분석 사진만 처리 중)이 고착되면 UPLOADING으로 떨어진 회차가 "미분석 사진 없이 하자만
+        // 있는" 상태로 보여 InspectionAnalysisService.startAnalysis의 강제 전체 재분석 fail-closed
+        // 가드에 걸려 영구 정지했다.
+        Inspection inspection = analyzingInspection();
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(10L)).thenReturn(true);
+
+        service.revertStuckAnalyzing(10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.ANALYZED);
+    }
+
+    @Test
+    void revertStuckAnalyzing_기존하자가없으면_첫분석고착으로보고UPLOADING으로되돌린다() {
+        Inspection inspection = analyzingInspection();
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(10L)).thenReturn(false);
+
+        service.revertStuckAnalyzing(10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.UPLOADING);
+    }
+
+    @Test
+    void revertStuckAnalyzing_ANALYZING이아니면_상태를건드리지않는다() {
+        // 멱등 — 그 사이 정상 완료됐거나 다른 경로가 이미 정리한 경우.
+        Inspection inspection = analyzedInspection();
+        when(inspectionRepository.findById(10L)).thenReturn(Optional.of(inspection));
+
+        service.revertStuckAnalyzing(10L);
+
+        assertThat(inspection.getStatus()).isEqualTo(InspectionStatus.ANALYZED);
+        verify(defectRepository, never()).existsByInspectionIdAndDeletedFalse(any());
+    }
+
     @Test
     void list_owner스코프로위임_필터그대로전달_시설물명담당자명하자건수포함매핑() {
         Pageable pageable = PageRequest.of(0, 20);

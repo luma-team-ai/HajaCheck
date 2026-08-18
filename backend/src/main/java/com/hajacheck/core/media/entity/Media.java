@@ -138,6 +138,16 @@ public class Media {
     @Column(name = "purpose", nullable = false, length = 30)
     private MediaPurpose purpose;
 
+    /**
+     * 이 미디어가 AI 분석을 거친 시각(V42, #1654 증분 분석) — null이면 미분석(증분 분석 대상).
+     * created_at과 동일하게 별도 컨버터 없이 timestamptz 컬럼에 매핑한다(카메라 현지시각을 다루는
+     * capturedAt과 달리 서버가 분석 완료 시점에 직접 기록하는 서버 시각이라 TZ 고정 변환이 필요 없다).
+     * 새로 업로드된 미디어는 항상 null로 시작하며(빌더에 파라미터 없음), 분석 완료 표시는
+     * {@link #markAnalyzed(LocalDateTime)}로만 한다(Setter 금지 컨벤션 — 상태전이는 엔티티 메서드로 캡슐화).
+     */
+    @Column(name = "analyzed_at")
+    private LocalDateTime analyzedAt;
+
     @Builder
     private Media(Long inspectionId, Long facilityId, MediaFileType fileType, String originalUrl,
                   String thumbnailUrl, String detailUrl, Long sourceVideoId, Integer frameIndex,
@@ -159,5 +169,14 @@ public class Media {
         this.mimeType = mimeType;
         this.originalFilename = originalFilename;
         this.purpose = purpose != null ? purpose : MediaPurpose.INSPECTION_SOURCE;
+    }
+
+    /**
+     * AI 분석 완료 표시(#1654, 증분 분석) — {@link com.hajacheck.core.analysis.service.InspectionAnalysisWorker}가
+     * 이 미디어의 탐지+저장까지 성공적으로 마친 직후 호출한다. 실패한 이미지는 호출하지 않는다 —
+     * analyzedAt이 null로 남아야 다음 분석 트리거에서 다시 대상이 된다(재시도 가능).
+     */
+    public void markAnalyzed(LocalDateTime analyzedAt) {
+        this.analyzedAt = analyzedAt;
     }
 }

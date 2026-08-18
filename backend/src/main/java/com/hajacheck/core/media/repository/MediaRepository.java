@@ -24,8 +24,18 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     List<Media> findByInspectionIdAndFileTypeOrderByIdAsc(Long inspectionId, MediaFileType fileType);
 
     // AI 분석/재분석 대상 이미지 조회(#1641) — 조치 후 사진(DEFECT_ACTION)은 분석·재분석 대상이
-    // 아니다(원본 촬영사진만). InspectionAnalysisService의 분석 시작/상태 재구성 양쪽에서 사용.
+    // 아니다(원본 촬영사진만). InspectionAnalysisService의 상태 재구성(rebuildFromDb, 회차 전체
+    // 미디어 표시용)에서 사용 — 분석 시작(startAnalysis) 자체는 #1654부터 아래 analyzedAt IS NULL
+    // 버전만 쓴다(증분 분석 대상 좁히기).
     List<Media> findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(
+            Long inspectionId, MediaFileType fileType, MediaPurpose purpose);
+
+    // 증분 분석 대상 조회(V42, #1654) — "회차의 전체 원본 사진"이 아니라 "아직 AI 분석을 거치지 않은
+    // 원본 사진"만 좁혀서 가져온다. 분석 완료(ANALYZED) 후 추가 업로드된 사진이 재분석 fail-closed
+    // 가드(InspectionAnalysisService.hasExistingDefects)에 막혀 영구 미분석으로 남던 버그(#1654)의
+    // 근본 수정 — 이 메서드가 반환하는 목록이 곧 "이번 실행에서 처리할 이미지"이므로, 첫 분석이든
+    // 증분 분석이든 InspectionAnalysisService.startAnalysis는 이 메서드 하나만 사용한다.
+    List<Media> findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(
             Long inspectionId, MediaFileType fileType, MediaPurpose purpose);
 
     // 점검 회차별 미디어 전체 조회(#803 분석 결과 뷰어) — 업로드된 모든 미디어를 반환(하자 유무 무관).

@@ -3,6 +3,7 @@ package com.hajacheck.core.analysis.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -127,8 +128,8 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -137,16 +138,16 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.empty());
         when(progressStore.isAvailable()).thenReturn(true);
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         // 고착 복구 — UPLOADING으로 강제 되돌린 뒤에야 원자적 선점을 시도한다.
         verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                eq(InspectionStatus.UPLOADING), anyBoolean(), any(), any());
     }
 
     @Test
@@ -165,7 +166,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -177,15 +178,15 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID))
                 .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)))));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                eq(InspectionStatus.UPLOADING), anyBoolean(), any(), any());
     }
 
     @Test
@@ -200,7 +201,7 @@ class InspectionAnalysisServiceTest {
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -224,11 +225,11 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
-        verify(mediaRepository, never()).findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(any(), any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
+        verify(mediaRepository, never()).findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any(), anyBoolean());
         verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
         verify(progressStore, never()).save(any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -244,9 +245,11 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
-        verify(mediaRepository, never()).findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(any(), any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        // #1654 — 미분석 사진 조회(mediaRepository...AnalyzedAtIsNull...)는 이제 하자 존재 체크보다
+        // 먼저 호출된다(이미지가 비어있어야 "강제 전체 재분석" fail-closed 분기로 들어간다). 그
+        // 이후 단계(원자적 선점·워커 위임)까지는 여전히 도달하지 않아야 한다.
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any(), anyBoolean());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -263,9 +266,8 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
-        verify(mediaRepository, never()).findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(any(), any(), any());
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any(), anyBoolean());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -280,7 +282,7 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
 
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -289,29 +291,68 @@ class InspectionAnalysisServiceTest {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
         when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(false);
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.ANALYZED), any(), any());
+                eq(InspectionStatus.ANALYZED), eq(false), any(), any());
+    }
+
+    // ── 증분 분석 허용(V42, #1654) — "ANALYZED 회차 + 미분석 사진 존재"만 하자 존재를 예외로 통과시킨다 ──
+
+    @Test
+    void startAnalysis_ANALYZED이고_하자있어도_미분석사진이있으면_증분분석으로진행한다() {
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(true);
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+                .thenReturn(List.of(image(2L)));
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), eq(true))).thenReturn(true);
+
+        service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        // 원자적 선점과 워커 양쪽에 "이 실행은 증분(append only)"이 true로 전달돼야 한다 — 하나라도
+        // false로 새면 기존 하자가 소프트삭제되거나(워커) 선점 자체가 거부된다(원자적 UPDATE).
+        verify(inspectionService).tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), eq(true));
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                eq(InspectionStatus.ANALYZED), eq(true), any(), any());
+    }
+
+    @Test
+    void startAnalysis_CREATED이고_하자있고_미분석사진있어도_ANALYZED가아니면증분허용안함() {
+        // 제품 결정(#1654) — 증분 예외는 ANALYZED 상태에서만 적용된다. CREATED/UPLOADING 회차에 이미
+        // 수동 하자가 있는 상태에서의 "첫" 분석은 미분석 사진이 있어도(사실상 전량 미분석) 여전히
+        // fail-closed다 — 첫 분석은 여전히 전체 소프트삭제 경로라 그 하자를 무보상으로 지운다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.CREATED));
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(true);
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+                .thenReturn(List.of(image(1L)));
+
+        assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NOT_ALLOWED);
+
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any(), anyBoolean());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
     void startAnalysis_이미지없으면_NO_MEDIA_원자적선점은시도하지않는다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of());
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_NO_MEDIA);
 
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any(), anyBoolean());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -321,7 +362,7 @@ class InspectionAnalysisServiceTest {
         // 신선(fresh) → isStuck=false → 살아있는 것으로 카운트된다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
                 .thenReturn(List.of(analyzingWithId(201L), analyzingWithId(202L)));
@@ -332,25 +373,25 @@ class InspectionAnalysisServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_COMPANY_CONCURRENCY_LIMIT);
 
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any(), anyBoolean());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
     void startAnalysis_회사별_살아있는_동시실행이_상한미만이면_정상진행한다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
                 .thenReturn(List.of(analyzingWithId(201L)));
         when(progressStore.find(201L)).thenReturn(Optional.of(anyProgress()));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                eq(InspectionStatus.UPLOADING), anyBoolean(), any(), any());
     }
 
     @Test
@@ -359,7 +400,7 @@ class InspectionAnalysisServiceTest {
         // 카운트에서 빠져야 한다. 안 그러면 워커 크래시가 쌓인 회사는 영구히 상한에 걸린다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionRepository.findByFacilityCompanyIdAndStatus(COMPANY_ID, InspectionStatus.ANALYZING))
                 .thenReturn(List.of(analyzingWithId(201L), analyzingWithId(202L)));
@@ -368,12 +409,12 @@ class InspectionAnalysisServiceTest {
                 progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)));
         when(progressStore.find(201L)).thenReturn(Optional.of(stale));
         when(progressStore.find(202L)).thenReturn(Optional.of(stale));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                eq(InspectionStatus.UPLOADING), anyBoolean(), any(), any());
     }
 
     @Test
@@ -403,32 +444,32 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_원자적선점실패시_ALREADY_RUNNING_워커호출안함() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         // 동시에 들어온 다른 요청이 먼저 선점했다고 가정 — 조건부 UPDATE 영향 행 0건.
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(false);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(false);
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.ANALYSIS_ALREADY_RUNNING);
 
         verify(progressStore, never()).save(any());
-        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), any(), any());
+        verify(worker, never()).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
     void startAnalysis_정상흐름_워커에직전상태를넘긴다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L), image(2L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         verify(progressStore).save(any(AnalysisStatusResponse.class));
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), any(), any());
+                eq(InspectionStatus.UPLOADING), anyBoolean(), any(), any());
     }
 
     @Test
@@ -440,16 +481,16 @@ class InspectionAnalysisServiceTest {
         // 없다는 것을 실행 순서로 고정한다 — worker.runAsync는 그 다음에야 호출된다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
         InOrder inOrder = Mockito.inOrder(inspectionService, progressStore, worker);
-        inOrder.verify(inspectionService).tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any());
+        inOrder.verify(inspectionService).tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean());
         inOrder.verify(progressStore).save(any(AnalysisStatusResponse.class));
-        inOrder.verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), any(), any(), any());
+        inOrder.verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), any(), anyBoolean(), any(), any());
     }
 
     @Test
@@ -459,9 +500,9 @@ class InspectionAnalysisServiceTest {
         // 워커를 스스로 중단시킬 방법이 없다(InspectionAnalysisWorker 참고).
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -470,7 +511,7 @@ class InspectionAnalysisServiceTest {
         assertThat(generationCaptor.getValue()).isNotBlank();
         // 워커에도 저장소에 기록한 것과 "같은" 토큰이 전달돼야 스스로 비교할 수 있다.
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
-                eq(InspectionStatus.UPLOADING), eq(generationCaptor.getValue()), any());
+                eq(InspectionStatus.UPLOADING), anyBoolean(), eq(generationCaptor.getValue()), any());
     }
 
     @Test
@@ -482,9 +523,9 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID))
                 .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)))));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
@@ -495,11 +536,11 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_큐포화시_직전상태로롤백하고캐시를지운뒤_QUEUE_FULL던진다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
         org.mockito.Mockito.doThrow(new TaskRejectedException("full"))
-                .when(worker).runAsync(any(), any(), any(), any(), any(), any(), any());
+                .when(worker).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
@@ -518,11 +559,11 @@ class InspectionAnalysisServiceTest {
         when(quotaService.consumeAnalysisQuota(USER_ID, COMPANY_ID, 3)).thenReturn(CHARGE);
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L), image(2L), image(3L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
         Mockito.doThrow(new TaskRejectedException("full"))
-                .when(worker).runAsync(any(), any(), any(), any(), any(), any(), any());
+                .when(worker).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .isInstanceOf(BusinessException.class)
@@ -540,9 +581,9 @@ class InspectionAnalysisServiceTest {
         when(quotaService.consumeAnalysisQuota(USER_ID, COMPANY_ID, 2)).thenReturn(CHARGE);
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L), image(2L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any()))
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean()))
                 .thenReturn(false);
 
         assertThatThrownBy(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID))
@@ -556,11 +597,11 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_보상차감이실패해도_원래실패원인을_그대로전파한다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
-        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any())).thenReturn(true);
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
         Mockito.doThrow(new TaskRejectedException("full"))
-                .when(worker).runAsync(any(), any(), any(), any(), any(), any(), any());
+                .when(worker).runAsync(any(), any(), any(), any(), any(), anyBoolean(), any(), any());
         // 보상 트랜잭션 커밋 단계의 UnexpectedRollbackException 등 — 원인을 덮으면 사용자가 500을 받는다.
         Mockito.doThrow(new IllegalStateException("보상 트랜잭션 롤백"))
                 .when(quotaService).refundAnalysisQuota(any());
@@ -574,7 +615,7 @@ class InspectionAnalysisServiceTest {
     void startAnalysis_월분석한도초과면_선점도_워커위임도_하지않는다() {
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.UPLOADING));
-        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         Mockito.doThrow(new BusinessException(ErrorCode.PLAN_ANALYSIS_QUOTA_EXCEEDED))
                 .when(quotaService).consumeAnalysisQuota(any(), any(), org.mockito.ArgumentMatchers.anyInt());
@@ -585,7 +626,7 @@ class InspectionAnalysisServiceTest {
 
         // 한도 초과는 차감 이전에 판정되므로 회차를 ANALYZING으로 바꿨다가 되돌리는 경로가 아예 없어야 한다.
         Mockito.verifyNoInteractions(worker);
-        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any());
+        verify(inspectionService, never()).tryStartAnalyzing(any(), any(), any(), any(), anyBoolean());
         verify(quotaService, never()).refundAnalysisQuota(any());
     }
 
@@ -628,7 +669,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
         AnalysisStatusResponse oldDone = new AnalysisStatusResponse(
                 INSPECTION_ID, "done", 100, 2, 2, List.of(), 3, 1,
-                java.util.Map.of("A", 0, "B", 0, "C", 1, "D", 1, "E", 1), 0,
+                java.util.Map.of("A", 0, "B", 0, "C", 1, "D", 1, "E", 1), 0, 0, true,
                 java.time.Instant.now().minus(java.time.Duration.ofHours(1)));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(oldDone));
 
@@ -651,6 +692,41 @@ class InspectionAnalysisServiceTest {
         assertThat(result.progressPercent()).isZero();
         assertThat(result.files()).hasSize(1);
         assertThat(result.files().get(0).status()).isEqualTo("waiting");
+    }
+
+    @Test
+    void getStatus_캐시없고_완료된회차에미분석사진이남아있으면_그사진만대기로표시하고unanalyzedCount를채운다() {
+        // #1654 핵심 회귀 검증 — 이 버그의 증상이 정확히 이거였다: 분석 완료 후 추가 업로드된 사진이
+        // "하자 0건인 완료된 사진"처럼 보이던 것. analyzedAt이 없는 미디어는 defectCount=0인 "completed"가
+        // 아니라 "waiting"으로 표시돼야 하고, unanalyzedMediaCount가 그 장수를 정확히 반영해야 프론트가
+        // "추가 사진 N장 분석" 액션을 띄울 수 있다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
+        when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.empty());
+        Media analyzedWithDefect = image(1L);
+        ReflectionTestUtils.setField(analyzedWithDefect, "analyzedAt", java.time.LocalDateTime.of(2026, 8, 1, 10, 0));
+        Media unanalyzed = image(2L); // analyzedAt 미설정 — 분석 완료 후 새로 업로드된 사진.
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+                .thenReturn(List.of(analyzedWithDefect, unanalyzed));
+        com.hajacheck.core.defect.entity.Defect defect = com.hajacheck.core.defect.entity.Defect.builder()
+                .inspectionId(INSPECTION_ID).mediaId(1L)
+                .type(com.hajacheck.core.defect.entity.DefectType.CRACK)
+                .confidence(0.9)
+                .build();
+        when(defectRepository.findByInspectionIdAndNotDeleted(INSPECTION_ID)).thenReturn(List.of(defect));
+
+        AnalysisStatusResponse result = service.getStatus(USER_ID, COMPANY_ID, INSPECTION_ID);
+
+        assertThat(result.stage()).isEqualTo("done");
+        assertThat(result.totalFileCount()).isEqualTo(2);
+        assertThat(result.analyzedFileCount()).isEqualTo(1);
+        assertThat(result.unanalyzedMediaCount()).isEqualTo(1);
+        assertThat(result.progressPercent()).isEqualTo(50);
+        assertThat(result.files()).hasSize(2);
+        assertThat(result.files().get(0).status()).isEqualTo("completed");
+        assertThat(result.files().get(0).defectCount()).isEqualTo(1);
+        assertThat(result.files().get(1).status()).isEqualTo("waiting");
+        assertThat(result.files().get(1).defectCount()).isNull();
     }
 
     // ── 사용자 취소("한 번에 하나만" 정책, 2026-07-27) ──
@@ -717,6 +793,6 @@ class InspectionAnalysisServiceTest {
     private AnalysisStatusResponse progressAsOf(java.time.Instant updatedAt) {
         return new AnalysisStatusResponse(
                 INSPECTION_ID, "aiDetection", 50, 2, 1, List.of(), 0, 0,
-                java.util.Map.of("A", 0, "B", 0, "C", 0, "D", 0, "E", 0), 0, updatedAt);
+                java.util.Map.of("A", 0, "B", 0, "C", 0, "D", 0, "E", 0), 0, 0, false, updatedAt);
     }
 }

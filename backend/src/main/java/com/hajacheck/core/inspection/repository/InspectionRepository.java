@@ -102,14 +102,23 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 재분석이 그 사람 하자를 원자적 선점은 통과시키고 이후 워커의 소프트삭제가 지워버리는 TOCTOU가
     // 있었다. 소스 상태 TOCTOU를 WHERE의 allowedStatuses로 닫은 것과 동일한 방식으로, "비삭제 하자
     // 없음"도 이 원자적 UPDATE의 WHERE에 함께 강제해 선점 성공 자체를 막는다.
+    //
+    // 증분 분석(V42, #1654) — allowExistingDefects는 InspectionAnalysisService가 "이 실행이 ANALYZED
+    // 회차의 증분 분석"(비삭제 하자가 있어도 append only라 안전)이라고 이미 판단했을 때만 true로
+    // 넘긴다. true면 "비삭제 하자 없음" 조건 자체를 건너뛴다 — 그 외(false, 기본)는 기존과 동일하게
+    // 하자 존재만으로 선점을 막는 fail-closed를 그대로 유지한다. 이 플래그를 여기(원자적 UPDATE의
+    // 실제 방어선)에 반영하지 않으면, 서비스 계층의 사전 체크만 완화되고 이 WHERE는 여전히 모든
+    // 증분 분석 시도를 0행으로 거부해버린다.
     @Modifying
     @Query("update Inspection i set i.status = :analyzingStatus "
             + "where i.id = :id and i.status in :allowedStatuses "
-            + "and not exists (select 1 from Defect d where d.inspectionId = i.id and d.deleted = false)")
+            + "and (:allowExistingDefects = true "
+            + "or not exists (select 1 from Defect d where d.inspectionId = i.id and d.deleted = false))")
     int startAnalyzingIfNotRunning(
             @Param("id") Long id,
             @Param("analyzingStatus") InspectionStatus analyzingStatus,
-            @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses);
+            @Param("allowedStatuses") Collection<InspectionStatus> allowedStatuses,
+            @Param("allowExistingDefects") boolean allowExistingDefects);
 
     // 검수 확정(InspectionService.confirmReview, PR머신 리뷰 P2) — read-then-advanceTo(더티 체킹)
     // 대신 원자적 조건부 UPDATE로 ANALYZED→REVIEWED를 쓴다. 위 startAnalyzingIfNotRunning과 같은
