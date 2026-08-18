@@ -4,6 +4,7 @@ import com.hajacheck.core.defect.entity.Defect;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -139,6 +140,26 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
             @Param("id") Long id,
             @Param("reviewedStatus") InspectionStatus reviewedStatus,
             @Param("fromStatus") InspectionStatus fromStatus);
+
+    // 점검 수행 시각 자동 세팅(V43, #1667, 코드 리뷰 P1-1) — MediaWriter가 회차의 INSPECTION_SOURCE
+    // 미디어 저장 직후 회차별 배치 최솟값 candidate로 이 원자적 UPDATE를 호출한다. 원래는
+    // Inspection.applyPerformedAt(read-modify-write, dirty checking) 이었으나, 배치 업로드 두 건이
+    // 동시에 같은 회차에 미디어를 올리면 두 트랜잭션이 같은 findAllById 스냅샷을 읽고 각자 다른
+    // candidate로 dirty-check flush해 나중에 커밋되는 쪽이 먼저 커밋된 더 이른(=올바른) 값을 조용히
+    // 덮어쓸 수 있었다(lost update). startAnalyzingIfNotRunning/confirmReviewIfAnalyzed와 동일하게
+    // WHERE의 조건부 비교를 DB가 원자적으로 평가하게 해 이 경합을 차단한다 — "이미 값이 없거나, 있어도
+    // candidate보다 늦은 경우"에만 SET이 적용되므로 두 트랜잭션이 동시에 커밋돼도 항상 더 이른 값이
+    // 남는다(LEAST 대신 조건부 SET — 의미는 동일하되 다른 컬럼 값에 의존하지 않아 더 읽기 쉽다).
+    // 영향 행 0건 = 이미 더 이른(또는 같은) performed_at이 있어 갱신 불필요 — 호출부(MediaWriter)는
+    // 결과를 별도로 분기하지 않는다(멱등한 "최선을 다한 갱신"이라 실패로 취급하지 않음).
+    //
+    // i.performedAt은 Inspection.performedAt(KstFixedLocalDateTimeConverter)에 매핑된 엔티티 경로라,
+    // JPQL 경로 표현식(네이티브 SQL이 아님)을 통해 파라미터 바인딩과 컬럼 비교 양쪽 모두 그 컨버터를
+    // 그대로 탄다 — Media.capturedAt과 동일 KST 고정 해석으로 대소 비교가 어긋나지 않는다.
+    @Modifying
+    @Query("update Inspection i set i.performedAt = :candidate "
+            + "where i.id = :id and (i.performedAt is null or i.performedAt > :candidate)")
+    int applyPerformedAtIfEarlier(@Param("id") Long id, @Param("candidate") LocalDateTime candidate);
 
     // 회사별 분석 동시 실행 상한(코드 리뷰 P2 4차/10차) — analysisTaskExecutor는 테넌트 구분 없는
     // 전역 공유 풀이라, 한 회사가 대량 요청으로 큐를 독점하면 다른 회사까지 막힌다(noisy-neighbor).
