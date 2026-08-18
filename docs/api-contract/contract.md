@@ -1,6 +1,6 @@
 # API 계약 (OpenAPI) — 초안
 
-> **문서 버전:** v0.17 · **최종 수정:** 2026-08-05 · 이전 버전 `archive/`
+> **문서 버전:** v0.18 · **최종 수정:** 2026-08-18 · 이전 버전 `archive/`
 
 > Contract-First 원칙(PRD §6). 이 문서는 **ai-server(FastAPI) 파트만** 담고 있음 — Spring Boot 쪽 엔드포인트는 각 담당자가 이 문서에 이어서 추가.
 > SOT는 `docs/api-contract/openapi.yaml`(2026-08-05 기준 **v0.45.0-draft · 138 path · 161 operation**) — 이 문서는 그 사람이 읽는 요약본. 구현된 엔드포인트는 서버 기동 후 `/docs`(Swagger UI) 또는 `/openapi.json`에서 실물 재확인 가능.
@@ -286,9 +286,9 @@ FastAPI validation error(`detail[]`)를 반환한다.
 | DELETE | `/api/facilities/{id}` | 시설물 삭제 | 허남/김관영 |
 | POST | `/api/facilities/{id}/schedule` | 시설물 점검주기 설정(dev-04-03) | 허남/김관영 |
 | GET | `/api/facilities/status` | 시설물 현황 전용 목록(#540 ⑥, HAJA-378) | 허남 |
-| POST | `/api/inspections` | 점검(회차) 생성 | 황승현 |
-| POST | `/api/inspections/{id}/media` | 촬영 데이터 업로드 | 황승현 |
-| POST | `/api/inspections/{id}/analyze` | AI 분석 요청 | 황승현 |
+| POST | `/api/inspections` | 점검(회차) 생성 | 오영석 |
+| POST | `/api/inspections/{id}/media` | 촬영 데이터 업로드 | 오영석 |
+| POST | `/api/inspections/{id}/analyze` | AI 분석 요청 | 정재봉 |
 | GET | `/api/inspections/{id}/defects` | 분석 결과(하자 목록) 조회 | 오영석 |
 | GET | `/api/inspections/{id}/defects/deleted` | 오탐 삭제된 하자·사유 조회 | 오영석 ✅ 구현됨 |
 | PATCH | `/api/defects/{id}` | 검수(오탐 삭제·복구·등급 조정) | 오영석 |
@@ -302,8 +302,8 @@ FastAPI validation error(`detail[]`)를 반환한다.
 | FR | 메서드 | 경로(안) | 기능 | 담당 |
 |---|---|---|---|---|
 | FR-1 | GET/POST | `/api/auth/**`, `/api/users/me` | 로그인·마이페이지·권한 | 정재봉/오영석 |
-| FR-2 | POST | `/api/inspections/{id}/media` | 업로드·프레임 추출 | 황승현/허남 |
-| FR-3 | POST | `/api/inspections/{id}/analyze`, `/api/jobs/{id}` | AI 하자 탐지·잡 상태 | 황승현 |
+| FR-2 | POST | `/api/inspections/{id}/media` | 업로드·프레임 추출 | 오영석/허남 |
+| FR-3 | POST | `/api/inspections/{id}/analyze`, `/api/jobs/{id}` | AI 하자 탐지·잡 상태 | 정재봉 |
 | FR-4 | GET/PATCH | `/api/defects/**`, `/ai/defect-explain` | 시각화·검수·AI 설명 | 오영석 |
 | FR-5 | POST/GET | `/api/reports/**`, `/ai/report` | LLM 보고서 생성 | 김관영 |
 | FR-6 | POST | `/ai/rag-chat`, `/api/chat-sessions` | RAG 챗봇 | 이은석 |

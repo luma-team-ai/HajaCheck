@@ -1,7 +1,7 @@
 """박리박락(SPALLING)·철근노출(REBAR_EXPOSURE) 전용 YOLOv8-seg 모델 로더 — ocr_client.py/llm_client.py와
 동일한 "체인에서 직접 생성하지 않고 이 함수를 거친다" 패턴(AI_개발_컨벤션.md §0 공통 기반 원칙).
 
-## 배경 (dev-05-04, docs/_local/황승현_할일.md)
+## 배경 (dev-05-04)
 
 design-03-04(YOLOv8-seg 1차 학습) 완료 전이라 `models/MODEL_CARD.md`는 아직 TBD 상태고,
 정식 배포 형식은 ONNX 변환+INT8 양자화(§4)다. 이 모듈은 그 전 단계로 HuggingFace Hub에 올라간

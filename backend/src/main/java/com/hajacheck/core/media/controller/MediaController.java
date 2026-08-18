@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 촬영 데이터(이미지) 업로드/썸네일 조회 — PRD §7 "🔍 점검 관리 A"(황승현 주담당) / dev-05-03.
+ * 촬영 데이터(이미지) 업로드/썸네일 조회 — PRD §7 "🔍 점검 관리 A"(오영석 주담당) / dev-05-03.
  * 업로드는 점검 회차 하위 경로, 썸네일 조회는 미디어 단건 경로(클라이언트가 업로드 응답의 id로만 접근).
  */
 @Tag(name = "Media", description = "촬영 데이터(미디어) API")
