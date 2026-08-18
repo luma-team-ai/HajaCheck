@@ -208,7 +208,10 @@ describe('DefectActionForm — actionResult 등록 완료 상태(회귀 확인)'
 });
 
 describe('DefectActionForm — 진행상태 select(#1128, "다른 상태로 변경" 통합 #1556)', () => {
-  it('CONFIRMED 상태에서는 정방향(조치중) 옵션이 기본 선택되고, 역행 옵션(신규/조치완료로 되돌리기)도 함께 노출된다', () => {
+  // (#1642) CONFIRMED→RESOLVED 직행 전이 제거 — 조치결과등록 없이 조치완료로 넘어가면 조치
+  // 사진/내용이 비어 하자상세에 안 뜨는 버그의 원인이라, RESOLVED 도달은 이제 조치결과등록 폼으로만
+  // 가능하다. 역행 옵션(신규로 되돌리기)은 그대로 유지된다.
+  it('CONFIRMED 상태에서는 정방향(조치중) 옵션이 기본 선택되고, 역행 옵션(신규로 되돌리기)만 함께 노출된다', () => {
     renderForm('CONFIRMED');
 
     const select = screen.getByLabelText('진행상태 *') as HTMLSelectElement;
@@ -216,7 +219,7 @@ describe('DefectActionForm — 진행상태 select(#1128, "다른 상태로 변�
     // 역행 옵션이 함께 있으므로 더 이상 disabled 고정 select가 아니다(#1556).
     expect(select.disabled).toBe(false);
     const optionLabels = Array.from(select.options).map((option) => option.textContent);
-    expect(optionLabels).toEqual(['조치중', '신규(으)로 되돌리기', '조치완료(으)로 되돌리기']);
+    expect(optionLabels).toEqual(['조치중', '신규(으)로 되돌리기']);
   });
 
   // #1193/HAJA-569 — IN_PROGRESS 단계에서 조치중 사진을 시간차를 두고 여러 번 등록할 수 있어야
