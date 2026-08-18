@@ -542,12 +542,41 @@ class InspectionAnalysisWorkerTest {
                 .containsExactlyInAnyOrder(2.4, null);
     }
 
+    @Test
+    void runAsync_AI응답의areaMm2가Defect_areaMm2로저장된다() {
+        // #1658/#1668 — ai-server가 카드 기준물로 환산한 area_mm2를 응답에 실어도 DetectedDefectItem에
+        // 필드가 없으면 @JsonIgnoreProperties(ignoreUnknown)에 의해 조용히 버려져 Defect.areaMm2가
+        // 항상 null로 남는 문제의 회귀 테스트(widthMm 회귀 테스트와 동일한 위험 패턴).
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(
+                detectionWithArea("SPALLING", "C", 1234.5), // 카드 검출 성공 — mm2 값 전달됨
+                detectionWithArea("CRACK", "A", null)));     // CRACK — 카드 미검출/비대상, null 유지
+        when(defectWriter.softDeleteAllForInspectionThenSaveAndMarkAnalyzed(any(), any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(2));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)),
+                InspectionStatus.UPLOADING, false, GENERATION, CHARGE);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Defect>> captor = ArgumentCaptor.forClass(List.class);
+        verify(defectWriter).softDeleteAllForInspectionThenSaveAndMarkAnalyzed(any(), eq(INSPECTION_ID), captor.capture(), any(), any());
+        List<Defect> saved = captor.getValue();
+
+        assertThat(saved)
+                .extracting(Defect::getAreaMm2)
+                .containsExactlyInAnyOrder(1234.5, null);
+    }
+
     private DetectedDefectItem detection(String type, String grade) {
         return detection(type, grade, null);
     }
 
     private DetectedDefectItem detection(String type, String grade, Double widthMm) {
-        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, widthMm);
+        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, widthMm, null);
+    }
+
+    private DetectedDefectItem detectionWithArea(String type, String grade, Double areaMm2) {
+        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, null, areaMm2);
     }
 
     @SuppressWarnings("unchecked")

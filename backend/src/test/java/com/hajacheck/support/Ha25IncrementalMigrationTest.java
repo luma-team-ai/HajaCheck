@@ -529,7 +529,13 @@ class Ha25IncrementalMigrationTest {
                 // assertCanonicalSchemaParity 가 통과한다.
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource("db/migration/V43__add_inspections_performed_at.sql"),
-                        CONTAINER_ROOT + "V43__add_inspections_performed_at.sql");
+                        CONTAINER_ROOT + "V43__add_inspections_performed_at.sql")
+                // #1658/#1668 — Flyway V44(defects.area_mm2 컬럼, ai-server 실측 면적 additive)도 이어서
+                // 1회 forward-apply한다. 캐노니컬 DDL에 이 컬럼이 반영돼 있으므로 이 증분 경로에서도
+                // 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V44__add_defect_area_mm2.sql"),
+                        CONTAINER_ROOT + "V44__add_defect_area_mm2.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -696,6 +702,10 @@ class Ha25IncrementalMigrationTest {
         // UPDATE는 no-op이다 — 스키마 시그니처(컬럼)만 파리티 대상.
         runPsql(postgres, "V43__add_inspections_performed_at.sql");
         runPsql(postgres, "V43__add_inspections_performed_at.sql");
+        // #1658/#1668 — Flyway V44(defects.area_mm2 컬럼)도 이어서 forward-apply한다. ADD COLUMN IF NOT
+        // EXISTS라 재실행이 안전하다는 점까지 함께 고정한다(V16/V41과 동일 패턴).
+        runPsql(postgres, "V44__add_defect_area_mm2.sql");
+        runPsql(postgres, "V44__add_defect_area_mm2.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
