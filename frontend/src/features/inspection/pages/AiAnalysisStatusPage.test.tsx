@@ -37,6 +37,7 @@ function preAnalysisStatus(): AnalysisStatusResponse {
     riskyCrackCount: 0,
     severityDistribution: { A: 0, B: 0, C: 0, D: 0, E: 0 },
     failedCount: 0,
+    unanalyzedMediaCount: 1,
   };
 }
 
@@ -55,6 +56,32 @@ function analyzingStatus(): AnalysisStatusResponse {
     riskyCrackCount: 0,
     severityDistribution: { A: 0, B: 0, C: 0, D: 0, E: 0 },
     failedCount: 0,
+    unanalyzedMediaCount: 1,
+  };
+}
+
+function doneStatus(unanalyzedMediaCount: number): AnalysisStatusResponse {
+  return {
+    inspectionId: 100,
+    stage: 'done',
+    progressPercent: 100,
+    totalFileCount: 2,
+    analyzedFileCount: 2 - unanalyzedMediaCount,
+    files: [
+      { mediaId: 1, fileName: '이미지 1', status: 'completed', defectCount: 0, elapsedOrEta: '1.0s' },
+      {
+        mediaId: 2,
+        fileName: '이미지 2',
+        status: unanalyzedMediaCount > 0 ? 'waiting' : 'completed',
+        defectCount: unanalyzedMediaCount > 0 ? null : 0,
+        elapsedOrEta: unanalyzedMediaCount > 0 ? '-' : '1.2s',
+      },
+    ],
+    detectedDefectCount: 0,
+    riskyCrackCount: 0,
+    severityDistribution: { A: 0, B: 0, C: 0, D: 0, E: 0 },
+    failedCount: 0,
+    unanalyzedMediaCount,
   };
 }
 
@@ -156,6 +183,47 @@ describe('AiAnalysisStatusPage', () => {
     renderPage();
 
     expect(await screen.findByText('점검 ID #100', { exact: false })).not.toBeNull();
+  });
+
+  describe('증분 분석(#1654) — 분석 완료 후 추가 업로드된 원본 사진', () => {
+    it('done이고 unanalyzedMediaCount>0이면 "추가 사진 N장 분석" 버튼이 보이고, 클릭 시 startAnalysis를 재호출한다', async () => {
+      // 배경: 분석 완료(ANALYZED) 후 추가 업로드된 원본 사진이 재분석 fail-closed 가드에 막혀
+      // 영구 미분석으로 남던 버그(운영 실사례 m473/m474 등). 백엔드가 미분석 사진 유무로 증분
+      // 여부를 자동 판단하므로, 프론트는 기존 handleRetry(POST /analyze 재호출)를 그대로 재사용한다.
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: doneStatus(1) }),
+        ),
+        http.post('/api/inspections/:id/analyze', () => new HttpResponse(null, { status: 202 })),
+      );
+      const startAnalysisSpy = vi.spyOn(inspectionApi, 'startAnalysis');
+
+      renderPage();
+
+      const incrementalButton = await screen.findByRole('button', { name: '추가 사진 1장 분석' });
+      // 이미 분석이 끝났으므로 "검수 시작"도 함께 활성화돼 있어야 한다 — 증분 액션이 막다른 길을
+      // 만들지 않는다.
+      expect(screen.getByRole('button', { name: '검수 시작' })).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.click(incrementalButton);
+      });
+
+      await waitFor(() => expect(startAnalysisSpy).toHaveBeenCalledWith(100));
+    });
+
+    it('done이고 unanalyzedMediaCount=0이면 "추가 사진 분석" 버튼이 보이지 않는다', async () => {
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: doneStatus(0) }),
+        ),
+      );
+
+      renderPage();
+
+      await screen.findByRole('button', { name: '검수 시작' });
+      expect(screen.queryByRole('button', { name: /추가 사진/ })).toBeNull();
+    });
   });
 
   describe('이탈해도 안전하게 계속 진행(정책 변경, 2026-07-28) — 분석 진행 중 이탈/취소', () => {
