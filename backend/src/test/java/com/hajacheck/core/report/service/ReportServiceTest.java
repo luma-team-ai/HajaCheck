@@ -553,7 +553,7 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
-        assertThat(response.report().groundingCheckPassed()).isTrue();
+        assertThat(response.groundingCheckPassed()).isTrue();
         assertThat(report.getGroundingWarnings()).isEqualTo("[]");
         verify(defectRepository, times(1)).findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any());
     }
@@ -571,7 +571,7 @@ class ReportServiceTest {
         ReportDetailResponse finalizeResponse = reportService.finalizeReport(
                 5L, "/api/reports/5/pdf/r.pdf", 500L, 200L);
 
-        assertThat(recheckResponse.report().groundingCheckPassed()).isTrue();
+        assertThat(recheckResponse.groundingCheckPassed()).isTrue();
         assertThat(finalizeResponse.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
     }
 
@@ -589,7 +589,7 @@ class ReportServiceTest {
         ReportDefectSyncResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(updateResponse.content().has("reportOptions")).isTrue();
-        assertThat(recheckResponse.report().groundingCheckPassed()).isTrue();
+        assertThat(recheckResponse.groundingCheckPassed()).isTrue();
     }
 
     @Test
@@ -604,7 +604,7 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
 
-        assertThat(recheckResponse.report().groundingCheckPassed()).isFalse();
+        assertThat(recheckResponse.groundingCheckPassed()).isFalse();
         assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 500L, 200L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("근거 검증");
@@ -624,7 +624,7 @@ class ReportServiceTest {
         ReportDefectSyncResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(updateResponse.content().has("reportOptions")).isFalse();
-        assertThat(recheckResponse.report().groundingCheckPassed()).isFalse();
+        assertThat(recheckResponse.groundingCheckPassed()).isFalse();
         assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 500L, 200L))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("근거 검증");
@@ -642,7 +642,7 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
-        assertThat(response.report().groundingCheckPassed()).isTrue();
+        assertThat(response.groundingCheckPassed()).isTrue();
     }
 
     @Test
@@ -655,7 +655,7 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
-        assertThat(response.report().groundingCheckPassed()).isFalse();
+        assertThat(response.groundingCheckPassed()).isFalse();
         assertThat(report.getGroundingWarnings()).contains("일치하지 않습니다");
     }
 
@@ -669,7 +669,7 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
-        assertThat(response.report().groundingCheckPassed()).isFalse();
+        assertThat(response.groundingCheckPassed()).isFalse();
     }
 
     @Test
@@ -684,7 +684,7 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
-        assertThat(response.report().groundingCheckPassed()).isFalse();
+        assertThat(response.groundingCheckPassed()).isFalse();
     }
 
     @Test
@@ -747,7 +747,7 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse response = reportService.resyncDefects(5L, 500L, 200L);
 
-        JsonNode items = response.report().content().path("detail").path("items");
+        JsonNode items = response.content().path("detail").path("items");
         assertThat(items).hasSize(1);
         assertThat(items.get(0).path("defect_id").asLong()).isEqualTo(1L);
         assertThat(items.get(0).path("description").asText()).isEmpty();
@@ -756,7 +756,7 @@ class ReportServiceTest {
         assertThat(response.diff().missingDefects().get(0).defectId()).isEqualTo(1L);
         assertThat(response.diff().extraItems()).isEmpty();
         // resync는 본문을 바꾸므로 updateContent와 동일하게 grounding 판정이 초기화된다.
-        assertThat(response.report().groundingCheckPassed()).isNull();
+        assertThat(response.groundingCheckPassed()).isNull();
     }
 
     @Test
@@ -769,7 +769,7 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse response = reportService.resyncDefects(5L, 500L, 200L);
 
-        JsonNode items = response.report().content().path("detail").path("items");
+        JsonNode items = response.content().path("detail").path("items");
         assertThat(items).hasSize(1);
         assertThat(items.get(0).path("description").asText()).isEqualTo("기존 설명");
         assertThat(items.get(0).path("cause").asText()).isEqualTo("기존 원인");
@@ -787,10 +787,52 @@ class ReportServiceTest {
 
         ReportDefectSyncResponse response = reportService.resyncDefects(5L, 500L, 200L);
 
-        assertThat(response.report().content().path("detail").path("items")).isEmpty();
+        assertThat(response.content().path("detail").path("items")).isEmpty();
         assertThat(response.diff().extraItems()).hasSize(1);
         assertThat(response.diff().extraItems().get(0).defectId()).isEqualTo(1L);
         assertThat(response.diff().missingDefects()).isEmpty();
+    }
+
+    @Test
+    void resyncDefects_defectId없는레거시항목은삭제하지않고보존하며diff에unmatched로노출한다() {
+        // PR머신 리뷰 P1 — defectId가 없는 항목(2026-08-02 이전 저장분 등 구버전 콘텐츠)을 비교가
+        // 안 된다는 이유로 잉여 취급해 지우면 검수자가 직접 쓴 서술이 무경고로 사라진다. 확정 하자가
+        // 0건이라(잉여로 오판되기 가장 쉬운 조건) 이 항목이 정말 "제거 대상이 아니라 보존 대상"인지를
+        // extraItems(제거)가 아니라 unmatchedItems(보존)로 판정하는지 검증한다.
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+
+        ReportDefectSyncResponse response = reportService.resyncDefects(5L, 500L, 200L);
+
+        JsonNode items = response.content().path("detail").path("items");
+        assertThat(items).hasSize(1); // 삭제되지 않고 그대로 보존됨
+        assertThat(items.get(0).path("defect_type").asText()).isEqualTo("균열");
+        assertThat(items.get(0).path("description").asText()).isEqualTo("설명"); // 서술도 그대로 보존
+        assertThat(response.diff().extraItems()).isEmpty(); // defectId가 없어 "잉여"로 잘못 잡히지 않음
+        assertThat(response.diff().missingDefects()).isEmpty();
+        assertThat(response.diff().unmatchedItems()).hasSize(1);
+        assertThat(response.diff().unmatchedItems().get(0).defectType()).isEqualTo("균열");
+        assertThat(response.diff().unmatchedItems().get(0).severityGrade()).isEqualTo("C");
+    }
+
+    @Test
+    void recheckGrounding_defectId없는레거시항목은diff의unmatchedItems로노출된다() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+
+        // grounding-recheck는 진단만 하므로 본문은 바뀌지 않는다.
+        assertThat(response.content().path("detail").path("items")).hasSize(1);
+        assertThat(response.diff().extraItems()).isEmpty();
+        assertThat(response.diff().unmatchedItems()).hasSize(1);
+        assertThat(response.diff().unmatchedItems().get(0).defectType()).isEqualTo("균열");
     }
 
     @Test

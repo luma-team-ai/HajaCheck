@@ -263,10 +263,11 @@ class ReportControllerTest extends PostgresTestSupport {
                         .with(authentication(authOf(owner))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.report.id").value(report.getId()))
-                .andExpect(jsonPath("$.data.report.groundingCheckPassed").exists())
+                .andExpect(jsonPath("$.data.id").value(report.getId()))
+                .andExpect(jsonPath("$.data.groundingCheckPassed").exists())
                 .andExpect(jsonPath("$.data.diff.missingDefects").isArray())
-                .andExpect(jsonPath("$.data.diff.extraItems").isArray());
+                .andExpect(jsonPath("$.data.diff.extraItems").isArray())
+                .andExpect(jsonPath("$.data.diff.unmatchedItems").isArray());
     }
 
     @Test
@@ -312,10 +313,11 @@ class ReportControllerTest extends PostgresTestSupport {
                         .with(authentication(authOf(owner))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.report.id").value(report.getId()))
-                .andExpect(jsonPath("$.data.report.groundingCheckPassed").doesNotExist())
+                .andExpect(jsonPath("$.data.id").value(report.getId()))
+                .andExpect(jsonPath("$.data.groundingCheckPassed").doesNotExist())
                 .andExpect(jsonPath("$.data.diff.missingDefects").isArray())
-                .andExpect(jsonPath("$.data.diff.extraItems").isArray());
+                .andExpect(jsonPath("$.data.diff.extraItems").isArray())
+                .andExpect(jsonPath("$.data.diff.unmatchedItems").isArray());
     }
 
     @Test

@@ -294,7 +294,7 @@ public class ReportService {
         report.recordStructuralGroundingRecheck(
                 matched, matched ? NO_GROUNDING_WARNINGS : STRUCTURAL_MISMATCH_WARNINGS, userId);
         ReportDefectDiffResponse diff = computeDefectDiff(confirmedDefects, report.getContentJson());
-        return new ReportDefectSyncResponse(
+        return ReportDefectSyncResponse.from(
                 toDetailResponse(report, userId, companyId, scoped.inspection(), null, confirmedDefects), diff);
     }
 
@@ -428,14 +428,20 @@ public class ReportService {
         }
 
         List<ReportDefectDiffResponse.ExtraDefectItem> extra = new ArrayList<>();
+        List<ReportDefectDiffResponse.UnmatchedItem> unmatched = new ArrayList<>();
         for (DetailItemRef ref : items) {
-            if (ref.defectId() != null && !confirmedById.containsKey(ref.defectId())) {
+            if (ref.defectId() == null) {
+                // PR머신 리뷰 P1 — defectId 없는 항목(구버전 저장분)을 잉여로 단정해 조용히 지우지
+                // 않는다. resyncDefects는 이 항목들을 그대로 보존하므로, missing/extra 어느 쪽도
+                // 아닌 "비교 불가" 항목으로 노출해 사용자가 인지하게 한다.
+                unmatched.add(new ReportDefectDiffResponse.UnmatchedItem(ref.defectType(), ref.severityGrade()));
+            } else if (!confirmedById.containsKey(ref.defectId())) {
                 extra.add(new ReportDefectDiffResponse.ExtraDefectItem(
                         ref.defectId(), ref.defectType(), ref.severityGrade()));
             }
         }
 
-        return new ReportDefectDiffResponse(missing, extra);
+        return new ReportDefectDiffResponse(missing, extra, unmatched);
     }
 
     /**
@@ -444,6 +450,11 @@ public class ReportService {
      * 항목만 제거한 뒤, 새로 확정된 하자만 구조 필드(defect_type/location/severity_grade)로 추가한다.
      * 새로 추가되는 항목은 서술(description/cause)이 없어 AI 재호출 없이는 채울 수 없으므로 빈 문자열로
      * 두고 사용자가 직접 작성하게 한다(finalize는 ReportFinalizationValidator가 그 전까지 막는다).
+     *
+     * <p>⚠️ PR머신 리뷰 P1 — defectId가 없는 항목(2026-08-02 이전 저장분 등 구버전 콘텐츠)은 확정
+     * 하자와 비교할 방법이 없다고 해서 잉여로 간주해 지우면 안 된다(검수자가 직접 쓴 서술의 무경고
+     * 유실). computeDefectDiff와 원칙을 맞춰 그대로 보존하고, 대신 diff.unmatchedItems로 존재를
+     * 알린다 — 실제 정리는 사용자가 그 항목을 확인한 뒤 수동 편집(PATCH)으로 하게 한다.
      */
     private String rebuildDetailItems(String contentJson, List<Defect> confirmedDefects) {
         ObjectNode root;
@@ -478,11 +489,16 @@ public class ReportService {
         for (JsonNode item : existingItems) {
             JsonNode defectIdNode = item.get("defect_id");
             Long defectId = defectIdNode != null && defectIdNode.isNumber() ? defectIdNode.asLong() : null;
-            if (defectId != null && confirmedById.containsKey(defectId)) {
+            if (defectId == null) {
+                // 비교 불가 항목(구버전 저장분) — 잉여로 단정해 지우지 않고 그대로 보존한다.
+                rebuilt.add(item);
+                continue;
+            }
+            if (confirmedById.containsKey(defectId)) {
                 rebuilt.add(item);
                 keptDefectIds.add(defectId);
             }
-            // defectId가 null이거나 더 이상 확정 하자가 아니면 제거(잉여 항목).
+            // defectId가 있는데 더 이상 확정 하자가 아니면 제거(잉여 항목).
         }
         for (Defect defect : confirmedDefects) {
             if (defect.getId() == null || keptDefectIds.contains(defect.getId())) {
@@ -519,7 +535,7 @@ public class ReportService {
         String rebuiltContentJson = rebuildDetailItems(report.getContentJson(), confirmedDefects);
         report.updateContent(rebuiltContentJson, userId);
 
-        return new ReportDefectSyncResponse(
+        return ReportDefectSyncResponse.from(
                 toDetailResponse(report, userId, companyId, scoped.inspection(), null, confirmedDefects), diff);
     }
 
