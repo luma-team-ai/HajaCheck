@@ -58,4 +58,12 @@ public interface FacilityRepository extends JpaRepository<Facility, Long> {
     // Page 는 페이지마다 별도 COUNT(*) 쿼리를 실행한다. next_inspection_due_at 무인덱스라 이 COUNT 도 전체
     // 스캔이 돼 스캔 비용을 배가시킨다 — Slice 는 COUNT 없이 limit+1 조회만으로 hasNext 를 판정한다.
     Slice<Facility> findAllByNextInspectionDueAtLessThanEqualOrderByIdAsc(LocalDate date, Pageable pageable);
+
+    // 지도 전용 경량 엔드포인트(#1656) — findByCompanyIdOrderByIdAsc(Pageable) 이 쓰는 FACILITY_LIST_MAX(500)
+    // 상한에 걸리면 500건 초과 회사의 지도 마커가 무고지로 누락된다(P1). 지도는 회사 보유 시설물 전체
+    // 좌표가 필요하므로 상한을 두지 않고, 무거운 엔티티 전체 로딩 대신 마커 렌더링에 필요한 컬럼만
+    // 프로젝션한다. id asc 로 정렬해 다른 목록 조회와 동일하게 결정적 순서를 유지한다.
+    @Query("select f.id as id, f.name as name, f.type as type, f.latitude as latitude, f.longitude as longitude "
+            + "from Facility f where f.companyId = :companyId order by f.id asc")
+    List<FacilityMapProjection> findMapProjectionsByCompanyId(@Param("companyId") Long companyId);
 }
