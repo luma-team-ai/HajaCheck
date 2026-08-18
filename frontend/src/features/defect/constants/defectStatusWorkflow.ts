@@ -21,8 +21,12 @@ export const NEXT_STATUS: Record<DefectStatus, DefectStatus | null> = {
 // RESOLVED(#1556, HAJA-26 3차)는 더 이상 이탈 불가한 종료 상태가 아니다 — 백엔드가 사유와 함께
 // IN_PROGRESS로 되돌리는 것을 허용하므로 출발점에 포함한다.
 // DETECTED는 등급 확정 전에는 changeStatus 자체가 막혀 있어(review() 별도 플로우) 제외한다.
+// CONFIRMED→RESOLVED(#1642) — 조치결과등록(PATCH /defects/{id}/action) 없이 사유만으로 조치완료까지
+// 직행하면 actionContent/조치 사진이 비어 defect_action_logs가 기록되지 않는다(하자상세 조치내용 미노출
+// 버그의 원인). RESOLVED 도달은 이제 조치결과등록 폼으로만 가능하도록 여기서 제거한다 — 역행 전이
+// (RESOLVED→IN_PROGRESS, IN_PROGRESS/CONFIRMED→DETECTED 등)는 그대로 유지.
 export const REASON_REQUIRED_TARGETS: Partial<Record<DefectStatus, DefectStatus[]>> = {
-  CONFIRMED: ['DETECTED', 'RESOLVED'],
+  CONFIRMED: ['DETECTED'],
   IN_PROGRESS: ['DETECTED', 'CONFIRMED'],
   RESOLVED: ['IN_PROGRESS'],
 };

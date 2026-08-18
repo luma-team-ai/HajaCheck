@@ -11,6 +11,7 @@ import {
   mockInspectionFacilityOptions,
   mockInspections,
 } from '../mocks/inspection.mock';
+import { NEXT_STATUS, REASON_REQUIRED_TARGETS } from '../constants/defectStatusWorkflow';
 import type { NlSearchResult } from '../nlSearchTypes';
 import type {
   Defect,
@@ -52,14 +53,6 @@ function syncInspectionDefectStatus(id: number, status: DefectStatus): void {
   const inspectionDefect = mockInspectionDefectResponses.find((defect) => defect.id === id);
   if (inspectionDefect) inspectionDefect.status = status;
 }
-
-// 백엔드 Defect#changeStatus 와 동일한 순서 — 신규→검수확정→조치중→조치완료(역행/스킵 금지).
-const NEXT_STATUS: Record<DefectStatus, DefectStatus | null> = {
-  DETECTED: 'CONFIRMED',
-  CONFIRMED: 'IN_PROGRESS',
-  IN_PROGRESS: 'RESOLVED',
-  RESOLVED: null,
-};
 
 export const defectHandlers = [
   http.get('/api/defects', ({ request }) => {
@@ -118,8 +111,17 @@ export const defectHandlers = [
     const reqBody = (await request.json()) as { status: DefectStatus; reason?: string };
     const { status, reason } = reqBody;
 
-    // RESOLVED에서의 이탈은 reason 유무와 무관하게 409(조치 보드 드래그 전이, HAJA-349/#630 handoff 범위 §API).
-    if (found.status === 'RESOLVED' && status !== 'RESOLVED') {
+    // (#1642 리뷰 P3) defectStatusWorkflow.ts(NEXT_STATUS/REASON_REQUIRED_TARGETS)를 단일 진실
+    // 소스로 판정 — useDefectActionBoard.resolveDropKind와 동일 정책. 과거엔 "RESOLVED에서의 이탈은
+    // reason 유무와 무관하게 무조건 409" 분기가 따로 있어, #1556에서 허용된 RESOLVED→IN_PROGRESS(사유
+    // 포함, REASON_REQUIRED_TARGETS.RESOLVED=['IN_PROGRESS'])까지 막는 stale 코드였다.
+    const isForward = NEXT_STATUS[found.status] === status;
+    const reasonTargets = REASON_REQUIRED_TARGETS[found.status] ?? [];
+    const isReasonAllowed = reasonTargets.includes(status);
+
+    // 정방향도 아니고 REASON_REQUIRED_TARGETS에도 없는 조합(예: CONFIRMED→RESOLVED 직행,
+    // RESOLVED→DETECTED/CONFIRMED)은 사유가 있어도 409 — resolveDropKind의 'invalid'와 동일.
+    if (!isForward && !isReasonAllowed) {
       const failure: ApiResponse<null> = {
         success: false,
         data: null,
@@ -128,11 +130,8 @@ export const defectHandlers = [
       return HttpResponse.json(failure, { status: 409 });
     }
 
-    const expectedNext = NEXT_STATUS[found.status];
-    const isForward = status === expectedNext;
-
     // 역행·건너뛰기 전이는 reason이 있어야 허용된다(정방향 1단계만 reason 없이 통과).
-    if (!isForward && (!reason || reason.trim().length === 0)) {
+    if (isReasonAllowed && (!reason || reason.trim().length === 0)) {
       const failure: ApiResponse<null> = {
         success: false,
         data: null,

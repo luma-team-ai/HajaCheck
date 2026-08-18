@@ -165,6 +165,9 @@ export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
   // actionResult가 null이다. 과거엔 actionResult가 있어야만 이 분기를 타서, 그 경우 다음 분기
   // (statusOptions == null → RESOLVED는 미정의)에 걸려 폼 전체가 사라지고 되돌리기 select도 함께
   // 사라졌다 — 백엔드는 RESOLVED→IN_PROGRESS 역행을 허용하는데 UI 진입로만 없던 상태.
+  // (#1642) CONFIRMED→RESOLVED 직행은 이제 "진행상태" select에서 제거돼 새로 발생하지 않지만,
+  // 이 변경 전에 그 경로로 생성된 기존 레코드는 여전히 actionResult가 null인 채 RESOLVED일 수 있어
+  // 이 방어 분기는 계속 필요하다.
   if (status === 'RESOLVED') {
     return (
       <section className="defect-action-form defect-action-form--registered" aria-label="조치 결과">
