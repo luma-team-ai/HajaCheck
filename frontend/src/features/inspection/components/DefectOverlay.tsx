@@ -110,7 +110,10 @@ export function DefectOverlay({
             먼저 떠 있으면 엉뚱한 사진에 박스가 걸린 것처럼 보였다. */}
         {isLoaded && sortedDefects.map((defect) => {
           const isSelected = selectedId === defect.id;
-          const isReviewed = defect.status !== 'DETECTED';
+          // status 기준 확정 여부(Defect 타입의 isReviewed 필드와는 다른 개념 — 그건 등급수정
+          // API가 세우는 reviewed=true 플래그다, #1643. 이름 충돌 방지를 위해 로컬 변수명을
+          // isConfirmedByStatus로 구분한다.
+          const isConfirmedByStatus = defect.status !== 'DETECTED';
           const color = colorForDefect(defect);
           // 8자리 hex(#RRGGBBAA)로 알파를 얹는다 — 등급 5개 + 확정 + 미판정마다 별도 rgba 상수를
           // 만드는 대신, 이미 있는 hex 색상에 알파만 붙여 재사용한다(모던 브라우저 전부 지원).
@@ -121,7 +124,7 @@ export function DefectOverlay({
               key={defect.id}
               type="button"
               onClick={() => !drawMode && onSelect?.(defect.id)}
-              title={`${defect.type} · ${gradeLabel(defect.grade)} · confidence ${Math.round(defect.confidence * 100)}% · ${isReviewed ? '검수 확정' : '미확정'}`}
+              title={`${defect.type} · ${gradeLabel(defect.grade)} · confidence ${Math.round(defect.confidence * 100)}% · ${isConfirmedByStatus ? '검수 확정' : '미확정'}`}
               className={`absolute box-border border-2 ${drawMode ? 'cursor-default' : 'cursor-pointer'} rounded-sm transition-all`}
               disabled={drawMode}
               style={{
