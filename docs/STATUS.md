@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-08-18
+> 마지막 갱신: 2026-08-19
 
 ## 인프라
 
@@ -35,6 +35,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+> ✅ **2026-08-19 4차 승격 완료 — PR #1678 (dev→main, merge `a11a5629` / 이슈 15건 자동종료 / CD success).** 배치(2026-08-18~19 데모 피드백+백로그 정합, PR 16건): 데모 5건(#1641~#1645 media purpose·RESOLVED 직행 차단·검수 버튼·조치 그룹 UI·revision 고정) + 보고서 정합 BE/FE(#1653/#1666) + 증분 분석(#1654, 머신 P1 핫픽스 #1672 포함) + 통계(#1655) + 지도 BE/FE(#1656/#1657) + mm² AI/BE/FE(#1658/#1668/#1669) + performed_at(#1667). **Flyway V41→V44 순차 적용**(전부 additive·멱등). 승격 전 전체검수: dev HEAD `./gradlew test --rerun-tasks` SUCCESSFUL·front build PASS·시크릿 0·G6 PASS(회귀 기록 대조 포함). **prod 검증 완료**: 컨테이너 전부 healthy · flyway top=44(true) · purpose 백필 42건(R4 예측 일치) · analyzed_at 428 marked(null 50건=분석 전 회차 정상) · performed_at 66/67 · front/api 200 · ai-server unpinned 경고 로그 동작(#1645 의도). 이슈 15건 native 자동종료 + `awaiting-promotion` 라벨 전건 제거. dev ff 역머지 + springdoc baseline 갱신(prod live spec) 완료. **운영 선택 조치**: arm1 `.env`에 `YOLO_REVISION`/`UNET_REVISION` 지정 시 모델 재현성 고정 · 카드 검출 호출 증가 모니터링(#1658). 잔여 후속: FacilityCard 타임존 플레이크(#1676) · performed_at 복합 인덱스(P3) · 로컬 전용 undici 테스트 실패 9건.
 
 > ✅ **2026-08-18 hotfix #1650 (base=main 직행) — prod 데모 계정 403 근본 수정 (#1648, merge `53e23186`).** 원인(prod DB 실측): 데모 회사는 provenance(ntsOutcome) 없는 "증명 불가 VERIFIED"라 **매일 05:30 국세청 재검증 배치**(`PendingBusinessReverifyScheduler`, #888) 대상 → 가짜 BRN `0000000000` 확정 불량 → `verification_status=FAILED` 강등 → 회사 스코프 판정(`existsEffectiveApprovedMembership`, VERIFIED 요구) 실패 → 데모 로그인은 200인데 회사 스코프 API(`/api/dashboard/*` 등 CompanyScopeGuard 사용처) 전부 403, 수동 복구해도 다음날 재발. 수정 3건: ①배치가 국세청 호출 전 데모 회사 스킵(BRN+provenance `DemoCompanyProvenance` 이중 판정, SQL 미수정) ②시더 멱등 경로 FAILED 자가복구(`markBusinessVerified()`만 — 허위 ntsOutcome #1324 P1 금지) ③판정 공용화(`DemoResetService` 위임, 리셋 4중 가드 불변). 검수: code-reviewer(sonnet) P0건 APPROVE + G1/G6, 테스트 2311/2311·CI PASS. **prod 검증 완료**: CD success → 재기동 자가치유 실측(company 13 FAILED→VERIFIED) → 데모 로그인 200→dashboard summary/grade-distribution 200. main 직행 사유: prod 라이브 데모가 매일 재발로 깨지는 프로덕션 버그(dev backend diff 0건이라 체리픽 클린). dev 역머지(merge 커밋) 완료. Closes #1648 자동종료.
 
