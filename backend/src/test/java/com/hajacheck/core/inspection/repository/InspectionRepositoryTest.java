@@ -160,6 +160,22 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 .build();
     }
 
+    // #1667 — performed_at tie-break 테스트 전용. 나머지 필드는 newInspection과 동일 기본값을 쓴다.
+    private Inspection newInspectionWithPerformedAt(
+            Long facilityId, Long createdBy, Long assignedInspectorId, int roundNo,
+            LocalDate inspectionDate, java.time.LocalDateTime performedAt) {
+        return Inspection.builder()
+                .facilityId(facilityId)
+                .createdBy(createdBy)
+                .assignedInspectorId(assignedInspectorId)
+                .roundNo(roundNo)
+                .inspectionDate(inspectionDate)
+                .status(InspectionStatus.CREATED)
+                .type(InspectionType.REGULAR)
+                .performedAt(performedAt)
+                .build();
+    }
+
     @Test
     void save_저장후_createdAt과id채워짐() {
         Long ownerId = seedOwner("owner-a@haja.com");
@@ -420,6 +436,26 @@ class InspectionRepositoryTest extends PostgresTestSupport {
                 inspectionRepository.findRecentByFacilityIds(List.of(facilityId), PageRequest.of(0, 2));
 
         assertThat(limited).extracting(Inspection::getRoundNo).containsExactly(2, 3);
+    }
+
+    @Test
+    void findRecentByFacilityIds_동일날짜역순입력이어도_performedAt이늦은회차가먼저나온다() {
+        // #1667 — round 1(id 작음)이 실제로는 오후에 촬영됐고 round 2(id 큼)는 오전에 촬영된, id 순서와
+        // 실제 수행 순서가 어긋난 "역순 입력" 시나리오. id desc tie-break였다면 round 2가 먼저 나왔을
+        // 것이나, performed_at desc가 id보다 우선하므로 round 1이 먼저 나온다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 8, 18),
+                java.time.LocalDateTime.of(2026, 8, 18, 15, 0)));
+        inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 8, 18),
+                java.time.LocalDateTime.of(2026, 8, 18, 9, 0)));
+
+        List<Inspection> result =
+                inspectionRepository.findRecentByFacilityIds(List.of(facilityId), PageRequest.of(0, 10));
+
+        assertThat(result).extracting(Inspection::getRoundNo).containsExactly(1, 2);
     }
 
     // ── HAJA-393/#725: 하자 목록·상세 화면 개편 — GET /api/inspections ──
@@ -963,6 +999,45 @@ class InspectionRepositoryTest extends PostgresTestSupport {
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getId()).isEqualTo(newerSameDate.getId());
+    }
+
+    @Test
+    void findLatestByFacilityIds_동일날짜역순입력이어도_performedAt이늦은회차가최신선정() {
+        // #1667 — 회차1(id 작음, 먼저 생성)이 실제로는 오후에 촬영/보고됐고, 회차2(id 큼, 나중에 생성)는
+        // 오전에 촬영됐다("역순 입력": id 순서와 실제 수행 순서가 어긋난다). id desc tie-break였다면
+        // id가 큰 회차2가 최신으로 잘못 선정됐을 상황 — performed_at desc가 우선하므로 회차1이 최신이다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection performedLater = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 8, 18),
+                java.time.LocalDateTime.of(2026, 8, 18, 15, 0)));
+        inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 8, 18),
+                java.time.LocalDateTime.of(2026, 8, 18, 9, 0)));
+
+        List<Inspection> result = inspectionRepository.findLatestByFacilityIds(List.of(facilityId));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(performedLater.getId());
+    }
+
+    @Test
+    void findLatestByFacilityIds_동일날짜performedAt없는회차는_nulls_last로밀려_있는회차가우선() {
+        // #1667 — id가 작은 회차1에 performed_at이 세팅돼 있고, id가 큰 회차2는 아직 미디어가 없어
+        // performed_at이 null이다. 순수 id desc였다면 회차2가 최신으로 선정됐겠지만, nulls last
+        // 규칙상 performed_at이 있는 회차1이 우선한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Inspection withPerformedAt = inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 1, LocalDate.of(2026, 8, 18),
+                java.time.LocalDateTime.of(2026, 8, 18, 9, 0)));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 2, LocalDate.of(2026, 8, 18), InspectionStatus.CREATED));
+
+        List<Inspection> result = inspectionRepository.findLatestByFacilityIds(List.of(facilityId));
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getId()).isEqualTo(withPerformedAt.getId());
     }
 
     @Test

@@ -523,7 +523,13 @@ class Ha25IncrementalMigrationTest {
                 // 적용해야 assertCanonicalSchemaParity 가 통과한다.
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource("db/migration/V42__add_media_analyzed_at.sql"),
-                        CONTAINER_ROOT + "V42__add_media_analyzed_at.sql");
+                        CONTAINER_ROOT + "V42__add_media_analyzed_at.sql")
+                // #1667 — Flyway V43(inspections.performed_at 컬럼 + 백필)도 이어서 1회 forward-apply한다.
+                // 캐노니컬 DDL에 이 컬럼이 반영돼 있으므로 이 증분 경로에서도 적용해야
+                // assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V43__add_inspections_performed_at.sql"),
+                        CONTAINER_ROOT + "V43__add_inspections_performed_at.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -684,6 +690,12 @@ class Ha25IncrementalMigrationTest {
         // 스키마 시그니처(컬럼)만 파리티 대상.
         runPsql(postgres, "V42__add_media_analyzed_at.sql");
         runPsql(postgres, "V42__add_media_analyzed_at.sql");
+        // #1667 — Flyway V43(inspections.performed_at)도 이어서 forward-apply한다. add column if not
+        // exists + WHERE performed_at is null 백필이라 재실행이 안전하다는 점까지 함께 고정한다
+        // (V26/V39/V40/V41과 동일 패턴). 이 시점엔 이 증분 경로가 media 픽스처를 심지 않으므로 백필
+        // UPDATE는 no-op이다 — 스키마 시그니처(컬럼)만 파리티 대상.
+        runPsql(postgres, "V43__add_inspections_performed_at.sql");
+        runPsql(postgres, "V43__add_inspections_performed_at.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }
