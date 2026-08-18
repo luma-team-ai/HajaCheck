@@ -21,6 +21,7 @@ import com.hajacheck.core.inspection.dto.InspectionResponse;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
@@ -508,7 +509,10 @@ public class ReportService {
                 ? knownConfirmedDefects
                 : defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
                         report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
-        List<Media> media = mediaRepository.findByInspectionIdOrderByIdAsc(report.getInspectionId());
+        // #1641 P3 방어적 위생 — 보고서 컨텍스트는 원본 촬영사진만 대상으로 한다. 조치 후 사진
+        // (DEFECT_ACTION)이 lookup map 조립 외 다른 방식으로 노출되는 경로가 생겨도 안전하도록 좁힌다.
+        List<Media> media = mediaRepository.findByInspectionIdAndPurposeOrderByIdAsc(
+                report.getInspectionId(), MediaPurpose.INSPECTION_SOURCE);
         Company company = companyRepository.findById(companyId).orElse(null);
         Map<Long, User> users = usersById(
                 inspection.createdBy(), inspection.assignedInspectorId(), report.getCreatedBy());

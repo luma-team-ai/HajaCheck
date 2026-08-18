@@ -9,6 +9,7 @@ import com.hajacheck.core.media.config.MediaUploadProperties;
 import com.hajacheck.core.media.dto.MediaResponse;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.core.media.support.ExifGpsExtractor;
 import com.hajacheck.core.media.support.ExifGpsExtractor.ExifData;
@@ -94,7 +95,7 @@ public class MediaService {
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<MediaResponse> uploadMedia(
-            Long inspectionId, Long userId, Long companyId, List<MultipartFile> files) {
+            Long inspectionId, Long userId, Long companyId, List<MultipartFile> files, MediaPurpose purpose) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         if (files == null || files.isEmpty()) {
             throw new BusinessException(ErrorCode.FILE_REQUIRED);
@@ -117,11 +118,15 @@ public class MediaService {
             ImageSignatureValidator.validate(file);
         }
 
+        // 컨트롤러가 미지정(null) 시 기본값을 이미 채워 넘기지만(defaultValue), 방어적으로 한 번 더
+        // null-세이프하게 처리한다 — Media 엔티티의 @Builder.Default와 동일한 기본값 정책(#1641).
+        MediaPurpose effectivePurpose = purpose != null ? purpose : MediaPurpose.INSPECTION_SOURCE;
+
         List<String> storedKeys = new ArrayList<>();
         try {
             List<Media> mediaList = new ArrayList<>();
             for (MultipartFile file : files) {
-                mediaList.add(storeAndBuild(inspectionId, null, file, storedKeys));
+                mediaList.add(storeAndBuild(inspectionId, null, file, effectivePurpose, storedKeys));
             }
             return mediaWriter.saveAll(mediaList).stream().map(MediaResponse::from).toList();
         } catch (RuntimeException e) {
@@ -173,7 +178,8 @@ public class MediaService {
         try {
             List<Media> mediaList = new ArrayList<>();
             for (MultipartFile file : files) {
-                mediaList.add(storeAndBuild(null, facilityId, file, storedKeys));
+                // 시설물 대표 사진은 조치 후 사진 개념이 없다 — 항상 INSPECTION_SOURCE(기본값)로 저장.
+                mediaList.add(storeAndBuild(null, facilityId, file, MediaPurpose.INSPECTION_SOURCE, storedKeys));
             }
             return mediaWriter.saveAll(mediaList).stream().map(MediaResponse::from).toList();
         } catch (RuntimeException e) {
@@ -196,7 +202,8 @@ public class MediaService {
     }
 
     private Media storeAndBuild(
-            Long inspectionId, Long facilityId, MultipartFile file, List<String> storedKeys) {
+            Long inspectionId, Long facilityId, MultipartFile file, MediaPurpose purpose,
+            List<String> storedKeys) {
         StoredFile original = fileStorage.store(file, ORIGINAL_CATEGORY,
                 properties.getAllowedContentTypes(), properties.getMaxSizeBytes());
         storedKeys.add(original.storageKey());
@@ -251,6 +258,7 @@ public class MediaService {
                 .mimeSignatureVerified(true)
                 .mimeType(file.getContentType())
                 .originalFilename(truncateOriginalFilename(file.getOriginalFilename()))
+                .purpose(purpose)
                 .build();
     }
 
@@ -280,13 +288,17 @@ public class MediaService {
     }
 
     /**
-     * 점검 회차별 미디어 목록 조회(#803 분석 결과 뷰어) — 업로드된 모든 미디어를 반환한다(하자 유무 무관).
-     * 결과에는 각 미디어의 썸네일/상세이미지 URL이 포함되어 있어, 프론트가 이미지 갤러리를 구성할 수 있다.
+     * 점검 회차별 미디어 목록 조회(#803 분석 결과 뷰어) — 업로드된 원본 촬영 미디어를 반환한다(하자
+     * 유무 무관). 결과에는 각 미디어의 썸네일/상세이미지 URL이 포함되어 있어, 프론트가 이미지 갤러리를
+     * 구성할 수 있다.
+     *
+     * <p>조치 후 사진(purpose=DEFECT_ACTION)은 제외한다(#1641) — 이 뷰어는 "하자가 탐지된 원본
+     * 촬영본"을 보여주는 화면이라, 조치 결과로 업로드된 사진이 섞이면 하자 0건 이미지로 잘못 노출된다.
      *
      * @param userId          요청 사용자 id
      * @param companyId       요청 사용자의 회사 id
      * @param inspectionId    점검 회차 id
-     * @return 미디어 목록 (id 오름차순, 각 항목에 thumbnailUrl, detailUrl 포함)
+     * @return 미디어 목록 (id 오름차순, 각 항목에 thumbnailUrl, detailUrl 포함, INSPECTION_SOURCE만)
      * @throws BusinessException 점검 회차 미존재 또는 타인 소유 (404 INSPECTION_NOT_FOUND via IDOR guard)
      */
     @Transactional(readOnly = true)
@@ -295,7 +307,8 @@ public class MediaService {
         // 소유권 검증 — 타인 회차면 INSPECTION_NOT_FOUND(404)
         inspectionService.getInspection(userId, companyId, inspectionId);
 
-        List<Media> medias = mediaRepository.findByInspectionIdOrderByIdAsc(inspectionId);
+        List<Media> medias = mediaRepository.findByInspectionIdAndPurposeOrderByIdAsc(
+                inspectionId, MediaPurpose.INSPECTION_SOURCE);
         return medias.stream().map(MediaResponse::from).toList();
     }
 

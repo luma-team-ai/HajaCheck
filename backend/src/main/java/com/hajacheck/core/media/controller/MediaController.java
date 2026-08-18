@@ -2,6 +2,7 @@ package com.hajacheck.core.media.controller;
 
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.media.dto.MediaResponse;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.service.MediaService;
 import com.hajacheck.core.media.service.MediaService.ThumbnailFile;
 import com.hajacheck.global.common.ApiResponse;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
@@ -49,7 +51,9 @@ public class MediaController {
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 
-    @Operation(summary = "촬영 데이터 업로드", description = "점검 회차에 이미지(JPG/PNG) 다중 업로드")
+    @Operation(summary = "촬영 데이터 업로드",
+            description = "점검 회차에 이미지(JPG/PNG) 다중 업로드. purpose 미지정 시 INSPECTION_SOURCE(원본 촬영)로 "
+                    + "저장되며, 조치 후 사진 업로드는 DEFECT_ACTION을 명시한다(#1641) — 분석·분석결과뷰어(#803) 제외 대상.")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "생성됨")
     // consumes 를 명시하지 않으면 springdoc 이 요청 바디를 기본값(application/json)으로 문서화한다.
     // 이 엔드포인트는 multipart 만 받으므로(파일 업로드) 선언이 사실과 일치하며, 같은 성격의
@@ -62,9 +66,13 @@ public class MediaController {
             // 문서에서 통째로 빠진다. 파일 파트 바인딩 결과는 @RequestPart 와 동일하고(프론트는 모두
             // FormData 로 전송), 누락 시 예외만 MissingServletRequestPart 로 바뀐다 → FILE_REQUIRED.
             @RequestPart("files") List<MultipartFile> files,
+            // 선택 파라미터(#1641) — 미지정 시 원본 촬영 사진(기본값). 잘못된 값(허용된 두 값 외)은
+            // Spring 의 문자열→enum 변환 실패로 MethodArgumentTypeMismatchException →
+            // GlobalExceptionHandler 가 INVALID_INPUT(400)으로 통일 처리한다.
+            @RequestParam(required = false, defaultValue = "INSPECTION_SOURCE") MediaPurpose purpose,
             @AuthenticationPrincipal LoginUser loginUser) {
         List<MediaResponse> response = mediaService.uploadMedia(
-                inspectionId, loginUser.getUserId(), loginUser.getCompanyId(), files);
+                inspectionId, loginUser.getUserId(), loginUser.getCompanyId(), files, purpose);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 

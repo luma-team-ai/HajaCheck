@@ -13,6 +13,7 @@ import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.support.PostgresTestSupport;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -430,5 +431,79 @@ class MediaRepositoryTest extends PostgresTestSupport {
         assertThat(result)
                 .extracting(FacilityRepresentativeMediaProjection::getMediaId)
                 .containsExactly(first.getId(), second.getId());
+    }
+
+    // ── purpose 필터(#1641 P2 — 시설물 상세 "점검 이력" 사진 수 배지/미리보기에서 조치 후 사진 제외) ──
+
+    @Test
+    void countGroupByInspectionIdsAndPurpose_조치후사진은세지않는다() {
+        Long inspectionId = seedInspection();
+        mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/source.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/action.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.DEFECT_ACTION).build());
+        em.flush();
+
+        List<MediaRepository.InspectionMediaCountProjection> result = mediaRepository
+                .countGroupByInspectionIdsAndPurpose(List.of(inspectionId), MediaPurpose.INSPECTION_SOURCE);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getInspectionId()).isEqualTo(inspectionId);
+        assertThat(result.get(0).getCnt()).isEqualTo(1L); // 원본 1장만 — 조치 사진은 제외.
+    }
+
+    @Test
+    void countGroupByInspectionIdsAndPurpose_원본만있으면기존카운트와동일() {
+        // 회귀 방지 — purpose 필터가 원본 촬영사진 집계 자체를 실수로 줄이지 않는지 확인.
+        Long inspectionId = seedInspection();
+        mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/a.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/b.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        em.flush();
+
+        List<MediaRepository.InspectionMediaCountProjection> result = mediaRepository
+                .countGroupByInspectionIdsAndPurpose(List.of(inspectionId), MediaPurpose.INSPECTION_SOURCE);
+
+        assertThat(result.get(0).getCnt()).isEqualTo(2L);
+    }
+
+    @Test
+    void findTop2ByInspectionIdAndPurposeOrderByIdAsc_조치후사진은제외하고원본만id오름차순반환() {
+        Long inspectionId = seedInspection();
+        // 조치 후 사진을 가장 먼저 저장해 가장 작은 id를 갖게 한다 — purpose 필터가 실제로 걸리지 않으면
+        // id asc 정렬상 이 사진이 top2에 끼어드는 회귀를 잡아낸다(가장 강한 반증 시나리오).
+        Media action = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/action.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.DEFECT_ACTION).build());
+        Media source1 = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/source1.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        Media source2 = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/source2.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        Media source3 = mediaRepository.save(Media.builder()
+                .inspectionId(inspectionId).fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/source3.png").mimeSignatureVerified(true)
+                .purpose(MediaPurpose.INSPECTION_SOURCE).build());
+        em.flush();
+
+        List<Media> result = mediaRepository.findTop2ByInspectionIdAndPurposeOrderByIdAsc(
+                inspectionId, MediaPurpose.INSPECTION_SOURCE);
+
+        assertThat(result).extracting(Media::getId).containsExactly(source1.getId(), source2.getId());
+        assertThat(result).noneMatch(m -> m.getId().equals(action.getId()));
+        assertThat(result).noneMatch(m -> m.getId().equals(source3.getId())); // 상한 2건 고정도 함께 확인.
     }
 }

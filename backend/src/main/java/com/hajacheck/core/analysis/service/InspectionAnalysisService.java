@@ -15,6 +15,7 @@ import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -160,7 +161,9 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
-        List<Media> images = mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(inspectionId, MediaFileType.IMAGE);
+        // 조치 후 사진(DEFECT_ACTION)은 분석·재분석 대상에서 제외한다(#1641) — 원본 촬영사진만 AI 분석에 넘긴다.
+        List<Media> images = mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(
+                inspectionId, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE);
         if (images.isEmpty()) {
             throw new BusinessException(ErrorCode.ANALYSIS_NO_MEDIA);
         }
@@ -411,7 +414,9 @@ public class InspectionAnalysisService {
 
     private AnalysisStatusResponse rebuildFromDb(Inspection inspection) {
         Long inspectionId = inspection.getId();
-        List<Media> images = mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(inspectionId, MediaFileType.IMAGE);
+        // 조치 후 사진(DEFECT_ACTION)은 분석·재분석 대상에서 제외한다(#1641) — 원본 촬영사진만 AI 분석에 넘긴다.
+        List<Media> images = mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(
+                inspectionId, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE);
 
         if (inspection.getStatus() != InspectionStatus.ANALYZED
                 && inspection.getStatus() != InspectionStatus.REVIEWED
