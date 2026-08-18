@@ -44,6 +44,10 @@ export interface DefectDetailItem {
   crackWidthMm?: number;
   crackLengthMm?: number;
   areaRatio?: number; // 마스크 면적 비율 0~1(박리박락·철근노출 전용, #804)
+  // 실측 면적(mm²) — AI 서버가 카드 기준물로 환산한 값(backend DefectDetailItem.areaMm2,
+  // #1658/#1668). areaRatio(비율)와 별개 필드 — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고,
+  // 카드 기준물 미검출이거나 CRACK 타입이면 null. areaRatio와 마찬가지로 단독 null 체크(#1588 교훈).
+  areaMm2?: number | null;
   createdAt: string; // ISO datetime
   mediaId?: number | null; // 이미지 ID — 백엔드에서 제공(#777 계약)
   imageUrl?: string | null; // 이미지 URL 형식: /api/media/{mediaId}/thumbnail — 백엔드에서 제공(#777 계약)

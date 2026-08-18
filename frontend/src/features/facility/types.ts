@@ -216,6 +216,9 @@ export interface FacilityDefectDetail {
   widthMm: number | null;
   /** 균열이 아닌 유형은 null(backend DefectResponse.crackLengthMm ÷ 1000, mm→m 변환) */
   lengthM: number | null;
+  /** 박리박락·철근노출만 값이 있을 수 있음(backend DefectResponse.areaMm2, #1658/#1669) —
+   * 카드 기준물 미검출이거나 균열 타입이면 null. widthMm/lengthM과 독립적으로 null 체크(#1588 교훈). */
+  areaMm2: number | null;
   foundCycle: number;
   /** YYYY-MM-DD */
   foundAt: string;
@@ -253,6 +256,8 @@ export interface FacilityDefectDetailResponse {
   confidence: number;
   crackWidthMm: number | null;
   crackLengthMm: number | null;
+  // 실측 면적(mm², #1658/#1669) — backend DefectResponse.areaMm2와 1:1.
+  areaMm2: number | null;
   imageUrl: string | null;
   // #1369 — 0~1 정규화 좌표(backend DefectResponse.bboxX/Y/W/H), nullable.
   bboxX: number | null;
