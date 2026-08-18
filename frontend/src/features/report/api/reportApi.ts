@@ -109,6 +109,44 @@ export interface ReportDetailResponse {
   context?: ReportContext | null;
 }
 
+// grounding-recheck/resync-defects 공통 diff(#1666, 백엔드 ReportDefectDiffResponse 대응).
+// defectId 기준 비교 — defectId가 없는(구버전 저장분) 항목은 missing/extra 어느 쪽으로도 단정하지
+// 않고 unmatchedItems로만 노출한다(resync-defects도 이 항목은 그대로 보존한다).
+export interface ReportDefectMissingItem {
+  defectId: number;
+  defectType: string;
+  typeLabel?: string | null;
+  severityGrade: string;
+  location?: string | null;
+}
+
+export interface ReportDefectExtraItem {
+  defectId: number;
+  defectType: string;
+  severityGrade: string;
+}
+
+export interface ReportDefectUnmatchedItem {
+  defectType: string;
+  severityGrade: string;
+}
+
+export interface ReportDefectDiff {
+  // 확정 하자에는 있지만 보고서 본문에는 없는 항목 — resync-defects 호출 시 새로 추가된다.
+  missingDefects: ReportDefectMissingItem[];
+  // 보고서 본문에는 있지만 더 이상 확정 하자가 아닌 항목 — resync-defects 호출 시 제거된다.
+  extraItems: ReportDefectExtraItem[];
+  // defectId가 없어 비교 자체가 불가능한 본문 항목 — resync-defects 호출 시에도 그대로 보존된다.
+  unmatchedItems: ReportDefectUnmatchedItem[];
+}
+
+// grounding-recheck/resync-defects 응답(#1666) — PR머신 리뷰 P1로 {report, diff} 중첩 구조에서
+// ReportDetailResponse의 모든 필드를 최상위에 평탄화하는 쪽으로 바뀌었다(하위호환 유지) — 기존
+// 소비부는 ReportDetailResponse처럼 그대로 읽고, diff만 이 두 엔드포인트에만 있는 additive 필드다.
+export interface ReportDefectSyncResponse extends ReportDetailResponse {
+  diff: ReportDefectDiff;
+}
+
 export interface ReportSummaryResponse {
   id: number;
   inspectionId: number;
@@ -161,9 +199,17 @@ export const reportApi = {
     ),
 
   // 확정 검증(grounding recheck) — 편집된 detail.items를 확정 하자와 구조 비교해
-  // groundingCheckPassed를 true/false로 갱신한 최신 상태를 반환한다.
+  // groundingCheckPassed를 true/false로 갱신한 최신 상태를 반환한다. diff는 resync-defects를
+  // 호출하면 본문이 어떻게 바뀔지 미리 보여준다(#1666, 본문 자체는 바꾸지 않는 진단 전용 호출).
   groundingRecheck: (reportId: number, signal?: AbortSignal) =>
-    api.post<ReportDetailResponse>(`/reports/${reportId}/grounding-recheck`, undefined, { signal }),
+    api.post<ReportDefectSyncResponse>(`/reports/${reportId}/grounding-recheck`, undefined, { signal }),
+
+  // 하자 목록 재동기화(#1666, '현재 하자 기준으로 다시 맞추기') — 본문 detail.items를 현재 확정
+  // 하자 목록 기준으로 실제 재구성한다. 여전히 확정 상태인 항목은 서술을 보존하고, 확정에서 빠진
+  // 항목만 제거하며, 새로 확정된 하자는 구조 필드만 채워 추가한다(서술은 사용자가 직접 작성해야
+  // finalize 가능 — ReportFinalizationValidator가 빈 서술은 확정을 막는다).
+  resyncDefects: (reportId: number, signal?: AbortSignal) =>
+    api.post<ReportDefectSyncResponse>(`/reports/${reportId}/resync-defects`, undefined, { signal }),
 
   // 클라이언트에서 생성한 PDF 파일 업로드 — 서버는 PDF를 생성해주지 않는다.
   uploadPdf: (reportId: number, file: Blob, fileName: string, signal?: AbortSignal) => {

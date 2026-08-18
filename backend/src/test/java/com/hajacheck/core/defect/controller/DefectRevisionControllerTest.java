@@ -1110,15 +1110,20 @@ class DefectRevisionControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.length()").value(2));
 
-        // 재분석 경로 재현 — 워커가 실제로 호출하는 DefectWriter 를 그대로 쓴다.
+        // 재분석 경로 재현 — 워커가 실제로 호출하는 DefectWriter 를 그대로 쓴다(리뷰 P1 픽스 #1654 —
+        // 하자 저장과 media.markAnalyzed 표시가 한 트랜잭션으로 묶여 시그니처에 media/analyzedAt이
+        // 추가됐다. 이 테스트의 관심사는 소프트삭제·세대 마커이지 마킹 자체가 아니므로 media는
+        // 최소 픽스처만 하나 심는다).
+        Media reanalyzedMedia = saveMedia(inspection);
         Defect reanalyzed = Defect.builder()
                 .inspectionId(inspection.getId())
                 .type(DefectType.CRACK)
                 .confidence(0.9)
                 .grade(DefectGrade.B)
                 .build();
-        defectWriter.softDeleteAllForInspectionThenSave(
-                owner.getId(), inspection.getId(), List.of(reanalyzed));
+        defectWriter.softDeleteAllForInspectionThenSaveAndMarkAnalyzed(
+                owner.getId(), inspection.getId(), List.of(reanalyzed),
+                reanalyzedMedia, java.time.LocalDateTime.now());
 
         // 구회차 삭제분은 목록에서 빠진다.
         mockMvc.perform(get("/api/inspections/{id}/defects/deleted", inspection.getId())

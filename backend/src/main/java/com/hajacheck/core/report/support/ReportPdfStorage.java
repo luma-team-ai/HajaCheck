@@ -1,5 +1,7 @@
 package com.hajacheck.core.report.support;
 
+import java.time.Instant;
+import java.util.List;
 import org.springframework.core.io.Resource;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -25,4 +27,24 @@ public interface ReportPdfStorage {
      * (존재 여부 열거 방지를 위해 트래버설/미존재 모두 동일 응답).
      */
     Resource load(Long reportId, String storageKey);
+
+    /**
+     * reportId 하위에 저장된 모든 PDF 파일과 디렉터리를 삭제한다(#1653 P3 — 고아 PDF).
+     * DRAFT 보고서 soft delete 시 호출해, pdfUrl로 참조된 적 없더라도(finalize 전 업로드 후 방치된 경우
+     * 포함) 그 보고서 소유의 저장 파일을 즉시 정리한다. 대상이 없으면 아무 일도 하지 않는다.
+     */
+    void deleteAll(Long reportId);
+
+    /**
+     * 저장소에 파일이 남아 있는 reportId 전체를 나열한다(#1653 P3 정리 배치용) — 순서 무보장.
+     */
+    List<Long> listReportIdsWithStoredFiles();
+
+    /**
+     * reportId 하위 파일 중 {@code keepStorageKey}(null이면 전부 후보)를 제외하고, 수정시각이
+     * {@code olderThan}보다 이전인 파일만 삭제한다(#1653 P3 정리 배치 — 미참조+N일 경과만 삭제).
+     * FINALIZED 보고서의 확정 PDF(keepStorageKey)는 항상 보존하고, 그 외 방치된(finalize 전 업로드
+     * 후 확정하지 않은) 파일만 유예기간이 지난 뒤 제거한다. 삭제한 파일 수를 반환한다.
+     */
+    int deleteOrphans(Long reportId, String keepStorageKey, Instant olderThan);
 }

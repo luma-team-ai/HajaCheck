@@ -19,10 +19,13 @@ export function FacilityDefectInfoPanel({ defect, onTransitionClick }: Props) {
   // ai-server는 현재 폭(width)만 계산하고 길이(length)는 계산하지 않아(#1487/#1547) lengthM은
   // 항상 null이다 — 둘 다 있어야만 보여주는 AND 조건이면 폭이 있어도 통째로 숨겨진다(#1588 후속).
   // 각각 독립적으로 null-safe 처리해 있는 값만 보여준다.
+  // areaMm2(#1658/#1669)는 박리박락·철근노출 전용 실측 면적 — widthMm/lengthM(균열 전용)과
+  // 상호 배타적이지만 같은 "크기" 항목에 병기한다. 마찬가지로 단독 null 체크.
   const sizeLabel =
     [
       defect.widthMm != null ? `폭 ${defect.widthMm}mm` : null,
       defect.lengthM != null ? `길이 ${defect.lengthM}m` : null,
+      defect.areaMm2 != null ? `면적 ${defect.areaMm2}mm²` : null,
     ]
       .filter((part): part is string => part != null)
       .join(' · ') || PLACEHOLDER;

@@ -16,6 +16,7 @@ import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.core.media.repository.MediaRepository.InspectionMediaCountProjection;
 import com.hajacheck.global.exception.BusinessException;
@@ -73,7 +74,9 @@ public class FacilityInspectionOverviewService {
 
         List<Long> inspectionIds = inspections.stream().map(Inspection::getId).toList();
 
-        Map<Long, Long> imageCountByInspectionId = mediaRepository.countGroupByInspectionIds(inspectionIds).stream()
+        // #1641 P2 — 사진 수 배지는 조치 후 사진(DEFECT_ACTION)을 세면 안 된다(원본 촬영사진만).
+        Map<Long, Long> imageCountByInspectionId = mediaRepository
+                .countGroupByInspectionIdsAndPurpose(inspectionIds, MediaPurpose.INSPECTION_SOURCE).stream()
                 .collect(Collectors.toMap(
                         InspectionMediaCountProjection::getInspectionId, InspectionMediaCountProjection::getCnt));
 
@@ -99,7 +102,9 @@ public class FacilityInspectionOverviewService {
                 : buildChangeNote(userId, companyId, facilityId, inspections.get(1), latest);
         // #1549 — 프론트는 최신 회차(index 0)만 미리보기 2장을 보여준다(changeNote와 동일 관례) —
         // 나머지 회차까지 조회하면 회차 수만큼 불필요한 쿼리가 늘어난다.
-        List<String> latestThumbnailUrls = mediaRepository.findTop2ByInspectionIdOrderByIdAsc(latest.getId())
+        // #1641 P2 — 미리보기 2장에도 조치 후 사진이 섞이면 안 된다(원본 촬영사진만).
+        List<String> latestThumbnailUrls = mediaRepository
+                .findTop2ByInspectionIdAndPurposeOrderByIdAsc(latest.getId(), MediaPurpose.INSPECTION_SOURCE)
                 .stream()
                 .map(media -> "/api/media/" + media.getId() + "/thumbnail")
                 .toList();

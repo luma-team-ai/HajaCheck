@@ -23,6 +23,7 @@ export const mockFacilityDefectDetailResponse: FacilityDefectDetailResponse = {
   confidence: 0.94,
   crackWidthMm: 0.8,
   crackLengthMm: 2400,
+  areaMm2: null, // 균열 타입이라 null(#1658/#1669 — SPALLING/REBAR_EXPOSURE 전용)
   imageUrl: buildDefectImagePlaceholder('원본 이미지'),
   bboxX: 0.42,
   bboxY: 0.1,

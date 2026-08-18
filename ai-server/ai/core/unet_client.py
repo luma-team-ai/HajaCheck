@@ -34,6 +34,7 @@ PR #973 초기 구현은 README 예제를 따라 squash로 넣었는데, AI Hub 
 """
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
 from typing import NamedTuple, TYPE_CHECKING
@@ -44,6 +45,8 @@ if TYPE_CHECKING:  # 타입 체커 전용 — 런타임 import 아님(torch 로�
     import numpy as np
     from PIL import Image
     from segmentation_models_pytorch import Unet
+
+logger = logging.getLogger(__name__)
 
 # #998, 2026-08-03 파인튜닝 모델로 교체, v1은 롤백용으로 HF 저장소에 유지.
 CRACK_CHECKPOINT_FILENAME = "crack_unet_resnet34_v2.pt"
@@ -89,16 +92,30 @@ def _letterbox_layout(width: int, height: int) -> tuple[int, int, int, int]:
 @lru_cache
 def get_crack_model() -> "Unet":
     """균열 세그멘테이션 모델. lru_cache로 프로세스당 1회만 다운로드+로드(yolo_client.get_yolo_model과
-    동일 이유 — easyocr get_ocr_engine() 패턴)."""
+    동일 이유 — easyocr get_ocr_engine() 패턴).
+
+    ## revision 고정 (#1645 — 재배포 전후 분석 결과 비재현)
+    `UNET_REVISION`(HF 커밋 해시 또는 태그) 미설정 시 `hf_hub_download`가 저장소 `main` HEAD를
+    받는다 — yolo_client.get_yolo_model()과 동일한 재배포 비재현 문제(docstring 참고)라 같은
+    방식으로 고정한다. 설정 시 그 커밋에 고정, 미설정 시 현행(main HEAD) 폴백.
+    """
     import segmentation_models_pytorch as smp
     import torch
     from huggingface_hub import hf_hub_download
 
     token = os.getenv("HF_API_TOKEN") or None
+    revision = os.getenv("UNET_REVISION") or None
+    if revision:
+        logger.info("U-Net 균열 모델 로드 — revision=%s 고정", revision)
+    else:
+        logger.warning(
+            "UNET_REVISION 미설정 — revision unpinned (main HEAD)로 U-Net 균열 모델 로드. "
+            "재배포 시점마다 가중치가 달라질 수 있음(#1645)"
+        )
     # cache_dir 미지정 시 huggingface_hub가 HF_HOME(도커 named volume /app/hf_cache, #439) 하위
     # 기본 경로를 그대로 쓴다 — yolo_client와 동일 볼륨 재사용으로 컨테이너 재기동 시 재다운로드 회피.
     weights_path = hf_hub_download(
-        repo_id=YOLO_REPO_ID, filename=CRACK_CHECKPOINT_FILENAME, token=token
+        repo_id=YOLO_REPO_ID, filename=CRACK_CHECKPOINT_FILENAME, token=token, revision=revision
     )
     model = smp.Unet(encoder_name="resnet34", encoder_weights=None, in_channels=3, classes=1)
     # weights_only=True — 이 파일은 순수 state_dict(텐서만)라 안전하게 강제할 수 있다(임의 객체

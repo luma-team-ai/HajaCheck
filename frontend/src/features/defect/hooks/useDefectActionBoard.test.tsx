@@ -56,12 +56,29 @@ describe('resolveDropKind', () => {
     expect(resolveDropKind('CONFIRMED', 'DETECTED')).toBe('reason-required');
   });
 
-  it('건너뛰기 이동이면 reason-required다', () => {
-    expect(resolveDropKind('DETECTED', 'IN_PROGRESS')).toBe('reason-required');
+  // (#1642) defectStatusWorkflow.REASON_REQUIRED_TARGETS에 정의된 건너뛰기/역행만 reason-required다
+  // — IN_PROGRESS→DETECTED/CONFIRMED, RESOLVED→IN_PROGRESS처럼 상수에 실제로 나열된 조합.
+  it('REASON_REQUIRED_TARGETS에 정의된 건너뛰기 이동이면 reason-required다', () => {
+    expect(resolveDropKind('IN_PROGRESS', 'DETECTED')).toBe('reason-required');
+    expect(resolveDropKind('IN_PROGRESS', 'CONFIRMED')).toBe('reason-required');
+    expect(resolveDropKind('RESOLVED', 'IN_PROGRESS')).toBe('reason-required');
   });
 
-  it('RESOLVED에서의 모든 이동은 reason-required다(백엔드가 결국 409로 거부)', () => {
-    expect(resolveDropKind('RESOLVED', 'IN_PROGRESS')).toBe('reason-required');
+  // (#1642) 조치결과등록(PATCH /defects/{id}/action) 없이 사유만으로 조치완료까지 도달하는 경로를
+  // 막는 게 이슈의 핵심 — CONFIRMED→RESOLVED는 REASON_REQUIRED_TARGETS.CONFIRMED에서 제거됐으므로
+  // 더 이상 reason-required가 아니라 invalid다(드롭 자체를 거부, API 미호출).
+  it('CONFIRMED→RESOLVED 직행 드롭은 invalid다(조치결과등록 폼을 우회하는 경로라 차단)', () => {
+    expect(resolveDropKind('CONFIRMED', 'RESOLVED')).toBe('invalid');
+  });
+
+  // (#1642) NEXT_STATUS도 REASON_REQUIRED_TARGETS도 아닌 조합은 전부 invalid다 — DETECTED는
+  // REASON_REQUIRED_TARGETS에 출발점으로 정의돼 있지 않고(백엔드가 등급 확정 전 changeStatus 자체를
+  // 막아 review() 별도 플로우로 처리), RESOLVED는 IN_PROGRESS 복귀만 정의돼 있다.
+  it('defectStatusWorkflow.ts에 정의되지 않은 조합은 invalid다', () => {
+    expect(resolveDropKind('DETECTED', 'IN_PROGRESS')).toBe('invalid');
+    expect(resolveDropKind('DETECTED', 'RESOLVED')).toBe('invalid');
+    expect(resolveDropKind('RESOLVED', 'DETECTED')).toBe('invalid');
+    expect(resolveDropKind('RESOLVED', 'CONFIRMED')).toBe('invalid');
   });
 });
 
@@ -148,6 +165,44 @@ describe('useDefectActionBoard', () => {
     });
   });
 
+  // (#1642 리뷰 P3) defectApi.handlers.ts의 PATCH /status가 "RESOLVED에서의 이탈은 reason 유무와
+  // 무관하게 무조건 409"로 stale 처리하던 걸 defectStatusWorkflow.ts(NEXT_STATUS/
+  // REASON_REQUIRED_TARGETS) 단일 진실 소스 기준으로 교체했다 — RESOLVED→IN_PROGRESS(#1556 정책,
+  // REASON_REQUIRED_TARGETS.RESOLVED=['IN_PROGRESS'])가 사유와 함께 PATCH 레벨까지 실제로 성공하는지
+  // (mock이 더 이상 무조건 409를 반환하지 않는지) 검증한다.
+  it('RESOLVED→IN_PROGRESS 드롭은 사유 제출 후 PATCH 레벨까지 성공해 카드가 IN_PROGRESS 컬럼으로 이동한다', async () => {
+    mockDefects[0].status = 'RESOLVED';
+
+    const { result } = renderHook(() => useDefectActionBoard({}), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const resolvedBefore = result.current.columns.find((column) => column.status === 'RESOLVED');
+    expect(resolvedBefore?.defects.some((defect) => defect.id === 1)).toBe(true);
+
+    // id=1은 RESOLVED — IN_PROGRESS 컬럼으로 되돌리기 드롭(역행).
+    act(() => {
+      result.current.handleDragEnd(dragEndEvent(1, 'IN_PROGRESS'));
+    });
+
+    expect(result.current.reasonRequest).not.toBeNull();
+    expect(result.current.reasonRequest?.targetStatus).toBe('IN_PROGRESS');
+
+    act(() => {
+      result.current.submitReason('추가 보강 필요로 재조치 요청');
+    });
+
+    expect(result.current.reasonRequest).toBeNull();
+
+    await waitFor(() => {
+      expect(result.current.dropError).toBeNull();
+      const inProgress = result.current.columns.find((column) => column.status === 'IN_PROGRESS');
+      expect(inProgress?.defects.some((defect) => defect.id === 1)).toBe(true);
+    });
+
+    const resolvedAfter = result.current.columns.find((column) => column.status === 'RESOLVED');
+    expect(resolvedAfter?.defects.some((defect) => defect.id === 1)).toBe(false);
+  });
+
   it('드롭 API가 실패하면(409) 카드를 원래 컬럼으로 롤백하고 에러 메시지를 노출한다', async () => {
     server.use(
       http.patch('/api/defects/:id/status', () => {
@@ -188,6 +243,36 @@ describe('useDefectActionBoard', () => {
 
     expect(result.current.reasonRequest).toBeNull();
     expect(result.current.dropError).toBeNull();
+  });
+
+  // (#1642) CONFIRMED→RESOLVED 직행 드롭 — 조치결과등록 폼 없이 조치완료로 도달하는 두 번째 경로
+  // (첫 번째는 DefectActionForm select, REASON_REQUIRED_TARGETS.CONFIRMED에서 이미 제거)를 보드에서도
+  // 막는다. invalid 드롭은 사유 모달을 띄우지 않고 API도 호출하지 않은 채 카드가 원래 컬럼에 남는다.
+  it('CONFIRMED→RESOLVED 직행 드롭은 사유 모달·API 호출 없이 거부되고 카드는 CONFIRMED 컬럼에 남는다', async () => {
+    const patchSpy = vi.fn();
+    server.use(
+      http.patch('/api/defects/:id/status', async ({ request }) => {
+        patchSpy();
+        return HttpResponse.json(await request.json());
+      }),
+    );
+
+    const { result } = renderHook(() => useDefectActionBoard({}), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // id=1은 CONFIRMED — RESOLVED 컬럼으로 직행 드롭.
+    act(() => {
+      result.current.handleDragEnd(dragEndEvent(1, 'RESOLVED'));
+    });
+
+    expect(result.current.reasonRequest).toBeNull();
+    expect(result.current.dropError).toBe('검수확정에서 조치완료(으)로는 바로 이동할 수 없습니다.');
+    expect(patchSpy).not.toHaveBeenCalled();
+
+    const confirmed = result.current.columns.find((column) => column.status === 'CONFIRMED');
+    const resolved = result.current.columns.find((column) => column.status === 'RESOLVED');
+    expect(confirmed?.defects.some((defect) => defect.id === 1)).toBe(true);
+    expect(resolved?.defects.some((defect) => defect.id === 1)).toBe(false);
   });
 
   // code-reviewer 지적(HAJA-349/#630) — 진행 중인 드롭 위에 같은 카드를 재드래그하면 두 번째

@@ -37,6 +37,8 @@ function preAnalysisStatus(): AnalysisStatusResponse {
     riskyCrackCount: 0,
     severityDistribution: { A: 0, B: 0, C: 0, D: 0, E: 0 },
     failedCount: 0,
+    unanalyzedMediaCount: 1,
+    reanalysisAllowed: false, // stage!=='done'이라 버튼 노출과 무관 — CREATED/UPLOADING이면 사실 true겠지만 여기선 미사용.
   };
 }
 
@@ -55,6 +57,34 @@ function analyzingStatus(): AnalysisStatusResponse {
     riskyCrackCount: 0,
     severityDistribution: { A: 0, B: 0, C: 0, D: 0, E: 0 },
     failedCount: 0,
+    unanalyzedMediaCount: 1,
+    reanalysisAllowed: false, // stage!=='done'이라 버튼 노출과 무관.
+  };
+}
+
+function doneStatus(unanalyzedMediaCount: number, reanalysisAllowed = true): AnalysisStatusResponse {
+  return {
+    inspectionId: 100,
+    stage: 'done',
+    progressPercent: 100,
+    totalFileCount: 2,
+    analyzedFileCount: 2 - unanalyzedMediaCount,
+    files: [
+      { mediaId: 1, fileName: '이미지 1', status: 'completed', defectCount: 0, elapsedOrEta: '1.0s' },
+      {
+        mediaId: 2,
+        fileName: '이미지 2',
+        status: unanalyzedMediaCount > 0 ? 'waiting' : 'completed',
+        defectCount: unanalyzedMediaCount > 0 ? null : 0,
+        elapsedOrEta: unanalyzedMediaCount > 0 ? '-' : '1.2s',
+      },
+    ],
+    detectedDefectCount: 0,
+    riskyCrackCount: 0,
+    severityDistribution: { A: 0, B: 0, C: 0, D: 0, E: 0 },
+    failedCount: 0,
+    unanalyzedMediaCount,
+    reanalysisAllowed,
   };
 }
 
@@ -156,6 +186,99 @@ describe('AiAnalysisStatusPage', () => {
     renderPage();
 
     expect(await screen.findByText('점검 ID #100', { exact: false })).not.toBeNull();
+  });
+
+  describe('증분 분석(#1654) — 분석 완료 후 추가 업로드된 원본 사진', () => {
+    it('done이고 unanalyzedMediaCount>0이면 "추가 사진 N장 분석" 버튼이 보이고, 클릭 시 startAnalysis를 재호출한다', async () => {
+      // 배경: 분석 완료(ANALYZED) 후 추가 업로드된 원본 사진이 재분석 fail-closed 가드에 막혀
+      // 영구 미분석으로 남는 구조적 결함(메인 정정 — V42 마이그레이션 헤더 코멘트 참고, 최초 인용한
+      // "운영 실사례"는 실제로는 DEFECT_ACTION이라 부정확했다). 백엔드가 미분석 사진 유무로 증분
+      // 여부를 자동 판단하므로, 프론트는 기존 handleRetry(POST /analyze 재호출)를 그대로 재사용한다.
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: doneStatus(1) }),
+        ),
+        http.post('/api/inspections/:id/analyze', () => new HttpResponse(null, { status: 202 })),
+      );
+      const startAnalysisSpy = vi.spyOn(inspectionApi, 'startAnalysis');
+
+      renderPage();
+
+      const incrementalButton = await screen.findByRole('button', { name: '추가 사진 1장 분석' });
+      // 이미 분석이 끝났으므로 "검수 시작"도 함께 활성화돼 있어야 한다 — 증분 액션이 막다른 길을
+      // 만들지 않는다.
+      expect(screen.getByRole('button', { name: '검수 시작' })).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.click(incrementalButton);
+      });
+
+      await waitFor(() => expect(startAnalysisSpy).toHaveBeenCalledWith(100));
+    });
+
+    it('done이고 unanalyzedMediaCount=0이면 "추가 사진 분석" 버튼이 보이지 않는다', async () => {
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: doneStatus(0) }),
+        ),
+      );
+
+      renderPage();
+
+      await screen.findByRole('button', { name: '검수 시작' });
+      expect(screen.queryByRole('button', { name: /추가 사진/ })).toBeNull();
+    });
+
+    it('done이고 unanalyzedMediaCount>0이어도 reanalysisAllowed가false면(REVIEWED 등) 버튼이 보이지 않는다', async () => {
+      // 리뷰 P1 픽스 — unanalyzedMediaCount만으로 버튼을 노출하면 REVIEWED/REPORTED 회차에 미분석
+      // 사진이 남아있는 예외적인 경우 클릭해도 서버가 항상 ANALYSIS_NOT_ALLOWED로 거부하는 죽은
+      // 버튼이 된다. reanalysisAllowed=false면 버튼 자체를 숨긴다.
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: doneStatus(1, false) }),
+        ),
+      );
+
+      renderPage();
+
+      await screen.findByRole('button', { name: '검수 시작' });
+      expect(screen.queryByRole('button', { name: /추가 사진/ })).toBeNull();
+    });
+
+    it('done이고 unanalyzedMediaCount>0이면 원시 progressPercent 대신 완료 뱃지와 증분 안내를 보여준다', async () => {
+      // 리뷰 P2 — done(완료)인데 progressPercent가 낮게(예: 50%) 보이면 "완료됐다는데 왜 반밖에
+      // 안 끝났지"라는 모순으로 읽힌다. unanalyzedMediaCount>0인 done은 "완료" 뱃지 + 100% 바 +
+      // 별도 증분 안내 문구로 대체한다(reanalysisAllowed 여부와 무관하게 이 표시 모순 자체는 동일).
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: doneStatus(1) }),
+        ),
+      );
+
+      renderPage();
+
+      await screen.findByRole('button', { name: '추가 사진 1장 분석' });
+      // 파일별 상태 배지도 "완료" 텍스트를 쓰므로(STATUS_BADGE), 헤더의 큰 진행률/뱃지 텍스트만
+      // 콕 집어 확인한다(selector로 범위 한정).
+      expect(screen.getByText('완료', { selector: 'span.text-5xl' })).not.toBeNull();
+      expect(screen.queryByText('100%', { selector: 'span.text-5xl' })).toBeNull();
+      expect(screen.getByText(/추가 업로드된/)).not.toBeNull();
+      expect(screen.getByText(/아직 분석되지 않았습니다/)).not.toBeNull();
+    });
+
+    it('done이고 unanalyzedMediaCount=0이면 기존과 동일하게 progressPercent를 그대로 보여준다', async () => {
+      server.use(
+        http.get('/api/inspections/:id/analyze', () =>
+          HttpResponse.json({ success: true, data: doneStatus(0) }),
+        ),
+      );
+
+      renderPage();
+
+      await screen.findByRole('button', { name: '검수 시작' });
+      expect(screen.getByText('100%', { selector: 'span.text-5xl' })).not.toBeNull();
+      expect(screen.queryByText('완료', { selector: 'span.text-5xl' })).toBeNull();
+    });
   });
 
   describe('이탈해도 안전하게 계속 진행(정책 변경, 2026-07-28) — 분석 진행 중 이탈/취소', () => {

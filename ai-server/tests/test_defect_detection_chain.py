@@ -421,10 +421,33 @@ def test_crack_detections_thresholds_probability_before_component_analysis(monke
         ),
     )
 
-    detections = chain._crack_detections(_dummy_image())
+    detections, content_probability = chain._crack_detections(_dummy_image())
 
     assert len(detections) == 1
     assert detections[0].type == "CRACK"
+    assert content_probability is not None
+
+
+def test_crack_detections_returns_none_content_probability_when_no_detections(monkeypatch):
+    """#1658 — 균열이 없으면 상위(run_defect_detection_chain)가 CRACK width_mm 적용 대상이
+    아님을 판단할 수 있게 content_probability 자리도 None이어야 한다."""
+    probability = np.zeros((CRACK_INPUT_SIZE, CRACK_INPUT_SIZE), dtype=np.float32)  # 전부 0 → 마스크 없음
+
+    monkeypatch.setattr(chain, "get_crack_model", lambda: "fake-crack-model")
+    monkeypatch.setattr(
+        chain,
+        "predict_crack_probability",
+        lambda model, image: CrackPrediction(
+            probability=probability,
+            content_top=0, content_left=0,
+            content_height=CRACK_INPUT_SIZE, content_width=CRACK_INPUT_SIZE,
+        ),
+    )
+
+    detections, content_probability = chain._crack_detections(_dummy_image())
+
+    assert detections == []
+    assert content_probability is None
 
 
 def test_crack_detections_excludes_letterbox_padding_from_area_ratio_and_bbox(monkeypatch):
@@ -452,7 +475,7 @@ def test_crack_detections_excludes_letterbox_padding_from_area_ratio_and_bbox(mo
         ),
     )
 
-    detections = chain._crack_detections(_dummy_image())
+    detections, _content_probability = chain._crack_detections(_dummy_image())
 
     assert len(detections) == 1
     detection = detections[0]
@@ -481,7 +504,8 @@ def _detection(defect_type: str, x: float, y: float, w: float, h: float) -> Dete
 
 def test_run_defect_detection_chain_aggregates_crack_spalling_rebar_exposure(monkeypatch):
     """세 모델(U-Net 균열 + YOLO 박리박락 + YOLO 철근노출)의 결과가 전부 합쳐지는지 검증."""
-    monkeypatch.setattr(chain, "_crack_detections", lambda image: [_make_crack_detection()])
+    monkeypatch.setattr(chain, "_crack_detections", lambda image: ([_make_crack_detection()], None))
+    monkeypatch.setattr(chain, "_safe_detect_card", lambda image: None)
 
     fake_model = _FakeYoloModel(
         _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.1, 0.1]], [0.9]), masks=None)
@@ -500,6 +524,7 @@ def test_run_defect_detection_chain_isolates_single_type_failure(monkeypatch):
         raise RuntimeError("torch boom")
 
     monkeypatch.setattr(chain, "_crack_detections", _boom)
+    monkeypatch.setattr(chain, "_safe_detect_card", lambda image: None)
     fake_model = _FakeYoloModel(
         _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.1, 0.1]], [0.9]), masks=None)
     )
@@ -519,6 +544,155 @@ def test_run_defect_detection_chain_raises_when_every_type_fails(monkeypatch):
 
     with pytest.raises(DefectDetectionError):
         chain.run_defect_detection_chain(_tiny_valid_png_base64())
+
+
+def test_run_defect_detection_chain_shares_single_card_detection_across_types(monkeypatch):
+    """#1658 — 세 유형에 detection이 있어도 카드 검출은 이미지당 1회만 호출되고, CRACK
+    width_mm과 SPALLING/REBAR_EXPOSURE area_mm2에 같은 스케일이 공유돼야 한다."""
+    import numpy as np
+
+    from ai.core.card_client import CardDetectionResult
+
+    crack_detection = _make_crack_detection()
+    crack_detection.width_px = 4.0
+    fake_content_probability = np.zeros((10, 10), dtype=np.float32)
+    monkeypatch.setattr(
+        chain, "_crack_detections", lambda image: ([crack_detection], fake_content_probability)
+    )
+
+    call_count = {"n": 0}
+
+    def _fake_detect_card(image):
+        call_count["n"] += 1
+        return CardDetectionResult(long_px=100.0, short_px=63.0, confidence=0.9, method="quad")
+
+    monkeypatch.setattr(chain, "detect_card", _fake_detect_card)
+
+    applied_width_mm = {}
+
+    def _fake_apply_crack_width_mm(detections, image, content_probability, card_scale_mm_per_px):
+        applied_width_mm["scale"] = card_scale_mm_per_px
+        applied_width_mm["content_probability"] = content_probability
+
+    monkeypatch.setattr(chain, "_apply_crack_width_mm", _fake_apply_crack_width_mm)
+
+    fake_model = _FakeYoloModel(
+        _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.1, 0.1]], [0.9]), masks=None)
+    )
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    detections = chain.run_defect_detection_chain(_tiny_valid_png_base64())
+
+    assert call_count["n"] == 1  # 카드 검출은 이미지당 1회만
+    expected_scale = chain.CARD_LONG_MM / 100.0
+    assert applied_width_mm["scale"] == pytest.approx(expected_scale)
+    assert applied_width_mm["content_probability"] is fake_content_probability
+
+    spalling_or_rebar = [d for d in detections if d.type in ("SPALLING", "REBAR_EXPOSURE")]
+    assert spalling_or_rebar  # YOLO 탐지가 실제로 섞여 들어왔는지 전제 확인
+    for detection in spalling_or_rebar:
+        assert detection.area_mm2 == pytest.approx(detection.area_px * expected_scale**2, rel=1e-6)
+    crack_result = next(d for d in detections if d.type == "CRACK")
+    assert crack_result.area_mm2 is None  # CRACK은 area_mm2 대상이 아니다
+
+
+def test_run_defect_detection_chain_skips_card_detection_when_no_detections(monkeypatch):
+    """detection이 하나도 없으면 카드 검출 자체를 호출하지 않는다(#1547 P2 최적화 확장)."""
+    monkeypatch.setattr(chain, "_crack_detections", lambda image: ([], None))
+    fake_model = _FakeYoloModel(_FakeResult(boxes=None, masks=None))
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    call_count = {"n": 0}
+
+    def _fake_detect_card(image):
+        call_count["n"] += 1
+        return None
+
+    monkeypatch.setattr(chain, "detect_card", _fake_detect_card)
+
+    detections = chain.run_defect_detection_chain(_tiny_valid_png_base64())
+
+    assert detections == []
+    assert call_count["n"] == 0
+
+
+def test_run_defect_detection_chain_card_miss_leaves_mm_fields_none(monkeypatch):
+    """카드 미검출 시 width_mm/area_mm2 모두 None으로 유지돼야 한다(신뢰 구간 밖 폴백)."""
+    crack_detection = _make_crack_detection()
+    monkeypatch.setattr(chain, "_crack_detections", lambda image: ([crack_detection], None))
+    monkeypatch.setattr(chain, "detect_card", lambda image: None)
+
+    fake_model = _FakeYoloModel(
+        _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.1, 0.1]], [0.9]), masks=None)
+    )
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    detections = chain.run_defect_detection_chain(_tiny_valid_png_base64())
+
+    for detection in detections:
+        assert detection.width_mm is None
+        assert detection.area_mm2 is None
+
+
+def test_run_defect_detection_chain_survives_card_scale_application_failure(monkeypatch):
+    """코드 리뷰 P1 — 카드 스케일 적용(_apply_crack_width_mm/_apply_area_mm2) 중 예외가 나도
+    이미 확보한 세 유형 detections는 그대로 반환돼야 한다.
+
+    카드 검출 호출부를 run_defect_detection_chain으로 끌어올리며(#1658) 스케일 적용 블록이
+    per-type try/except 밖으로 나갔다 — 여기서 예외가 새면 라우터 최상위 except가 응답 전체를
+    VISION_INFERENCE_FAILED로 실패 처리해, mm 병기라는 부가 정보 실패가 이미 확보한 핵심 탐지
+    결과까지 통째로 날린다(#1547 P1이 막았던 실패 모드의 확대 재발).
+    """
+    import numpy as np
+
+    from ai.core.card_client import CardDetectionResult
+
+    crack_detection = _make_crack_detection()
+    crack_detection.width_px = 4.0
+    fake_content_probability = np.zeros((10, 10), dtype=np.float32)
+    monkeypatch.setattr(
+        chain, "_crack_detections", lambda image: ([crack_detection], fake_content_probability)
+    )
+    monkeypatch.setattr(
+        chain,
+        "detect_card",
+        lambda image: CardDetectionResult(long_px=100.0, short_px=63.0, confidence=0.9, method="quad"),
+    )
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("measure_crack_width_mm boom")
+
+    monkeypatch.setattr(chain, "_apply_crack_width_mm", _boom)
+
+    fake_model = _FakeYoloModel(
+        _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.1, 0.1]], [0.9]), masks=None)
+    )
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    detections = chain.run_defect_detection_chain(_tiny_valid_png_base64())  # 예외 없이 반환돼야 함
+
+    assert sorted(d.type for d in detections) == ["CRACK", "REBAR_EXPOSURE", "SPALLING"]
+
+
+def test_apply_area_mm2_skips_crack_and_missing_area_px():
+    crack = _make_crack_detection()
+    assert crack.area_px is None
+    spalling = _detection("SPALLING", 0.0, 0.0, 0.2, 0.2)
+    spalling.area_px = 400.0
+
+    chain._apply_area_mm2([crack, spalling], card_scale_mm_per_px=0.5)
+
+    assert crack.area_mm2 is None  # CRACK 제외
+    assert spalling.area_mm2 == pytest.approx(400.0 * 0.5 * 0.5)
+
+
+def test_safe_detect_card_swallows_exception(monkeypatch):
+    def _boom(image):
+        raise RuntimeError("card boom")
+
+    monkeypatch.setattr(chain, "detect_card", _boom)
+
+    assert chain._safe_detect_card(_dummy_image()) is None
 
 
 def test_run_defect_detection_chain_serializes_concurrent_predict_calls(monkeypatch):
@@ -551,7 +725,7 @@ def test_run_defect_detection_chain_serializes_concurrent_predict_calls(monkeypa
                 active -= 1
             return [_SleepyResult()]
 
-    monkeypatch.setattr(chain, "_crack_detections", lambda image: [])
+    monkeypatch.setattr(chain, "_crack_detections", lambda image: ([], None))
     fake_model = _SleepyModel()
     monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
 

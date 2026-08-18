@@ -15,6 +15,7 @@ import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -42,9 +43,10 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class InspectionAnalysisService {
 
-    // ANALYZING 고착 복구(코드 리뷰 P2) 시 되돌릴 상태 — 여기 도달했다는 건 이미 이미지가 있다는
-    // 뜻이라(images.isEmpty() 가드는 이 시점 이후) "업로드는 끝났고 분석 전"이 가장 정확한 표현이다.
-    private static final InspectionStatus RECOVERY_STATUS = InspectionStatus.UPLOADING;
+    // ANALYZING 고착 복구 시 되돌릴 상태(코드 리뷰 P2) — 핫픽스(#1670 후속)로 하드코딩 상수를 걷어내고
+    // InspectionService#revertStuckAnalyzing의 판별 결과(기존 하자 유무에 따라 ANALYZED 또는
+    // UPLOADING)를 그대로 쓴다 — 리퍼와 이 서비스의 인라인 복구가 중복 구현 없이 항상 같은 결론을
+    // 내도록(자세한 근거는 그 메서드 javadoc 참고).
 
     // 재분석 허용 소스 상태(코드 리뷰 P1, 제품 결정) — REVIEWED/REPORTED는 목록에서 뺀다.
     // 재분석은 워커가 기존 하자를 소프트삭제하므로, 사람이 검수·확정한 최종 상태 회차에서 허용하면
@@ -122,6 +124,17 @@ public class InspectionAnalysisService {
      *       실제 방어선은 그 원자적 UPDATE). 분석 실행 중(ANALYZING) 자체에 새 수동 하자가 끼는 것은
      *       {@link com.hajacheck.core.defect.service.DefectRevisionService#createManualDefect}의
      *       상태 가드로 막는다.</li>
+     *   <li><b>증분 분석 예외</b>(V42, #1654): 위 fail-closed 가드는 <b>ANALYZED 회차에 미분석 원본
+     *       사진이 남아있는 경우</b>만 예외로 허용한다 — 분석 대상 자체를 "회차 전체"가 아니라
+     *       "{@code media.analyzed_at IS NULL}인 사진"으로 좁혀서 가져오므로({@link MediaRepository
+     *       #findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc}), 하자가 있어도
+     *       그 미분석 사진이 존재하면 그 사진들만 append로(기존 하자 절대 비파괴) 분석한다. 이
+     *       판단({@code hasExistingDefects}, 정확히는 "증분 분석인지")은 원자적 선점({@link
+     *       InspectionRepository#startAnalyzingIfNotRunning}의 {@code allowExistingDefects})과
+     *       워커({@link InspectionAnalysisWorker#runAsync}의 {@code preserveExistingDefects}) 양쪽에
+     *       그대로 전달돼, "이 실행은 append only"라는 결론이 세 지점 모두에서 일관된다. 미분석 사진이
+     *       없는데(=이미 전량 분석 완료) 하자가 있다면 그건 "강제 전체 재분석" 시도이므로 여전히
+     *       fail-closed로 거부한다.</li>
      *   <li><b>워커 펜싱</b>(P1): 고착 복구는 원본 워커가 실제로 죽었는지 확인할 수 없다 — 하트비트
      *       판정(고착 판정)이 오탐(GC 정지, 분석 실행기 큐 적체로 첫 이미지 처리가 늦게 시작되는
      *       경우 등)이면 원본 워커가 여전히 살아 돌고 있는 채로 재선점이 새 워커를 하나 더 띄운다.
@@ -140,8 +153,14 @@ public class InspectionAnalysisService {
                 throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
             }
             log.warn("ANALYZING 고착 감지({}) — inspectionId={} 재시작을 허용한다", stuckReason, inspectionId);
-            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, RECOVERY_STATUS);
-            statusBeforeAnalysis = RECOVERY_STATUS;
+            // 핫픽스(#1670 후속, 머신 P1 반려) — 예전엔 무조건 UPLOADING(구 RECOVERY_STATUS 상수)으로 되돌렸는데,
+            // 리퍼({@link InspectionService#revertStuckAnalyzing})는 이미 기존 하자 유무로 ANALYZED/
+            // UPLOADING을 분기하는 판별 로직을 갖고 있었다(#1654 P1 픽스). 그 판별을 여기서 재구현하지
+            // 않고 같은 메서드를 그대로 호출해 반환값을 statusBeforeAnalysis로 쓴다 — 그래야 증분 분석
+            // (ANALYZED→ANALYZING, 하자 보유) 고착을 사용자가 리퍼보다 먼저 인라인 재트리거해도
+            // ANALYZED로 정확히 복원되고, 아래 "미분석 사진 없이 하자만 있음" fail-closed 가드에
+            // 영구히 막히지 않는다(리퍼와 인라인 경로가 항상 같은 결론을 낸다 — 중복 구현 금지).
+            statusBeforeAnalysis = inspectionService.revertStuckAnalyzing(inspectionId);
         }
 
         if (!ANALYSIS_ALLOWED_SOURCE_STATUSES.contains(statusBeforeAnalysis)) {
@@ -149,20 +168,33 @@ public class InspectionAnalysisService {
             throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
-        if (hasExistingDefects(inspectionId)) {
-            // fail-closed(코드 리뷰 P1 5차, 머신 검수 2차 — 소스 상태 무관으로 확장) — 하자가 하나라도
-            // 있으면 재분석을 거부한다. 원래는 ANALYZED에만 걸었는데, createManualDefect가 회차 상태를
-            // 검사하지 않아 CREATED/UPLOADING 회차에도 수동 하자가 들어갈 수 있어 그 경로가 가드 없이
-            // 뚫려 있었다(첫 분석이 무조건 소프트삭제). 재분석은 워커가 기존 하자를 소프트삭제하므로,
-            // 사람이 수동 추가(createManualDefect)·검수한 하자가 무보상 유실될 수 있는 유일한 경로다.
-            // AI/사람 생성을 구분하는 컬럼(#644)이 없는 한 신뢰할 수 있는 선별이 불가능하므로, 그
-            // 전까지는 소스 상태와 무관하게 "하자가 있으면 재분석 자체를 막는다".
-            throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
+        // 증분 분석 대상 좁히기(V42, #1654) — "회차의 전체 원본 사진"이 아니라 "아직 AI 분석을 거치지
+        // 않은 원본 사진"만 가져온다(조치 후 사진 DEFECT_ACTION은 #1641부터 이미 제외). 이 목록이 곧
+        // "이번 실행이 처리할 이미지"다 — 첫 분석이든(전량 미분석이라 결과적으로 전체와 같음) 증분
+        // 분석이든(ANALYZED 완료 후 새로 업로드된 사진만) 동일한 쿼리 하나로 표현된다.
+        List<Media> images = mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(
+                inspectionId, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE);
+
+        boolean hasExistingDefects = hasExistingDefects(inspectionId);
+
+        if (images.isEmpty()) {
+            if (hasExistingDefects) {
+                // fail-closed(코드 리뷰 P1 5차, 머신 검수 2차 계승) — 미분석 사진이 하나도 없는데 하자가
+                // 있다는 건 "이미 완료된 회차를 처음부터 강제로 다시 분석"하려는 시도다(증분 대상이
+                // 없으므로 증분이 아니다). 워커가 기존 하자를 소프트삭제하므로, 사람이 수동 추가·검수한
+                // 하자가 무보상 유실될 수 있는 유일한 경로 — AI/사람 구분 컬럼(#644) 전까지는 계속 막는다.
+                throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
+            }
+            throw new BusinessException(ErrorCode.ANALYSIS_NO_MEDIA);
         }
 
-        List<Media> images = mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(inspectionId, MediaFileType.IMAGE);
-        if (images.isEmpty()) {
-            throw new BusinessException(ErrorCode.ANALYSIS_NO_MEDIA);
+        // 증분 분석 허용 조건(제품 결정, #1654): 하자가 있는 상태에서 재분석을 허용하는 건 오직
+        // "ANALYZED 회차 + 미분석 사진 존재"뿐이다. 그 외(CREATED/UPLOADING에 이미 수동 하자가 있는
+        // 상태에서의 "첫" 분석 시도)는 여전히 fail-closed — createManualDefect가 회차 상태를 검사하지
+        // 않아 이런 회차에도 수동 하자가 들어갈 수 있는데, 그 첫 분석은 여전히 전체 소프트삭제 경로라
+        // 사람 하자를 무보상으로 지운다.
+        if (hasExistingDefects && statusBeforeAnalysis != InspectionStatus.ANALYZED) {
+            throw new BusinessException(ErrorCode.ANALYSIS_NOT_ALLOWED);
         }
 
         // 코드 리뷰 P2 4차/10차 — 공유 실행기 큐에 넣기 전에 회사별 동시 실행 상한을 먼저 강제한다.
@@ -193,7 +225,13 @@ public class InspectionAnalysisService {
         // 요금제가 바뀐 경우 엉뚱한 행을 감산한다(AnalysisQuotaCharge javadoc 참고).
         AnalysisQuotaCharge charge = quotaService.consumeAnalysisQuota(requesterUserId, companyId, images.size());
         try {
-            dispatchAnalysis(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis, charge);
+            // hasExistingDefects를 그대로 "증분 분석" 플래그로 넘긴다(#1654) — 여기 도달했다는 건
+            // 위 가드를 전부 통과했다는 뜻이라, 하자가 있다면 그건 반드시 "ANALYZED + 미분석 사진
+            // 존재"인 증분 실행이다(그 외 조합은 이미 위에서 걸러짐). 원자적 선점(tryStartAnalyzing)과
+            // 워커(preserveExistingDefects) 양쪽에 같은 값을 전달해 "이 실행은 append only"라는 판단을
+            // 일관되게 유지한다.
+            dispatchAnalysis(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis,
+                    hasExistingDefects, charge);
         } catch (RuntimeException e) {
             // 선점 실패(ALREADY_RUNNING)·큐 포화(QUEUE_FULL)·예기치 못한 오류 모두 "분석이 시작되지 않음"이다 —
             // 실패한 요청이 월 한도를 갉아먹지 않도록 되돌린다.
@@ -215,17 +253,22 @@ public class InspectionAnalysisService {
     /**
      * 원자적 선점 → 세대 토큰 발급 → 초기 진행률 기록 → 비동기 워커 위임. 실패 시 호출부가 사용량을 보상한다.
      * {@code charge} 는 워커까지 그대로 넘긴다 — 큐 적재에 성공하면 이후 종료 경로의 보상은 워커 책임이다.
+     *
+     * @param preserveExistingDefects 증분 분석 여부(#1654) — true면 원자적 선점의 "비삭제 하자 없음"
+     *                                조건을 건너뛰고(tryStartAnalyzing), 워커에도 그대로 전달해 기존
+     *                                하자를 소프트삭제하지 않고 append만 하도록 지시한다.
      */
     private void dispatchAnalysis(Long requesterUserId, Long companyId, Long inspectionId,
                                   List<Media> images, InspectionStatus statusBeforeAnalysis,
-                                  AnalysisQuotaCharge charge) {
+                                  boolean preserveExistingDefects, AnalysisQuotaCharge charge) {
         if (!inspectionService.tryStartAnalyzing(
-                requesterUserId, companyId, inspectionId, ANALYSIS_ALLOWED_SOURCE_STATUSES)) {
+                requesterUserId, companyId, inspectionId, ANALYSIS_ALLOWED_SOURCE_STATUSES,
+                preserveExistingDefects)) {
             // 원자적 조건부 UPDATE 영향 행 0건 — 다른 요청이 먼저 선점했거나, 사전 체크 이후 허용되지
-            // 않은 소스 상태(REVIEWED/REPORTED 등)로 전이됐거나(코드 리뷰 P1 10차), 사전 체크 이후
-            // 수동 하자가 새로 등록됐다(코드 리뷰 P1, 머신 검수 2차) — WHERE가 허용 소스 상태와
-            // "비삭제 하자 없음"을 함께 강제하므로 두 TOCTOU 모두에서 사람 하자가 소프트삭제로
-            // 유실되지 않는다.
+            // 않은 소스 상태(REVIEWED/REPORTED 등)로 전이됐거나(코드 리뷰 P1 10차), 증분 분석이 아닌데
+            // (preserveExistingDefects=false) 사전 체크 이후 수동 하자가 새로 등록됐다(코드 리뷰 P1,
+            // 머신 검수 2차) — WHERE가 허용 소스 상태와 "비삭제 하자 없음"(증분이면 생략)을 함께
+            // 강제하므로 두 TOCTOU 모두에서 사람 하자가 소프트삭제로 유실되지 않는다.
             throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
         }
 
@@ -242,13 +285,16 @@ public class InspectionAnalysisService {
             initialFiles.add(new FileProgress(
                     images.get(i).getId(), AnalysisFileDisplayNames.of(images.get(i), i), "waiting", null, "-"));
         }
+        // unanalyzedMediaCount(#1654) — 킥오프 시점엔 이번에 큐잉한 이미지 전부가 아직 미분석이다
+        // (그래서 애초에 선택됐다). reanalysisAllowed — 방금 tryStartAnalyzing으로 ANALYZING을
+        // 선점했으니 지금은 다시 트리거할 수 없다(false).
         progressStore.save(new AnalysisStatusResponse(
                 inspectionId, "aiDetection", 0, images.size(), 0, initialFiles, 0, 0,
-                emptyGradeMap(), 0, Instant.now()));
+                emptyGradeMap(), 0, images.size(), false, Instant.now()));
 
         try {
             worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis,
-                    generation, charge);
+                    preserveExistingDefects, generation, charge);
         } catch (TaskRejectedException e) {
             // 코드 리뷰 P2 — analysisTaskExecutor는 테넌트 구분 없는 전역 공유 풀이라(AsyncConfig),
             // 어떤 회사가 큐를 채워 다른 회사까지 503을 받게 됐는지 나중에 로그로 추적할 수 있도록
@@ -348,9 +394,13 @@ public class InspectionAnalysisService {
     }
 
     /**
-     * 리퍼 전용 — ANALYZING 고착 회차를 직전 상태({@link #RECOVERY_STATUS})로 복원한다(코드 리뷰 P2 10차).
-     * 고착이 아니면 아무것도 하지 않는다. 실제 상태 전이는 {@link InspectionService#revertStuckAnalyzing}가
-     * 시스템 배치(사용자 컨텍스트 없음)로 수행하며, 여전히 ANALYZING일 때만 되돌린다(멱등).
+     * 리퍼 전용 — ANALYZING 고착 회차를 직전 상태로 복원한다(코드 리뷰 P2 10차). 고착이 아니면 아무것도
+     * 하지 않는다. 실제 상태 전이는 {@link InspectionService#revertStuckAnalyzing}가 시스템 배치(사용자
+     * 컨텍스트 없음)로 수행하며, 여전히 ANALYZING일 때만 되돌린다(멱등). 되돌릴 상태는 그 회차의 기존
+     * 하자 유무로 갈린다(리뷰 P1 픽스, #1654) — 첫 분석 고착이면 UPLOADING, 증분 분석(ANALYZED→
+     * ANALYZING) 고착이면 ANALYZED로 되돌아간다. 자세한 근거는
+     * {@code InspectionService#revertStuckAnalyzing} javadoc 참고. {@link #startAnalysis}의 인라인
+     * 고착 복구도 같은 메서드를 호출하므로(핫픽스 #1670 후속) 두 경로는 항상 같은 결론을 낸다.
      *
      * <p>세대 토큰도 새로 발급한다(코드 리뷰 P3, {@link #startAnalysis}의 재선점과 대칭) — 리퍼가
      * 복원하는 시점엔 아직 재선점(startAnalysis)이 일어나지 않아 이중 워커 실행 위험은 없지만,
@@ -365,9 +415,9 @@ public class InspectionAnalysisService {
         if (!isStuck(inspectionId)) {
             return false;
         }
-        inspectionService.revertStuckAnalyzing(inspectionId);
+        InspectionStatus revertedTo = inspectionService.revertStuckAnalyzing(inspectionId);
         progressStore.saveGeneration(inspectionId, java.util.UUID.randomUUID().toString());
-        log.warn("ANALYZING 고착 리퍼 복원 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
+        log.warn("ANALYZING 고착 리퍼 복원 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, revertedTo);
         return true;
     }
 
@@ -385,9 +435,10 @@ public class InspectionAnalysisService {
      * "이 실행은 더 이상 유효하지 않다"고 알리는 것뿐이다. 새 사용량 보상 로직을 따로 만들지 않는다.
      * 이 메서드 자체는 워커의 실제 종료를 기다리지 않고 즉시 반환한다.
      *
-     * <p>상태는 고착 복구와 동일하게 {@link InspectionService#revertStuckAnalyzing}로 되돌리고
-     * (ANALYZING→UPLOADING), 진행률 캐시는 지운다 — 이후 조회(getStatus)는 큐 포화 롤백과 동일하게
-     * {@link #rebuildFromDb}가 "분석된 적 없음" 분기로 자연스럽게 재구성한다(새 stage 값을 만들 필요 없음).
+     * <p>상태는 고착 복구와 동일하게 {@link InspectionService#revertStuckAnalyzing}로 되돌리고(기존
+     * 하자 유무에 따라 UPLOADING 또는 ANALYZED, 리뷰 P1 픽스 #1654), 진행률 캐시는 지운다 — 이후
+     * 조회(getStatus)는 큐 포화 롤백과 동일하게 {@link #rebuildFromDb}가 재구성한다(새 stage 값을 만들
+     * 필요 없음).
      *
      * <p>⚠️ 순서 주의(PR 리뷰 P1) — {@link AnalysisProgressStore#delete}는 진행률 캐시뿐 아니라
      * 세대 토큰 키까지 함께 지운다({@link com.hajacheck.core.analysis.support.RedisAnalysisProgressStore#delete}/
@@ -403,15 +454,19 @@ public class InspectionAnalysisService {
         if (inspection.getStatus() != InspectionStatus.ANALYZING) {
             return;
         }
-        inspectionService.revertStuckAnalyzing(inspectionId);
+        InspectionStatus revertedTo = inspectionService.revertStuckAnalyzing(inspectionId);
         progressStore.delete(inspectionId);
         progressStore.saveGeneration(inspectionId, java.util.UUID.randomUUID().toString());
-        log.info("사용자 분석 취소 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
+        log.info("사용자 분석 취소 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, revertedTo);
     }
 
     private AnalysisStatusResponse rebuildFromDb(Inspection inspection) {
         Long inspectionId = inspection.getId();
-        List<Media> images = mediaRepository.findByInspectionIdAndFileTypeOrderByIdAsc(inspectionId, MediaFileType.IMAGE);
+        // 회차 전체 미디어를 가져온다(#1654부터 analyzedAt으로 개별 분석 여부를 판정하므로, 여기서는
+        // 증분 전용 필터가 아니라 기존과 동일하게 "회차의 전체 원본 촬영사진"을 그대로 쓴다 — 조치 후
+        // 사진(DEFECT_ACTION)만 #1641부터 제외).
+        List<Media> images = mediaRepository.findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(
+                inspectionId, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE);
 
         if (inspection.getStatus() != InspectionStatus.ANALYZED
                 && inspection.getStatus() != InspectionStatus.REVIEWED
@@ -422,8 +477,13 @@ public class InspectionAnalysisService {
                 files.add(new FileProgress(
                         images.get(i).getId(), AnalysisFileDisplayNames.of(images.get(i), i), "waiting", null, "-"));
             }
+            // reanalysisAllowed(리뷰 P1 픽스, #1654) — 이 분기는 이미 status가 ANALYZED/REVIEWED/
+            // REPORTED가 아님을 확인했으므로, "지금 이 상태에서 재분석 트리거가 허용되는지"는
+            // ANALYSIS_ALLOWED_SOURCE_STATUSES 소속 여부로 그대로 판정한다(ANALYZING이면 false).
             return new AnalysisStatusResponse(
-                    inspectionId, "upload", 0, images.size(), 0, files, 0, 0, emptyGradeMap(), 0, Instant.now());
+                    inspectionId, "upload", 0, images.size(), 0, files, 0, 0, emptyGradeMap(), 0,
+                    images.size(), ANALYSIS_ALLOWED_SOURCE_STATUSES.contains(inspection.getStatus()),
+                    Instant.now());
         }
 
         // 완료된 적 있는 회차 — 실제 저장된 defects로 요약을 재구성한다(캐시 TTL 만료 대응).
@@ -444,19 +504,48 @@ public class InspectionAnalysisService {
             }
         }
 
+        // 개별 미디어의 "완료"/"대기" 표시는 media.analyzedAt으로 판정한다(#1654) — 예전엔 이 회차가
+        // ANALYZED 이상이면 무조건 "completed"·defectCount=0으로 표시했는데, 그게 바로 이 이슈가 고친
+        // 버그의 증상이다("영구 미분석(하자 0건처럼 보임)"). 분석을 아예 거치지 않은 사진은 하자
+        // 0건과 구분되게 "대기"로 보여준다.
         List<FileProgress> files = new java.util.ArrayList<>(images.size());
+        int unanalyzedMediaCount = 0;
         for (int i = 0; i < images.size(); i++) {
             Media media = images.get(i);
-            int count = defectCountByMedia.getOrDefault(media.getId(), 0);
-            files.add(new FileProgress(media.getId(), AnalysisFileDisplayNames.of(media, i), "completed", count, "-"));
+            boolean analyzed = media.getAnalyzedAt() != null;
+            if (!analyzed) {
+                unanalyzedMediaCount++;
+            }
+            Integer count = analyzed ? defectCountByMedia.getOrDefault(media.getId(), 0) : null;
+            files.add(new FileProgress(media.getId(), AnalysisFileDisplayNames.of(media, i),
+                    analyzed ? "completed" : "waiting", count, "-"));
         }
+        int analyzedFileCount = images.size() - unanalyzedMediaCount;
+        // P3 점검(핫픽스 #1670 후속) — stage="done"인데 unanalyzedMediaCount>0이면 이 값이 100% 미만이
+        // 된다("완료인데 진행률이 낮다"는 모순으로 보일 수 있음). 이 응답(GET /api/inspections/{id}/analyze,
+        // AnalysisStatusResponse)의 다른 소비자를 grep으로 전수 확인했다 —
+        // AdminAnalysisJobService.toItem은 status==ANALYZING일 때만 progressPercent를 읽고(그 외 null),
+        // PlatformAdminMonitoringService.durationLabel은 updatedAt만 읽는다(progressPercent 미사용).
+        // "done"의 progressPercent를 실제로 렌더링하는 소비자는 프론트 AiAnalysisStatusPage 하나뿐이고,
+        // 그 화면은 이미 이 값 자체를 신뢰하지 않고 unanalyzedMediaCount>0이면 "완료" 뱃지+100% 바로
+        // 클라이언트에서 override한다(hasUnanalyzedOnDone, #1654 리뷰 P2 픽스). 소스(여기)를 100
+        // 고정으로 바꾸면 오히려 analyzedFileCount/totalFileCount로 실제 진행 비율을 계산해야 하는
+        // 잠재적 미래 소비자(예: 배치 리포트)의 정보를 잃으므로, 현재는 소스를 그대로 두고 이 코멘트로
+        // 소비자 현황만 고정한다 — 새 소비자를 추가할 때는 이 필드를 "완료 여부"가 아니라 "실제 분석
+        // 완료 비율"로 해석해야 한다(완료 판정은 stage=="done" 자체로, 완료 후 잔여 작업 여부는
+        // unanalyzedMediaCount로 각각 판단할 것).
+        int progressPercent = images.isEmpty() ? 0 : (int) Math.round(analyzedFileCount * 100.0 / images.size());
 
         Map<String, Integer> gradeMap = emptyGradeMap();
         gradeCounts.forEach((grade, count) -> gradeMap.put(grade.name(), count));
 
+        // reanalysisAllowed(리뷰 P1 픽스, #1654) — REVIEWED/REPORTED는 ANALYSIS_ALLOWED_SOURCE_STATUSES에
+        // 없으므로 false가 된다. 이 값과 unanalyzedMediaCount를 함께 봐야 프론트가 "추가 사진 분석"
+        // 버튼을 REVIEWED/REPORTED 회차에서 노출하지 않는다(죽은 버튼 방지).
         return new AnalysisStatusResponse(
-                inspectionId, "done", 100, images.size(), images.size(), files,
-                defects.size(), riskyCrackCount, gradeMap, 0, Instant.now());
+                inspectionId, "done", progressPercent, images.size(), analyzedFileCount, files,
+                defects.size(), riskyCrackCount, gradeMap, 0, unanalyzedMediaCount,
+                ANALYSIS_ALLOWED_SOURCE_STATUSES.contains(inspection.getStatus()), Instant.now());
     }
 
     private Map<String, Integer> emptyGradeMap() {

@@ -16,7 +16,12 @@ function buildDefectImageSummary(
     // 균열은 선형 하자라 면적비가 항상 1% 미만대로 작다(ai-server grading.py 균열 전용 구간표
     // 참고, 등급 임계값 자체가 0.275%~0.969%) — 소수점 1자리로도 0.0%로 뭉개지는 값이 있어(실측
     // 확인) 3자리까지 늘려 실제로 측정된 작은 값임을 드러낸다.
-    defect.areaRatio ? `면적비 ${(defect.areaRatio * 100).toFixed(3)}%` : null,
+    // 라벨은 "사진 내 비율"로 표기(#1643 라벨 정직화와 동일 취지) — 실측 면적으로 오해되지
+    // 않도록. 값 계산(toFixed(3) 등)은 변경하지 않는다.
+    defect.areaRatio ? `사진 내 비율 ${(defect.areaRatio * 100).toFixed(3)}%` : null,
+    // 실측 면적(areaMm2, #1658/#1669)은 이 PR 범위 제외 — ReportContext(백엔드 ReportDetailResponse
+    // 별도 DTO)에 아직 areaMm2가 없다. defect/inspection 타입에는 추가됐으니, 백엔드가 노출하면
+    // 여기도 병기하는 후속 작업만 남는다.
     defect.confidence ? `신뢰도 ${Math.round(defect.confidence * 100)}%` : null,
   ].filter(Boolean);
   return parts.join(" · ");

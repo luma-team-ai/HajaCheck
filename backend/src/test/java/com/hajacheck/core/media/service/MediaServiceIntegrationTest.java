@@ -16,6 +16,7 @@ import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.media.dto.MediaResponse;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.awt.image.BufferedImage;
@@ -154,10 +155,12 @@ class MediaServiceIntegrationTest extends PostgresTestSupport {
     void uploadMedia_실트랜잭션으로DB커밋됨() throws IOException {
         MultipartFile file = new MockMultipartFile("files", "a.png", "image/png", realPngBytes());
 
-        List<MediaResponse> result =
-                mediaService.uploadMedia(inspectionId, ownerId, companyId, List.of(file));
+        List<MediaResponse> result = mediaService.uploadMedia(
+                inspectionId, ownerId, companyId, List.of(file), MediaPurpose.INSPECTION_SOURCE);
 
         assertThat(result).hasSize(1);
         assertThat(mediaRepository.findById(result.get(0).id())).isPresent();
+        assertThat(mediaRepository.findById(result.get(0).id()).orElseThrow().getPurpose())
+                .isEqualTo(MediaPurpose.INSPECTION_SOURCE);
     }
 }

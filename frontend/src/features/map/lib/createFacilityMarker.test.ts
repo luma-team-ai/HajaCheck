@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { FALLBACK_GRADE_COLOR, FALLBACK_GRADE_LABEL, GRADE_COLOR, GRADE_LABEL } from '../constants';
-import { buildInfoWindowContent, createFacilityMarker, isValidCoordinate } from './createFacilityMarker';
-import type { FacilityLocation } from '../types';
+import { buildInfoWindowContent, createFacilityMarker } from './createFacilityMarker';
+import type { PositionedFacilityLocation } from '../types';
 
-const baseFacility: FacilityLocation = {
+// isValidCoordinate 자체의 단위 테스트는 shared/lib/isValidCoordinate.test.ts로 이동했다(#1657 —
+// shared로 승격되며 단일 소스가 됨). 이 파일은 마커 생성(createFacilityMarker)만 검증한다.
+const baseFacility: PositionedFacilityLocation = {
   id: 1,
   name: '테스트 시설물',
   address: '서울 강남구 테헤란로 1',
@@ -33,40 +35,11 @@ describe('buildInfoWindowContent', () => {
   });
 
   it('알 수 없는 등급 값이면 fallback 색상/라벨로 대체한다', () => {
-    const facility = { ...baseFacility, highestGrade: 'UNKNOWN' } as unknown as FacilityLocation;
+    const facility = { ...baseFacility, highestGrade: 'UNKNOWN' } as unknown as PositionedFacilityLocation;
     const content = buildInfoWindowContent(facility);
     const gradeEl = content.querySelector('span') as HTMLSpanElement;
     expect(gradeEl.textContent).toBe(FALLBACK_GRADE_LABEL);
     expect(gradeEl.style.color).toBe(toRgb(FALLBACK_GRADE_COLOR));
-  });
-});
-
-describe('isValidCoordinate', () => {
-  it('유효 범위 내 좌표는 true를 반환한다', () => {
-    expect(isValidCoordinate(37.5, 127.0)).toBe(true);
-    expect(isValidCoordinate(-90, -180)).toBe(true);
-    expect(isValidCoordinate(90, 180)).toBe(true);
-  });
-
-  it('(0,0)은 EXIF GPS 결측 센티널로 간주해 false를 반환한다', () => {
-    expect(isValidCoordinate(0, 0)).toBe(false);
-  });
-
-  it('NaN 좌표는 false를 반환한다', () => {
-    expect(isValidCoordinate(NaN, 127.0)).toBe(false);
-    expect(isValidCoordinate(37.5, NaN)).toBe(false);
-  });
-
-  it('Infinity 좌표는 false를 반환한다', () => {
-    expect(isValidCoordinate(Infinity, 127.0)).toBe(false);
-    expect(isValidCoordinate(37.5, -Infinity)).toBe(false);
-  });
-
-  it('범위를 벗어난 좌표는 false를 반환한다', () => {
-    expect(isValidCoordinate(91, 127.0)).toBe(false);
-    expect(isValidCoordinate(-91, 127.0)).toBe(false);
-    expect(isValidCoordinate(37.5, 181)).toBe(false);
-    expect(isValidCoordinate(37.5, -181)).toBe(false);
   });
 });
 
@@ -97,7 +70,7 @@ describe('createFacilityMarker', () => {
 
   it('알 수 없는 등급이어도 예외 없이 fallback 색상으로 마커 이미지를 생성한다', () => {
     stubKakaoMaps();
-    const facility = { ...baseFacility, highestGrade: 'UNKNOWN' } as unknown as FacilityLocation;
+    const facility = { ...baseFacility, highestGrade: 'UNKNOWN' } as unknown as PositionedFacilityLocation;
 
     expect(() => createFacilityMarker({} as never, facility, vi.fn())).not.toThrow();
     const markerImageCall = (window.kakao.maps.MarkerImage as ReturnType<typeof vi.fn>).mock.calls[0];

@@ -832,6 +832,7 @@ create table inspections
     type            inspection_type          default 'REGULAR'::inspection_type        not null,
     status          inspection_status_type   default 'CREATED'::inspection_status_type not null,
     created_at      timestamp with time zone default now()                             not null,
+    performed_at    timestamp with time zone,
     unique (facility_id, round_no)
 );
 
@@ -854,6 +855,8 @@ comment on column inspections.type is '점검 유형(REGULAR=정기, DETAILED=�
 comment on column inspections.status is '점검 처리 상태';
 
 comment on column inspections.created_at is '점검 생성 시각';
+
+comment on column inspections.performed_at is '점검 실제 수행 시각(#1667) — 회차의 INSPECTION_SOURCE 미디어 EXIF 촬영시각(min) 또는 업로드 시각으로 자동 세팅(사용자 입력 없음). 동일 inspection_date 내 정렬 tie-break(inspection_date desc, performed_at desc nulls last, id desc)에 사용.';
 
 alter table inspections
     owner to postgres;
@@ -885,8 +888,12 @@ create table media
     created_at              timestamp with time zone default now() not null,
     mime_type               varchar(100),
     original_filename       varchar(255),
+    purpose                 varchar(30)              default 'INSPECTION_SOURCE'::character varying not null,
+    analyzed_at             timestamp with time zone,
     constraint chk_media_inspection_xor_facility
-        check ((inspection_id is not null) <> (facility_id is not null))
+        check ((inspection_id is not null) <> (facility_id is not null)),
+    constraint chk_media_purpose
+        check (purpose in ('INSPECTION_SOURCE', 'DEFECT_ACTION'))
 );
 
 comment on table media is '점검 과정에서 등록하거나 추출한 이미지 및 영상 정보를 관리한다.';
@@ -918,6 +925,10 @@ comment on column media.gps_lng is '미디어 촬영 위치의 경도';
 comment on column media.mime_signature_verified is '파일 시그니처와 MIME 타입의 일치 검증 여부';
 
 comment on column media.created_at is '미디어 레코드 생성 시각';
+
+comment on column media.purpose is '미디어 용도(#1641) — INSPECTION_SOURCE(원본 촬영, 분석·분석결과뷰어 대상) / DEFECT_ACTION(조치 후 사진, 분석·분석결과뷰어 제외)';
+
+comment on column media.analyzed_at is '이 미디어(원본 촬영사진)가 AI 분석을 거친 시각(#1654) — null이면 미분석(증분 분석 대상). DEFECT_ACTION(조치 후 사진)은 애초에 분석 대상이 아니라 항상 null.';
 
 comment on column media.mime_type is '미디어 MIME 타입(예: image/jpeg, video/mp4)';
 
@@ -955,6 +966,7 @@ create table defects
     crack_width_mm  double precision,
     crack_length_mm double precision,
     area_ratio      double precision,
+    area_mm2        double precision,
     action_media_id    bigint
         references media,
     action_content     text,
@@ -1002,6 +1014,8 @@ comment on column defects.crack_width_mm is '균열 폭(mm)';
 comment on column defects.crack_length_mm is '균열 길이(mm)';
 
 comment on column defects.area_ratio is '결함 면적비율(탐지 bbox 면적 ÷ 이미지 전체 면적, HAJA-803, nullable)';
+
+comment on column defects.area_mm2 is '결함 실측 면적(mm², #1658/#1668) — SPALLING/REBAR_EXPOSURE만 값 존재 가능, 카드 미검출·CRACK 타입이면 nullable';
 
 comment on column defects.action_media_id is '조치 후 사진(HAJA-393/#725) — 조치 결과 등록 시 업로드한 촬영 이미지 식별자, nullable';
 

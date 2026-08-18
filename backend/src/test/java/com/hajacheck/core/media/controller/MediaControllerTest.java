@@ -1,5 +1,6 @@
 package com.hajacheck.core.media.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -25,6 +26,7 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
 import com.hajacheck.support.PostgresTestSupport;
 import java.time.LocalDate;
@@ -112,6 +114,24 @@ class MediaControllerTest extends PostgresTestSupport {
         return userRepository.save(owner);
     }
 
+    // 여러 테스트가 반복하는 "시설물 + 점검 회차 1건" 픽스처 조립 — facilityName은 시설물명 유니크
+    // 제약이 없더라도 테스트 간 구분을 명확히 하기 위해 호출부마다 다르게 넘긴다.
+    private Inspection seedInspection(User owner, String facilityName) {
+        Facility facility = facilityRepository.save(Facility.builder()
+                .companyId(owner.getCompanyId())
+                .name(facilityName)
+                .type("BUILDING")
+                .build());
+        return inspectionRepository.save(Inspection.builder()
+                .facilityId(facility.getId())
+                .createdBy(owner.getId())
+                .assignedInspectorId(owner.getId())
+                .roundNo(1)
+                .inspectionDate(LocalDate.now())
+                .status(InspectionStatus.CREATED)
+                .build());
+    }
+
     @Test
     void 업로드_미인증_401() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
@@ -175,6 +195,81 @@ class MediaControllerTest extends PostgresTestSupport {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.error.code").value("FILE_REQUIRED"));
+    }
+
+    /**
+     * purpose 파라미터를 생략하면 원본 촬영 사진(INSPECTION_SOURCE)으로 저장된다(#1641) — 기존 업로드
+     * 호출부(inspection feature mediaApi.upload 등)가 이 파라미터를 몰라도 그대로 동작해야 한다.
+     */
+    @Test
+    void 업로드_purpose미지정_INSPECTION_SOURCE로_저장된다() throws Exception {
+        User owner = seedApprovedInspector("upload-purpose-default@haja.com");
+        Inspection inspection = seedInspection(owner, "테스트빌딩1");
+        MockMultipartFile file = new MockMultipartFile(
+                "files", "a.png", MediaType.IMAGE_PNG_VALUE, realPngBytes());
+        LoginUser principal = new LoginUser(owner);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+
+        mockMvc.perform(multipart("/api/inspections/{id}/media", inspection.getId())
+                        .file(file)
+                        .with(csrf())
+                        .with(authentication(auth)))
+                .andExpect(status().isCreated());
+
+        List<Media> saved = mediaRepository.findByInspectionIdOrderByIdAsc(inspection.getId());
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getPurpose()).isEqualTo(MediaPurpose.INSPECTION_SOURCE);
+    }
+
+    /**
+     * purpose=DEFECT_ACTION을 명시하면 그대로 저장된다(#1641) — 프론트 defectMediaApi.uploadActionPhoto가
+     * 이 값을 실어 보낸다.
+     */
+    @Test
+    void 업로드_purpose_DEFECT_ACTION_지정시_그대로_저장된다() throws Exception {
+        User owner = seedApprovedInspector("upload-purpose-action@haja.com");
+        Inspection inspection = seedInspection(owner, "테스트빌딩2");
+        MockMultipartFile file = new MockMultipartFile(
+                "files", "a.png", MediaType.IMAGE_PNG_VALUE, realPngBytes());
+        LoginUser principal = new LoginUser(owner);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+
+        mockMvc.perform(multipart("/api/inspections/{id}/media", inspection.getId())
+                        .file(file)
+                        .param("purpose", "DEFECT_ACTION")
+                        .with(csrf())
+                        .with(authentication(auth)))
+                .andExpect(status().isCreated());
+
+        List<Media> saved = mediaRepository.findByInspectionIdOrderByIdAsc(inspection.getId());
+        assertThat(saved).hasSize(1);
+        assertThat(saved.get(0).getPurpose()).isEqualTo(MediaPurpose.DEFECT_ACTION);
+    }
+
+    /**
+     * 허용되지 않는 purpose 값은 Spring의 문자열→enum 변환이 실패해 400(INVALID_INPUT)으로 응답한다
+     * (#1641) — GlobalExceptionHandler.handleMethodArgumentTypeMismatch 경로.
+     */
+    @Test
+    void 업로드_purpose_허용값외_400_INVALID_INPUT() throws Exception {
+        User owner = seedApprovedInspector("upload-purpose-invalid@haja.com");
+        Inspection inspection = seedInspection(owner, "테스트빌딩3");
+        MockMultipartFile file = new MockMultipartFile(
+                "files", "a.png", MediaType.IMAGE_PNG_VALUE, realPngBytes());
+        LoginUser principal = new LoginUser(owner);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+
+        mockMvc.perform(multipart("/api/inspections/{id}/media", inspection.getId())
+                        .file(file)
+                        .param("purpose", "NOT_A_REAL_PURPOSE")
+                        .with(csrf())
+                        .with(authentication(auth)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.error.code").value("INVALID_INPUT"));
     }
 
     /**
@@ -335,6 +430,46 @@ class MediaControllerTest extends PostgresTestSupport {
                 .andExpect(jsonPath("$.data[1].id").value(media2.getId()))
                 .andExpect(jsonPath("$.data[1].thumbnailUrl").value("/api/media/" + media2.getId() + "/thumbnail"))
                 .andExpect(jsonPath("$.data[1].detailUrl").value("/api/media/" + media2.getId() + "/detail"));
+    }
+
+    /**
+     * 조치 후 사진(purpose=DEFECT_ACTION)은 분석결과뷰어 목록에서 제외된다(#1641) — 원본 촬영사진만
+     * 하자 갤러리에 노출돼야 한다. 원본 1건 + 조치 후 사진 1건을 함께 심어, 응답에 원본만 담기는지 고정한다.
+     */
+    @Test
+    void 점검별미디어목록조회_조치후사진은_제외된다() throws Exception {
+        User owner = seedApprovedInspector("media-list-purpose-owner@haja.com");
+        Inspection inspection = seedInspection(owner, "테스트빌딩-purpose");
+
+        Media source = mediaRepository.save(Media.builder()
+                .inspectionId(inspection.getId())
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/source.png")
+                .thumbnailUrl("inspection-media-thumb/source.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .purpose(MediaPurpose.INSPECTION_SOURCE)
+                .build());
+        mediaRepository.save(Media.builder()
+                .inspectionId(inspection.getId())
+                .fileType(MediaFileType.IMAGE)
+                .originalUrl("inspection-media/action.png")
+                .thumbnailUrl("inspection-media-thumb/action.jpg")
+                .mimeSignatureVerified(true)
+                .mimeType("image/png")
+                .purpose(MediaPurpose.DEFECT_ACTION)
+                .build());
+
+        LoginUser principal = new LoginUser(owner);
+        UsernamePasswordAuthenticationToken auth =
+                new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
+
+        mockMvc.perform(get("/api/inspections/{id}/media", inspection.getId())
+                        .with(authentication(auth)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(source.getId()));
     }
 
     /**

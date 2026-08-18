@@ -1,20 +1,10 @@
 // 시설물 마커 생성 — 일반 원형 도트 마커(그림자 통일) & Figma 시안 정합 선택 마커(원형 도트 + 하단 콤팩트 소형 포인터 팁 + 그림자)
+// 좌표 유효성 판정(isValidCoordinate)은 shared/lib/isValidCoordinate로 승격됐다(#1657) — 목록
+// (FacilityListPanel의 '좌표 없음' 배지)도 동일한 판정 기준을 써야 "목록엔 있는데 마커는 없다"
+// 불일치가 재발하지 않는다. 이 파일은 더 이상 자체 정의/재-export하지 않는다 — 호출부는
+// shared/lib/isValidCoordinate를 직접 import한다.
 import { getGradeColor, getGradeLabel } from '../constants';
-import type { DefectGrade, FacilityLocation } from '../types';
-
-// 실 API 연동(#8) 시 서버가 null/NaN/범위밖 좌표를 줄 수 있어, 마커 생성 전 런타임 검증이 필요하다.
-// (0,0)은 EXIF GPS 태그 결측/손상 시 흔한 직렬화 결과(기니만 앞바다)이므로 유효 좌표로 취급하지 않는다.
-export function isValidCoordinate(latitude: number, longitude: number): boolean {
-  return (
-    Number.isFinite(latitude) &&
-    Number.isFinite(longitude) &&
-    latitude >= -90 &&
-    latitude <= 90 &&
-    longitude >= -180 &&
-    longitude <= 180 &&
-    !(latitude === 0 && longitude === 0)
-  );
-}
+import type { DefectGrade, FacilityLocation, PositionedFacilityLocation } from '../types';
 
 /** 일반 미선택 상태 시설물 마커 (dev 브랜치 기준: 28x28 원형 도트 + 3px 백색 테두리 + 선택 핀과 통일된 드롭 섀도우) */
 export function buildNormalMarkerImageSrc(color: string): string {
@@ -101,10 +91,13 @@ export function buildInfoWindowContent(facility: FacilityLocation): HTMLElement 
   return container;
 }
 
+// facility는 PositionedFacilityLocation(좌표 확정)만 받는다 — 호출부(MapPage)가 hasValidCoordinate로
+// 이미 좁혀서 넘겨야 한다는 계약을 타입으로 강제한다(#1657, 목록 API가 좌표 없는 시설물도 함께
+// 내려주면서 FacilityLocation.latitude/longitude가 number | null이 됐다).
 export function createFacilityMarker(
   map: KakaoMap,
-  facility: FacilityLocation,
-  onSelect: (facility: FacilityLocation, marker: KakaoMarker) => void,
+  facility: PositionedFacilityLocation,
+  onSelect: (facility: PositionedFacilityLocation, marker: KakaoMarker) => void,
   isSelected = false,
 ): KakaoMarker {
   const position = new window.kakao.maps.LatLng(facility.latitude, facility.longitude);

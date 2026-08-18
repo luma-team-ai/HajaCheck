@@ -3,6 +3,7 @@ package com.hajacheck.core.media.repository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -22,9 +23,30 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // 요청마다 흔들리지 않게 한다(defect 조회의 id ASC 고정과 동일 이유).
     List<Media> findByInspectionIdAndFileTypeOrderByIdAsc(Long inspectionId, MediaFileType fileType);
 
+    // AI 분석/재분석 대상 이미지 조회(#1641) — 조치 후 사진(DEFECT_ACTION)은 분석·재분석 대상이
+    // 아니다(원본 촬영사진만). InspectionAnalysisService의 상태 재구성(rebuildFromDb, 회차 전체
+    // 미디어 표시용)에서 사용 — 분석 시작(startAnalysis) 자체는 #1654부터 아래 analyzedAt IS NULL
+    // 버전만 쓴다(증분 분석 대상 좁히기).
+    List<Media> findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(
+            Long inspectionId, MediaFileType fileType, MediaPurpose purpose);
+
+    // 증분 분석 대상 조회(V42, #1654) — "회차의 전체 원본 사진"이 아니라 "아직 AI 분석을 거치지 않은
+    // 원본 사진"만 좁혀서 가져온다. 분석 완료(ANALYZED) 후 추가 업로드된 사진이 재분석 fail-closed
+    // 가드(InspectionAnalysisService.hasExistingDefects)에 막혀 영구 미분석으로 남던 버그(#1654)의
+    // 근본 수정 — 이 메서드가 반환하는 목록이 곧 "이번 실행에서 처리할 이미지"이므로, 첫 분석이든
+    // 증분 분석이든 InspectionAnalysisService.startAnalysis는 이 메서드 하나만 사용한다.
+    List<Media> findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(
+            Long inspectionId, MediaFileType fileType, MediaPurpose purpose);
+
     // 점검 회차별 미디어 전체 조회(#803 분석 결과 뷰어) — 업로드된 모든 미디어를 반환(하자 유무 무관).
     // id asc 고정으로 조회 순서를 일관되게 유지한다.
     List<Media> findByInspectionIdOrderByIdAsc(Long inspectionId);
+
+    // 분석결과뷰어 전용 미디어 조회(#1641) — 조치 후 사진(DEFECT_ACTION)은 하자 0건 이미지로 갤러리에
+    // 섞이면 안 되므로 원본 촬영사진(INSPECTION_SOURCE)만 반환한다. 기존 findByInspectionIdOrderByIdAsc
+    // 는 ReportService 등 "회차의 전체 미디어"가 필요한 다른 호출부가 그대로 쓰므로 시그니처를 바꾸지
+    // 않고 별도 메서드로 추가한다.
+    List<Media> findByInspectionIdAndPurposeOrderByIdAsc(Long inspectionId, MediaPurpose purpose);
 
     // 회차별 대표 사진(HAJA-612/#1346, 코드 리뷰 P2) — 회차 비교 "시각적 비교"는 그 회차의 첫 사진
     // 1장만 필요한데, 위 findByInspectionIdOrderByIdAsc로 전체 목록을 가져오면 sourceVideoId/
@@ -36,6 +58,11 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // FacilityInspectionHistoryItem.tsx THUMBNAIL_PREVIEW_COUNT=2), 위와 같은 이유로 전체 목록
     // 대신 id asc 첫 2건만 DB에서 바로 조회한다.
     List<Media> findTop2ByInspectionIdOrderByIdAsc(Long inspectionId);
+
+    // 시설물 상세 "점검 이력" 탭 썸네일 미리보기 purpose 필터판(#1641 P2) — 조치 후 사진(DEFECT_ACTION)이
+    // 미리보기 2장에 섞이면 안 되므로 원본 촬영사진(INSPECTION_SOURCE)만 대상으로 id asc 첫 2건을 가져온다.
+    // FacilityInspectionOverviewService가 위 findTop2ByInspectionIdOrderByIdAsc 대신 이 메서드를 쓴다.
+    List<Media> findTop2ByInspectionIdAndPurposeOrderByIdAsc(Long inspectionId, MediaPurpose purpose);
 
     // 시설물 대표 사진(#632/#652, HAJA-377) — 최대 4장 제한을 업로드 전 애플리케이션 레벨에서 검증하기
     // 위한 현재 보유 장수 집계. facility_id 만 채워진 로우(inspection_id=null)만 센다.
@@ -95,10 +122,20 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     }
 
     // 시설물 상세 "점검 이력" 탭 회차별 이미지 장수(#1359/HAJA-616) — 회차 목록을 한 번에 배치 집계.
+    // PlatformAdminMonitoringService는 운영 전체 사진 장수 집계라 조치 사진 포함이 맞으므로 이 원본
+    // 메서드를 그대로 쓴다(#1641 스코프 밖).
     @Query("select m.inspectionId as inspectionId, count(m) as cnt from Media m "
             + "where m.inspectionId in :inspectionIds group by m.inspectionId")
     List<InspectionMediaCountProjection> countGroupByInspectionIds(
             @Param("inspectionIds") Collection<Long> inspectionIds);
+
+    // 시설물 상세 "점검 이력" 탭 이미지 장수 배지 purpose 필터판(#1641 P2) — 사용자에게 보이는 "사진 N장"
+    // 배지가 조치 후 사진까지 세면 실제 하자 조사 사진 수보다 부풀려진다. FacilityInspectionOverviewService
+    // 가 위 countGroupByInspectionIds 대신 이 메서드를 쓴다.
+    @Query("select m.inspectionId as inspectionId, count(m) as cnt from Media m "
+            + "where m.inspectionId in :inspectionIds and m.purpose = :purpose group by m.inspectionId")
+    List<InspectionMediaCountProjection> countGroupByInspectionIdsAndPurpose(
+            @Param("inspectionIds") Collection<Long> inspectionIds, @Param("purpose") MediaPurpose purpose);
 
     interface InspectionMediaCountProjection {
         Long getInspectionId();

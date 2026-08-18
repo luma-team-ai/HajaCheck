@@ -342,20 +342,51 @@ public class InspectionService {
     }
 
     /**
-     * ANALYZING 고착 회차를 리퍼가 시스템 배치로 복원한다(코드 리뷰 P2 10차) — @Scheduled 리퍼는
-     * 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다(배치 전용, 외부 요청 경로 아님).
-     * 여전히 ANALYZING일 때만 UPLOADING으로 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미
-     * 정리했으면 아무것도 하지 않는다(멱등). 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로
-     * 검증한다(ANALYZING→UPLOADING 허용). RECOVERY_STATUS(=UPLOADING, InspectionAnalysisService)와
-     * 동일한 "업로드는 끝났고 분석 전" 상태로 되돌려, 사용자가 다시 분석을 시작할 수 있게 한다.
+     * ANALYZING 고착 회차를 복원한다(코드 리뷰 P2 10차) — 리퍼({@code @Scheduled}, 사용자 컨텍스트
+     * 없음)와 {@link com.hajacheck.core.analysis.service.InspectionAnalysisService#startAnalysis}의
+     * 인라인 고착 복구(요청 경로) 양쪽이 함께 쓰는 **단일 판별 지점**이다. 여전히 ANALYZING일 때만
+     * 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미 정리했으면 아무것도 하지 않는다(멱등).
+     * 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로 검증한다.
+     *
+     * <p>리뷰 P1 픽스(#1654) — 되돌릴 대상 상태를 <b>기존 하자 보유 여부</b>로 분기한다. 예전엔
+     * 무조건 UPLOADING(RECOVERY_STATUS, InspectionAnalysisService)으로 되돌렸는데, 증분 분석
+     * (ANALYZED→ANALYZING, 이미 하자가 있는 회차에 새 사진만 추가로 분석 중)이 고착되면 이 회차가
+     * UPLOADING으로 떨어지고, 다음 재시도가 {@code InspectionAnalysisService#startAnalysis}의 "미분석
+     * 사진 없이 하자만 있는 경우" 강제 전체 재분석 fail-closed 가드에 걸려 영구 정지한다(UPLOADING은
+     * "증분 분석 중이었다"는 사실 자체를 잃어버리므로). 기존 비삭제 하자가 있으면 이 회차는 애초에
+     * 처음 분석이 아니라 증분 실행이었다는 뜻이므로 ANALYZED로 되돌린다 — "이미 한 번 분석을 완료한
+     * 상태"라는 사실이 보존되고, ANALYZED에서는 미분석 사진이 남아있는 한 그대로 증분 재시도가
+     * 허용된다(startAnalysis의 증분 분기). 하자가 없으면 첫 분석이 고착된 것이므로 기존대로
+     * UPLOADING(업로드는 끝났고 분석 전)으로 되돌려 처음부터 다시 시작하게 한다. 진행률 캐시에 원래
+     * 상태를 별도로 기록해두는 방식(더 정교하지만 새 저장소·마이그레이션이 필요)까지는 가지 않는다 —
+     * 하자 유무만으로 "증분이었는지"를 충분히 구분할 수 있다(리뷰 코멘트).
+     *
+     * <p><b>핫픽스(#1670 후속, 머신 P1 반려)</b> — {@code InspectionAnalysisService.startAnalysis}가
+     * 자체 인라인 고착 복구 분기에서 이 판별을 재구현하지 않고 <b>이 메서드를 그대로 호출해 반환값을
+     * {@code statusBeforeAnalysis}로 쓰도록</b> 반환형을 {@code void}→{@link InspectionStatus}로
+     * 바꿨다. 예전엔 인라인 경로가 무조건 UPLOADING(RECOVERY_STATUS)으로 되돌리고 그 값을
+     * statusBeforeAnalysis로 썼는데, 리퍼는 위 P1 픽스로 이미 하자 유무 분기를 갖고 있어 "사용자가
+     * 리퍼보다 먼저 인라인 재트리거"하면 증분 고착 회차가 UPLOADING으로 떨어지고 이후 재트리거가
+     * "미분석 사진 없이 하자만 있음" fail-closed 가드에 영구히 막혔다. 판별 로직을 이 메서드 하나로
+     * 모아 두 소비자가 항상 같은 결론을 내도록 한다(중복 구현 금지).
+     *
+     * @return 이 회차가 지금 있는 상태 — ANALYZING이 아니었으면(멱등, 이미 다른 경로가 정리했거나
+     *         회차 자체가 없으면) 원래 상태(찾지 못했으면 {@code null})를 그대로, ANALYZING이었으면
+     *         방금 되돌린 목표 상태(ANALYZED 또는 UPLOADING)를 반환한다.
      */
     @Transactional
-    public void revertStuckAnalyzing(Long inspectionId) {
+    public InspectionStatus revertStuckAnalyzing(Long inspectionId) {
         Inspection inspection = inspectionRepository.findById(inspectionId).orElse(null);
-        if (inspection == null || inspection.getStatus() != InspectionStatus.ANALYZING) {
-            return;
+        if (inspection == null) {
+            return null;
         }
-        inspection.advanceTo(InspectionStatus.UPLOADING);
+        if (inspection.getStatus() != InspectionStatus.ANALYZING) {
+            return inspection.getStatus();
+        }
+        boolean wasIncremental = defectRepository.existsByInspectionIdAndDeletedFalse(inspectionId);
+        InspectionStatus target = wasIncremental ? InspectionStatus.ANALYZED : InspectionStatus.UPLOADING;
+        inspection.advanceTo(target);
+        return target;
     }
 
     /**
@@ -368,15 +399,20 @@ public class InspectionService {
      *                        소스 상태(ANALYSIS_ALLOWED_SOURCE_STATUSES)를 넘긴다. 조건부 UPDATE의
      *                        WHERE가 이 집합을 강제하므로, 사전 체크와 이 UPDATE 사이에 REVIEWED/
      *                        REPORTED 등으로 전이돼도 원자적으로 거부된다(사람 확정 하자 유실 TOCTOU 차단).
+     * @param allowExistingDefects 증분 분석 허용(V42, #1654) — true면 원자적 UPDATE의 "비삭제 하자
+     *                        없음" 조건을 건너뛴다. 호출부(InspectionAnalysisService)가 "이 실행은
+     *                        ANALYZED 회차에 새로 업로드된 미분석 사진만 append로 처리하는 증분
+     *                        분석"이라고 이미 판단했을 때만 true를 넘긴다 — 그 외(첫 분석·강제 전체
+     *                        재분석 시도)는 항상 false로, 기존 fail-closed 그대로 유지한다.
      * @return true = 이 호출이 ANALYZING을 선점함, false = 선점 불가(다른 요청이 선점했거나 허용되지
      *         않은 소스 상태) — 호출부는 ANALYSIS_ALREADY_RUNNING으로 응답해야 한다.
      */
     @Transactional
     public boolean tryStartAnalyzing(Long requesterUserId, Long companyId, Long inspectionId,
-            java.util.Collection<InspectionStatus> allowedStatuses) {
+            java.util.Collection<InspectionStatus> allowedStatuses, boolean allowExistingDefects) {
         getOwnedInspectionEntity(requesterUserId, companyId, inspectionId);
         return inspectionRepository.startAnalyzingIfNotRunning(
-                inspectionId, InspectionStatus.ANALYZING, allowedStatuses) > 0;
+                inspectionId, InspectionStatus.ANALYZING, allowedStatuses, allowExistingDefects) > 0;
     }
 
     // 점검일은 "실제로 점검을 수행한 날짜"를 기록하는 필드다(회차 생성과 동시에 촬영 데이터를

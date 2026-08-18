@@ -8,7 +8,12 @@ import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -101,6 +106,95 @@ public class LocalReportPdfStorage implements ReportPdfStorage {
             return new UrlResource(target.toUri());
         } catch (MalformedURLException e) {
             throw new BusinessException(ErrorCode.FILE_NOT_FOUND);
+        }
+    }
+
+    @Override
+    public void deleteAll(Long reportId) {
+        requireValidReportId(reportId);
+        Path reportDir = resolveReportDir(reportId);
+        if (!Files.isDirectory(reportDir)) {
+            return;
+        }
+        deleteRecursively(reportDir);
+    }
+
+    @Override
+    public List<Long> listReportIdsWithStoredFiles() {
+        if (!Files.isDirectory(baseDir)) {
+            return List.of();
+        }
+        List<Long> reportIds = new ArrayList<>();
+        try (Stream<Path> children = Files.list(baseDir)) {
+            for (Path child : children.toList()) {
+                if (!Files.isDirectory(child)) {
+                    continue;
+                }
+                try {
+                    reportIds.add(Long.parseLong(child.getFileName().toString()));
+                } catch (NumberFormatException e) {
+                    // baseDir 하위에 reportId 이름이 아닌 항목이 섞여 있으면 건너뛴다(방어적).
+                    log.warn("보고서 PDF 저장 디렉터리 이름이 reportId 형식이 아님 — name={}", child.getFileName());
+                }
+            }
+        } catch (IOException e) {
+            log.warn("보고서 PDF 저장 디렉터리 목록 조회 실패", e);
+            return List.of();
+        }
+        return reportIds;
+    }
+
+    @Override
+    public int deleteOrphans(Long reportId, String keepStorageKey, Instant olderThan) {
+        requireValidReportId(reportId);
+        Path reportDir = resolveReportDir(reportId);
+        if (!Files.isDirectory(reportDir)) {
+            return 0;
+        }
+        int removed = 0;
+        try (Stream<Path> children = Files.list(reportDir)) {
+            for (Path file : children.toList()) {
+                if (!Files.isRegularFile(file)) {
+                    continue;
+                }
+                if (file.getFileName().toString().equals(keepStorageKey)) {
+                    continue;
+                }
+                if (isOlderThan(file, olderThan) && deleteQuietly(file)) {
+                    removed++;
+                }
+            }
+        } catch (IOException e) {
+            log.warn("보고서 PDF 고아 파일 정리 조회 실패 — reportId={}", reportId, e);
+            return removed;
+        }
+        return removed;
+    }
+
+    private void deleteRecursively(Path dir) {
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(this::deleteQuietly);
+        } catch (IOException e) {
+            log.warn("보고서 PDF 디렉터리 삭제 실패 — path={}", dir, e);
+        }
+    }
+
+    private boolean isOlderThan(Path file, Instant olderThan) {
+        try {
+            return Files.getLastModifiedTime(file).toInstant().isBefore(olderThan);
+        } catch (IOException e) {
+            log.warn("보고서 PDF 파일 수정시각 조회 실패 — path={}", file, e);
+            return false;
+        }
+    }
+
+    private boolean deleteQuietly(Path path) {
+        try {
+            Files.deleteIfExists(path);
+            return true;
+        } catch (IOException e) {
+            log.warn("보고서 PDF 파일 삭제 실패 — path={}", path, e);
+            return false;
         }
     }
 

@@ -84,6 +84,81 @@ describe('FacilityListPanel', () => {
     expect(unselectedButton?.className).not.toContain('bg-primary/5');
   });
 
+  it('좌표(latitude/longitude)가 유효하면 "좌표 없음" 배지를 표시하지 않는다', () => {
+    render(
+      <FacilityListPanel
+        facilities={[buildFacility({ latitude: 37.5145, longitude: 126.9631 })]}
+        isLoading={false}
+        isError={false}
+        searchQuery=""
+        onSearchQueryChange={noop}
+        selectedCategory="전체"
+        onSelectCategory={noop}
+        selectedFacilityId={null}
+        onSelectFacility={noop}
+      />,
+    );
+
+    expect(screen.queryByText('좌표 없음')).toBeNull();
+  });
+
+  it('좌표가 null이어도 목록에는 남기고 "좌표 없음" 배지를 표시한다(#1657 — 마커에서만 제외)', () => {
+    render(
+      <FacilityListPanel
+        facilities={[buildFacility({ latitude: null, longitude: null, address: null })]}
+        isLoading={false}
+        isError={false}
+        searchQuery=""
+        onSearchQueryChange={noop}
+        selectedCategory="전체"
+        onSelectCategory={noop}
+        selectedFacilityId={null}
+        onSelectFacility={noop}
+      />,
+    );
+
+    expect(screen.getByText('한강대교 북단')).toBeTruthy();
+    expect(screen.getByText('좌표 없음')).toBeTruthy();
+    expect(screen.getByText('주소 정보 없음')).toBeTruthy();
+  });
+
+  it('좌표가 (0,0)·범위밖 등 유효하지 않아도 "좌표 없음" 배지를 표시한다(EXIF GPS 결측 센티널)', () => {
+    render(
+      <FacilityListPanel
+        facilities={[buildFacility({ latitude: 0, longitude: 0 })]}
+        isLoading={false}
+        isError={false}
+        searchQuery=""
+        onSearchQueryChange={noop}
+        selectedCategory="전체"
+        onSelectCategory={noop}
+        selectedFacilityId={null}
+        onSelectFacility={noop}
+      />,
+    );
+
+    expect(screen.getByText('좌표 없음')).toBeTruthy();
+  });
+
+  it('headerAction prop을 검색/필터 영역 하단에 렌더링한다(#1657 — 좌표 일괄 보정 버튼 배선용 슬롯)', () => {
+    render(
+      <FacilityListPanel
+        facilities={[buildFacility()]}
+        isLoading={false}
+        isError={false}
+        searchQuery=""
+        onSearchQueryChange={noop}
+        selectedCategory="전체"
+        onSelectCategory={noop}
+        selectedFacilityId={null}
+        onSelectFacility={noop}
+        headerAction={<button type="button">일괄 보정</button>}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: '일괄 보정' })).toBeTruthy();
+  });
+
   it('썸네일 로드가 실패하면 alt 텍스트 대신 "사진 없음"을 표시한다', () => {
     render(
       <FacilityListPanel

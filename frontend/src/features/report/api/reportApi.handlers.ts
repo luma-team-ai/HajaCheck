@@ -1,12 +1,18 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
-import type { ReportDetailResponse } from './reportApi';
+import type { ReportDefectDiff, ReportDefectSyncResponse, ReportDetailResponse } from './reportApi';
 import type { ReportContent, ReportListItem, ReportListStatus } from '../types';
 import { filterReportListItems } from '../utils/reportListFormat';
 import { mockReportListItems } from '../mocks/reportList.mock';
 import { mockReportDetailResponse } from '../mocks/reportDetail.mock';
 
 let currentReportState: ReportDetailResponse = mockReportDetailResponse;
+
+// grounding-recheck/resync-defects 공통 diff mock(#1666) — 실 서버는 확정 하자 목록과
+// contentJson을 비교해 계산하지만, MSW는 화면 개발·테스트가 배너/버튼을 그려볼 수 있도록
+// 빈 diff(불일치 없음)를 기본으로 둔다. 특정 시나리오를 검증하는 테스트는 server.use()로
+// 이 라우트를 오버라이드해 원하는 diff를 내려준다.
+const emptyDefectDiff: ReportDefectDiff = { missingDefects: [], extraItems: [], unmatchedItems: [] };
 
 export const reportHandlers = [
   http.post('/api/inspections/:inspectionId/reports', ({ params }) => {
@@ -173,9 +179,24 @@ startxref
       id: Number(params.id),
       groundingCheckPassed: true,
     };
-    const body: ApiResponse<ReportDetailResponse> = {
+    const body: ApiResponse<ReportDefectSyncResponse> = {
       success: true,
-      data: currentReportState,
+      data: { ...currentReportState, diff: emptyDefectDiff },
+    };
+    return HttpResponse.json(body, { status: 200 });
+  }),
+
+  // 하자 목록 재동기화(#1666) — MSW는 content를 실제로 재구성하지는 않고
+  // groundingCheckPassed만 리셋한다(updateContent와 동일하게 본문이 바뀌었다고 가정).
+  http.post('/api/reports/:id/resync-defects', ({ params }) => {
+    currentReportState = {
+      ...currentReportState,
+      id: Number(params.id),
+      groundingCheckPassed: null,
+    };
+    const body: ApiResponse<ReportDefectSyncResponse> = {
+      success: true,
+      data: { ...currentReportState, diff: emptyDefectDiff },
     };
     return HttpResponse.json(body, { status: 200 });
   }),

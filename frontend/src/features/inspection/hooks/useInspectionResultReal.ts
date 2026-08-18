@@ -89,6 +89,10 @@ export function useInspectionResultReal(inspectionId: number) {
       grade: d.grade,
       status: d.status,
       confidence: d.confidence,
+      // "이 하자 검수 확정" 버튼 비활성화 판단용(#1643) — 등급수정으로 이미 reviewed=true가 된
+      // 하자를 화면에서도 알 수 있게 그대로 전달한다. reviewedCount 집계 자체는 아래처럼 여전히
+      // defectsData(d.isReviewed)를 직접 필터링해서 구한다(변경 금지 대상).
+      isReviewed: d.isReviewed,
       bbox: {
         x: d.bboxX,
         y: d.bboxY,
@@ -98,6 +102,7 @@ export function useInspectionResultReal(inspectionId: number) {
       widthMm: d.crackWidthMm,
       lengthMm: d.crackLengthMm,
       areaRatio: d.areaRatio ?? undefined, // 박리박락·철근노출 전용(#804)
+      areaMm2: d.areaMm2 ?? null, // 실측 면적(mm²), #1658/#1669 — areaRatio와 독립적으로 유지
       // ponytail: summary는 백엔드에서 제공하지 않으므로 기본값. AI explain으로 채울 수 있음(후속).
       summary: `${typeLabel} 하자 — 신뢰도 ${Math.round(d.confidence * 100)}%`,
       mediaId: d.mediaId ?? null,

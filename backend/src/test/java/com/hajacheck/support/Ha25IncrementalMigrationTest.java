@@ -511,7 +511,31 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V40__add_rag_documents_expected_embed_batch.sql"),
-                        CONTAINER_ROOT + "V40__add_rag_documents_expected_embed_batch.sql");
+                        CONTAINER_ROOT + "V40__add_rag_documents_expected_embed_batch.sql")
+                // #1641 — Flyway V41(media.purpose 컬럼 + chk_media_purpose 제약 + 조치 후 사진 백필)도
+                // 이어서 1회 forward-apply한다. 캐노니컬 DDL에 이 컬럼·제약이 반영돼 있으므로 이 증분
+                // 경로에서도 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V41__add_media_purpose.sql"),
+                        CONTAINER_ROOT + "V41__add_media_purpose.sql")
+                // #1654 — Flyway V42(media.analyzed_at 컬럼 + 기존 분석완료 회차 백필)도 이어서 1회
+                // forward-apply한다. 캐노니컬 DDL에 이 컬럼이 반영돼 있으므로 이 증분 경로에서도
+                // 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V42__add_media_analyzed_at.sql"),
+                        CONTAINER_ROOT + "V42__add_media_analyzed_at.sql")
+                // #1667 — Flyway V43(inspections.performed_at 컬럼 + 백필)도 이어서 1회 forward-apply한다.
+                // 캐노니컬 DDL에 이 컬럼이 반영돼 있으므로 이 증분 경로에서도 적용해야
+                // assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V43__add_inspections_performed_at.sql"),
+                        CONTAINER_ROOT + "V43__add_inspections_performed_at.sql")
+                // #1658/#1668 — Flyway V44(defects.area_mm2 컬럼, ai-server 실측 면적 additive)도 이어서
+                // 1회 forward-apply한다. 캐노니컬 DDL에 이 컬럼이 반영돼 있으므로 이 증분 경로에서도
+                // 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource("db/migration/V44__add_defect_area_mm2.sql"),
+                        CONTAINER_ROOT + "V44__add_defect_area_mm2.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -660,6 +684,28 @@ class Ha25IncrementalMigrationTest {
         // 이어서 forward-apply한다. ADD COLUMN IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다.
         runPsql(postgres, "V40__add_rag_documents_expected_embed_batch.sql");
         runPsql(postgres, "V40__add_rag_documents_expected_embed_batch.sql");
+        // #1641 — Flyway V41(media.purpose 컬럼 + chk_media_purpose 제약 + 조치 후 사진 백필)도 이어서
+        // forward-apply한다. ADD COLUMN IF NOT EXISTS + pg_constraint 존재 가드라 재실행이 안전하다는
+        // 점까지 함께 고정한다(V26/V39/V40과 동일 패턴). 이 시점엔 이 증분 경로가 defects/media 관련
+        // 픽스처를 심지 않으므로 백필 UPDATE는 no-op이다 — 스키마 시그니처(컬럼·제약)만 파리티 대상.
+        runPsql(postgres, "V41__add_media_purpose.sql");
+        runPsql(postgres, "V41__add_media_purpose.sql");
+        // #1654 — Flyway V42(media.analyzed_at 컬럼 + 기존 분석완료 회차 백필)도 이어서 forward-apply한다.
+        // ADD COLUMN IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다(V41과 동일 패턴). 이
+        // 시점엔 이 증분 경로가 defects/media 관련 픽스처를 심지 않으므로 백필 UPDATE는 no-op이다 —
+        // 스키마 시그니처(컬럼)만 파리티 대상.
+        runPsql(postgres, "V42__add_media_analyzed_at.sql");
+        runPsql(postgres, "V42__add_media_analyzed_at.sql");
+        // #1667 — Flyway V43(inspections.performed_at)도 이어서 forward-apply한다. add column if not
+        // exists + WHERE performed_at is null 백필이라 재실행이 안전하다는 점까지 함께 고정한다
+        // (V26/V39/V40/V41과 동일 패턴). 이 시점엔 이 증분 경로가 media 픽스처를 심지 않으므로 백필
+        // UPDATE는 no-op이다 — 스키마 시그니처(컬럼)만 파리티 대상.
+        runPsql(postgres, "V43__add_inspections_performed_at.sql");
+        runPsql(postgres, "V43__add_inspections_performed_at.sql");
+        // #1658/#1668 — Flyway V44(defects.area_mm2 컬럼)도 이어서 forward-apply한다. ADD COLUMN IF NOT
+        // EXISTS라 재실행이 안전하다는 점까지 함께 고정한다(V16/V41과 동일 패턴).
+        runPsql(postgres, "V44__add_defect_area_mm2.sql");
+        runPsql(postgres, "V44__add_defect_area_mm2.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

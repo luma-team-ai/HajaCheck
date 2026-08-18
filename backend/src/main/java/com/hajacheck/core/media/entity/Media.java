@@ -1,11 +1,13 @@
 package com.hajacheck.core.media.entity;
 
 import com.hajacheck.core.inspection.entity.Inspection;
-import com.hajacheck.core.media.support.CapturedAtConverter;
+import com.hajacheck.global.common.KstFixedLocalDateTimeConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -91,8 +93,8 @@ public class Media {
     private Integer frameIndex;
 
     // 카메라 현지시각(naive) ↔ timestamptz 컬럼 변환을 서버 TZ와 무관하게 고정(리뷰 P2) — 상세 이유는
-    // CapturedAtConverter 참조.
-    @Convert(converter = CapturedAtConverter.class)
+    // KstFixedLocalDateTimeConverter 참조(#1667 — Inspection.performedAt과 공용 컨버터로 일반화).
+    @Convert(converter = KstFixedLocalDateTimeConverter.class)
     @Column(name = "captured_at")
     private LocalDateTime capturedAt;
 
@@ -121,11 +123,37 @@ public class Media {
     @Column(name = "original_filename", length = 255)
     private String originalFilename;
 
+    /**
+     * 미디어 용도(V41, #1641) — INSPECTION_SOURCE(원본 촬영, 기본값)/DEFECT_ACTION(조치 후 사진).
+     * fileType과 달리 Postgres named enum이 아니라 VARCHAR+CHECK이므로 NAMED_ENUM이 아닌 일반
+     * {@code EnumType.STRING} 매핑을 쓴다(마이그레이션 V41 주석 참고 — named enum 값 추가의 트랜잭션
+     * 제약을 피하기 위한 설계). 이 클래스는 {@code @Builder}를 클래스가 아니라 생성자에 붙이는
+     * 컨벤션이라 {@code @Builder.Default}가 적용되지 않는다 — 대신 생성자 본문에서 null 이면
+     * INSPECTION_SOURCE로 채운다(아래 생성자 참고). 빌더 호출부가 purpose를 생략해도(기존
+     * uploadFacilityPhotos 등) 항상 명시적으로 INSPECTION_SOURCE가 저장된다 — JPA INSERT는 매핑된
+     * 모든 컬럼 값을 명시적으로 채우므로, DB DEFAULT는 이 엔티티를 거치지 않는 직접 SQL(마이그레이션
+     * 백필 등)에만 적용된다.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "purpose", nullable = false, length = 30)
+    private MediaPurpose purpose;
+
+    /**
+     * 이 미디어가 AI 분석을 거친 시각(V42, #1654 증분 분석) — null이면 미분석(증분 분석 대상).
+     * created_at과 동일하게 별도 컨버터 없이 timestamptz 컬럼에 매핑한다(카메라 현지시각을 다루는
+     * capturedAt과 달리 서버가 분석 완료 시점에 직접 기록하는 서버 시각이라 TZ 고정 변환이 필요 없다).
+     * 새로 업로드된 미디어는 항상 null로 시작하며(빌더에 파라미터 없음), 분석 완료 표시는
+     * {@link #markAnalyzed(LocalDateTime)}로만 한다(Setter 금지 컨벤션 — 상태전이는 엔티티 메서드로 캡슐화).
+     */
+    @Column(name = "analyzed_at")
+    private LocalDateTime analyzedAt;
+
     @Builder
     private Media(Long inspectionId, Long facilityId, MediaFileType fileType, String originalUrl,
                   String thumbnailUrl, String detailUrl, Long sourceVideoId, Integer frameIndex,
                   LocalDateTime capturedAt, BigDecimal gpsLat, BigDecimal gpsLng,
-                  boolean mimeSignatureVerified, String mimeType, String originalFilename) {
+                  boolean mimeSignatureVerified, String mimeType, String originalFilename,
+                  MediaPurpose purpose) {
         this.inspectionId = inspectionId;
         this.facilityId = facilityId;
         this.fileType = fileType;
@@ -140,5 +168,15 @@ public class Media {
         this.mimeSignatureVerified = mimeSignatureVerified;
         this.mimeType = mimeType;
         this.originalFilename = originalFilename;
+        this.purpose = purpose != null ? purpose : MediaPurpose.INSPECTION_SOURCE;
+    }
+
+    /**
+     * AI 분석 완료 표시(#1654, 증분 분석) — {@link com.hajacheck.core.analysis.service.InspectionAnalysisWorker}가
+     * 이 미디어의 탐지+저장까지 성공적으로 마친 직후 호출한다. 실패한 이미지는 호출하지 않는다 —
+     * analyzedAt이 null로 남아야 다음 분석 트리거에서 다시 대상이 된다(재시도 가능).
+     */
+    public void markAnalyzed(LocalDateTime analyzedAt) {
+        this.analyzedAt = analyzedAt;
     }
 }

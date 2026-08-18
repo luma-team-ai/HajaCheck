@@ -22,6 +22,10 @@ import { DefectStatusReasonModal } from './DefectStatusReasonModal';
 type Props = {
   defect: Defect;
   actionResult: DefectActionResult | null | undefined;
+  // 같은 사진(mediaId) 그룹의 하자 건수(#1644) — DefectDetailModal이 defectGroupSummary.ts로 미리
+  // 계산해 넘긴다. 1(단독 하자, 기본값)이면 그룹 안내를 표시하지 않는다 — 기존 호출부·테스트가
+  // 넘기지 않아도(옵셔널) 회귀 없이 단독 하자 취급되도록 기본값을 둔다.
+  groupSize?: number;
   onSubmitted?: () => void;
 };
 
@@ -73,7 +77,7 @@ function todayDateString(): string {
 // PATCH /api/defects/{id}/action(DefectActionResultRequest)을 호출하며, targetStatus로 IN_PROGRESS
 // (조치중)/RESOLVED(조치완료) 중 실제 전이할 상태를 명시한다 — 과거엔 항상 RESOLVED 고정이었으나
 // 이제 CONFIRMED→IN_PROGRESS 등록도 이 폼으로 한다.
-export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
+export function DefectActionForm({ defect, actionResult, groupSize = 1, onSubmitted }: Props) {
   const { id: defectId, inspectionId, status } = defect;
   const statusOptions = ACTION_STATUS_OPTIONS[status];
   const statusSelectOptions = buildStatusOptions(status);
@@ -114,6 +118,19 @@ export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
+  // 진행상태 select 재동기화(#1644 리뷰 P2) — 그룹 폼 유지(DefectDetailModal이 mediaId 기준으로
+  // key를 고정)로 같은 사진 내 bbox 전환 시 이 컴포넌트가 리마운트되지 않게 됐다. 그런데
+  // targetStatus/pendingReasonTarget은 최초 마운트 시점의 status로 고정된 useState라, 그룹
+  // 멤버끼리 status가 다르면(예: CONFIRMED와 IN_PROGRESS 공존 — 백엔드 DefectService.java:82-87
+  // shouldSkipGroupMember가 다루는 바로 그 시나리오) select 표시가 실제로는 유효하지 않은 옵션을
+  // 가리킨 채 남아, 그 값을 그대로 제출하면 백엔드가 전이를 거부한다(원인 불명 실패로 보임).
+  // status가 바뀔 때만 안전한 기본값으로 재동기화하고, 사용자가 입력 중인 사진/조치내용/조치일/
+  // 담당자 등 초안은 건드리지 않는다(그룹 폼 유지 의도 그대로 보존).
+  useEffect(() => {
+    setTargetStatus(ACTION_STATUS_OPTIONS[status]?.[0] ?? 'IN_PROGRESS');
+    setPendingReasonTarget(null);
+  }, [status]);
 
   const { data: assignableUsers, isLoading: isAssigneeLoading } = useDefectAssignableUsers();
   const { uploadActionPhoto, isPending: isUploading, error: uploadError } = useUploadDefectActionPhoto();
@@ -165,6 +182,9 @@ export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
   // actionResult가 null이다. 과거엔 actionResult가 있어야만 이 분기를 타서, 그 경우 다음 분기
   // (statusOptions == null → RESOLVED는 미정의)에 걸려 폼 전체가 사라지고 되돌리기 select도 함께
   // 사라졌다 — 백엔드는 RESOLVED→IN_PROGRESS 역행을 허용하는데 UI 진입로만 없던 상태.
+  // (#1642) CONFIRMED→RESOLVED 직행은 이제 "진행상태" select에서 제거돼 새로 발생하지 않지만,
+  // 이 변경 전에 그 경로로 생성된 기존 레코드는 여전히 actionResult가 null인 채 RESOLVED일 수 있어
+  // 이 방어 분기는 계속 필요하다.
   if (status === 'RESOLVED') {
     return (
       <section className="defect-action-form defect-action-form--registered" aria-label="조치 결과">
@@ -344,6 +364,15 @@ export function DefectActionForm({ defect, actionResult, onSubmitted }: Props) {
   return (
     <form className="defect-action-form" aria-label="조치 결과 등록" onSubmit={handleSubmit}>
       <h2>조치 결과 등록</h2>
+
+      {/* 등록 전 그룹 사전 안내(#1644) — 과거엔 제출 후(justSavedGroupSize)에만 그룹 반영 사실을
+          알려줘 "왜 다른 카드도 같이 바뀌었지" 하고 당황하는 문제가 있었다. 같은 사진의 하자가
+          여럿이면 등록 시작 전부터 미리 알린다. */}
+      {groupSize > 1 && (
+        <p className="defect-action-form__group-notice" role="note">
+          같은 사진의 하자 {groupSize}건에 함께 반영됩니다.
+        </p>
+      )}
 
       <div className="defect-action-form__section">
         <p className="defect-action-form__section-label">사진</p>

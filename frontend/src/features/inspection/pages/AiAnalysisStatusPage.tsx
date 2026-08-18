@@ -51,6 +51,12 @@ interface ViewModel {
   // 걷어내고 실제 값(점검 회차 ID)으로 교체했다.
   inspectionId: number | null;
   estimatedRemainingMinutes: number | null;
+  // 증분 분석(#1654) — done 상태에서 이 값이 0보다 크고 reanalysisAllowed도 true면 "추가 사진 N장
+  // 분석" 액션을 노출한다.
+  unanalyzedMediaCount: number;
+  // 리뷰 P1 픽스(#1654) — REVIEWED/REPORTED 등 확정 상태에서는 unanalyzedMediaCount>0이어도 서버가
+  // 재분석 트리거를 항상 거부한다. 이 값이 false면 버튼을 아예 노출하지 않는다(죽은 버튼 방지).
+  reanalysisAllowed: boolean;
 }
 
 function fromMockStatus(s: AiAnalysisStatus): ViewModel {
@@ -68,6 +74,10 @@ function fromMockStatus(s: AiAnalysisStatus): ViewModel {
     // 회차 자체가 없으므로 null.
     inspectionId: null,
     estimatedRemainingMinutes: s.estimatedRemainingMinutes,
+    // 목업 경로는 특정 회차와 연결되지 않아(inspectionId=null) 애초에 "추가 사진 분석" 액션을
+    // 트리거할 수 없으므로 항상 0/false.
+    unanalyzedMediaCount: 0,
+    reanalysisAllowed: false,
   };
 }
 
@@ -132,6 +142,8 @@ function fromRealStatus(s: AnalysisStatusResponse): ViewModel {
     failedCount: s.failedCount,
     inspectionId: s.inspectionId,
     estimatedRemainingMinutes: null,
+    unanalyzedMediaCount: s.unanalyzedMediaCount,
+    reanalysisAllowed: s.reanalysisAllowed,
   };
 }
 
@@ -189,6 +201,14 @@ export function AiAnalysisStatusPage() {
   // "분석된 적 없음" 분기)로 재구성된다. 이전에는 이 상태에서 분석을 시작/재시도할 버튼이 전혀
   // 없어(취소·검수시작 둘 다 disabled) 사용자가 화면을 이탈하는 것 말고는 빠져나갈 길이 없었다.
   const isPreAnalysis = status.stage === 'upload';
+  // 증분 분석(#1654) — done인데 아직 분석 안 된 원본 사진이 남아있는 경우. 리뷰 P2 — 이 값 자체는
+  // reanalysisAllowed와 무관하게 "진행률 표시를 완료 뱃지+증분 안내로 바꿀지"를 결정한다(REVIEWED/
+  // REPORTED 회차라도 done인데 progressPercent가 낮게 보이는 모순은 똑같이 발생하므로).
+  const hasUnanalyzedOnDone = isDone && status.unanalyzedMediaCount > 0;
+  // 리뷰 P1 픽스 — "추가 사진 분석" 액션 버튼은 unanalyzedMediaCount>0 만으로 노출하지 않는다.
+  // REVIEWED/REPORTED 등 확정 상태(reanalysisAllowed=false)에서는 클릭해도 서버가 항상
+  // ANALYSIS_NOT_ALLOWED로 거부하는 죽은 버튼이 되므로, 두 조건을 모두 만족할 때만 노출한다.
+  const canTriggerIncrementalAnalysis = hasUnanalyzedOnDone && isRealMode && status.reanalysisAllowed;
 
   const handleRetry = async () => {
     if (!isRealMode || inspectionId === null || isRetrying) {
@@ -231,10 +251,24 @@ export function AiAnalysisStatusPage() {
       <div className="relative flex flex-col gap-10 rounded-[20px] bg-white pb-24 pt-8 shadow-sm outline outline-1 outline-offset-[-1px] outline-neutral-300/40">
         <div className="flex flex-col gap-3 px-8">
           <div className="flex items-baseline justify-between">
-            <span className="text-5xl font-semibold text-zinc-900">{status.progressPercent}%</span>
+            {/* 리뷰 P2 — done인데 unanalyzedMediaCount>0(증분 분석 대상 남음)이면 원시 progressPercent를
+                그대로 보여주지 않는다. 이 회차의 "과거 분석 실행"은 이미 100% 끝났고, 남은 건 그 이후
+                추가 업로드된 사진의 별도 증분 분석이라 "완료 뱃지 + 진행률 100%바 + 증분 안내"가
+                실제 상태를 더 정확히 반영한다 — 그대로 두면 "완료(done)"인데 진행률이 낮게 보이는
+                모순이 생긴다. */}
+            <span className="text-5xl font-semibold text-zinc-900">
+              {hasUnanalyzedOnDone ? '완료' : `${status.progressPercent}%`}
+            </span>
             <p className="m-0 text-[13px] font-medium text-neutral-500">
               {status.totalFileCount === 0 ? (
                 '업로드된 이미지가 없습니다'
+              ) : hasUnanalyzedOnDone ? (
+                <>
+                  기존 <span className="text-zinc-900">{status.analyzedFileCount}장</span> 분석 완료 ·
+                  추가 업로드된 <span className="text-zinc-900">{status.unanalyzedMediaCount}장</span>은
+                  아직 분석되지 않았습니다
+                  {status.inspectionId !== null && <> · 점검 ID #{status.inspectionId}</>}
+                </>
               ) : (
                 <>
                   <span className="text-zinc-900">{status.totalFileCount}장</span> 중{' '}
@@ -254,7 +288,7 @@ export function AiAnalysisStatusPage() {
           <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100">
             <div
               className="h-full rounded-full bg-zinc-900 transition-all duration-300"
-              style={{ width: `${status.progressPercent}%` }}
+              style={{ width: `${hasUnanalyzedOnDone ? 100 : status.progressPercent}%` }}
             />
           </div>
         </div>
@@ -449,6 +483,22 @@ export function AiAnalysisStatusPage() {
                     disabled={isCancelling}
                   >
                     {isCancelling ? '취소 중...' : '분석 취소'}
+                  </Button>
+                )}
+                {/* 증분 분석(#1654) — 분석 완료 후 추가 업로드된 원본 사진이 있으면(과거엔 기존
+                    하자가 있는 회차의 재분석이 fail-closed로 막혀 영구 미분석으로 남았다) handleRetry를
+                    그대로 재사용해 POST /analyze를 다시 호출한다. 백엔드가 미분석 사진 유무로 증분
+                    여부를 자동 판단하므로 별도 엔드포인트나 파라미터가 필요 없다. 리뷰 P1 픽스 —
+                    reanalysisAllowed도 함께 확인해 REVIEWED/REPORTED 회차에서는 노출하지 않는다
+                    (죽은 버튼 방지, canTriggerIncrementalAnalysis 참고). */}
+                {canTriggerIncrementalAnalysis && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void handleRetry()}
+                    disabled={isRetrying}
+                  >
+                    {isRetrying ? '분석 중...' : `추가 사진 ${status.unanalyzedMediaCount}장 분석`}
                   </Button>
                 )}
                 <Button

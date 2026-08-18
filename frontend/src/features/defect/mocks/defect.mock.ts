@@ -25,6 +25,7 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
     crackWidthMm: null,
     crackLengthMm: null,
     areaRatio: 0.045,
+    areaMm2: 4200.5, // 실측 면적 값 케이스(#1658/#1669) — 철근 노출은 카드 기준물 검출됨
     mediaId: 901,
     imageUrl: '/api/media/901/thumbnail',
     detailUrl: '/api/media/901/detail',
@@ -46,6 +47,7 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
     crackWidthMm: 1.2,
     crackLengthMm: 45.0,
     areaRatio: null,
+    areaMm2: null, // 균열은 항상 null(#1658/#1669 — SPALLING/REBAR_EXPOSURE 전용)
     mediaId: 902,
     imageUrl: '/api/media/902/thumbnail',
     detailUrl: '/api/media/902/detail',
@@ -67,6 +69,7 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
     crackWidthMm: null,
     crackLengthMm: null,
     areaRatio: null,
+    areaMm2: null, // 박리박락이지만 카드 기준물 미검출 케이스(#1658/#1669) — '측정 예정' 표시 검증용
     // mediaId 없는 하자(HAJA-314) — 이미지 없이 조회되는 케이스를 목데이터에서도 재현.
     mediaId: null,
     imageUrl: null,
@@ -89,6 +92,7 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
     crackWidthMm: 0.6,
     crackLengthMm: 31.5,
     areaRatio: null,
+    areaMm2: null, // 균열은 항상 null(#1658/#1669)
     mediaId: 901,
     imageUrl: '/api/media/901/thumbnail',
     detailUrl: '/api/media/901/detail',
@@ -119,6 +123,7 @@ export const mockDefects: Defect[] = mockInspectionDefects.map((defect): Defect 
     bboxH: defect.bboxH,
     crackWidthMm: defect.crackWidthMm,
     crackLengthMm: defect.crackLengthMm,
+    areaMm2: defect.areaMm2, // backend DefectResponse.areaMm2(#1658/#1669) — InspectionDefect에서 그대로 전달
     imageUrl: defect.imageUrl,
     createdAt: defect.createdAt,
   };

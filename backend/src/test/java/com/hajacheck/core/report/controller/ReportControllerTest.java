@@ -264,7 +264,60 @@ class ReportControllerTest extends PostgresTestSupport {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.data.id").value(report.getId()))
-                .andExpect(jsonPath("$.data.groundingCheckPassed").exists());
+                .andExpect(jsonPath("$.data.groundingCheckPassed").exists())
+                .andExpect(jsonPath("$.data.diff.missingDefects").isArray())
+                .andExpect(jsonPath("$.data.diff.extraItems").isArray())
+                .andExpect(jsonPath("$.data.diff.unmatchedItems").isArray());
+    }
+
+    @Test
+    void 하자재동기화_미인증_401() throws Exception {
+        mockMvc.perform(post("/api/reports/{id}/resync-defects", 1L).with(csrf()))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 하자재동기화_존재하지않는보고서_404() throws Exception {
+        User owner = seedOwner("resync-no-report-owner@haja.com");
+
+        mockMvc.perform(post("/api/reports/{id}/resync-defects", 999L)
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 하자재동기화_타인소유_404() throws Exception {
+        User owner = seedOwner("resync-owner@haja.com");
+        User stranger = seedOwner("resync-stranger@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+
+        mockMvc.perform(post("/api/reports/{id}/resync-defects", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(stranger))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("REPORT_NOT_FOUND"));
+    }
+
+    @Test
+    void 하자재동기화_본인소유_200과재구성된본문반환() throws Exception {
+        User owner = seedOwner("resync-owner2@haja.com");
+        Inspection inspection = seedInspection(owner);
+        Report report = reportRepository.save(
+                Report.draft(inspection.getId(), 1, "{\"detail\":{\"items\":[]}}", owner.getId()));
+
+        mockMvc.perform(post("/api/reports/{id}/resync-defects", report.getId())
+                        .with(csrf())
+                        .with(authentication(authOf(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.id").value(report.getId()))
+                .andExpect(jsonPath("$.data.groundingCheckPassed").doesNotExist())
+                .andExpect(jsonPath("$.data.diff.missingDefects").isArray())
+                .andExpect(jsonPath("$.data.diff.extraItems").isArray())
+                .andExpect(jsonPath("$.data.diff.unmatchedItems").isArray());
     }
 
     @Test

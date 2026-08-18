@@ -3,7 +3,7 @@
 // 모킹하지 않고 QueryClientProvider + MSW(defectHandlers, mockDefects/mockDefectActionLogs)로 실제
 // 데이터 흐름을 그대로 태운다(이 프로젝트 관례 — feature 훅을 직접 mock하는 기존 사례 없음).
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -41,7 +41,7 @@ function renderModal(defectId: number) {
 
 function renderModalGroup(defects: InspectionDefect[], initialDefectId: number) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <DefectDetailModal defects={defects} initialDefectId={initialDefectId} onClose={() => {}} />
     </QueryClientProvider>,
@@ -323,5 +323,183 @@ describe('DefectDetailModal — 조치 전/조치/조치 완료 사진 3탭(#119
     expect(screen.getByText('DEF-0022')).not.toBeNull();
     expect(screen.getByRole('img', { name: '균열 촬영 이미지' })).toBe(image);
     expect(document.activeElement).toBe(nextChip);
+  });
+});
+
+// 사진(그룹) 단위 조치 상태·등록 통합(#1644) — 데모 피드백("조치는 사진 한 장에 한 번")에 따라
+// 하자(bbox) 단위였던 상태 칩·조치 등록 폼을 사진 단위로 통합한다. defectGroupSummary.ts의 순수
+// 판정 로직 자체는 defectGroupSummary.test.ts에서 별도로 검증하고, 여기서는 모달 통합 동작만 본다.
+describe('DefectDetailModal — 사진(그룹) 단위 상태·등록(#1644)', () => {
+  it('같은 사진의 하자가 여럿이면 헤더 상태 칩에 그룹 상태·건수를 표시하고, 개별 bbox 선택과 무관하게 일관된다', async () => {
+    const group: InspectionDefect[] = [
+      { ...mockInspectionDefects[0], id: 11, mediaId: 901, status: 'CONFIRMED' },
+      {
+        ...mockInspectionDefects[0],
+        id: 12,
+        mediaId: 901,
+        type: 'CRACK',
+        typeLabel: '균열',
+        status: 'IN_PROGRESS',
+        confidence: 0.8,
+      },
+    ];
+    server.use(
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = group.find((item) => item.id === Number(params.id));
+        return HttpResponse.json({ success: true, data: found ? detailFromSummary(found) : null });
+      }),
+      mockActionLogsHandler({}),
+    );
+
+    renderModalGroup(group, 11);
+    await screen.findByText('DEF-0011');
+
+    const dialog = screen.getByRole('dialog', { name: '하자 상세' });
+    // id=12가 IN_PROGRESS라 그룹 전체는 아직 RESOLVED가 아니다 — 백엔드 aggregateGroupStatus와
+    // 동일 규칙("하나라도 IN_PROGRESS 이상이면 IN_PROGRESS")으로 IN_PROGRESS가 대표값이 된다.
+    expect(dialog.querySelector('.defect-chip--warning')?.textContent).toBe(
+      '이 사진의 조치 상태: 조치중 (하자 2건)',
+    );
+
+    // 다른 bbox(id=12)를 선택해도 그룹 상태 표시는 그대로다(개별 하자 상태가 아니라 그룹 집계 기준).
+    fireEvent.click(screen.getByRole('button', { name: 'DEF-0012 · 균열' }));
+    await screen.findByText('DEF-0012');
+    expect(dialog.querySelector('.defect-chip--warning')?.textContent).toBe(
+      '이 사진의 조치 상태: 조치중 (하자 2건)',
+    );
+  });
+
+  it('mediaId가 없는 하자(수동 추가)는 개별 상태만 보여주고 그룹 건수를 붙이지 않는다(폴백)', async () => {
+    const manualDefect: InspectionDefect = {
+      ...mockInspectionDefects[0],
+      id: 31,
+      mediaId: null,
+      status: 'CONFIRMED',
+    };
+    server.use(
+      http.get('/api/defects/:id', () =>
+        HttpResponse.json({ success: true, data: detailFromSummary(manualDefect) }),
+      ),
+      mockActionLogsHandler({}),
+    );
+
+    renderModalGroup([manualDefect], 31);
+    await screen.findByText('DEF-0031');
+
+    const dialog = screen.getByRole('dialog', { name: '하자 상세' });
+    expect(dialog.querySelector('.defect-chip--warning')?.textContent).toBe('검수확정');
+  });
+
+  it('같은 사진 그룹 내에서 bbox를 전환해도 조치 등록 폼에 입력 중이던 내용이 유지된다', async () => {
+    const group: InspectionDefect[] = [
+      { ...mockInspectionDefects[0], id: 41, mediaId: 901, status: 'CONFIRMED' },
+      {
+        ...mockInspectionDefects[0],
+        id: 42,
+        mediaId: 901,
+        type: 'CRACK',
+        typeLabel: '균열',
+        status: 'CONFIRMED',
+        confidence: 0.8,
+      },
+    ];
+    server.use(
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = group.find((item) => item.id === Number(params.id));
+        return HttpResponse.json({ success: true, data: found ? detailFromSummary(found) : null });
+      }),
+      mockActionLogsHandler({}),
+    );
+
+    renderModalGroup(group, 41);
+    await screen.findByText('DEF-0041');
+
+    const contentInput = await screen.findByLabelText('조치 내용');
+    fireEvent.change(contentInput, { target: { value: '입력 중이던 초안' } });
+    // 그룹 사전 안내(#1644)도 같은 폼에 함께 뜬다 — 등록 전부터 그룹 반영 사실을 미리 알린다.
+    expect(screen.getByText('같은 사진의 하자 2건에 함께 반영됩니다.')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'DEF-0042 · 균열' }));
+    await screen.findByText('DEF-0042');
+
+    expect((screen.getByLabelText('조치 내용') as HTMLTextAreaElement).value).toBe('입력 중이던 초안');
+  });
+
+  // 리뷰 P2 — 그룹 폼 유지(키를 mediaId로 고정)로 bbox 전환 시 DefectActionForm이 리마운트되지
+  // 않게 되면서, targetStatus/pendingReasonTarget이 최초 마운트 시점 status로 고정된 채 남을 수
+  // 있었다. 그룹 멤버끼리 status가 다르면(CONFIRMED/IN_PROGRESS 공존 — 백엔드
+  // DefectService.java:82-87 shouldSkipGroupMember가 다루는 시나리오) select가 새 하자에는 없는
+  // 값을 그대로 들고 있어 제출 시 백엔드가 전이를 거부한다. status 변경 시 재동기화하는
+  // useEffect(DefectActionForm.tsx)로 고쳤다.
+  it('그룹 내 두 멤버가 서로 다른 status(CONFIRMED/IN_PROGRESS)일 때 bbox 전환 시 진행상태 select가 새 상태 옵션으로 리셋된다', async () => {
+    const group: InspectionDefect[] = [
+      { ...mockInspectionDefects[0], id: 61, mediaId: 901, status: 'CONFIRMED' },
+      {
+        ...mockInspectionDefects[0],
+        id: 62,
+        mediaId: 901,
+        type: 'CRACK',
+        typeLabel: '균열',
+        status: 'IN_PROGRESS',
+        confidence: 0.8,
+      },
+    ];
+    server.use(
+      http.get('/api/defects/:id', ({ params }) => {
+        const found = group.find((item) => item.id === Number(params.id));
+        return HttpResponse.json({ success: true, data: found ? detailFromSummary(found) : null });
+      }),
+      mockActionLogsHandler({}),
+    );
+
+    // id=62(IN_PROGRESS)부터 진입해 select를 "조치완료"(RESOLVED)로 직접 바꿔둔다 — id=61은
+    // CONFIRMED라 RESOLVED가 애초에 유효 옵션이 아니므로, 재동기화가 없으면 전환 후에도 이
+    // 고아 값이 그대로 남아 있어야(버그) 한다.
+    renderModalGroup(group, 62);
+    await screen.findByText('DEF-0062');
+    const select = await screen.findByLabelText('진행상태 *');
+    fireEvent.change(select, { target: { value: 'RESOLVED' } });
+    expect((select as HTMLSelectElement).value).toBe('RESOLVED');
+
+    fireEvent.click(screen.getByRole('button', { name: 'DEF-0061 · 철근 노출' }));
+    await screen.findByText('DEF-0061');
+
+    await waitFor(() => {
+      expect((screen.getByLabelText('진행상태 *') as HTMLSelectElement).value).toBe('IN_PROGRESS');
+    });
+    // CONFIRMED에서는 RESOLVED가 옵션 목록에 아예 없다 — 고아 값으로 남지 않았음을 재확인.
+    const options = Array.from((screen.getByLabelText('진행상태 *') as HTMLSelectElement).options).map(
+      (option) => option.value,
+    );
+    expect(options).not.toContain('RESOLVED');
+  });
+});
+
+describe('DefectDetailModal — 실측 면적(areaMm2) 병기(#1658/#1669)', () => {
+  it('areaMm2 값이 있으면 "실측 면적" 지표 카드에 mm² 값을 표시한다', async () => {
+    server.use(mockActionLogsHandler({}));
+    // mockInspectionDefects id=1(철근 노출): areaMm2=4200.5(defect.mock.ts) — 카드 기준물 검출 케이스.
+    renderModal(1);
+
+    await screen.findByRole('form', { name: '조치 결과 등록' });
+
+    expect(screen.getByText('실측 면적')).not.toBeNull();
+    expect(screen.getByText('4200.5mm²')).not.toBeNull();
+  });
+
+  it('areaMm2가 null이면 다른 지표(균열 폭·길이)와 무관하게 "실측 면적" 카드만 독립적으로 "측정 예정"을 표시한다(#1588 교훈)', async () => {
+    server.use(mockActionLogsHandler({}));
+    // mockInspectionDefects id=4(균열, IN_PROGRESS): crackWidthMm/crackLengthMm는 값이 있고
+    // areaMm2만 null(defect.mock.ts, 균열은 항상 null) — id=3(DETECTED)은 조치 등록 대상이 아니라
+    // DefectActionForm이 statusOptions==null로 렌더링 자체를 건너뛰므로 여기선 쓰지 않는다.
+    // "실측 면적" 카드 범위로 좁혀서 검증한다(getByText('측정 예정') 단독 호출은 다른 지표가 null인
+    // 경우 카드가 여럿이라 모호해질 수 있다).
+    renderModal(4);
+
+    await screen.findByRole('form', { name: '조치 결과 등록' });
+
+    const areaCard = screen.getByText('실측 면적').closest('article');
+    expect(areaCard).not.toBeNull();
+    expect(within(areaCard as HTMLElement).getByText('측정 예정')).not.toBeNull();
   });
 });

@@ -44,6 +44,10 @@ export interface DefectDetailItem {
   crackWidthMm?: number;
   crackLengthMm?: number;
   areaRatio?: number; // 마스크 면적 비율 0~1(박리박락·철근노출 전용, #804)
+  // 실측 면적(mm²) — AI 서버가 카드 기준물로 환산한 값(backend DefectDetailItem.areaMm2,
+  // #1658/#1668). areaRatio(비율)와 별개 필드 — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고,
+  // 카드 기준물 미검출이거나 CRACK 타입이면 null. areaRatio와 마찬가지로 단독 null 체크(#1588 교훈).
+  areaMm2?: number | null;
   createdAt: string; // ISO datetime
   mediaId?: number | null; // 이미지 ID — 백엔드에서 제공(#777 계약)
   imageUrl?: string | null; // 이미지 URL 형식: /api/media/{mediaId}/thumbnail — 백엔드에서 제공(#777 계약)
@@ -124,4 +128,12 @@ export interface AnalysisStatusResponse {
   riskyCrackCount: number;
   severityDistribution: Record<'A' | 'B' | 'C' | 'D' | 'E', number>;
   failedCount: number;
+  // 증분 분석(#1654) — 이 회차의 원본 촬영사진 중 아직 AI 분석을 거치지 않은 사진 수.
+  // done 상태에서 0보다 크고 reanalysisAllowed도 true일 때만 "추가 사진 분석" 액션을 노출한다
+  // (AiAnalysisStatusPage 참고).
+  unanalyzedMediaCount: number;
+  // 리뷰 P1 픽스(#1654) — 이 회차가 "지금" POST /analyze를 다시 받아들일 상태인지(REVIEWED/REPORTED
+  // 등 확정 상태면 false). unanalyzedMediaCount만으로 버튼을 노출하면 클릭해도 서버가 항상 거부하는
+  // 죽은 버튼이 될 수 있어, 두 조건을 함께 봐야 한다.
+  reanalysisAllowed: boolean;
 }
