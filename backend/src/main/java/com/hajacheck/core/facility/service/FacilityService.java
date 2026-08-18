@@ -11,11 +11,14 @@ import com.hajacheck.core.defect.repository.FacilityDefectCountProjection;
 import com.hajacheck.core.defect.repository.FacilityGradeCountProjection;
 import com.hajacheck.core.defect.repository.FacilityLatestDefectProjection;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
+import com.hajacheck.core.facility.dto.FacilityMapItemResponse;
+import com.hajacheck.core.facility.dto.FacilityMapResponse;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityStatusResponse;
 import com.hajacheck.core.facility.dto.FacilityUpdateRequest;
 import com.hajacheck.core.facility.entity.Facility;
+import com.hajacheck.core.facility.repository.FacilityMapProjection;
 import com.hajacheck.core.facility.repository.FacilityRepository;
 import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
@@ -171,6 +174,58 @@ public class FacilityService {
                         defectSummary.cautionCountByFacilityId().getOrDefault(facility.getId(), 0L),
                         defectCountByFacilityId.getOrDefault(facility.getId(), 0L)))
                 .toList();
+    }
+
+    /**
+     * 지도 전용 경량 목록(#1656) — GET /api/facilities/map. list()가 쓰는 FACILITY_LIST_MAX(500) 상한에
+     * 걸리면 지도 마커가 무고지로 누락되므로(P1), 상한 없이 좌표·마커 필드만 반환한다. 담당자/일정/메모 등
+     * 무거운 CRUD 조립은 제외하고, list()와 동일한 배치 조회 패턴(대표 사진·최근 점검·하자 등급 집계)으로
+     * N+1을 피한다. list() 자체(이미 테스트 커버된 경로)는 손대지 않고 별도 메서드로 둔다.
+     */
+    public FacilityMapResponse listForMap(Long userId, Long companyId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        List<FacilityMapProjection> facilities = facilityRepository.findMapProjectionsByCompanyId(companyId);
+        if (facilities.isEmpty()) {
+            return FacilityMapResponse.of(List.of());
+        }
+
+        List<Long> facilityIds = facilities.stream().map(FacilityMapProjection::getId).toList();
+
+        List<Inspection> latestInspections =
+                nullToEmpty(inspectionRepository.findLatestByFacilityIds(facilityIds));
+
+        // 대표 사진(HAJA-367/#670) + 최신 점검 사진 폴백 — list()와 동일한 배치 조립 패턴(N+1 방지).
+        Map<Long, String> thumbnailUrlByFacilityId =
+                nullToEmpty(mediaRepository.findFirstIdsByFacilityIds(facilityIds, companyId)).stream()
+                        .collect(Collectors.toMap(
+                                FacilityRepresentativeMediaProjection::getFacilityId,
+                                p -> thumbnailPath(p.getMediaId()),
+                                (first, second) -> first));
+        Map<Long, String> inspectionThumbnailUrlByFacilityId =
+                latestInspections.isEmpty() ? Map.of() :
+                        nullToEmpty(mediaRepository.findFirstIdsByInspectionIds(
+                                latestInspections.stream().map(Inspection::getId).toList())).stream()
+                                .collect(Collectors.toMap(
+                                        FacilityRepresentativeMediaProjection::getFacilityId,
+                                        p -> thumbnailPath(p.getMediaId()),
+                                        (first, second) -> first));
+
+        FacilityDefectSummary defectSummary = summarizeFacilityDefects(latestInspections);
+
+        List<FacilityMapItemResponse> items = facilities.stream()
+                .map(facility -> FacilityMapItemResponse.of(
+                        facility.getId(),
+                        facility.getName(),
+                        facility.getLatitude(),
+                        facility.getLongitude(),
+                        facility.getType(),
+                        defectSummary.highestGradeByFacilityId().get(facility.getId()),
+                        defectSummary.warningCountByFacilityId().getOrDefault(facility.getId(), 0L),
+                        defectSummary.cautionCountByFacilityId().getOrDefault(facility.getId(), 0L),
+                        resolveThumbnailUrl(
+                                facility.getId(), thumbnailUrlByFacilityId, inspectionThumbnailUrlByFacilityId)))
+                .toList();
+        return FacilityMapResponse.of(items);
     }
 
     public FacilityResponse get(Long userId, Long companyId, Long facilityId) {
