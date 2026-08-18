@@ -966,6 +966,7 @@ create table defects
     crack_width_mm  double precision,
     crack_length_mm double precision,
     area_ratio      double precision,
+    area_mm2        double precision,
     action_media_id    bigint
         references media,
     action_content     text,
@@ -1013,6 +1014,8 @@ comment on column defects.crack_width_mm is '균열 폭(mm)';
 comment on column defects.crack_length_mm is '균열 길이(mm)';
 
 comment on column defects.area_ratio is '결함 면적비율(탐지 bbox 면적 ÷ 이미지 전체 면적, HAJA-803, nullable)';
+
+comment on column defects.area_mm2 is '결함 실측 면적(mm², #1658/#1668) — SPALLING/REBAR_EXPOSURE만 값 존재 가능, 카드 미검출·CRACK 타입이면 nullable';
 
 comment on column defects.action_media_id is '조치 후 사진(HAJA-393/#725) — 조치 결과 등록 시 업로드한 촬영 이미지 식별자, nullable';
 

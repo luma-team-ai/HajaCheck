@@ -19,6 +19,10 @@ import lombok.Getter;
  * 기존 인가된 썸네일 엔드포인트({@code /api/media/{id}/thumbnail})를 재사용한다.
  * detailUrl(#788)은 분석 결과 뷰어 전용 — 그리드용 썸네일(400px 상한)로는 크랙 폭 같은 하자를
  * 육안으로 판별하기 어려워 더 큰 해상도의 {@code /api/media/{id}/detail}을 가리킨다.
+ *
+ * <p>areaMm2(#1658/#1668)는 crackWidthMm과 동일하게 AI 서버가 카드 기준물로 환산해 내려준 결함
+ * 실측 면적(mm²)이다 — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고, 카드 미검출이거나 CRACK
+ * 타입이면 null.
  */
 // 전 필드 required — @JsonInclude 를 쓰지 않으므로 Jackson 이 값이 null 이어도 키는 항상 내보낸다.
 // OpenApiConfig 의 ModelConverter 는 record 만 승격하는데 이 DTO 는 class 라 대상 밖이어서, 여기서
@@ -26,7 +30,7 @@ import lombok.Getter;
 // reviewed 는 @JsonProperty("isReviewed") 로 나가므로 JSON 키 이름으로 적는다.
 @Schema(requiredProperties = {
         "id", "inspectionId", "type", "typeLabel", "grade", "status", "confidence", "isReviewed",
-        "bboxX", "bboxY", "bboxW", "bboxH", "crackWidthMm", "crackLengthMm", "areaRatio",
+        "bboxX", "bboxY", "bboxW", "bboxH", "crackWidthMm", "crackLengthMm", "areaRatio", "areaMm2",
         "mediaId", "imageUrl", "detailUrl", "createdAt"})
 @Getter
 @Builder
@@ -47,6 +51,7 @@ public class DefectDetailItem {
     private Double crackWidthMm;
     private Double crackLengthMm;
     private Double areaRatio;
+    private Double areaMm2;
     private Long mediaId;
     private String imageUrl;
     private String detailUrl;
@@ -69,6 +74,7 @@ public class DefectDetailItem {
                 .crackWidthMm(defect.getCrackWidthMm())
                 .crackLengthMm(defect.getCrackLengthMm())
                 .areaRatio(defect.getAreaRatio())
+                .areaMm2(defect.getAreaMm2())
                 .mediaId(defect.getMediaId())
                 .imageUrl(defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail")
                 .detailUrl(defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/detail")

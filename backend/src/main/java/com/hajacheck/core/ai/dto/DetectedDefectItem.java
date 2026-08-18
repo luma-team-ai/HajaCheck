@@ -19,5 +19,8 @@ public record DetectedDefectItem(
         String grade,
         @JsonProperty("area_ratio") Double areaRatio,
         // 균열만 — 카드 기준물로 환산한 폭(mm). 카드 미검출 또는 폭 0.7mm 미만이면 null(#1487/#1547).
-        @JsonProperty("width_mm") Double widthMm) {
+        @JsonProperty("width_mm") Double widthMm,
+        // SPALLING/REBAR_EXPOSURE만 — 카드 기준물로 환산한 결함 실측 면적(mm², #1658/#1668 additive).
+        // 카드 미검출 또는 CRACK 타입이면 null.
+        @JsonProperty("area_mm2") Double areaMm2) {
 }

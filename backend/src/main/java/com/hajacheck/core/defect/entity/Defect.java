@@ -121,6 +121,12 @@ public class Defect {
     @Column(name = "area_ratio")
     private Double areaRatio;
 
+    // 결함 실측 면적(mm², #1658/#1668 additive) — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고, 카드
+    // 미검출이거나 CRACK 타입이면 null. crackWidthMm(V-이전, #1487/#1547)과 동일하게 AI 서버가 카드
+    // 기준물로 환산해 내려준 값을 그대로 저장한다(Spring 재계산 없음).
+    @Column(name = "area_mm2")
+    private Double areaMm2;
+
     // 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 4개 필드 모두 registerActionResult() 를
     // 통해서만 함께 채워진다(V12, nullable — 조치 등록 전에는 전부 NULL).
     @Column(name = "action_media_id")
@@ -148,7 +154,8 @@ public class Defect {
     @Builder
     private Defect(Long inspectionId, Long mediaId, DefectType type, Double bboxX, Double bboxY, Double bboxW,
                     Double bboxH, Double confidence, DefectGrade grade, DefectStatus status, boolean reviewed,
-                    boolean deleted, Double crackWidthMm, Double crackLengthMm, Double areaRatio, String location) {
+                    boolean deleted, Double crackWidthMm, Double crackLengthMm, Double areaRatio, Double areaMm2,
+                    String location) {
         this.inspectionId = inspectionId;
         this.mediaId = mediaId;
         this.type = type;
@@ -164,6 +171,7 @@ public class Defect {
         this.crackWidthMm = crackWidthMm;
         this.crackLengthMm = crackLengthMm;
         this.areaRatio = areaRatio;
+        this.areaMm2 = areaMm2;
         this.location = location;
     }
 
