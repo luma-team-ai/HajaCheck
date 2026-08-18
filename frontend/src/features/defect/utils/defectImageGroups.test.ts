@@ -23,6 +23,7 @@ function defect(id: number, overrides: Partial<InspectionDefect> = {}): Inspecti
     crackWidthMm: null,
     crackLengthMm: null,
     areaRatio: null,
+    areaMm2: null,
     mediaId: 10,
     imageUrl: '/api/media/10/thumbnail',
     detailUrl: '/api/media/10/detail',

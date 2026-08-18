@@ -20,6 +20,7 @@ const baseDefect: Defect = {
   bboxH: null,
   crackWidthMm: null,
   crackLengthMm: null,
+  areaMm2: null,
   imageUrl: null,
   createdAt: '2026-07-01T00:00:00',
 };

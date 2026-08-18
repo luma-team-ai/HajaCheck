@@ -16,6 +16,7 @@ const baseDefect: FacilityDefectDetail = {
   confidencePercent: 92,
   widthMm: null,
   lengthM: null,
+  areaMm2: null,
   foundCycle: 1,
   foundAt: '2026-08-01',
   location: null,
@@ -56,6 +57,30 @@ describe('FacilityDefectInfoPanel', () => {
     render(
       <FacilityDefectInfoPanel
         defect={{ ...baseDefect, widthMm: null, lengthM: null }}
+        onTransitionClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('—')).not.toBeNull();
+  });
+
+  // #1658/#1669 — 박리박락·철근노출은 widthMm/lengthM 대신 areaMm2로 크기를 나타낸다.
+  it('폭·길이가 없어도 실측 면적(areaMm2)이 있으면 표시한다', () => {
+    render(
+      <FacilityDefectInfoPanel
+        defect={{ ...baseDefect, widthMm: null, lengthM: null, areaMm2: 4200.5 }}
+        onTransitionClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('면적 4200.5mm²')).not.toBeNull();
+    expect(screen.queryByText('—')).toBeNull();
+  });
+
+  it('폭·길이·면적이 모두 없으면 placeholder를 표시한다(카드 기준물 미검출)', () => {
+    render(
+      <FacilityDefectInfoPanel
+        defect={{ ...baseDefect, widthMm: null, lengthM: null, areaMm2: null }}
         onTransitionClick={vi.fn()}
       />,
     );

@@ -26,6 +26,7 @@ function makeDefect(overrides: Partial<Defect> & Pick<Defect, 'id' | 'status'>):
     bboxH: null,
     crackWidthMm: null,
     crackLengthMm: null,
+    areaMm2: null,
     imageUrl: null,
     createdAt: '2026-07-01T09:00:00.000Z',
     ...overrides,
