@@ -3,6 +3,7 @@ package com.hajacheck.core.media.repository;
 import com.hajacheck.core.facility.entity.Facility;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
+import com.hajacheck.core.media.entity.MediaPurpose;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
@@ -22,9 +23,20 @@ public interface MediaRepository extends JpaRepository<Media, Long> {
     // 요청마다 흔들리지 않게 한다(defect 조회의 id ASC 고정과 동일 이유).
     List<Media> findByInspectionIdAndFileTypeOrderByIdAsc(Long inspectionId, MediaFileType fileType);
 
+    // AI 분석/재분석 대상 이미지 조회(#1641) — 조치 후 사진(DEFECT_ACTION)은 분석·재분석 대상이
+    // 아니다(원본 촬영사진만). InspectionAnalysisService의 분석 시작/상태 재구성 양쪽에서 사용.
+    List<Media> findByInspectionIdAndFileTypeAndPurposeOrderByIdAsc(
+            Long inspectionId, MediaFileType fileType, MediaPurpose purpose);
+
     // 점검 회차별 미디어 전체 조회(#803 분석 결과 뷰어) — 업로드된 모든 미디어를 반환(하자 유무 무관).
     // id asc 고정으로 조회 순서를 일관되게 유지한다.
     List<Media> findByInspectionIdOrderByIdAsc(Long inspectionId);
+
+    // 분석결과뷰어 전용 미디어 조회(#1641) — 조치 후 사진(DEFECT_ACTION)은 하자 0건 이미지로 갤러리에
+    // 섞이면 안 되므로 원본 촬영사진(INSPECTION_SOURCE)만 반환한다. 기존 findByInspectionIdOrderByIdAsc
+    // 는 ReportService 등 "회차의 전체 미디어"가 필요한 다른 호출부가 그대로 쓰므로 시그니처를 바꾸지
+    // 않고 별도 메서드로 추가한다.
+    List<Media> findByInspectionIdAndPurposeOrderByIdAsc(Long inspectionId, MediaPurpose purpose);
 
     // 회차별 대표 사진(HAJA-612/#1346, 코드 리뷰 P2) — 회차 비교 "시각적 비교"는 그 회차의 첫 사진
     // 1장만 필요한데, 위 findByInspectionIdOrderByIdAsc로 전체 목록을 가져오면 sourceVideoId/
