@@ -24,8 +24,11 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 대시보드 최근 점검 목록 — 건수 제한을 파생 쿼리(findTop10)가 아니라 Pageable 로 받는다(#351).
     // 메서드명에 매직넘버 10 이 박히면 호출부의 RECENT_LIMIT 상수가 죽는다. PR #349 의
     // pending-priority 패턴(@Query + Pageable + 상수)과 동일하게 맞춘다.
+    // #1667 — 동일 inspection_date 내 실제 수행 순서 보장을 위해 performed_at을 id보다 먼저 tie-break로
+    // 쓴다(id는 생성 순서일 뿐 촬영 순서의 대리값이 아니었다). performed_at이 없는(미디어 미업로드) 회차는
+    // nulls last로 뒤로 밀려 기존 id desc 동작을 그대로 유지한다.
     @Query("select i from Inspection i where i.facilityId in :facilityIds "
-            + "order by i.inspectionDate desc, i.id desc")
+            + "order by i.inspectionDate desc, i.performedAt desc nulls last, i.id desc")
     List<Inspection> findRecentByFacilityIds(@Param("facilityIds") Collection<Long> facilityIds, Pageable pageable);
 
     long countByFacilityIdInAndStatusIn(Collection<Long> facilityIds, Collection<InspectionStatus> statuses);
@@ -72,9 +75,11 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
     // 부적합(서비스단 재그룹 없이는 못 씀). Postgres DISTINCT ON 으로 시설물별 최신 1건만
     // DB 단에서 골라 N+1/인메모리 재그룹 없이 반환한다(정렬은 findRecentByFacilityIds 와 동일 기준:
     // inspection_date desc, id desc — 동일 날짜 여러 회차 시 최신 등록분을 "최근 점검"으로 취급).
+    // #1667 — findRecentByFacilityIds와 동일하게 performed_at을 id보다 먼저 tie-break로 확장한다
+    // (nulls last이므로 performed_at 미세팅 회차는 기존 id desc 동작을 그대로 유지).
     @Query(value = "select distinct on (i.facility_id) i.* from inspections i "
             + "where i.facility_id in (:facilityIds) "
-            + "order by i.facility_id, i.inspection_date desc, i.id desc",
+            + "order by i.facility_id, i.inspection_date desc, i.performed_at desc nulls last, i.id desc",
             nativeQuery = true)
     List<Inspection> findLatestByFacilityIds(@Param("facilityIds") Collection<Long> facilityIds);
 
