@@ -14,6 +14,7 @@ import { facilityHandlers } from '../features/facility/api/facilityApi.handlers'
 import { facilityMediaHandlers } from '../features/facility/api/facilityMediaApi.handlers';
 import { inspectionHandlers } from '../features/inspection/api/inspectionApi.handlers';
 import { mediaHandlers } from '../features/inspection/api/mediaApi.handlers';
+import { mapHandlers } from '../features/map/api/mapApi.handlers';
 import { menuHandlers } from '../features/menu/api/menuApi.handlers';
 import { mypageHandlers, mypagePasswordChangeHandler } from '../features/mypage/api/mypageApi.handlers';
 import { notificationHandlers } from '../features/notification/api/notificationApi.handlers';
@@ -64,6 +65,7 @@ export const allMockHandlers = [
   ...menuHandlers,
   ...effectiveMypageHandlers,
   ...facilityHandlers,
+  ...mapHandlers,
   ...facilityMediaHandlers,
   ...facilityDefectHandlers,
   ...facilityComparisonHandlers,
