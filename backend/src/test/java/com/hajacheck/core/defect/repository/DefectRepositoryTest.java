@@ -370,6 +370,28 @@ class DefectRepositoryTest extends PostgresTestSupport {
         assertThat(result).noneMatch(p -> p.getGrade() == DefectGrade.E);
     }
 
+    @Test
+    void countGroupByInspectionIdAndGradeAndStatusIn_지정상태만집계_DETECTED는제외() {
+        // #1653 P2 — 보고서 목록 등급 분포는 실제로 보고서에 실리는 확정 하자(CONFIRMED 이상)만 세야 한다.
+        // countGroupByInspectionIdAndGrade(status 무관)는 다른 화면(점검 목록 등)이 그대로 쓰므로 건드리지
+        // 않고, 이 신규 메서드로 status 필터를 추가한다.
+        Long ownerId = seedOwner("owner-a@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionA = seedInspection(facilityId, ownerId, 1);
+        defectRepository.save(newDefect(inspectionA, DefectGrade.B, DefectStatus.CONFIRMED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.B, DefectStatus.RESOLVED, false));
+        defectRepository.save(newDefect(inspectionA, DefectGrade.C, DefectStatus.DETECTED, false)); // 검토 전 — 제외
+
+        List<InspectionGradeCountProjection> result = defectRepository.countGroupByInspectionIdAndGradeAndStatusIn(
+                List.of(inspectionA), List.of(DefectStatus.CONFIRMED, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED));
+
+        assertThat(result)
+                .filteredOn(p -> p.getInspectionId().equals(inspectionA) && p.getGrade() == DefectGrade.B)
+                .extracting(InspectionGradeCountProjection::getCnt)
+                .containsExactly(2L);
+        assertThat(result).noneMatch(p -> p.getGrade() == DefectGrade.C);
+    }
+
     // ── HAJA-30: 하자 목록·상세 조회 ──
 
     @Test

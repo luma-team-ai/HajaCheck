@@ -268,6 +268,37 @@ class ReportTest {
         assertThat(report.getGroundingCheckPassed()).isNull();
     }
 
+    @Test
+    void reassignVersionOnConflictRetry_DRAFT_버전만교체하고나머지필드는유지() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+        report.recordGroundingResult(grounding(report, true, null), 30L);
+
+        report.reassignVersionOnConflictRetry(2);
+
+        assertThat(report.getVersion()).isEqualTo(2);
+        assertThat(report.getGroundingCheckPassed()).isTrue();
+    }
+
+    @Test
+    void reassignVersionOnConflictRetry_버전이1보다작으면예외() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+
+        assertThatThrownBy(() -> report.reassignVersionOnConflictRetry(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(report.getVersion()).isEqualTo(1);
+    }
+
+    @Test
+    void reassignVersionOnConflictRetry_FINALIZED상태에서시도하면예외() {
+        Report report = Report.draft(10L, 1, "{}", 20L);
+        report.recordGroundingResult(grounding(report, true, null), 30L);
+        report.finalizeReport("https://files.example/report.pdf", 30L);
+
+        assertThatThrownBy(() -> report.reassignVersionOnConflictRetry(2))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(report.getVersion()).isEqualTo(1);
+    }
+
     private static GroundingCheckResult grounding(Report report, boolean passed, String warnings) {
         GroundingRequestContext context = report.captureGroundingRequestContext();
         GroundingCheckTarget target = GroundingCheckTarget.capture(context, report.getContentJson());
