@@ -279,10 +279,11 @@ public class InspectionAnalysisService {
                     images.get(i).getId(), AnalysisFileDisplayNames.of(images.get(i), i), "waiting", null, "-"));
         }
         // unanalyzedMediaCount(#1654) — 킥오프 시점엔 이번에 큐잉한 이미지 전부가 아직 미분석이다
-        // (그래서 애초에 선택됐다).
+        // (그래서 애초에 선택됐다). reanalysisAllowed — 방금 tryStartAnalyzing으로 ANALYZING을
+        // 선점했으니 지금은 다시 트리거할 수 없다(false).
         progressStore.save(new AnalysisStatusResponse(
                 inspectionId, "aiDetection", 0, images.size(), 0, initialFiles, 0, 0,
-                emptyGradeMap(), 0, images.size(), Instant.now()));
+                emptyGradeMap(), 0, images.size(), false, Instant.now()));
 
         try {
             worker.runAsync(requesterUserId, companyId, inspectionId, images, statusBeforeAnalysis,
@@ -386,9 +387,12 @@ public class InspectionAnalysisService {
     }
 
     /**
-     * 리퍼 전용 — ANALYZING 고착 회차를 직전 상태({@link #RECOVERY_STATUS})로 복원한다(코드 리뷰 P2 10차).
-     * 고착이 아니면 아무것도 하지 않는다. 실제 상태 전이는 {@link InspectionService#revertStuckAnalyzing}가
-     * 시스템 배치(사용자 컨텍스트 없음)로 수행하며, 여전히 ANALYZING일 때만 되돌린다(멱등).
+     * 리퍼 전용 — ANALYZING 고착 회차를 직전 상태로 복원한다(코드 리뷰 P2 10차). 고착이 아니면 아무것도
+     * 하지 않는다. 실제 상태 전이는 {@link InspectionService#revertStuckAnalyzing}가 시스템 배치(사용자
+     * 컨텍스트 없음)로 수행하며, 여전히 ANALYZING일 때만 되돌린다(멱등). 되돌릴 상태는 그 회차의 기존
+     * 하자 유무로 갈린다(리뷰 P1 픽스, #1654) — 첫 분석 고착이면 {@link #RECOVERY_STATUS}(UPLOADING),
+     * 증분 분석(ANALYZED→ANALYZING) 고착이면 ANALYZED로 되돌아간다. 자세한 근거는
+     * {@code InspectionService#revertStuckAnalyzing} javadoc 참고.
      *
      * <p>세대 토큰도 새로 발급한다(코드 리뷰 P3, {@link #startAnalysis}의 재선점과 대칭) — 리퍼가
      * 복원하는 시점엔 아직 재선점(startAnalysis)이 일어나지 않아 이중 워커 실행 위험은 없지만,
@@ -423,9 +427,10 @@ public class InspectionAnalysisService {
      * "이 실행은 더 이상 유효하지 않다"고 알리는 것뿐이다. 새 사용량 보상 로직을 따로 만들지 않는다.
      * 이 메서드 자체는 워커의 실제 종료를 기다리지 않고 즉시 반환한다.
      *
-     * <p>상태는 고착 복구와 동일하게 {@link InspectionService#revertStuckAnalyzing}로 되돌리고
-     * (ANALYZING→UPLOADING), 진행률 캐시는 지운다 — 이후 조회(getStatus)는 큐 포화 롤백과 동일하게
-     * {@link #rebuildFromDb}가 "분석된 적 없음" 분기로 자연스럽게 재구성한다(새 stage 값을 만들 필요 없음).
+     * <p>상태는 고착 복구와 동일하게 {@link InspectionService#revertStuckAnalyzing}로 되돌리고(기존
+     * 하자 유무에 따라 UPLOADING 또는 ANALYZED, 리뷰 P1 픽스 #1654), 진행률 캐시는 지운다 — 이후
+     * 조회(getStatus)는 큐 포화 롤백과 동일하게 {@link #rebuildFromDb}가 재구성한다(새 stage 값을 만들
+     * 필요 없음).
      *
      * <p>⚠️ 순서 주의(PR 리뷰 P1) — {@link AnalysisProgressStore#delete}는 진행률 캐시뿐 아니라
      * 세대 토큰 키까지 함께 지운다({@link com.hajacheck.core.analysis.support.RedisAnalysisProgressStore#delete}/
@@ -464,9 +469,13 @@ public class InspectionAnalysisService {
                 files.add(new FileProgress(
                         images.get(i).getId(), AnalysisFileDisplayNames.of(images.get(i), i), "waiting", null, "-"));
             }
+            // reanalysisAllowed(리뷰 P1 픽스, #1654) — 이 분기는 이미 status가 ANALYZED/REVIEWED/
+            // REPORTED가 아님을 확인했으므로, "지금 이 상태에서 재분석 트리거가 허용되는지"는
+            // ANALYSIS_ALLOWED_SOURCE_STATUSES 소속 여부로 그대로 판정한다(ANALYZING이면 false).
             return new AnalysisStatusResponse(
                     inspectionId, "upload", 0, images.size(), 0, files, 0, 0, emptyGradeMap(), 0,
-                    images.size(), Instant.now());
+                    images.size(), ANALYSIS_ALLOWED_SOURCE_STATUSES.contains(inspection.getStatus()),
+                    Instant.now());
         }
 
         // 완료된 적 있는 회차 — 실제 저장된 defects로 요약을 재구성한다(캐시 TTL 만료 대응).
@@ -509,9 +518,13 @@ public class InspectionAnalysisService {
         Map<String, Integer> gradeMap = emptyGradeMap();
         gradeCounts.forEach((grade, count) -> gradeMap.put(grade.name(), count));
 
+        // reanalysisAllowed(리뷰 P1 픽스, #1654) — REVIEWED/REPORTED는 ANALYSIS_ALLOWED_SOURCE_STATUSES에
+        // 없으므로 false가 된다. 이 값과 unanalyzedMediaCount를 함께 봐야 프론트가 "추가 사진 분석"
+        // 버튼을 REVIEWED/REPORTED 회차에서 노출하지 않는다(죽은 버튼 방지).
         return new AnalysisStatusResponse(
                 inspectionId, "done", progressPercent, images.size(), analyzedFileCount, files,
-                defects.size(), riskyCrackCount, gradeMap, 0, unanalyzedMediaCount, Instant.now());
+                defects.size(), riskyCrackCount, gradeMap, 0, unanalyzedMediaCount,
+                ANALYSIS_ALLOWED_SOURCE_STATUSES.contains(inspection.getStatus()), Instant.now());
     }
 
     private Map<String, Integer> emptyGradeMap() {

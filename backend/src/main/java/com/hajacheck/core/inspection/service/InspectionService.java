@@ -344,10 +344,21 @@ public class InspectionService {
     /**
      * ANALYZING 고착 회차를 리퍼가 시스템 배치로 복원한다(코드 리뷰 P2 10차) — @Scheduled 리퍼는
      * 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다(배치 전용, 외부 요청 경로 아님).
-     * 여전히 ANALYZING일 때만 UPLOADING으로 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미
-     * 정리했으면 아무것도 하지 않는다(멱등). 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로
-     * 검증한다(ANALYZING→UPLOADING 허용). RECOVERY_STATUS(=UPLOADING, InspectionAnalysisService)와
-     * 동일한 "업로드는 끝났고 분석 전" 상태로 되돌려, 사용자가 다시 분석을 시작할 수 있게 한다.
+     * 여전히 ANALYZING일 때만 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미 정리했으면
+     * 아무것도 하지 않는다(멱등). 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로 검증한다.
+     *
+     * <p>리뷰 P1 픽스(#1654) — 되돌릴 대상 상태를 <b>기존 하자 보유 여부</b>로 분기한다. 예전엔
+     * 무조건 UPLOADING(RECOVERY_STATUS, InspectionAnalysisService)으로 되돌렸는데, 증분 분석
+     * (ANALYZED→ANALYZING, 이미 하자가 있는 회차에 새 사진만 추가로 분석 중)이 고착되면 이 회차가
+     * UPLOADING으로 떨어지고, 다음 재시도가 {@code InspectionAnalysisService#startAnalysis}의 "미분석
+     * 사진 없이 하자만 있는 경우" 강제 전체 재분석 fail-closed 가드에 걸려 영구 정지한다(UPLOADING은
+     * "증분 분석 중이었다"는 사실 자체를 잃어버리므로). 기존 비삭제 하자가 있으면 이 회차는 애초에
+     * 처음 분석이 아니라 증분 실행이었다는 뜻이므로 ANALYZED로 되돌린다 — "이미 한 번 분석을 완료한
+     * 상태"라는 사실이 보존되고, ANALYZED에서는 미분석 사진이 남아있는 한 그대로 증분 재시도가
+     * 허용된다(startAnalysis의 증분 분기). 하자가 없으면 첫 분석이 고착된 것이므로 기존대로
+     * UPLOADING(업로드는 끝났고 분석 전)으로 되돌려 처음부터 다시 시작하게 한다. 진행률 캐시에 원래
+     * 상태를 별도로 기록해두는 방식(더 정교하지만 새 저장소·마이그레이션이 필요)까지는 가지 않는다 —
+     * 하자 유무만으로 "증분이었는지"를 충분히 구분할 수 있다(리뷰 코멘트).
      */
     @Transactional
     public void revertStuckAnalyzing(Long inspectionId) {
@@ -355,7 +366,8 @@ public class InspectionService {
         if (inspection == null || inspection.getStatus() != InspectionStatus.ANALYZING) {
             return;
         }
-        inspection.advanceTo(InspectionStatus.UPLOADING);
+        boolean wasIncremental = defectRepository.existsByInspectionIdAndDeletedFalse(inspectionId);
+        inspection.advanceTo(wasIncremental ? InspectionStatus.ANALYZED : InspectionStatus.UPLOADING);
     }
 
     /**
