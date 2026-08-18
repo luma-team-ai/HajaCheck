@@ -51,6 +51,8 @@ interface ViewModel {
   // 걷어내고 실제 값(점검 회차 ID)으로 교체했다.
   inspectionId: number | null;
   estimatedRemainingMinutes: number | null;
+  // 증분 분석(#1654) — done 상태에서 이 값이 0보다 크면 "추가 사진 N장 분석" 액션을 노출한다.
+  unanalyzedMediaCount: number;
 }
 
 function fromMockStatus(s: AiAnalysisStatus): ViewModel {
@@ -68,6 +70,9 @@ function fromMockStatus(s: AiAnalysisStatus): ViewModel {
     // 회차 자체가 없으므로 null.
     inspectionId: null,
     estimatedRemainingMinutes: s.estimatedRemainingMinutes,
+    // 목업 경로는 특정 회차와 연결되지 않아(inspectionId=null) 애초에 "추가 사진 분석" 액션을
+    // 트리거할 수 없으므로 항상 0.
+    unanalyzedMediaCount: 0,
   };
 }
 
@@ -132,6 +137,7 @@ function fromRealStatus(s: AnalysisStatusResponse): ViewModel {
     failedCount: s.failedCount,
     inspectionId: s.inspectionId,
     estimatedRemainingMinutes: null,
+    unanalyzedMediaCount: s.unanalyzedMediaCount,
   };
 }
 
@@ -449,6 +455,20 @@ export function AiAnalysisStatusPage() {
                     disabled={isCancelling}
                   >
                     {isCancelling ? '취소 중...' : '분석 취소'}
+                  </Button>
+                )}
+                {/* 증분 분석(#1654) — 분석 완료 후 추가 업로드된 원본 사진이 있으면(과거엔 기존
+                    하자가 있는 회차의 재분석이 fail-closed로 막혀 영구 미분석으로 남았다) handleRetry를
+                    그대로 재사용해 POST /analyze를 다시 호출한다. 백엔드가 미분석 사진 유무로 증분
+                    여부를 자동 판단하므로 별도 엔드포인트나 파라미터가 필요 없다. */}
+                {isDone && isRealMode && status.unanalyzedMediaCount > 0 && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void handleRetry()}
+                    disabled={isRetrying}
+                  >
+                    {isRetrying ? '분석 중...' : `추가 사진 ${status.unanalyzedMediaCount}장 분석`}
                   </Button>
                 )}
                 <Button
