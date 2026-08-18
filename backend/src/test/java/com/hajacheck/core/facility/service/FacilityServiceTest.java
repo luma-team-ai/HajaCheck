@@ -1185,6 +1185,21 @@ class FacilityServiceTest {
         assertThat(item.thumbnailUrl()).isNull();
     }
 
+    // 코드 리뷰 P2(#1656) — 대량 반환 관측 임계값(5000) 도달 시에도 하드 캡 없이 전체 반환해야 한다
+    // (WARN 로그 자체는 관측용 부가효과라 별도 검증하지 않고, 응답 계약이 안 잘리는지만 확인한다).
+    @Test
+    void listForMap_대량결과_관측임계값이상도_상한없이전체반환() {
+        List<com.hajacheck.core.facility.repository.FacilityMapProjection> projections =
+                java.util.stream.IntStream.range(0, 5000)
+                        .mapToObj(i -> facilityMapProjection((long) (i + 1), "대량시설" + i, "BUILDING", null, null))
+                        .toList();
+        when(facilityRepository.findMapProjectionsByCompanyId(OWNER_ID)).thenReturn(projections);
+
+        com.hajacheck.core.facility.dto.FacilityMapResponse result = facilityService.listForMap(USER_ID, OWNER_ID);
+
+        assertThat(result.facilities()).hasSize(5000);
+    }
+
     @Test
     void listForMap_타사스코프_FORBIDDEN예외() {
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))
