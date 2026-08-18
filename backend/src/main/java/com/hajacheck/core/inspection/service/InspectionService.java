@@ -342,10 +342,11 @@ public class InspectionService {
     }
 
     /**
-     * ANALYZING 고착 회차를 리퍼가 시스템 배치로 복원한다(코드 리뷰 P2 10차) — @Scheduled 리퍼는
-     * 사용자 컨텍스트가 없어 회사 스코프 검증을 거치지 않는다(배치 전용, 외부 요청 경로 아님).
-     * 여전히 ANALYZING일 때만 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미 정리했으면
-     * 아무것도 하지 않는다(멱등). 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로 검증한다.
+     * ANALYZING 고착 회차를 복원한다(코드 리뷰 P2 10차) — 리퍼({@code @Scheduled}, 사용자 컨텍스트
+     * 없음)와 {@link com.hajacheck.core.analysis.service.InspectionAnalysisService#startAnalysis}의
+     * 인라인 고착 복구(요청 경로) 양쪽이 함께 쓰는 **단일 판별 지점**이다. 여전히 ANALYZING일 때만
+     * 되돌린다 — 그 사이 정상 완료됐거나 다른 경로가 이미 정리했으면 아무것도 하지 않는다(멱등).
+     * 전이는 {@link Inspection#advanceTo}가 허용 전이 테이블로 검증한다.
      *
      * <p>리뷰 P1 픽스(#1654) — 되돌릴 대상 상태를 <b>기존 하자 보유 여부</b>로 분기한다. 예전엔
      * 무조건 UPLOADING(RECOVERY_STATUS, InspectionAnalysisService)으로 되돌렸는데, 증분 분석
@@ -359,15 +360,33 @@ public class InspectionService {
      * UPLOADING(업로드는 끝났고 분석 전)으로 되돌려 처음부터 다시 시작하게 한다. 진행률 캐시에 원래
      * 상태를 별도로 기록해두는 방식(더 정교하지만 새 저장소·마이그레이션이 필요)까지는 가지 않는다 —
      * 하자 유무만으로 "증분이었는지"를 충분히 구분할 수 있다(리뷰 코멘트).
+     *
+     * <p><b>핫픽스(#1670 후속, 머신 P1 반려)</b> — {@code InspectionAnalysisService.startAnalysis}가
+     * 자체 인라인 고착 복구 분기에서 이 판별을 재구현하지 않고 <b>이 메서드를 그대로 호출해 반환값을
+     * {@code statusBeforeAnalysis}로 쓰도록</b> 반환형을 {@code void}→{@link InspectionStatus}로
+     * 바꿨다. 예전엔 인라인 경로가 무조건 UPLOADING(RECOVERY_STATUS)으로 되돌리고 그 값을
+     * statusBeforeAnalysis로 썼는데, 리퍼는 위 P1 픽스로 이미 하자 유무 분기를 갖고 있어 "사용자가
+     * 리퍼보다 먼저 인라인 재트리거"하면 증분 고착 회차가 UPLOADING으로 떨어지고 이후 재트리거가
+     * "미분석 사진 없이 하자만 있음" fail-closed 가드에 영구히 막혔다. 판별 로직을 이 메서드 하나로
+     * 모아 두 소비자가 항상 같은 결론을 내도록 한다(중복 구현 금지).
+     *
+     * @return 이 회차가 지금 있는 상태 — ANALYZING이 아니었으면(멱등, 이미 다른 경로가 정리했거나
+     *         회차 자체가 없으면) 원래 상태(찾지 못했으면 {@code null})를 그대로, ANALYZING이었으면
+     *         방금 되돌린 목표 상태(ANALYZED 또는 UPLOADING)를 반환한다.
      */
     @Transactional
-    public void revertStuckAnalyzing(Long inspectionId) {
+    public InspectionStatus revertStuckAnalyzing(Long inspectionId) {
         Inspection inspection = inspectionRepository.findById(inspectionId).orElse(null);
-        if (inspection == null || inspection.getStatus() != InspectionStatus.ANALYZING) {
-            return;
+        if (inspection == null) {
+            return null;
+        }
+        if (inspection.getStatus() != InspectionStatus.ANALYZING) {
+            return inspection.getStatus();
         }
         boolean wasIncremental = defectRepository.existsByInspectionIdAndDeletedFalse(inspectionId);
-        inspection.advanceTo(wasIncremental ? InspectionStatus.ANALYZED : InspectionStatus.UPLOADING);
+        InspectionStatus target = wasIncremental ? InspectionStatus.ANALYZED : InspectionStatus.UPLOADING;
+        inspection.advanceTo(target);
+        return target;
     }
 
     /**

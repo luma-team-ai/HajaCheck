@@ -43,9 +43,10 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class InspectionAnalysisService {
 
-    // ANALYZING 고착 복구(코드 리뷰 P2) 시 되돌릴 상태 — 여기 도달했다는 건 이미 이미지가 있다는
-    // 뜻이라(images.isEmpty() 가드는 이 시점 이후) "업로드는 끝났고 분석 전"이 가장 정확한 표현이다.
-    private static final InspectionStatus RECOVERY_STATUS = InspectionStatus.UPLOADING;
+    // ANALYZING 고착 복구 시 되돌릴 상태(코드 리뷰 P2) — 핫픽스(#1670 후속)로 하드코딩 상수를 걷어내고
+    // InspectionService#revertStuckAnalyzing의 판별 결과(기존 하자 유무에 따라 ANALYZED 또는
+    // UPLOADING)를 그대로 쓴다 — 리퍼와 이 서비스의 인라인 복구가 중복 구현 없이 항상 같은 결론을
+    // 내도록(자세한 근거는 그 메서드 javadoc 참고).
 
     // 재분석 허용 소스 상태(코드 리뷰 P1, 제품 결정) — REVIEWED/REPORTED는 목록에서 뺀다.
     // 재분석은 워커가 기존 하자를 소프트삭제하므로, 사람이 검수·확정한 최종 상태 회차에서 허용하면
@@ -152,8 +153,14 @@ public class InspectionAnalysisService {
                 throw new BusinessException(ErrorCode.ANALYSIS_ALREADY_RUNNING);
             }
             log.warn("ANALYZING 고착 감지({}) — inspectionId={} 재시작을 허용한다", stuckReason, inspectionId);
-            inspectionService.advanceStatus(requesterUserId, companyId, inspectionId, RECOVERY_STATUS);
-            statusBeforeAnalysis = RECOVERY_STATUS;
+            // 핫픽스(#1670 후속, 머신 P1 반려) — 예전엔 무조건 UPLOADING(구 RECOVERY_STATUS 상수)으로 되돌렸는데,
+            // 리퍼({@link InspectionService#revertStuckAnalyzing})는 이미 기존 하자 유무로 ANALYZED/
+            // UPLOADING을 분기하는 판별 로직을 갖고 있었다(#1654 P1 픽스). 그 판별을 여기서 재구현하지
+            // 않고 같은 메서드를 그대로 호출해 반환값을 statusBeforeAnalysis로 쓴다 — 그래야 증분 분석
+            // (ANALYZED→ANALYZING, 하자 보유) 고착을 사용자가 리퍼보다 먼저 인라인 재트리거해도
+            // ANALYZED로 정확히 복원되고, 아래 "미분석 사진 없이 하자만 있음" fail-closed 가드에
+            // 영구히 막히지 않는다(리퍼와 인라인 경로가 항상 같은 결론을 낸다 — 중복 구현 금지).
+            statusBeforeAnalysis = inspectionService.revertStuckAnalyzing(inspectionId);
         }
 
         if (!ANALYSIS_ALLOWED_SOURCE_STATUSES.contains(statusBeforeAnalysis)) {
@@ -390,9 +397,10 @@ public class InspectionAnalysisService {
      * 리퍼 전용 — ANALYZING 고착 회차를 직전 상태로 복원한다(코드 리뷰 P2 10차). 고착이 아니면 아무것도
      * 하지 않는다. 실제 상태 전이는 {@link InspectionService#revertStuckAnalyzing}가 시스템 배치(사용자
      * 컨텍스트 없음)로 수행하며, 여전히 ANALYZING일 때만 되돌린다(멱등). 되돌릴 상태는 그 회차의 기존
-     * 하자 유무로 갈린다(리뷰 P1 픽스, #1654) — 첫 분석 고착이면 {@link #RECOVERY_STATUS}(UPLOADING),
-     * 증분 분석(ANALYZED→ANALYZING) 고착이면 ANALYZED로 되돌아간다. 자세한 근거는
-     * {@code InspectionService#revertStuckAnalyzing} javadoc 참고.
+     * 하자 유무로 갈린다(리뷰 P1 픽스, #1654) — 첫 분석 고착이면 UPLOADING, 증분 분석(ANALYZED→
+     * ANALYZING) 고착이면 ANALYZED로 되돌아간다. 자세한 근거는
+     * {@code InspectionService#revertStuckAnalyzing} javadoc 참고. {@link #startAnalysis}의 인라인
+     * 고착 복구도 같은 메서드를 호출하므로(핫픽스 #1670 후속) 두 경로는 항상 같은 결론을 낸다.
      *
      * <p>세대 토큰도 새로 발급한다(코드 리뷰 P3, {@link #startAnalysis}의 재선점과 대칭) — 리퍼가
      * 복원하는 시점엔 아직 재선점(startAnalysis)이 일어나지 않아 이중 워커 실행 위험은 없지만,
@@ -407,9 +415,9 @@ public class InspectionAnalysisService {
         if (!isStuck(inspectionId)) {
             return false;
         }
-        inspectionService.revertStuckAnalyzing(inspectionId);
+        InspectionStatus revertedTo = inspectionService.revertStuckAnalyzing(inspectionId);
         progressStore.saveGeneration(inspectionId, java.util.UUID.randomUUID().toString());
-        log.warn("ANALYZING 고착 리퍼 복원 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
+        log.warn("ANALYZING 고착 리퍼 복원 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, revertedTo);
         return true;
     }
 
@@ -446,10 +454,10 @@ public class InspectionAnalysisService {
         if (inspection.getStatus() != InspectionStatus.ANALYZING) {
             return;
         }
-        inspectionService.revertStuckAnalyzing(inspectionId);
+        InspectionStatus revertedTo = inspectionService.revertStuckAnalyzing(inspectionId);
         progressStore.delete(inspectionId);
         progressStore.saveGeneration(inspectionId, java.util.UUID.randomUUID().toString());
-        log.info("사용자 분석 취소 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, RECOVERY_STATUS);
+        log.info("사용자 분석 취소 — inspectionId={} 상태를 {}로 되돌린다", inspectionId, revertedTo);
     }
 
     private AnalysisStatusResponse rebuildFromDb(Inspection inspection) {
@@ -513,6 +521,19 @@ public class InspectionAnalysisService {
                     analyzed ? "completed" : "waiting", count, "-"));
         }
         int analyzedFileCount = images.size() - unanalyzedMediaCount;
+        // P3 점검(핫픽스 #1670 후속) — stage="done"인데 unanalyzedMediaCount>0이면 이 값이 100% 미만이
+        // 된다("완료인데 진행률이 낮다"는 모순으로 보일 수 있음). 이 응답(GET /api/inspections/{id}/analyze,
+        // AnalysisStatusResponse)의 다른 소비자를 grep으로 전수 확인했다 —
+        // AdminAnalysisJobService.toItem은 status==ANALYZING일 때만 progressPercent를 읽고(그 외 null),
+        // PlatformAdminMonitoringService.durationLabel은 updatedAt만 읽는다(progressPercent 미사용).
+        // "done"의 progressPercent를 실제로 렌더링하는 소비자는 프론트 AiAnalysisStatusPage 하나뿐이고,
+        // 그 화면은 이미 이 값 자체를 신뢰하지 않고 unanalyzedMediaCount>0이면 "완료" 뱃지+100% 바로
+        // 클라이언트에서 override한다(hasUnanalyzedOnDone, #1654 리뷰 P2 픽스). 소스(여기)를 100
+        // 고정으로 바꾸면 오히려 analyzedFileCount/totalFileCount로 실제 진행 비율을 계산해야 하는
+        // 잠재적 미래 소비자(예: 배치 리포트)의 정보를 잃으므로, 현재는 소스를 그대로 두고 이 코멘트로
+        // 소비자 현황만 고정한다 — 새 소비자를 추가할 때는 이 필드를 "완료 여부"가 아니라 "실제 분석
+        // 완료 비율"로 해석해야 한다(완료 판정은 stage=="done" 자체로, 완료 후 잔여 작업 여부는
+        // unanalyzedMediaCount로 각각 판단할 것).
         int progressPercent = images.isEmpty() ? 0 : (int) Math.round(analyzedFileCount * 100.0 / images.size());
 
         Map<String, Integer> gradeMap = emptyGradeMap();

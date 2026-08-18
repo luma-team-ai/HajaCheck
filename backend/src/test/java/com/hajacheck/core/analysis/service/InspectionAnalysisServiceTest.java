@@ -1,6 +1,7 @@
 package com.hajacheck.core.analysis.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -134,20 +135,52 @@ class InspectionAnalysisServiceTest {
 
     @Test
     void startAnalysis_ANALYZING인데_진행률캐시없고_Redis정상이면_고착으로보고복구후재시작() {
+        // 핫픽스(#1670 후속, 머신 P1 반려) — 인라인 고착 복구가 더 이상 advanceStatus로 UPLOADING을
+        // 강제하지 않고, 리퍼와 동일한 판별 로직(InspectionService#revertStuckAnalyzing)을 그대로
+        // 호출해 그 반환값을 쓴다(중복 구현 금지). 이 테스트는 그 판별이 "기존 하자 없음(첫 분석
+        // 고착)" → UPLOADING을 반환하는 시나리오를 대역한다.
         when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.empty());
         when(progressStore.isAvailable()).thenReturn(true);
+        when(inspectionService.revertStuckAnalyzing(INSPECTION_ID)).thenReturn(InspectionStatus.UPLOADING);
         when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
-        // 고착 복구 — UPLOADING으로 강제 되돌린 뒤에야 원자적 선점을 시도한다.
-        verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
+        // 고착 복구 — 리퍼와 같은 메서드로 되돌린 뒤에야 원자적 선점을 시도한다.
+        verify(inspectionService).revertStuckAnalyzing(INSPECTION_ID);
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), eq(InspectionStatus.UPLOADING));
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
                 eq(InspectionStatus.UPLOADING), anyBoolean(), any(), any());
+    }
+
+    @Test
+    void startAnalysis_ANALYZING고착이고_기존하자있으면_리퍼와동일하게ANALYZED로복구하고증분진행한다() {
+        // 회귀 테스트(핫픽스 지시 그대로, #1670 후속 P1) — 증분 분석(ANALYZED→ANALYZING, 하자 보유)
+        // 실행이 고착된 뒤 사용자가 리퍼보다 먼저 인라인으로 재트리거하는 시나리오. 예전엔 무조건
+        // UPLOADING으로 되돌려 그 직후 "미분석 사진 없이 하자만 있음" fail-closed 가드에 영구히
+        // 막혔다(회차가 이후 모든 재트리거에서 ANALYSIS_NOT_ALLOWED). revertStuckAnalyzing이 기존
+        // 비삭제 하자를 보고 ANALYZED를 반환하면, 그 값이 statusBeforeAnalysis로 흘러 증분 분석
+        // 조건(hasExistingDefects && statusBeforeAnalysis==ANALYZED)을 만족해 정상 진행돼야 한다.
+        when(inspectionService.getOwnedInspectionEntity(USER_ID, COMPANY_ID, INSPECTION_ID))
+                .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
+        when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.empty());
+        when(progressStore.isAvailable()).thenReturn(true);
+        when(inspectionService.revertStuckAnalyzing(INSPECTION_ID)).thenReturn(InspectionStatus.ANALYZED);
+        when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
+                .thenReturn(List.of(image(1L))); // 증분 대상 — 미분석 사진 존재.
+        when(defectRepository.existsByInspectionIdAndDeletedFalse(INSPECTION_ID)).thenReturn(true); // 기존 하자 보유.
+        when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
+
+        assertThatCode(() -> service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID)).doesNotThrowAnyException();
+
+        verify(inspectionService).revertStuckAnalyzing(INSPECTION_ID);
+        verify(inspectionService).tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), eq(true));
+        verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
+                eq(InspectionStatus.ANALYZED), eq(true), any(), any());
     }
 
     @Test
@@ -178,13 +211,14 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID))
                 .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)))));
+        when(inspectionService.revertStuckAnalyzing(INSPECTION_ID)).thenReturn(InspectionStatus.UPLOADING);
         when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
 
         service.startAnalysis(USER_ID, COMPANY_ID, INSPECTION_ID);
 
-        verify(inspectionService).advanceStatus(USER_ID, COMPANY_ID, INSPECTION_ID, InspectionStatus.UPLOADING);
+        verify(inspectionService).revertStuckAnalyzing(INSPECTION_ID);
         verify(worker).runAsync(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(),
                 eq(InspectionStatus.UPLOADING), anyBoolean(), any(), any());
     }
@@ -523,6 +557,8 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZING));
         when(progressStore.find(INSPECTION_ID))
                 .thenReturn(Optional.of(progressAsOf(java.time.Instant.now().minus(java.time.Duration.ofMinutes(20)))));
+        // 핫픽스(#1670 후속) — 인라인 복구가 revertStuckAnalyzing 반환값을 statusBeforeAnalysis로 쓴다.
+        when(inspectionService.revertStuckAnalyzing(INSPECTION_ID)).thenReturn(InspectionStatus.UPLOADING);
         when(mediaRepository.findByInspectionIdAndFileTypeAndPurposeAndAnalyzedAtIsNullOrderByIdAsc(INSPECTION_ID, MediaFileType.IMAGE, MediaPurpose.INSPECTION_SOURCE))
                 .thenReturn(List.of(image(1L)));
         when(inspectionService.tryStartAnalyzing(eq(USER_ID), eq(COMPANY_ID), eq(INSPECTION_ID), any(), anyBoolean())).thenReturn(true);
