@@ -6,6 +6,7 @@ import com.hajacheck.auth.service.AuthService;
 import com.hajacheck.core.facility.dto.FacilityComparisonResponse;
 import com.hajacheck.core.facility.dto.FacilityCreateRequest;
 import com.hajacheck.core.facility.dto.FacilityInspectionOverviewResponse;
+import com.hajacheck.core.facility.dto.FacilityMapResponse;
 import com.hajacheck.core.facility.dto.FacilityResponse;
 import com.hajacheck.core.facility.dto.FacilityScheduleRequest;
 import com.hajacheck.core.facility.dto.FacilityStatusResponse;
@@ -77,6 +78,17 @@ public class FacilityController {
             @AuthenticationPrincipal LoginUser loginUser) {
         return ResponseEntity.ok(ApiResponse.ok(
                 facilityService.listStatus(loginUser.getUserId(), loginUser.getCompanyId())));
+    }
+
+    @Operation(summary = "지도 전용 시설물 경량 목록 조회",
+            description = "로그인 사용자의 회사가 소유한 시설물 전체를 지도 마커 렌더링에 필요한 좌표·유형·하자"
+                    + " 등급 집계 필드만 프로젝션해 상한 없이 반환한다(#1656). 기존 GET /facilities의 500건 상한"
+                    + "(FACILITY_LIST_MAX)에 걸리면 지도 마커가 무고지로 누락되는 문제(P1)를 해소한다.")
+    @GetMapping("/map")
+    public ResponseEntity<ApiResponse<FacilityMapResponse>> listForMap(
+            @AuthenticationPrincipal LoginUser loginUser) {
+        return ResponseEntity.ok(ApiResponse.ok(
+                facilityService.listForMap(loginUser.getUserId(), loginUser.getCompanyId())));
     }
 
     @Operation(summary = "시설물 상세 조회", description = "로그인 사용자의 회사가 소유한 시설물 단건을 조회한다")
