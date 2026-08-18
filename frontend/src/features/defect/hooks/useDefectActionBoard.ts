@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import type { ApiError, PageResponse } from '../../../shared/api/types';
 import { defectApi } from '../api/defectApi';
-import { NEXT_STATUS } from '../constants/defectStatusWorkflow';
+import { NEXT_STATUS, REASON_REQUIRED_TARGETS, STEP_LABEL } from '../constants/defectStatusWorkflow';
 import type { Defect, DefectListFilters, DefectStatus } from '../types';
 import { defectKeys, useDefects } from './useDefects';
 
@@ -30,16 +30,27 @@ export interface ReasonRequest {
   targetStatus: DefectStatus;
 }
 
-type DropKind = 'noop' | 'forward' | 'reason-required';
+type DropKind = 'noop' | 'forward' | 'reason-required' | 'invalid';
 
 // dnd-kit 이벤트 처리와 분리된 순수 판별 함수 — 실제 드래그 시뮬레이션 없이 유닛 테스트로 검증할 수
-// 있게 분리했다. NEXT_STATUS[RESOLVED]는 null이라 RESOLVED에서의 모든 이동은 'reason-required'로
-// 분류되고(백엔드가 어차피 409로 거부), 같은 컬럼에 놓으면 'noop'.
+// 있게 분리했다. 같은 컬럼에 놓으면 'noop'.
+//
+// (#1642) 과거엔 정방향(NEXT_STATUS)이 아니면 무조건 'reason-required'로 분류해, 보드 드래그가
+// defectStatusWorkflow.ts에 정의되지 않은 전이(예: CONFIRMED→RESOLVED 직행)도 사유 모달만 거쳐
+// 통과시켰다 — 조치결과등록(PATCH /defects/{id}/action)을 건너뛰어 조치 사진/내용 없이
+// defect_action_logs가 비는 버그의 두 번째 진입로였다(첫 번째는 DefectActionForm "진행상태" select,
+// #1642에서 REASON_REQUIRED_TARGETS.CONFIRMED에서 RESOLVED 제거로 이미 차단). 이제 보드도 같은
+// 단일 진실 소스(NEXT_STATUS + REASON_REQUIRED_TARGETS)만 유효한 전이로 인정하고, 그 외는
+// 'invalid'로 분류해 드롭 자체를 거부한다(모달을 띄우지 않음 — 백엔드 호출 없이 프런트에서 막는다).
 export function resolveDropKind(currentStatus: DefectStatus, targetStatus: DefectStatus): DropKind {
   if (currentStatus === targetStatus) {
     return 'noop';
   }
-  return NEXT_STATUS[currentStatus] === targetStatus ? 'forward' : 'reason-required';
+  if (NEXT_STATUS[currentStatus] === targetStatus) {
+    return 'forward';
+  }
+  const reasonTargets = REASON_REQUIRED_TARGETS[currentStatus] ?? [];
+  return reasonTargets.includes(targetStatus) ? 'reason-required' : 'invalid';
 }
 
 // 목록 탭과 필터(유형/등급/상태)는 공유하되 page/size는 보드 전용값으로 고정한다 — 목록 탭의
@@ -144,6 +155,16 @@ export function useDefectActionBoard(filters: DefectListFilters) {
 
       const kind = resolveDropKind(defect.status, targetStatus);
       if (kind === 'noop') {
+        return;
+      }
+
+      // (#1642) 정의되지 않은 전이 — API를 호출하지 않고 기존 dropError 배너(role="alert" +
+      // 닫기 버튼)를 재사용해 1줄 안내만 띄운다. 별도 토스트 시스템이 없는 컨벤션(모달 안내와 동일
+      // 패턴 — DefectStatusReasonModal.tsx:23-25 참고)에 맞춘 최소 구현.
+      if (kind === 'invalid') {
+        setDropError(
+          `${STEP_LABEL[defect.status]}에서 ${STEP_LABEL[targetStatus]}(으)로는 바로 이동할 수 없습니다.`,
+        );
         return;
       }
 
