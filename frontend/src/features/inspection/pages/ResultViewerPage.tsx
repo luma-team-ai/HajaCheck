@@ -894,6 +894,15 @@ export function ResultViewerPage() {
                           <div className="text-xl font-bold text-text-default">
                             {selected.areaRatio !== undefined ? `${Math.round(selected.areaRatio * 100)}%` : '준비 중'}
                           </div>
+                          {/* 실측 면적(mm², #1658/#1669) — areaRatio(사진 내 비율)와 별개 지표라
+                              areaRatio 유무와 무관하게 단독으로 null 체크한다(AND 묶기 금지, #1588 교훈).
+                              카드 기준물 미검출 시 null → '측정 예정'. */}
+                          <div className="mt-2 border-t border-border pt-2">
+                            <div className="mb-1 text-xs text-text-muted">실측 면적</div>
+                            <div className="text-sm font-semibold text-text-default">
+                              {selected.areaMm2 != null ? `${selected.areaMm2}mm²` : '측정 예정'}
+                            </div>
+                          </div>
                         </div>
                       )}
                     </div>

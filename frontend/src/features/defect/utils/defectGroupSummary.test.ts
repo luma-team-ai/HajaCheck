@@ -20,6 +20,7 @@ function makeDefect(overrides: Partial<InspectionDefect> & Pick<InspectionDefect
     crackWidthMm: null,
     crackLengthMm: null,
     areaRatio: null,
+    areaMm2: null,
     mediaId: 901,
     imageUrl: null,
     detailUrl: null,

@@ -19,6 +19,9 @@ function buildDefectImageSummary(
     // 라벨은 "사진 내 비율"로 표기(#1643 라벨 정직화와 동일 취지) — 실측 면적으로 오해되지
     // 않도록. 값 계산(toFixed(3) 등)은 변경하지 않는다.
     defect.areaRatio ? `사진 내 비율 ${(defect.areaRatio * 100).toFixed(3)}%` : null,
+    // 실측 면적(areaMm2, #1658/#1669)은 이 PR 범위 제외 — ReportContext(백엔드 ReportDetailResponse
+    // 별도 DTO)에 아직 areaMm2가 없다. defect/inspection 타입에는 추가됐으니, 백엔드가 노출하면
+    // 여기도 병기하는 후속 작업만 남는다.
     defect.confidence ? `신뢰도 ${Math.round(defect.confidence * 100)}%` : null,
   ].filter(Boolean);
   return parts.join(" · ");

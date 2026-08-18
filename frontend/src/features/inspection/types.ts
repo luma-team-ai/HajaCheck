@@ -35,6 +35,9 @@ export interface Defect {
   widthMm?: number; // 균열 폭(균열 전용)
   lengthMm?: number; // 균열 길이(균열 전용)
   areaRatio?: number; // 마스크 면적 비율 0~1(박리박락·철근노출 전용)
+  // 실측 면적(mm², #1658/#1669) — 카드 기준물로 환산한 값. 박리박락·철근노출만 있을 수 있고
+  // 카드 미검출이면 null. areaRatio와 독립적으로 null 체크(AND 묶기 금지, #1588 교훈).
+  areaMm2?: number | null;
   summary: string; // 분석 요약
   mediaId?: number | null; // 이미지 ID — 백엔드에서 제공. null이면 미지정(수동 추가 등)
   imageUrl?: string | null; // 이미지 URL — 백엔드 형식: /api/media/{mediaId}/thumbnail

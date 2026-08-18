@@ -3,7 +3,7 @@
 // 모킹하지 않고 QueryClientProvider + MSW(defectHandlers, mockDefects/mockDefectActionLogs)로 실제
 // 데이터 흐름을 그대로 태운다(이 프로젝트 관례 — feature 훅을 직접 mock하는 기존 사례 없음).
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -472,5 +472,34 @@ describe('DefectDetailModal — 사진(그룹) 단위 상태·등록(#1644)', ()
       (option) => option.value,
     );
     expect(options).not.toContain('RESOLVED');
+  });
+});
+
+describe('DefectDetailModal — 실측 면적(areaMm2) 병기(#1658/#1669)', () => {
+  it('areaMm2 값이 있으면 "실측 면적" 지표 카드에 mm² 값을 표시한다', async () => {
+    server.use(mockActionLogsHandler({}));
+    // mockInspectionDefects id=1(철근 노출): areaMm2=4200.5(defect.mock.ts) — 카드 기준물 검출 케이스.
+    renderModal(1);
+
+    await screen.findByRole('form', { name: '조치 결과 등록' });
+
+    expect(screen.getByText('실측 면적')).not.toBeNull();
+    expect(screen.getByText('4200.5mm²')).not.toBeNull();
+  });
+
+  it('areaMm2가 null이면 다른 지표(균열 폭·길이)와 무관하게 "실측 면적" 카드만 독립적으로 "측정 예정"을 표시한다(#1588 교훈)', async () => {
+    server.use(mockActionLogsHandler({}));
+    // mockInspectionDefects id=4(균열, IN_PROGRESS): crackWidthMm/crackLengthMm는 값이 있고
+    // areaMm2만 null(defect.mock.ts, 균열은 항상 null) — id=3(DETECTED)은 조치 등록 대상이 아니라
+    // DefectActionForm이 statusOptions==null로 렌더링 자체를 건너뛰므로 여기선 쓰지 않는다.
+    // "실측 면적" 카드 범위로 좁혀서 검증한다(getByText('측정 예정') 단독 호출은 다른 지표가 null인
+    // 경우 카드가 여럿이라 모호해질 수 있다).
+    renderModal(4);
+
+    await screen.findByRole('form', { name: '조치 결과 등록' });
+
+    const areaCard = screen.getByText('실측 면적').closest('article');
+    expect(areaCard).not.toBeNull();
+    expect(within(areaCard as HTMLElement).getByText('측정 예정')).not.toBeNull();
   });
 });

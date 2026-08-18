@@ -23,6 +23,10 @@ export interface Defect {
   bboxH: number | null;
   crackWidthMm: number | null;
   crackLengthMm: number | null;
+  // 실측 면적(mm², #1658/#1669) — backend DefectResponse.areaMm2와 1:1. crackWidthMm과 동일하게
+  // AI 서버가 카드 기준물로 환산해 내려준 값 — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고,
+  // 카드 미검출이면 null. 단독 null 체크(다른 필드와 AND 묶기 금지, #1588 교훈).
+  areaMm2: number | null;
   // 인가된 /api/media/{id}/thumbnail 경로 — mediaId가 없으면 null(HAJA-314)
   imageUrl: string | null;
   createdAt: string;
@@ -56,6 +60,9 @@ export interface InspectionDefectResponse {
   crackWidthMm: number | null;
   crackLengthMm: number | null;
   areaRatio: number | null;
+  // 실측 면적(mm², #1658/#1669) — areaRatio(사진 내 비율)와 별개 지표. 단독 null 체크
+  // (다른 필드와 AND 묶기 금지, #1588 교훈).
+  areaMm2: number | null;
   mediaId: number | null;
   imageUrl: string | null;
   detailUrl: string | null;
@@ -79,6 +86,9 @@ export interface InspectionDefect {
   crackWidthMm: number | null;
   crackLengthMm: number | null;
   areaRatio: number | null;
+  // 실측 면적(mm², #1658/#1669) — areaRatio(사진 내 비율)와 별개 지표. 단독 null 체크
+  // (다른 필드와 AND 묶기 금지, #1588 교훈).
+  areaMm2: number | null;
   mediaId: number | null;
   imageUrl: string | null;
   detailUrl: string | null;

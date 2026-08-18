@@ -81,6 +81,7 @@ const mockDefects: DefectDetailItem[] = [
     bboxY: 0.6,
     bboxW: 0.25,
     bboxH: 0.1,
+    areaMm2: 3800.2, // 카드 기준물 검출된 케이스(#1658/#1669) — '측정 예정'이 아니라 실값 표시 검증용
     createdAt: '2026-07-22T10:00:00Z',
     mediaId: 67,
     imageUrl: '/api/media/67/thumbnail',
@@ -737,6 +738,21 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(screen.getByText('사진 내 비율')).not.toBeNull();
     expect(screen.getByText('준비 중')).not.toBeNull();
     expect(screen.queryByText('예상 폭')).toBeNull();
+    // 실측 면적(areaMm2) 미제공 — '측정 예정'으로 표시(#1658/#1669, 단독 null 체크)
+    expect(screen.getByText('측정 예정')).not.toBeNull();
+  });
+
+  it('실측 면적(areaMm2)이 있으면 사진 내 비율 카드에 mm² 값을 병기한다(#1658/#1669)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+    // id=3(철근노출) 마커 클릭 — areaMm2=3800.2로 카드 기준물이 검출된 케이스.
+    fireEvent.click(screen.getByTitle(/철근노출 · D등급/));
+
+    expect(screen.getByText('사진 내 비율')).not.toBeNull();
+    expect(screen.getByText('3800.2mm²')).not.toBeNull();
+    expect(screen.queryByText('측정 예정')).toBeNull();
   });
 
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {

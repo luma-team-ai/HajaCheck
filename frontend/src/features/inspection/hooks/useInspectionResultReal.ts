@@ -102,6 +102,7 @@ export function useInspectionResultReal(inspectionId: number) {
       widthMm: d.crackWidthMm,
       lengthMm: d.crackLengthMm,
       areaRatio: d.areaRatio ?? undefined, // 박리박락·철근노출 전용(#804)
+      areaMm2: d.areaMm2 ?? null, // 실측 면적(mm²), #1658/#1669 — areaRatio와 독립적으로 유지
       // ponytail: summary는 백엔드에서 제공하지 않으므로 기본값. AI explain으로 채울 수 있음(후속).
       summary: `${typeLabel} 하자 — 신뢰도 ${Math.round(d.confidence * 100)}%`,
       mediaId: d.mediaId ?? null,

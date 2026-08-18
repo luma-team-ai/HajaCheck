@@ -54,6 +54,7 @@ function makeDefect(overrides: Partial<DefectExportItem> = {}): DefectExportItem
     crackWidthMm: null,
     crackLengthMm: null,
     areaRatio: null,
+    areaMm2: null,
     mediaId: null,
     imageUrl: null,
     detailUrl: null,

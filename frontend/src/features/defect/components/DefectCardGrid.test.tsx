@@ -26,6 +26,7 @@ function makeDefect(
     crackWidthMm: null,
     crackLengthMm: null,
     areaRatio: null,
+    areaMm2: null,
     mediaId: null,
     imageUrl: null,
     detailUrl: null,
