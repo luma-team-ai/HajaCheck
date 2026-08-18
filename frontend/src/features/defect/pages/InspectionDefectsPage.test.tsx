@@ -276,9 +276,13 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     // 조치 필드는 1세트뿐이라 2차 등록 내용이 최종 요약에 남는다(1차 내용은 감사기록으로만 보존,
     // #1128 코드리뷰 P2-1).
     expect(within(modal).getByText('보수 완료 확인 — 재발 없음')).not.toBeNull();
-    // 헤더 상태 칩은 목록 캐시(별도 비동기 refetch)를 참조한다 — 명시적으로 기다린다(레이스 방지).
+    // 헤더 상태 칩은 이제 사진(그룹) 단위 집계다(#1644, defectGroupSummary.ts) — 목록 캐시(별도
+    // 비동기 refetch)를 참조하므로 명시적으로 기다린다(레이스 방지). id=1(철근 노출)과 같은 사진
+    // (mediaId=901)에 id=4(균열, mock 고정값 IN_PROGRESS)가 함께 있어, id=1만 조치완료로 전이해도
+    // 그룹 전체가 RESOLVED는 아니라(하나라도 IN_PROGRESS 이상이면 IN_PROGRESS) 칩은 "조치중"인
+    // 채로 남는다 — id=1의 상태 자체는 아래에서 읽기 전용 요약 전환으로 별도 검증한다.
     await waitFor(() =>
-      expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('조치완료'),
+      expect(modal.querySelector('.defect-chip--warning')?.textContent).toContain('이 사진의 조치 상태: 조치중 (하자 2건)'),
     );
     expect(uploadSpy).toHaveBeenCalledTimes(2);
 

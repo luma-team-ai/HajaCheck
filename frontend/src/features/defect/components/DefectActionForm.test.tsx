@@ -418,6 +418,29 @@ describe('DefectActionForm — 그룹 팬아웃 성공 안내', () => {
   });
 });
 
+// 사진(그룹) 단위 등록 전 사전 안내(#1644) — 과거엔 제출 후(justSavedGroupSize)에만 그룹 반영
+// 사실을 알려줘 "왜 다른 카드도 같이 바뀌었지" 하고 당황하는 문제가 있었다. 같은 사진의 하자가
+// 여럿이면 등록 시작 전부터 미리 알린다(DefectDetailModal이 defectGroupSummary.ts로 계산해 넘기는
+// groupSize prop).
+describe('DefectActionForm — 등록 전 그룹 사전 안내(#1644)', () => {
+  it('groupSize가 1보다 크면 등록 폼 상단에 그룹 반영 안내를 표시한다', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DefectActionForm defect={makeDefect('CONFIRMED')} actionResult={null} groupSize={3} />
+      </QueryClientProvider>,
+    );
+
+    expect(screen.getByText('같은 사진의 하자 3건에 함께 반영됩니다.')).not.toBeNull();
+  });
+
+  it('groupSize가 1(단독 하자)이거나 생략되면 그룹 안내를 표시하지 않는다', () => {
+    renderForm('CONFIRMED');
+
+    expect(screen.queryByText(/같은 사진의 하자/)).toBeNull();
+  });
+});
+
 describe('DefectActionForm — 조치일 범위', () => {
   it('조치일은 로컬 날짜 기준 오늘까지만 선택할 수 있다', () => {
     renderForm();
