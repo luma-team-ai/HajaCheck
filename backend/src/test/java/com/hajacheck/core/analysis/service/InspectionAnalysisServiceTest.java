@@ -669,7 +669,7 @@ class InspectionAnalysisServiceTest {
                 .thenReturn(inspectionWithStatus(InspectionStatus.ANALYZED));
         AnalysisStatusResponse oldDone = new AnalysisStatusResponse(
                 INSPECTION_ID, "done", 100, 2, 2, List.of(), 3, 1,
-                java.util.Map.of("A", 0, "B", 0, "C", 1, "D", 1, "E", 1), 0, 0,
+                java.util.Map.of("A", 0, "B", 0, "C", 1, "D", 1, "E", 1), 0, 0, true,
                 java.time.Instant.now().minus(java.time.Duration.ofHours(1)));
         when(progressStore.find(INSPECTION_ID)).thenReturn(Optional.of(oldDone));
 
@@ -793,6 +793,6 @@ class InspectionAnalysisServiceTest {
     private AnalysisStatusResponse progressAsOf(java.time.Instant updatedAt) {
         return new AnalysisStatusResponse(
                 INSPECTION_ID, "aiDetection", 50, 2, 1, List.of(), 0, 0,
-                java.util.Map.of("A", 0, "B", 0, "C", 0, "D", 0, "E", 0), 0, 0, updatedAt);
+                java.util.Map.of("A", 0, "B", 0, "C", 0, "D", 0, "E", 0), 0, 0, false, updatedAt);
     }
 }

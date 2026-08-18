@@ -97,9 +97,10 @@ class V42AddMediaAnalyzedAtMigrationTest {
 
     @Test
     void 마지막하자생성시각이후에업로드된사진은_analyzedAt이null로남는다_핵심회귀경계() {
-        // #1654 핵심 — 분석 완료 후 추가 업로드된 원본 사진은 영구 미분석으로 남아선 안 된다(운영
-        // 실사례 m473/m474(insp44) 등). 백필은 이런 사진을 "이미 분석됨"으로 잘못 표시하면 안 되고,
-        // null로 남겨 증분 분석 대상이 되게 해야 한다.
+        // #1654 핵심 — 분석 완료 후 추가 업로드된 원본 사진은 영구 미분석으로 남아선 안 된다(구조적
+        // 방어 목적 — 메인 정정: m473/m474(insp44) 등은 실제로는 DEFECT_ACTION이라 이 케이스의 실사례가
+        // 아니었다, V42 마이그레이션 헤더 코멘트 참고). 백필은 이런 사진을 "이미 분석됨"으로 잘못
+        // 표시하면 안 되고, null로 남겨 증분 분석 대상이 되게 해야 한다.
         migrateTo("41");
         JdbcTemplate jdbc = jdbc();
         Fixture fx = seedInspection(jdbc, "v42-after-last-defect", "ANALYZED");
@@ -115,10 +116,13 @@ class V42AddMediaAnalyzedAtMigrationTest {
     }
 
     @Test
-    void 하자가하나도없는ANALYZED회차는_전체미디어가null로남는다() {
-        // 분석이 0건을 찾은 회차 — "마지막 하자 생성 시각" 자체가 없으므로 어떤 조건도 만족 못 하고
-        // 전량 null로 남는다. 이 경우도 결과적으로 안전하다: 다음 트리거 시 전체가 "미분석"으로 잡혀
-        // 증분 경로가 사실상 최초 분석과 동일하게 동작한다(worker의 append-only는 기존 하자가 없으므로 무해).
+    void 하자가하나도없는ANALYZED회차는_전체미디어가analyzedAt으로백필된다() {
+        // 리뷰 P1 픽스(#1654) — 분석이 0건을 찾은(=정상적으로 하자가 없는) 회차다. 예전엔 "마지막
+        // 하자 생성 시각" 자체가 없어(defects 행이 아예 없음) ①·② 조건을 둘 다 만족 못 해 전량 null로
+        // 잘못 남았는데, 이러면 이 회차는 실제로는 이미 분석이 끝났는데도 사용자가 "미분석 사진이
+        // 있다"는 잘못된 안내(죽은 "추가 사진 분석" 버튼)를 보게 된다. ANALYZED 이상 상태 자체가
+        // "이미 분석을 마쳤다"는 뜻이므로 하자 0건 회차는 전체 원본 사진을 정상 완료로 보고 백필한다
+        // (V42 마이그레이션 조건 ③).
         migrateTo("41");
         JdbcTemplate jdbc = jdbc();
         Fixture fx = seedInspection(jdbc, "v42-zero-defect", "ANALYZED");
@@ -126,7 +130,7 @@ class V42AddMediaAnalyzedAtMigrationTest {
 
         migrateTo("42");
 
-        assertThat(analyzedAtOf(jdbc, media)).isNull();
+        assertThat(analyzedAtOf(jdbc, media)).isNotNull();
     }
 
     @Test
@@ -172,6 +176,23 @@ class V42AddMediaAnalyzedAtMigrationTest {
         long actionMedia = insertMedia(jdbc, fx.inspectionId(), "v42/action.png");
         setMediaPurpose(jdbc, actionMedia, "DEFECT_ACTION");
         setMediaCreatedAt(jdbc, actionMedia, LocalDateTime.of(2026, 8, 1, 9, 0)); // 마지막 하자 이전 업로드라도.
+
+        migrateTo("42");
+
+        assertThat(analyzedAtOf(jdbc, actionMedia)).isNull();
+    }
+
+    @Test
+    void 하자가하나도없는ANALYZED회차라도_DEFECT_ACTION미디어는_null로남는다() {
+        // 리뷰 P1 픽스(#1654) 방어 테스트 — 조건 ③(하자 0건 회차 전체 백필)이 purpose 필터를
+        // 우회하지 않는지 고정한다. purpose='INSPECTION_SOURCE' 조건은 모든 백필 조건(①②③) 앞에
+        // 공통으로 걸려 있으므로, 회차에 하자가 하나도 없어도 DEFECT_ACTION 미디어는 여전히 null이어야
+        // 한다(#1641 — 애초에 분석 대상이 아님).
+        migrateTo("41");
+        JdbcTemplate jdbc = jdbc();
+        Fixture fx = seedInspection(jdbc, "v42-zero-defect-action", "ANALYZED");
+        long actionMedia = insertMedia(jdbc, fx.inspectionId(), "v42/action-only.png");
+        setMediaPurpose(jdbc, actionMedia, "DEFECT_ACTION");
 
         migrateTo("42");
 

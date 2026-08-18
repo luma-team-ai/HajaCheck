@@ -126,7 +126,7 @@ class PlatformAdminMonitoringServiceTest {
         Instant updatedAt = createdAt.plusMinutes(2).plusSeconds(45)
                 .atZone(java.time.ZoneId.systemDefault()).toInstant();
         AnalysisStatusResponse progress = new AnalysisStatusResponse(
-                1L, "done", 100, 10, 10, List.of(), 0, 0, java.util.Map.of(), 0, 0, updatedAt);
+                1L, "done", 100, 10, 10, List.of(), 0, 0, java.util.Map.of(), 0, 0, true, updatedAt);
         when(analysisProgressStore.find(1L)).thenReturn(Optional.of(progress));
 
         SystemMonitoringResponse response = service().getMonitoring();
