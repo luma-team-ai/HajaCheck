@@ -181,6 +181,23 @@ public class Report extends BaseTimeEntity {
         this.status = ReportStatus.FINALIZED;
     }
 
+    /**
+     * 버전 채번 경합(#1653 P3) 재시도 전용 — {@code uk_reports_inspection_version} 유니크 제약 위반으로
+     * 저장이 실패했을 때, 이미 검증(grounding 등)을 마친 이 인스턴스를 버리지 않고 새로 배정된 버전
+     * 번호로만 다시 저장을 시도한다. version은 같은 inspection 안에서 초안들을 구분하는 순번일 뿐이고
+     * grounding 판정은 콘텐츠(contentJson) 자체에 대해 이미 완료된 뒤이므로, AI 상관관계 재검증
+     * ({@link #recordGroundingResult})을 다시 거칠 필요가 없다 — 새 버전으로 {@link Report#draft}를
+     * 다시 만들면 grounding 결과의 (inspectionId, version, contentJson) 상관관계가 깨져 재검증을 통과할
+     * 수 없기 때문에, 검증이 끝난 이 인스턴스의 버전 필드만 교체하는 이 경로가 필요하다.
+     */
+    public void reassignVersionOnConflictRetry(int version) {
+        requireDraft("reassignVersionOnConflictRetry");
+        if (version < 1) {
+            throw new DomainValidationException("보고서 버전은 1 이상이어야 한다");
+        }
+        this.version = version;
+    }
+
     public void markDeleted(Long editedBy) {
         requireDraft("delete");
         if (this.deletedAt != null) {

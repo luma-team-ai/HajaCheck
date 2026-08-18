@@ -2,6 +2,7 @@ package com.hajacheck.core.report.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.User;
@@ -23,6 +24,8 @@ import com.hajacheck.core.inspection.service.InspectionService;
 import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
+import com.hajacheck.core.report.dto.ReportDefectDiffResponse;
+import com.hajacheck.core.report.dto.ReportDefectSyncResponse;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
 import com.hajacheck.core.report.dto.CompanyReportListItemResponse;
@@ -37,9 +40,11 @@ import com.hajacheck.core.report.support.ReportPdfStorage;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
+import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.global.exception.ErrorCode;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
@@ -48,9 +53,11 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.stream.Stream;
 import com.hajacheck.core.defect.repository.InspectionGradeCountProjection;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -62,6 +69,7 @@ import org.springframework.util.StringUtils;
  * GroundingReportContentSerializer/GroundingCheckResultFactory(report.service, #349/#334 산출물)를
  * 조립만 하고 새로 설계하지 않는다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -70,6 +78,10 @@ public class ReportService {
     // 확정 하자 범위 — DETECTED(AI 자동탐지 직후, 사람 검토 전)는 AI 보고서 입력에서 제외한다.
     private static final List<DefectStatus> CONFIRMED_DEFECT_STATUSES = List.of(
             DefectStatus.CONFIRMED, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED);
+    // 버전 채번 경합(#1653 P3) 재시도 대상 제약명 — GlobalExceptionHandler.EXPECTED_INTEGRITY_CONFLICTS와
+    // 동일한 두 이름(환경별 제약명 차이 대응, 엔티티 @UniqueConstraint 지정명/DB 자동생성명)을 인식한다.
+    private static final Set<String> REPORT_VERSION_CONFLICT_CONSTRAINTS =
+            Set.of("uk_reports_inspection_version", "reports_inspection_id_version_key");
     private static final String DEFAULT_ON_MISMATCH = "regenerate";
     // 내부 AI 서버가 이미 grounding_ok/근거 대조까지 마친 응답만 신뢰하므로(GroundingCheckResultFactory
     // 참고), 별도 경고 수집 파이프라인이 붙기 전까지는 항상 빈 배열로 기록한다(GroundingCheckResult가
@@ -153,8 +165,8 @@ public class ReportService {
                     userId);
         }
 
-        return toDetailResponse(reportRepository.save(report), userId, companyId, inspection, facility,
-                confirmedDefects);
+        Report saved = saveWithVersionConflictRetry(inspectionId, report, false);
+        return toDetailResponse(saved, userId, companyId, inspection, facility, confirmedDefects);
     }
 
     public ReportDetailResponse getReport(Long reportId, Long userId, Long companyId) {
@@ -163,14 +175,20 @@ public class ReportService {
         return toDetailResponse(scoped.report(), userId, companyId, scoped.inspection());
     }
 
-    @Transactional
+    // 버전 채번 경합 재시도(#1653 P3)를 트랜잭션 밖에서 안전하게 수행하기 위해 generateDraft와 동일하게
+    // NOT_SUPPORTED로 둔다 — uk_reports_inspection_version 위반 INSERT 직후 PostgreSQL 트랜잭션은 abort
+    // 상태로 고정되어, 같은 트랜잭션 안에서는 재조회(nextVersion)도 재저장도 전부 실패한다(saveWithVersionConflictRetry
+    // 참고). 읽기 전용 조회(findCompanyReportWithInspection 등)만 있고 이후 갱신할 기존 행이 없어(새 행
+    // INSERT만 발생) 트랜잭션으로 묶을 이유도 없다.
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ReportDetailResponse cloneReport(Long reportId, Long companyId, Long userId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         ScopedReport scoped = findCompanyReportWithInspection(reportId, userId, companyId);
         Report source = scoped.report();
         int nextVersion = nextVersion(source.getInspectionId());
         Report clone = Report.draft(source.getInspectionId(), nextVersion, source.getContentJson(), userId);
-        return toDetailResponse(reportRepository.saveAndFlush(clone), userId, companyId, scoped.inspection());
+        Report saved = saveWithVersionConflictRetry(source.getInspectionId(), clone, true);
+        return toDetailResponse(saved, userId, companyId, scoped.inspection());
     }
 
     public List<ReportSummaryResponse> listReports(Long inspectionId, Long userId, Long companyId) {
@@ -231,7 +249,11 @@ public class ReportService {
         if (inspectionIds.isEmpty()) return Map.of();
         Map<Long, Map<String, Long>> result = new LinkedHashMap<>();
         for (Long inspectionId : inspectionIds) result.put(inspectionId, emptyGradeDistribution());
-        for (InspectionGradeCountProjection count : defectRepository.countGroupByInspectionIdAndGrade(inspectionIds)) {
+        // #1653 P2 — 보고서 목록 등급 분포는 실제로 보고서에 실리는 확정 하자(CONFIRMED_DEFECT_STATUSES)만
+        // 반영한다. status 무관 전체를 세는 countGroupByInspectionIdAndGrade(다른 화면 다수가 소비 중)를
+        // 그대로 쓰면 DETECTED(사람 검토 전)까지 섞여, 보고서에 없는 하자가 목록 배지에는 잡힌다.
+        for (InspectionGradeCountProjection count :
+                defectRepository.countGroupByInspectionIdAndGradeAndStatusIn(inspectionIds, CONFIRMED_DEFECT_STATUSES)) {
             result.get(count.getInspectionId()).put(count.getGrade().name(), count.getCnt());
         }
         return result;
@@ -261,23 +283,34 @@ public class ReportService {
      * LLM 호출·수치 재계산 없이 결정론적으로 재현 가능하다.
      */
     @Transactional
-    public ReportDetailResponse recheckGrounding(Long reportId, Long companyId, Long userId) {
+    public ReportDefectSyncResponse recheckGrounding(Long reportId, Long companyId, Long userId) {
         companyScopeGuard.requireEffectiveMembership(userId, companyId);
         ScopedReport scoped = findCompanyReportWithInspection(reportId, userId, companyId);
         Report report = scoped.report();
 
         List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
                 report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
+        boolean matched = structuralGroundingMatches(report.getContentJson(), confirmedDefects);
+        report.recordStructuralGroundingRecheck(
+                matched, matched ? NO_GROUNDING_WARNINGS : STRUCTURAL_MISMATCH_WARNINGS, userId);
+        ReportDefectDiffResponse diff = computeDefectDiff(confirmedDefects, report.getContentJson());
+        return ReportDefectSyncResponse.from(
+                toDetailResponse(report, userId, companyId, scoped.inspection(), null, confirmedDefects), diff);
+    }
+
+    /**
+     * ai-server report_chain.py `_detail_matches_confirmed` 이식 — AI 서버(LLM) 재호출 없이, 본문
+     * (detail.items)이 확정 하자 목록과 유형+등급 멀티셋 기준으로 구조적으로 일치하는지만 판정한다.
+     * finalizeReport(#1653 P1)와 recheckGrounding이 동일 로직을 공유한다(중복 구현 금지 — handoff 지시).
+     */
+    private static boolean structuralGroundingMatches(String contentJson, List<Defect> confirmedDefects) {
         Map<DefectContentKey, Integer> expected = toMultiset(confirmedDefects.stream()
                 .map(defect -> new DefectContentKey(defect.getType().label(), gradeLabel(defect.getGrade())))
                 .map(ReportService::normalizeKey)
                 .toList());
-        Map<DefectContentKey, Integer> actual = toMultiset(extractDetailKeys(report.getContentJson()));
-        boolean matched = expected.equals(actual)
-                || (actual.isEmpty() && excludesDetailsByGeneratedOptions(report.getContentJson()));
-        report.recordStructuralGroundingRecheck(
-                matched, matched ? NO_GROUNDING_WARNINGS : STRUCTURAL_MISMATCH_WARNINGS, userId);
-        return toDetailResponse(report, userId, companyId, scoped.inspection(), null, confirmedDefects);
+        Map<DefectContentKey, Integer> actual = toMultiset(extractDetailKeys(contentJson));
+        return expected.equals(actual)
+                || (actual.isEmpty() && excludesDetailsByGeneratedOptions(contentJson));
     }
 
     private static String gradeLabel(DefectGrade grade) {
@@ -338,6 +371,173 @@ public class ReportService {
             keys.add(new DefectContentKey(type, grade));
         }
         return keys;
+    }
+
+    /** detail.items의 defect_id(구버전 호환: 없으면 null)까지 함께 추출한다(#1653 P2 diff 계산용). */
+    private record DetailItemRef(Long defectId, String defectType, String severityGrade) {
+    }
+
+    private static List<DetailItemRef> extractDetailItemRefs(String contentJson) {
+        List<DetailItemRef> refs = new ArrayList<>();
+        JsonNode root;
+        try {
+            root = RECHECK_MAPPER.readTree(contentJson);
+        } catch (Exception e) {
+            return refs;
+        }
+        JsonNode items = root.path("detail").path("items");
+        if (!items.isArray()) {
+            return refs;
+        }
+        for (JsonNode item : items) {
+            JsonNode defectIdNode = item.get("defect_id");
+            Long defectId = defectIdNode != null && defectIdNode.isNumber() ? defectIdNode.asLong() : null;
+            refs.add(new DetailItemRef(defectId, textOf(item, "defect_type", "type"), textOf(item, "severity_grade", "grade")));
+        }
+        return refs;
+    }
+
+    /**
+     * 확정 하자 목록과 보고서 본문(detail.items)을 defectId 기준으로 비교한 차이(#1653 P2) —
+     * grounding-recheck(진단만)와 resync-defects(실제 재구성) 모두 이 결과를 반환한다. defectId가
+     * 없는(구버전 저장분) 항목은 누락/잉여로 판정하지 않고 {@code unmatchedItems}로 분류해 노출만
+     * 하며(리뷰 P1-1), rebuild에서도 삭제 없이 그대로 보존한다 — diff와 rebuild의 원칙 일치.
+     */
+    private ReportDefectDiffResponse computeDefectDiff(List<Defect> confirmedDefects, String contentJson) {
+        Map<Long, Defect> confirmedById = new LinkedHashMap<>();
+        for (Defect defect : confirmedDefects) {
+            if (defect.getId() != null) {
+                confirmedById.put(defect.getId(), defect);
+            }
+        }
+        List<DetailItemRef> items = extractDetailItemRefs(contentJson);
+        Set<Long> itemDefectIds = new LinkedHashSet<>();
+        for (DetailItemRef ref : items) {
+            if (ref.defectId() != null) {
+                itemDefectIds.add(ref.defectId());
+            }
+        }
+
+        List<ReportDefectDiffResponse.MissingDefectItem> missing = new ArrayList<>();
+        for (Defect defect : confirmedDefects) {
+            if (defect.getId() != null && !itemDefectIds.contains(defect.getId())) {
+                missing.add(new ReportDefectDiffResponse.MissingDefectItem(
+                        defect.getId(), defect.getType(),
+                        defect.getType() == null ? null : defect.getType().label(),
+                        gradeLabel(defect.getGrade()), resolveDefectLocation(defect)));
+            }
+        }
+
+        List<ReportDefectDiffResponse.ExtraDefectItem> extra = new ArrayList<>();
+        List<ReportDefectDiffResponse.UnmatchedItem> unmatched = new ArrayList<>();
+        for (DetailItemRef ref : items) {
+            if (ref.defectId() == null) {
+                // PR머신 리뷰 P1 — defectId 없는 항목(구버전 저장분)을 잉여로 단정해 조용히 지우지
+                // 않는다. resyncDefects는 이 항목들을 그대로 보존하므로, missing/extra 어느 쪽도
+                // 아닌 "비교 불가" 항목으로 노출해 사용자가 인지하게 한다.
+                unmatched.add(new ReportDefectDiffResponse.UnmatchedItem(ref.defectType(), ref.severityGrade()));
+            } else if (!confirmedById.containsKey(ref.defectId())) {
+                extra.add(new ReportDefectDiffResponse.ExtraDefectItem(
+                        ref.defectId(), ref.defectType(), ref.severityGrade()));
+            }
+        }
+
+        return new ReportDefectDiffResponse(missing, extra, unmatched);
+    }
+
+    /**
+     * 확정 하자 기준으로 detail.items를 재구성한다(#1653 P2 resync-defects) — 여전히 확정 상태인
+     * 항목(defectId 매칭)은 서술(description/cause 등) 그대로 보존하고, 더 이상 확정 하자가 아닌
+     * 항목만 제거한 뒤, 새로 확정된 하자만 구조 필드(defect_type/location/severity_grade)로 추가한다.
+     * 새로 추가되는 항목은 서술(description/cause)이 없어 AI 재호출 없이는 채울 수 없으므로 빈 문자열로
+     * 두고 사용자가 직접 작성하게 한다(finalize는 ReportFinalizationValidator가 그 전까지 막는다).
+     *
+     * <p>⚠️ PR머신 리뷰 P1 — defectId가 없는 항목(2026-08-02 이전 저장분 등 구버전 콘텐츠)은 확정
+     * 하자와 비교할 방법이 없다고 해서 잉여로 간주해 지우면 안 된다(검수자가 직접 쓴 서술의 무경고
+     * 유실). computeDefectDiff와 원칙을 맞춰 그대로 보존하고, 대신 diff.unmatchedItems로 존재를
+     * 알린다 — 실제 정리는 사용자가 그 항목을 확인한 뒤 수동 편집(PATCH)으로 하게 한다.
+     */
+    private String rebuildDetailItems(String contentJson, List<Defect> confirmedDefects) {
+        ObjectNode root;
+        try {
+            JsonNode parsed = RECHECK_MAPPER.readTree(contentJson);
+            if (!(parsed instanceof ObjectNode objectNode)) {
+                throw new DomainValidationException("보고서 본문 구조가 올바르지 않아 재구성할 수 없습니다");
+            }
+            root = objectNode;
+        } catch (DomainValidationException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new DomainValidationException("보고서 본문 JSON을 재구성할 수 없습니다");
+        }
+
+        ObjectNode detail = root.has("detail") && root.get("detail").isObject()
+                ? (ObjectNode) root.get("detail")
+                : root.putObject("detail");
+        ArrayNode existingItems = detail.has("items") && detail.get("items").isArray()
+                ? (ArrayNode) detail.get("items")
+                : RECHECK_MAPPER.createArrayNode();
+
+        Map<Long, Defect> confirmedById = new LinkedHashMap<>();
+        for (Defect defect : confirmedDefects) {
+            if (defect.getId() != null) {
+                confirmedById.put(defect.getId(), defect);
+            }
+        }
+
+        ArrayNode rebuilt = RECHECK_MAPPER.createArrayNode();
+        Set<Long> keptDefectIds = new LinkedHashSet<>();
+        for (JsonNode item : existingItems) {
+            JsonNode defectIdNode = item.get("defect_id");
+            Long defectId = defectIdNode != null && defectIdNode.isNumber() ? defectIdNode.asLong() : null;
+            if (defectId == null) {
+                // 비교 불가 항목(구버전 저장분) — 잉여로 단정해 지우지 않고 그대로 보존한다.
+                rebuilt.add(item);
+                continue;
+            }
+            if (confirmedById.containsKey(defectId)) {
+                rebuilt.add(item);
+                keptDefectIds.add(defectId);
+            }
+            // defectId가 있는데 더 이상 확정 하자가 아니면 제거(잉여 항목).
+        }
+        for (Defect defect : confirmedDefects) {
+            if (defect.getId() == null || keptDefectIds.contains(defect.getId())) {
+                continue;
+            }
+            ObjectNode newItem = RECHECK_MAPPER.createObjectNode();
+            newItem.put("defect_id", defect.getId());
+            newItem.put("defect_type", defect.getType() == null ? "" : defect.getType().label());
+            newItem.put("location", resolveDefectLocation(defect));
+            newItem.put("severity_grade", gradeLabel(defect.getGrade()));
+            newItem.put("description", "");
+            newItem.put("cause", "");
+            rebuilt.add(newItem);
+        }
+
+        detail.set("items", rebuilt);
+        return root.toString();
+    }
+
+    /**
+     * 확정 하자 기준으로 detail.items를 실제로 재구성해 저장한다(#1653 P2 — grounding 불일치 복구 API).
+     * 재구성 후에는 콘텐츠가 바뀌므로 updateContent와 동일하게 grounding 판정이 초기화된다 —
+     * 사용자는 새로 추가된 항목의 서술을 채운 뒤 grounding-recheck를 다시 호출해야 한다.
+     */
+    @Transactional
+    public ReportDefectSyncResponse resyncDefects(Long reportId, Long companyId, Long userId) {
+        companyScopeGuard.requireEffectiveMembership(userId, companyId);
+        ScopedReport scoped = findCompanyReportWithInspection(reportId, userId, companyId);
+        Report report = scoped.report();
+
+        List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
+                report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
+        ReportDefectDiffResponse diff = computeDefectDiff(confirmedDefects, report.getContentJson());
+        String rebuiltContentJson = rebuildDetailItems(report.getContentJson(), confirmedDefects);
+        report.updateContent(rebuiltContentJson, userId);
+
+        return ReportDefectSyncResponse.from(
+                toDetailResponse(report, userId, companyId, scoped.inspection(), null, confirmedDefects), diff);
     }
 
     private static String resolveDefectLocation(Defect defect) {
@@ -406,12 +606,31 @@ public class ReportService {
         companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
         ScopedReport scoped = findCompanyReportWithInspection(reportId, editedByUserId, companyId);
         Report report = scoped.report();
+
+        // 멱등 분기(#1653 P2) — 이미 FINALIZED고 pdfUrl까지 있으면 재시도(응답 유실 등)를 새 요청으로
+        // 다시 처리하지 않고 현재 확정 상태를 그대로 반환한다. pdfUrl이 없는 FINALIZED(비정상 상태)는
+        // 이 분기를 타지 않고 아래로 내려가 requireDraft 위반으로 기존 예외를 그대로 던진다.
+        if (report.getStatus() == ReportStatus.FINALIZED && StringUtils.hasText(report.getPdfUrl())) {
+            return toDetailResponse(report, editedByUserId, companyId, scoped.inspection());
+        }
+
         String storageKey = requireOwnPdfUrl(reportId, pdfUrl);
         reportPdfStorage.load(reportId, storageKey);
         reportFinalizationValidator.validate(report.getContentJson());
+
+        // grounding 상시 재검증(#1653 P1) — 저장된 groundingCheckPassed는 이 보고서가 편집되지 않은
+        // 동안에도 그 사이 확정 하자 목록이 바뀌면 stale해진다(하자 등급 수정·재검수 등, 보고서 자체는
+        // 안 건드림). recheckGrounding과 동일 로직(structuralGroundingMatches)을 재사용해 확정 직전
+        // 매번 최신 확정 하자 기준으로 다시 판정한다 — 신뢰하지 않고 항상 재계산.
+        List<Defect> confirmedDefects = defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(
+                report.getInspectionId(), CONFIRMED_DEFECT_STATUSES);
+        boolean matched = structuralGroundingMatches(report.getContentJson(), confirmedDefects);
+        report.recordStructuralGroundingRecheck(
+                matched, matched ? NO_GROUNDING_WARNINGS : STRUCTURAL_MISMATCH_WARNINGS, editedByUserId);
+
         report.finalizeReport(pdfUrl, editedByUserId);
         markInspectionReported(scoped.inspection(), companyId, editedByUserId);
-        return toDetailResponse(report, editedByUserId, companyId, scoped.inspection());
+        return toDetailResponse(report, editedByUserId, companyId, scoped.inspection(), null, confirmedDefects);
     }
 
     /**
@@ -456,6 +675,9 @@ public class ReportService {
         companyScopeGuard.requireEffectiveMembership(editedByUserId, companyId);
         Report report = findCompanyReport(reportId, editedByUserId, companyId);
         report.markDeleted(editedByUserId);
+        // 고아 PDF 방지(#1653 P3) — DRAFT는 pdfUrl이 없어도(finalize 전 업로드 후 방치) 저장소에는
+        // 파일이 남아 있을 수 있다. 참조 여부와 무관하게 이 보고서 소유 파일 전체를 즉시 정리한다.
+        reportPdfStorage.deleteAll(reportId);
     }
 
     /**
@@ -474,6 +696,43 @@ public class ReportService {
         return reportRepository.findFirstByInspectionIdOrderByVersionDesc(inspectionId)
                 .map(latest -> latest.getVersion() + 1)
                 .orElse(1);
+    }
+
+    /**
+     * 버전 채번 경합(#1653 P3) — nextVersion() 조회와 INSERT 사이 동시 요청이 끼어들면
+     * uk_reports_inspection_version 유니크 제약 위반(REPORT_VERSION_CONFLICT)이 발생한다. 실패 시
+     * 새로 배정된 버전으로 1회만 재시도한다(무한 재시도 대신 팀 결정 — 연속 충돌은 매우 좁은 시간창의
+     * 3중 이상 경합이 필요해 실무상 드묾).
+     *
+     * <p>⚠️ 호출자는 반드시 트랜잭션 밖(NOT_SUPPORTED)이어야 한다 — 실패한 INSERT 직후 PostgreSQL
+     * 트랜잭션은 abort 상태로 고정되어, 같은 물리 트랜잭션 안에서는 재조회·재저장 모두 실패한다.
+     * generateDraft/cloneReport 모두 NOT_SUPPORTED라 각 save 호출이 SimpleJpaRepository 자체
+     * {@code @Transactional} 덕분에 독립된 트랜잭션으로 실행되므로, 두 번째 시도는 첫 시도가 남긴
+     * abort 상태의 영향을 받지 않는다.
+     */
+    private Report saveWithVersionConflictRetry(Long inspectionId, Report report, boolean flush) {
+        try {
+            return flush ? reportRepository.saveAndFlush(report) : reportRepository.save(report);
+        } catch (DataIntegrityViolationException e) {
+            if (!isReportVersionConflict(e)) {
+                throw e;
+            }
+            int retryVersion = nextVersion(inspectionId);
+            log.warn("보고서 버전 채번 경합 감지 — inspectionId={} 재시도 버전={}", inspectionId, retryVersion);
+            report.reassignVersionOnConflictRetry(retryVersion);
+            return flush ? reportRepository.saveAndFlush(report) : reportRepository.save(report);
+        }
+    }
+
+    private static boolean isReportVersionConflict(DataIntegrityViolationException e) {
+        Throwable cause = e;
+        while (cause != null) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraintViolation) {
+                return REPORT_VERSION_CONFLICT_CONSTRAINTS.contains(constraintViolation.getConstraintName());
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     private ReportDetailResponse toDetailResponse(

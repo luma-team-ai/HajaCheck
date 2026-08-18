@@ -3,7 +3,9 @@ package com.hajacheck.core.report.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -11,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.service.CompanyScopeGuard;
 import com.hajacheck.auth.repository.CompanyRepository;
@@ -33,6 +36,7 @@ import com.hajacheck.core.media.entity.Media;
 import com.hajacheck.core.media.entity.MediaFileType;
 import com.hajacheck.core.media.entity.MediaPurpose;
 import com.hajacheck.core.media.repository.MediaRepository;
+import com.hajacheck.core.report.dto.ReportDefectSyncResponse;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
 import com.hajacheck.core.report.entity.Report;
@@ -43,12 +47,15 @@ import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.core.report.support.ReportPdfStorage;
 import java.lang.reflect.Method;
+import java.sql.SQLException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -327,6 +334,53 @@ class ReportServiceTest {
     }
 
     @Test
+    void generateDraft_버전채번경합시1회재시도후성공() {
+        // #1653 P3 — nextVersion() 조회와 INSERT 사이에 동시 요청이 끼어들어 uk_reports_inspection_version
+        // 유니크 제약을 위반하면, 이미 grounding 검증을 마친 이 인스턴스를 버리지 않고 새로 배정된
+        // 버전으로 1회 재시도한다(AI 재호출 없음 — aiProxyService는 1회만 호출돼야 한다).
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        Report concurrentWinner = Report.draft(1L, 1, "{}", 999L);
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(concurrentWinner));
+        when(aiProxyService.generateReport(anyLong(), any()))
+                .thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        when(reportRepository.save(any()))
+                .thenThrow(new DataIntegrityViolationException("dup",
+                        new ConstraintViolationException(
+                                "dup", new SQLException("dup"), "uk_reports_inspection_version")))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.generateDraft(1L, 100L, 200L);
+
+        assertThat(response.version()).isEqualTo(2);
+        assertThat(response.groundingCheckPassed()).isTrue();
+        verify(reportRepository, times(2)).save(any());
+        verify(aiProxyService, times(1)).generateReport(anyLong(), any());
+    }
+
+    @Test
+    void generateDraft_버전채번경합이아닌무결성위반은그대로전파() {
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any()))
+                .thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        DataIntegrityViolationException other = new DataIntegrityViolationException("other",
+                new ConstraintViolationException("other", new SQLException("other"), "some_other_constraint"));
+        when(reportRepository.save(any())).thenThrow(other);
+
+        assertThatThrownBy(() -> reportService.generateDraft(1L, 100L, 200L))
+                .isSameAs(other);
+        verify(reportRepository, times(1)).save(any());
+    }
+
+    @Test
     void generateDraft_AI응답실패_REPORT_GENERATION_FAILED() {
         when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
         when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
@@ -413,6 +467,39 @@ class ReportServiceTest {
                 .isInstanceOf(IllegalStateException.class);
     }
 
+    @Test
+    void listCompanyReports_등급분포는확정하자상태로필터링된신규메서드를사용한다() {
+        // #1653 P2 — 목록 등급 분포가 status 무관 전체를 세는 옛 메서드(countGroupByInspectionIdAndGrade,
+        // DETECTED 포함)를 그대로 쓰면 안 된다. 보고서에 실제로 실리는 확정 하자만 세는 신규 메서드로
+        // 전환됐는지 배선을 확인한다(실제 status 필터 동작 자체는 DefectRepositoryTest에서 검증).
+        // CompanyReportListItemResponse.from()이 report.getInspection().getFacility()를 직접 읽으므로
+        // (실제 쿼리는 join fetch로 채움) 단위 테스트에서는 그 관계를 리플렉션으로 직접 채운다
+        // (MyInspectionsServiceTest의 기존 패턴과 동일).
+        com.hajacheck.core.facility.entity.Facility facility =
+                com.hajacheck.core.facility.entity.Facility.builder()
+                        .companyId(100L).name("테스트빌딩").type("BUILDING").build();
+        com.hajacheck.core.inspection.entity.Inspection inspection =
+                com.hajacheck.core.inspection.entity.Inspection.builder()
+                        .facilityId(10L).createdBy(200L).assignedInspectorId(200L).roundNo(1)
+                        .inspectionDate(LocalDate.now()).status(InspectionStatus.ANALYZED).build();
+        ReflectionTestUtils.setField(inspection, "id", 1L);
+        ReflectionTestUtils.setField(inspection, "facility", facility);
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        ReflectionTestUtils.setField(report, "inspection", inspection);
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(0, 10);
+        org.springframework.data.domain.Page<Report> page =
+                new org.springframework.data.domain.PageImpl<>(List.of(report), pageable, 1);
+        when(reportRepository.findCompanyPage(eq(100L), any(), anyLong(), anyInt(), any(), any(), eq(pageable)))
+                .thenReturn(page);
+        when(defectRepository.countGroupByInspectionIdAndGradeAndStatusIn(any(), any())).thenReturn(List.of());
+
+        reportService.listCompanyReports(200L, 100L, null, null, null, "", "ALL", pageable);
+
+        verify(defectRepository).countGroupByInspectionIdAndGradeAndStatusIn(
+                List.of(1L), List.of(DefectStatus.CONFIRMED, DefectStatus.IN_PROGRESS, DefectStatus.RESOLVED));
+        verify(defectRepository, never()).countGroupByInspectionIdAndGrade(any());
+    }
+
     private static Defect confirmedDefect(DefectType type, DefectGrade grade) {
         return Defect.builder()
                 .inspectionId(1L)
@@ -464,7 +551,7 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isTrue();
         assertThat(report.getGroundingWarnings()).isEqualTo("[]");
@@ -480,7 +567,7 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
 
-        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
         ReportDetailResponse finalizeResponse = reportService.finalizeReport(
                 5L, "/api/reports/5/pdf/r.pdf", 500L, 200L);
 
@@ -499,7 +586,7 @@ class ReportServiceTest {
 
         ReportDetailResponse updateResponse = reportService.updateContent(
                 5L, contentJsonWithoutDetailsSection(), 500L, 200L);
-        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(updateResponse.content().has("reportOptions")).isTrue();
         assertThat(recheckResponse.groundingCheckPassed()).isTrue();
@@ -515,7 +602,7 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
 
-        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(recheckResponse.groundingCheckPassed()).isFalse();
         assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 500L, 200L))
@@ -534,7 +621,7 @@ class ReportServiceTest {
 
         ReportDetailResponse updateResponse = reportService.updateContent(
                 5L, contentJsonWithoutDetailsSection(), 500L, 200L);
-        ReportDetailResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse recheckResponse = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(updateResponse.content().has("reportOptions")).isFalse();
         assertThat(recheckResponse.groundingCheckPassed()).isFalse();
@@ -553,7 +640,7 @@ class ReportServiceTest {
                         confirmedDefect(DefectType.CRACK, DefectGrade.C),
                         confirmedDefect(DefectType.SPALLING, DefectGrade.B)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isTrue();
     }
@@ -566,7 +653,7 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isFalse();
         assertThat(report.getGroundingWarnings()).contains("일치하지 않습니다");
@@ -580,7 +667,7 @@ class ReportServiceTest {
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isFalse();
     }
@@ -595,7 +682,7 @@ class ReportServiceTest {
                         confirmedDefect(DefectType.CRACK, DefectGrade.C),
                         confirmedDefect(DefectType.SPALLING, DefectGrade.B)));
 
-        ReportDetailResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+        ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
 
         assertThat(response.groundingCheckPassed()).isFalse();
     }
@@ -627,6 +714,156 @@ class ReportServiceTest {
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
 
         assertThatThrownBy(() -> reportService.recheckGrounding(5L, 500L, 100L))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    private static Defect confirmedDefectWithId(Long id, DefectType type, DefectGrade grade) {
+        Defect defect = confirmedDefect(type, grade);
+        ReflectionTestUtils.setField(defect, "id", id);
+        return defect;
+    }
+
+    private static String contentJsonWithDetailItem(Long defectId, String type, String grade) {
+        ReportResponse.DetailItem item =
+                new ReportResponse.DetailItem(defectId, type, "위치", grade, "기존 설명", "기존 원인");
+        ReportResponse aiReport = new ReportResponse(
+                new ReportResponse.Overview("목적", "요약", "범위"),
+                new ReportResponse.Summary("양호", 1, java.util.Map.of(), List.of()),
+                new ReportResponse.Detail(List.of(item)),
+                new ReportResponse.Recommendation(List.of(), List.of()),
+                true);
+        return GroundingReportContentSerializer.serialize(aiReport);
+    }
+
+    @Test
+    void resyncDefects_새확정하자를추가하고서술은비워둔다() {
+        // #1653 P2 — resync-defects는 새로 확정된 하자를 구조 필드만 채워 추가한다. 서술(description/
+        // cause)은 AI 재호출 없이는 채울 수 없으므로 빈 문자열로 두고 사용자가 직접 작성해야 한다.
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems(), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefectWithId(1L, DefectType.CRACK, DefectGrade.C)));
+
+        ReportDefectSyncResponse response = reportService.resyncDefects(5L, 500L, 200L);
+
+        JsonNode items = response.content().path("detail").path("items");
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).path("defect_id").asLong()).isEqualTo(1L);
+        assertThat(items.get(0).path("description").asText()).isEmpty();
+        assertThat(items.get(0).path("cause").asText()).isEmpty();
+        assertThat(response.diff().missingDefects()).hasSize(1);
+        assertThat(response.diff().missingDefects().get(0).defectId()).isEqualTo(1L);
+        assertThat(response.diff().extraItems()).isEmpty();
+        // resync는 본문을 바꾸므로 updateContent와 동일하게 grounding 판정이 초기화된다.
+        assertThat(response.groundingCheckPassed()).isNull();
+    }
+
+    @Test
+    void resyncDefects_여전히확정된항목은서술을보존한다() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItem(1L, "균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefectWithId(1L, DefectType.CRACK, DefectGrade.C)));
+
+        ReportDefectSyncResponse response = reportService.resyncDefects(5L, 500L, 200L);
+
+        JsonNode items = response.content().path("detail").path("items");
+        assertThat(items).hasSize(1);
+        assertThat(items.get(0).path("description").asText()).isEqualTo("기존 설명");
+        assertThat(items.get(0).path("cause").asText()).isEqualTo("기존 원인");
+        assertThat(response.diff().missingDefects()).isEmpty();
+        assertThat(response.diff().extraItems()).isEmpty();
+    }
+
+    @Test
+    void resyncDefects_더이상확정하자가아닌항목은제거한다() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItem(1L, "균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+
+        ReportDefectSyncResponse response = reportService.resyncDefects(5L, 500L, 200L);
+
+        assertThat(response.content().path("detail").path("items")).isEmpty();
+        assertThat(response.diff().extraItems()).hasSize(1);
+        assertThat(response.diff().extraItems().get(0).defectId()).isEqualTo(1L);
+        assertThat(response.diff().missingDefects()).isEmpty();
+    }
+
+    @Test
+    void resyncDefects_defectId없는레거시항목은삭제하지않고보존하며diff에unmatched로노출한다() {
+        // PR머신 리뷰 P1 — defectId가 없는 항목(2026-08-02 이전 저장분 등 구버전 콘텐츠)을 비교가
+        // 안 된다는 이유로 잉여 취급해 지우면 검수자가 직접 쓴 서술이 무경고로 사라진다. 확정 하자가
+        // 0건이라(잉여로 오판되기 가장 쉬운 조건) 이 항목이 정말 "제거 대상이 아니라 보존 대상"인지를
+        // extraItems(제거)가 아니라 unmatchedItems(보존)로 판정하는지 검증한다.
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+
+        ReportDefectSyncResponse response = reportService.resyncDefects(5L, 500L, 200L);
+
+        JsonNode items = response.content().path("detail").path("items");
+        assertThat(items).hasSize(1); // 삭제되지 않고 그대로 보존됨
+        assertThat(items.get(0).path("defect_type").asText()).isEqualTo("균열");
+        assertThat(items.get(0).path("description").asText()).isEqualTo("설명"); // 서술도 그대로 보존
+        assertThat(response.diff().extraItems()).isEmpty(); // defectId가 없어 "잉여"로 잘못 잡히지 않음
+        assertThat(response.diff().missingDefects()).isEmpty();
+        assertThat(response.diff().unmatchedItems()).hasSize(1);
+        assertThat(response.diff().unmatchedItems().get(0).defectType()).isEqualTo("균열");
+        assertThat(response.diff().unmatchedItems().get(0).severityGrade()).isEqualTo("C");
+    }
+
+    @Test
+    void recheckGrounding_defectId없는레거시항목은diff의unmatchedItems로노출된다() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDefectSyncResponse response = reportService.recheckGrounding(5L, 500L, 100L);
+
+        // grounding-recheck는 진단만 하므로 본문은 바뀌지 않는다.
+        assertThat(response.content().path("detail").path("items")).hasSize(1);
+        assertThat(response.diff().extraItems()).isEmpty();
+        assertThat(response.diff().unmatchedItems()).hasSize(1);
+        assertThat(response.diff().unmatchedItems().get(0).defectType()).isEqualTo("균열");
+    }
+
+    @Test
+    void resyncDefects_타인소유_REPORT_NOT_FOUND() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems(), 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
+                .when(inspectionService).getInspection(999L, 500L, 1L);
+
+        assertThatThrownBy(() -> reportService.resyncDefects(5L, 500L, 999L))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.REPORT_NOT_FOUND));
+        verify(defectRepository, never()).findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any());
+    }
+
+    @Test
+    void resyncDefects_FINALIZED상태에서시도하면예외() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        report.finalizeReport("/api/reports/5/pdf/r.pdf", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        assertThatThrownBy(() -> reportService.resyncDefects(5L, 500L, 100L))
                 .isInstanceOf(IllegalStateException.class);
     }
 
@@ -681,6 +918,43 @@ class ReportServiceTest {
         assertThat(clone.getCreatedBy()).isEqualTo(200L);
         assertThat(clone.getEditedBy()).isNull();
         assertThat(clone.getGroundingWarnings()).isNull();
+    }
+
+    /**
+     * cloneReport 버전 채번 경합 재시도(#1653 P3)를 트랜잭션 밖에서 안전하게 수행하려면 generateDraft와
+     * 동일하게 NOT_SUPPORTED여야 한다 — 실패한 INSERT 직후 PostgreSQL 트랜잭션이 abort 상태로 고정되면
+     * 같은 트랜잭션 안에서는 재조회·재저장이 모두 실패하기 때문이다(saveWithVersionConflictRetry 참고).
+     */
+    @Test
+    void cloneReport_트랜잭션밖실행_NOT_SUPPORTED() throws NoSuchMethodException {
+        Method method = ReportService.class.getMethod("cloneReport", Long.class, Long.class, Long.class);
+        Transactional transactional = method.getAnnotation(Transactional.class);
+
+        assertThat(transactional).as("cloneReport 는 @Transactional 애노테이션을 명시해야 한다").isNotNull();
+        assertThat(transactional.propagation())
+                .as("버전 채번 경합 재시도가 abort된 트랜잭션에 갇히지 않도록 NOT_SUPPORTED 여야 한다")
+                .isEqualTo(Propagation.NOT_SUPPORTED);
+    }
+
+    @Test
+    void cloneReport_버전채번경합시1회재시도후성공() {
+        Report source = Report.draft(1L, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(source));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        Report concurrentWinner = Report.draft(1L, 3, "{}", 999L);
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L))
+                .thenReturn(Optional.of(source))
+                .thenReturn(Optional.of(concurrentWinner));
+        when(reportRepository.saveAndFlush(any()))
+                .thenThrow(new DataIntegrityViolationException("dup",
+                        new ConstraintViolationException(
+                                "dup", new SQLException("dup"), "uk_reports_inspection_version")))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.cloneReport(5L, 100L, 200L);
+
+        assertThat(response.version()).isEqualTo(4);
+        verify(reportRepository, times(2)).saveAndFlush(any());
     }
 
     @Test
@@ -859,6 +1133,75 @@ class ReportServiceTest {
 
         assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
         assertThat(response.pdfUrl()).isEqualTo("/api/reports/5/pdf/r.pdf");
+    }
+
+    @Test
+    void finalizeReport_이미FINALIZED이고pdfUrl있으면_재확정없이현재상태를반환한다() {
+        // #1653 P2 — 확정 응답 유실(멱등성) 재현: 클라이언트가 성공 응답을 못 받고 재시도해도
+        // 재확정을 시도하지 않고 현재 확정 상태를 그대로 반환한다(재검증·회차 상태전이 등 부수효과 없음).
+        Report report = Report.draft(1L, 1, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        report.finalizeReport("/api/reports/5/pdf/r.pdf", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+
+        ReportDetailResponse response = reportService.finalizeReport(5L, "/api/reports/5/pdf/other.pdf", 100L, 200L);
+
+        assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
+        // 기존 확정 pdfUrl을 그대로 유지 — 재확정을 시도하지 않았다는 증거.
+        assertThat(response.pdfUrl()).isEqualTo("/api/reports/5/pdf/r.pdf");
+        // PDF 로드·본문 검증·grounding 재검증·회차 상태전이 등 재확정 부수효과가 전혀 일어나지 않는다.
+        verifyNoInteractions(reportPdfStorage, reportFinalizationValidator);
+        verify(inspectionService, never()).advanceStatus(any(), any(), any(), any());
+    }
+
+    @Test
+    void finalizeReport_grounding재검증은상시수행_stale통과판정이있어도불일치면거부() {
+        // #1653 P1 — finalize가 저장된 groundingCheckPassed=true(stale)를 그대로 신뢰하면 안 된다.
+        // 보고서 자체는 편집되지 않았지만(그래서 groundingCheckPassed는 여전히 true) 그 사이 하자
+        // 등급이 수정돼(C→B) 확정 하자 목록과 본문(detail.items)이 더 이상 일치하지 않는 상황.
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        assertThat(report.getGroundingCheckPassed()).isTrue(); // stale true 상태에서 출발
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.B)));
+
+        assertThatThrownBy(() -> reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("근거 검증");
+        assertThat(report.getStatus()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.DRAFT);
+    }
+
+    @Test
+    void finalizeReport_grounding재검증은상시수행_최신확정하자와일치하면성공() {
+        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of(confirmedDefect(DefectType.CRACK, DefectGrade.C)));
+
+        ReportDetailResponse response = reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
+
+        assertThat(response.status()).isEqualTo(com.hajacheck.core.report.entity.ReportStatus.FINALIZED);
+        verify(defectRepository, times(1)).findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any());
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.hajacheck.core.report.controller;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.report.dto.FinalizeReportRequest;
 import com.hajacheck.core.report.dto.GenerateDraftRequest;
+import com.hajacheck.core.report.dto.ReportDefectSyncResponse;
 import com.hajacheck.core.report.dto.ReportDetailResponse;
 import com.hajacheck.core.report.dto.ReportPdfResponse;
 import com.hajacheck.core.report.dto.ReportSummaryResponse;
@@ -137,12 +138,26 @@ public class ReportController {
 
     @Operation(summary = "보고서 근거 재검증(구조 검증)",
             description = "AI 서버 재호출 없이 본문(detail.items)과 확정 하자 목록을 유형+등급 기준으로 대조해 "
-                    + "grounding 판정을 복구한다 — 편집(PATCH) 후 확정이 막힌 DRAFT 보고서에만 사용한다")
+                    + "grounding 판정을 복구한다 — 편집(PATCH) 후 확정이 막힌 DRAFT 보고서에만 사용한다. "
+                    + "응답의 diff는 resync-defects를 호출하면 본문이 어떻게 바뀔지 미리 보여준다")
     @PostMapping("/api/reports/{id}/grounding-recheck")
-    public ResponseEntity<ApiResponse<ReportDetailResponse>> recheckGrounding(
+    public ResponseEntity<ApiResponse<ReportDefectSyncResponse>> recheckGrounding(
             @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
-        ReportDetailResponse response =
+        ReportDefectSyncResponse response =
                 reportService.recheckGrounding(id, loginUser.getCompanyId(), loginUser.getUserId());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "보고서 하자 목록 재동기화",
+            description = "본문(detail.items)을 현재 확정 하자 목록 기준으로 재구성한다(자동 재구성 버튼) — "
+                    + "여전히 확정 상태인 항목은 서술(설명·원인)을 보존하고, 확정에서 빠진 항목만 제거하며, "
+                    + "새로 확정된 하자는 구조 필드만 채워 추가한다(서술은 직접 작성 필요). "
+                    + "본문이 바뀌므로 grounding 판정은 초기화된다 — DRAFT 보고서에만 사용한다")
+    @PostMapping("/api/reports/{id}/resync-defects")
+    public ResponseEntity<ApiResponse<ReportDefectSyncResponse>> resyncDefects(
+            @PathVariable Long id, @AuthenticationPrincipal LoginUser loginUser) {
+        ReportDefectSyncResponse response =
+                reportService.resyncDefects(id, loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

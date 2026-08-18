@@ -94,6 +94,18 @@ public interface DefectRepository extends JpaRepository<Defect, Long>, DefectRep
     List<InspectionGradeCountProjection> countGroupByInspectionIdAndGrade(
             @Param("inspectionIds") Collection<Long> inspectionIds);
 
+    // 보고서 목록 등급 분포(#1653 P2) — countGroupByInspectionIdAndGrade는 status 무관 전체 하자를
+    // 집계해 DETECTED(AI 자동탐지 직후, 사람 검토 전)까지 포함시킨다. 보고서 화면의 등급 분포는
+    // 실제로 보고서에 실리는 확정 하자(CONFIRMED/IN_PROGRESS/RESOLVED)만 반영해야 하므로 별도
+    // 메서드로 분리한다 — 점검 목록·시설물 개요·통계 등 기존 소비처(countGroupByInspectionIdAndGrade)는
+    // 그대로 두고(다른 화면 회귀 방지, #1653 handoff 지시) 보고서 화면만 이 메서드로 전환한다.
+    @Query("select d.inspectionId as inspectionId, d.grade as grade, count(d) as cnt from Defect d "
+            + "where d.inspectionId in :inspectionIds and d.deleted = false and d.grade is not null "
+            + "and d.status in :statuses group by d.inspectionId, d.grade")
+    List<InspectionGradeCountProjection> countGroupByInspectionIdAndGradeAndStatusIn(
+            @Param("inspectionIds") Collection<Long> inspectionIds,
+            @Param("statuses") Collection<DefectStatus> statuses);
+
     @Query("select d.status as status, count(d) as cnt from Defect d "
             + "where d.inspectionId in :inspectionIds and d.deleted = false group by d.status")
     List<DefectStatusCountProjection> countGroupByStatus(@Param("inspectionIds") Collection<Long> inspectionIds);
