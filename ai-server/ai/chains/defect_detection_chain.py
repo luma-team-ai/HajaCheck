@@ -507,11 +507,16 @@ def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
             # 카드 검출 호출부를 상위로 옮기며 이 블록 밖으로 새어나간 회귀, 코드 리뷰 P1 픽스).
             # detect_card 자체는 이미 _safe_detect_card가 격리하므로, 여기서 격리할 대상은 스케일
             # 적용(측정) 단계다.
+            # 두 적용 단계는 서로 독립(CRACK width_mm vs SPALLING/REBAR area_mm2)이라 각각 격리한다 —
+            # CV 연산이 얽힌 width_mm 실패가 단순 산술인 area_mm2 적용까지 막지 않게(코드 리뷰 P3).
             try:
                 if crack_content_probability is not None:
                     _apply_crack_width_mm(detections, image, crack_content_probability, card_scale_mm_per_px)
+            except Exception:
+                logger.exception("균열 폭 mm 적용 실패 — width_mm 없이 하자 탐지 결과는 그대로 반환한다 (#1658)")
+            try:
                 _apply_area_mm2(detections, card_scale_mm_per_px)
             except Exception:
-                logger.exception("카드 스케일 적용 실패 — mm 병기 없이 하자 탐지 결과는 그대로 반환한다 (#1658)")
+                logger.exception("면적 mm² 적용 실패 — area_mm2 없이 하자 탐지 결과는 그대로 반환한다 (#1658)")
 
     return detections
