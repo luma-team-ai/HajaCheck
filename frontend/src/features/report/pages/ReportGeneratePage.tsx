@@ -380,6 +380,13 @@ export function ReportGeneratePage() {
         applyReport(result.report);
         setSyncDiff(null);
       } else {
+        // #1666 리뷰 P1 픽스 — recheck가 실패를 반환한 경우에만 result.report가 채워진다. 이걸
+        // applyReport로 반영하지 않으면 로컬 report.groundingCheckPassed가 갱신되지 않아(예: 첫
+        // 확정 시도처럼 null로 시작한 경우) 배너 조건(`groundingCheckPassed === false`)이 절대
+        // 참이 되지 않고, diff를 채워도 배너 자체가 뜨지 않는 회귀가 있었다.
+        if (result.report) {
+          applyReport(result.report);
+        }
         setFinalizeError(result.message);
         setSyncDiff(result.diff ?? null);
         setAlertModal({ open: true, title: result.title, message: result.message });
@@ -394,7 +401,7 @@ export function ReportGeneratePage() {
   // 실제로 재작성하므로, 저장하지 않은 로컬 편집이 있는 채로 호출하면 그 편집이 조용히 유실된다
   // — 먼저 임시저장을 요구해 데이터 유실을 막는다.
   const handleResyncDefects = async () => {
-    if (!report || isResyncingDefects || isFinalized) return;
+    if (!report || isResyncingDefects || isFinalized || isSaving || isFinalizing) return;
     if (dirty) {
       setAlertModal({
         open: true,
@@ -407,7 +414,11 @@ export function ReportGeneratePage() {
     try {
       const response = await reportApi.resyncDefects(report.id);
       applyReport(response.data);
-      setSyncDiff(response.data.diff);
+      // #1666 리뷰 P2 픽스 — resync-defects는 본문을 실제로 재구성하며 서버가 groundingCheckPassed를
+      // null로 리셋한다(#1653 계약). 그 순간 배너 조건(groundingCheckPassed === false)이 거짓이 되어
+      // 배너 자체가 사라지므로, 응답의 diff를 syncDiff에 남겨봐야 화면에 그려질 곳이 없는 죽은 값이다
+      // — stale diff가 다음 실패 배너에 잘못 재사용되지 않도록 명시적으로 비운다.
+      setSyncDiff(null);
       const hasNewBlankItems = response.data.diff.missingDefects.length > 0;
       setAlertModal({
         open: true,
@@ -736,7 +747,7 @@ export function ReportGeneratePage() {
               type="button"
               variant="secondary"
               onClick={() => void handleResyncDefects()}
-              disabled={isResyncingDefects}
+              disabled={isResyncingDefects || isSaving || isFinalizing}
             >
               {isResyncingDefects ? '재구성 중...' : '현재 하자 기준으로 다시 맞추기'}
             </Button>

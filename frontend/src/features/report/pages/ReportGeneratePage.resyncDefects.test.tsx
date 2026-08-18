@@ -240,4 +240,29 @@ describe('ReportGeneratePage — grounding diff 표시 · 자동 재구성 버�
     expect(within(screen.getByRole('dialog')).getByText(/저장하지 않은 변경 사항이 있습니다/)).toBeTruthy();
     expect(resyncCallCount).toBe(0);
   });
+
+  // #1666 리뷰 P1 회귀 테스트 — 이전 버전은 groundingCheckPassed=false로 미리 세팅된 보고서에서만
+  // 배너를 검증해, "첫 확정 시도(=null에서 시작)에서 recheck 실패 시 배너가 안 뜨는" 버그를
+  // 우회하고 있었다. groundingCheckPassed=null인 보고서로 시작해 확정 버튼을 한 번만 눌러도
+  // 실패 배너와 diff가 즉시 표시돼야 한다(runFinalizeReportFlow가 반환한 report로 로컬 상태를
+  // 갱신해야만 가능 — ReportGeneratePage.tsx handleFinalizeAll의 applyReport(result.report) 픽스).
+  it('groundingCheckPassed가 null인 보고서에서 최종 보고서 확정을 처음 눌러도 recheck 실패 시 배너와 diff가 즉시 표시된다', async () => {
+    const nullGroundingReport: ReportDetailResponse = { ...mockReport, groundingCheckPassed: null };
+    server.use(
+      http.get('/api/reports/1', () => HttpResponse.json({ success: true, data: nullGroundingReport })),
+    );
+
+    renderPage();
+    await screen.findByText('보고서 생성 결과');
+    expect(screen.queryByText('검증 실패 — 내용을 확인 후 다시 검증하세요.')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /최종 보고서 확정/ }));
+
+    await waitFor(() => {
+      expect(recheckCallCount).toBeGreaterThan(0);
+    });
+    await screen.findByText('검증 실패 — 내용을 확인 후 다시 검증하세요.');
+    expect(screen.getByText(/보고서에 누락된 확정 하자/)).toBeTruthy();
+    expect(screen.getByText(/균열 · B등급 · 2층 슬래브/)).toBeTruthy();
+  });
 });
