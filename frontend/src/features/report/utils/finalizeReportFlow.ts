@@ -1,5 +1,5 @@
 import { reportApi } from '../api/reportApi';
-import type { ReportDetailResponse } from '../api/reportApi';
+import type { ReportDefectDiff, ReportDetailResponse } from '../api/reportApi';
 import { isReportContent } from '../types';
 import type { ReportContent } from '../types';
 import { exportReportToPdf } from './exportReportToPdf';
@@ -14,7 +14,11 @@ import type { InspectionResult } from '../../inspection/types';
 
 export type FinalizeResult =
   | { ok: true; report: ReportDetailResponse }
-  | { ok: false; title: string; message: string };
+  // report/diff는 groundingRecheck가 실패(검증 실패)했을 때만 채워진다(#1666 리뷰 P1 픽스) —
+  // 호출부가 이 report로 로컬 상태를 갱신해야 groundingCheckPassed=false가 반영되고 배너·diff가
+  // 실제로 화면에 뜬다. recheck 자체가 호출되지 않은 다른 실패(발행 불가·필수값 누락·확정 검증
+  // 자체 실패·PDF 생성/확정 실패)는 report/diff가 없다.
+  | { ok: false; title: string; message: string; report?: ReportDetailResponse; diff?: ReportDefectDiff };
 
 export async function runFinalizeReportFlow(
   reportId: number,
@@ -68,6 +72,8 @@ export async function runFinalizeReportFlow(
           ok: false,
           title: '검증 실패',
           message: '검증 실패 — 내용을 확인 후 다시 시도하세요.',
+          report: recheckResp.data,
+          diff: recheckResp.data.diff,
         };
       }
     } catch (err: unknown) {
@@ -89,6 +95,18 @@ export async function runFinalizeReportFlow(
     const finalizeResponse = await reportApi.finalizeReport(reportId, uploadResponse.data.pdfUrl);
     return { ok: true, report: finalizeResponse.data };
   } catch (err: unknown) {
+    // 응답 유실 복구(#1666) — 확정 요청 자체는 서버에 도달해 처리됐지만(네트워크 단절 등으로) 응답만
+    // 유실된 경우, existingReport 캐시(호출 시점의 로컬 상태)를 신뢰해 실패로 잘못 보고하지 않도록
+    // 서버를 재조회해 실제 상태를 확인한다. finalizeReport의 멱등 분기(FINALIZED+pdfUrl이면 그대로
+    // 반환)와 페어 — 재조회 결과가 이미 FINALIZED면 재시도 없이 성공으로 취급한다.
+    try {
+      const latest = await reportApi.getReport(reportId);
+      if (latest.data.status === 'FINALIZED') {
+        return { ok: true, report: latest.data };
+      }
+    } catch {
+      // 재조회 자체가 실패하면 원래 에러 메시지로 폴백한다(아래).
+    }
     const message = getApiErrorMessage(err, 'PDF 생성/확정에 실패했습니다.');
     return { ok: false, title: 'PDF 생성/확정 실패', message };
   }

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { runFinalizeReportFlow } from './finalizeReportFlow';
 import { reportApi } from '../api/reportApi';
-import type { ReportDetailResponse } from '../api/reportApi';
+import type { ReportDefectDiff, ReportDefectSyncResponse, ReportDetailResponse } from '../api/reportApi';
 import type { ReportContent } from '../types';
 
 vi.mock('../api/reportApi', () => ({
@@ -60,6 +60,8 @@ const baseReport: ReportDetailResponse = {
   updatedAt: '2026-08-01T00:00:00Z',
 };
 
+const emptyDiff: ReportDefectDiff = { missingDefects: [], extraItems: [], unmatchedItems: [] };
+
 describe('runFinalizeReportFlow unit tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -71,9 +73,10 @@ describe('runFinalizeReportFlow unit tests', () => {
       groundingCheckPassed: null,
     };
 
-    const recheckReport: ReportDetailResponse = {
+    const recheckReport: ReportDefectSyncResponse = {
       ...baseReport,
       groundingCheckPassed: true,
+      diff: emptyDiff,
     };
 
     const finalizedReport: ReportDetailResponse = {
@@ -105,9 +108,10 @@ describe('runFinalizeReportFlow unit tests', () => {
       groundingCheckPassed: null,
     };
 
-    const recheckReport: ReportDetailResponse = {
+    const recheckReport: ReportDefectSyncResponse = {
       ...baseReport,
       groundingCheckPassed: true,
+      diff: emptyDiff,
     };
 
     vi.mocked(reportApi.groundingRecheck).mockResolvedValueOnce(axiosResponse(recheckReport));
@@ -135,9 +139,18 @@ describe('runFinalizeReportFlow unit tests', () => {
       groundingCheckPassed: null,
     };
 
-    const recheckFailedReport: ReportDetailResponse = {
+    const diffOnMismatch: ReportDefectDiff = {
+      missingDefects: [
+        { defectId: 5, defectType: 'CRACK', typeLabel: '균열', severityGrade: 'C', location: '1층 슬래브' },
+      ],
+      extraItems: [],
+      unmatchedItems: [],
+    };
+
+    const recheckFailedReport: ReportDefectSyncResponse = {
       ...baseReport,
       groundingCheckPassed: false,
+      diff: diffOnMismatch,
     };
 
     vi.mocked(reportApi.groundingRecheck).mockResolvedValueOnce(axiosResponse(recheckFailedReport));
@@ -147,9 +160,85 @@ describe('runFinalizeReportFlow unit tests', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.title).toBe('검증 실패');
+      // #1666 — recheck 응답의 diff가 실패 결과에 그대로 실려 배너에서 소비할 수 있어야 한다.
+      expect(result.diff).toEqual(diffOnMismatch);
+      // #1666 리뷰 P1 픽스 — recheck 응답의 report(groundingCheckPassed=false 포함)도 함께 실려야
+      // 호출부(ReportGeneratePage)가 로컬 상태를 갱신해 배너를 실제로 띄울 수 있다. 이게 없으면
+      // groundingCheckPassed가 null로 시작한 첫 확정 시도에서 로컬 report가 갱신되지 않아 배너
+      // 조건(=== false)이 참이 되지 않는 회귀가 있었다.
+      expect(result.report?.groundingCheckPassed).toBe(false);
     }
     expect(reportApi.groundingRecheck).toHaveBeenCalledWith(10);
     expect(reportApi.uploadPdf).not.toHaveBeenCalled();
     expect(reportApi.finalizeReport).not.toHaveBeenCalled();
+  });
+
+  it('#1666 — 확정 요청이 응답 유실 등으로 실패해도 서버 재조회 결과 이미 FINALIZED면 성공으로 복구한다', async () => {
+    const recheckReport: ReportDefectSyncResponse = {
+      ...baseReport,
+      groundingCheckPassed: true,
+      diff: emptyDiff,
+    };
+    const recoveredReport: ReportDetailResponse = {
+      ...baseReport,
+      status: 'FINALIZED',
+      pdfUrl: '/api/reports/10/pdf/key',
+    };
+
+    vi.mocked(reportApi.groundingRecheck).mockResolvedValueOnce(axiosResponse(recheckReport));
+    vi.mocked(reportApi.uploadPdf).mockResolvedValueOnce(
+      axiosResponse({ pdfUrl: '/api/reports/10/pdf/key' }),
+    );
+    // 실제로는 서버에 도달해 확정까지 끝났지만 네트워크 단절 등으로 응답만 유실된 상황을 재현한다.
+    vi.mocked(reportApi.finalizeReport).mockRejectedValueOnce(new Error('network error'));
+    vi.mocked(reportApi.getReport).mockResolvedValueOnce(axiosResponse(recoveredReport));
+
+    const reportWithNullGrounding: ReportDetailResponse = {
+      ...baseReport,
+      groundingCheckPassed: null,
+    };
+    const result = await runFinalizeReportFlow(10, reportWithNullGrounding, mockContent);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.report.status).toBe('FINALIZED');
+      expect(result.report.pdfUrl).toBe('/api/reports/10/pdf/key');
+    }
+    expect(reportApi.getReport).toHaveBeenCalledWith(10);
+  });
+
+  it('#1666 — 확정 요청 실패 후 재조회해도 여전히 DRAFT면 원래 실패 메시지를 그대로 보고한다', async () => {
+    const recheckReport: ReportDefectSyncResponse = {
+      ...baseReport,
+      groundingCheckPassed: true,
+      diff: emptyDiff,
+    };
+    const stillDraftReport: ReportDetailResponse = {
+      ...baseReport,
+      status: 'DRAFT',
+    };
+
+    vi.mocked(reportApi.groundingRecheck).mockResolvedValueOnce(axiosResponse(recheckReport));
+    vi.mocked(reportApi.uploadPdf).mockResolvedValueOnce(
+      axiosResponse({ pdfUrl: '/api/reports/10/pdf/key' }),
+    );
+    vi.mocked(reportApi.finalizeReport).mockRejectedValueOnce({
+      code: 'FINALIZE_FAILED',
+      message: '확정에 실패했습니다.',
+      status: 500,
+    });
+    vi.mocked(reportApi.getReport).mockResolvedValueOnce(axiosResponse(stillDraftReport));
+
+    const reportWithNullGrounding: ReportDetailResponse = {
+      ...baseReport,
+      groundingCheckPassed: null,
+    };
+    const result = await runFinalizeReportFlow(10, reportWithNullGrounding, mockContent);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.title).toBe('PDF 생성/확정 실패');
+      expect(result.message).toBe('확정에 실패했습니다.');
+    }
   });
 });
