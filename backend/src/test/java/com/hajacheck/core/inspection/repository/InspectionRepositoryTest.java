@@ -761,8 +761,9 @@ class InspectionRepositoryTest extends PostgresTestSupport {
     @Test
     void findRecentInspectionsPage_필터없으면_기존findRecentByFacilityIds와동일순서() {
         // 스펙 요구사항: 파라미터 없이 호출하면 기존 위젯(findRecentByFacilityIds, 상위 10건)과
-        // 내용·순서가 동일해야 한다. 신규 엔드포인트는 별도 메서드지만, 같은 정렬 기준(점검일desc,id desc)
-        // 위에서 같은 결과 집합을 내야 한다는 계약을 여기서 고정한다.
+        // 내용·순서가 동일해야 한다. 신규 엔드포인트는 별도 메서드지만, 같은 정렬 기준(점검일desc,
+        // performed_at desc nulls last, id desc — #1667) 위에서 같은 결과 집합을 내야 한다는 계약을
+        // 여기서 고정한다.
         Long ownerId = seedOwner("owner-a@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         inspectionRepository.save(
@@ -772,6 +773,22 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         inspectionRepository.save(
                 newInspection(facilityId, ownerId, ownerId, 3, LocalDate.of(2026, 7, 5), InspectionStatus.CREATED));
 
+        // #1667 — 동일 날짜(7/20) + performed_at 상이 시나리오. id 생성 순서(4→5→6)와 performed_at
+        // 실제 수행 순서가 완전히 어긋나도록 심는다: id가 가장 큰 round6은 performed_at이 null(미디어
+        // 없음), id가 중간인 round5가 가장 늦은 performed_at(최신), id가 가장 작은 round4가 그 다음.
+        // 순수 id desc였다면 round6→round5→round4 순이었을 것이나, performed_at desc nulls last
+        // 규칙상 round5→round4→round6 순이어야 한다 — findRecentByFacilityIds(JPQL)와
+        // findRecentInspectionsPage(Criteria, selectCase 기반 nulls-last 우회)가 이 순서에 동일하게
+        // 합의하는지가 이 테스트의 핵심 검증 대상이다.
+        inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 4, LocalDate.of(2026, 7, 20),
+                java.time.LocalDateTime.of(2026, 7, 20, 9, 0)));
+        inspectionRepository.save(newInspectionWithPerformedAt(
+                facilityId, ownerId, ownerId, 5, LocalDate.of(2026, 7, 20),
+                java.time.LocalDateTime.of(2026, 7, 20, 15, 0)));
+        inspectionRepository.save(
+                newInspection(facilityId, ownerId, ownerId, 6, LocalDate.of(2026, 7, 20), InspectionStatus.CREATED));
+
         List<Inspection> legacy =
                 inspectionRepository.findRecentByFacilityIds(List.of(facilityId), PageRequest.of(0, 10));
         Page<Inspection> newEndpoint = inspectionRepository.findRecentInspectionsPage(
@@ -779,6 +796,13 @@ class InspectionRepositoryTest extends PostgresTestSupport {
 
         assertThat(newEndpoint.getContent()).extracting(Inspection::getId)
                 .containsExactlyElementsOf(legacy.stream().map(Inspection::getId).toList());
+        // 위 containsExactlyElementsOf만으로는 "두 메서드가 서로 일치"만 보장하고 "그 일치한 순서가
+        // 실제로 의도한 순서"인지는 못 잡는다(둘 다 똑같이 틀렸을 가능성) — round5(round6, round4)
+        // 상대 순서를 라운드 번호로 직접 고정한다.
+        assertThat(legacy).extracting(Inspection::getRoundNo)
+                .containsExactly(5, 4, 6, 2, 3, 1);
+        assertThat(newEndpoint.getContent()).extracting(Inspection::getRoundNo)
+                .containsExactly(5, 4, 6, 2, 3, 1);
     }
 
     @Test
