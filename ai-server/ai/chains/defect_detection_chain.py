@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from ai.core.card_client import CARD_LONG_MM, detect_card
 from ai.core.grading import compute_crack_grade, compute_grade
 from ai.core.unet_client import (
     CRACK_INPUT_SIZE,
@@ -39,6 +40,8 @@ from ai.core.yolo_client import predict as yolo_predict
 if TYPE_CHECKING:
     import numpy as np
     from PIL import Image
+
+    from ai.core.card_client import CardDetectionResult
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +97,9 @@ class DetectedDefect(BaseModel):
     length_px: float | None = None  # 균열만 — 면적/폭 근사
     width_px: float | None = None  # 균열만 — 2×면적/둘레 근사(skeletonize 대비 r=0.9989)
     width_mm: float | None = None  # 균열만 — 카드 기준물로 환산한 폭(원본 고해상도 재측정, #1487)
+    # SPALLING/REBAR_EXPOSURE만 — area_px × (mm/px)²(카드 기준물 스케일 공유, #1658). 카드
+    # 미검출 시 None 유지(area_ratio 기반 등급 산정과는 무관한 병기 정보).
+    area_mm2: float | None = None
 
 
 class DefectDetectionError(Exception):
@@ -285,7 +291,7 @@ def _crack_mask_to_detections(
     return detections
 
 
-def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
+def _crack_detections(image: "Image.Image") -> "tuple[list[DetectedDefect], np.ndarray | None]":
     """레터박스 캔버스에서 패딩을 잘라내 콘텐츠 영역만 `_crack_mask_to_detections`에 넘긴다.
 
     unet_client가 학습과 동일한 레터박스(긴 변 640 + 중앙 0패딩)로 추론하므로(2026-07-27, #973
@@ -294,16 +300,18 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
     "원본 이미지 기준"이 된다 — 패딩 오프셋을 아래 함수 곳곳에 하드코딩해 흩뿌리지 않는다(그렇게
     두면 area_ratio가 콘텐츠 비율만큼 축소돼 #953이 고쳤던 "전부 A" 버그가 재발한다).
 
-    또한 카드(기준물) 자동검출을 시도해 스케일(mm/px)을 산출하고, 성공 시 각 균열의 width_mm을
-    계산한다 (#1487). 카드 미검출 또는 폭 <0.7mm인 경우는 width_mm을 None으로 유지한다(신뢰
-    구간 밖).
+    ## 카드 검출은 더 이상 여기서 하지 않는다 (#1658)
+
+    이전(#1487)에는 이 함수가 자체적으로 `detect_card()`를 호출해 width_mm을 채웠다. #1658로
+    SPALLING/REBAR_EXPOSURE도 같은 카드 스케일을 area_mm2로 공유해야 하면서, 카드 검출(고비용
+    YOLO-World)을 이미지당 1회로 유지하려면 호출 지점을 상위(`run_defect_detection_chain`)로
+    끌어올려야 한다. 그래서 이 함수는 width_mm 계산에 필요한 `content_probability`(패딩 제거된
+    콘텐츠 확률 맵)만 함께 반환하고, 실제 카드 검출·width_mm 주입은 `_apply_crack_width_mm`이
+    상위에서 공유받은 카드 스케일로 수행한다. 균열이 하나도 없으면 width_mm을 채울 대상이 없으므로
+    `content_probability` 대신 None을 반환해 상위가 "이 이미지는 CRACK 카드 스케일 적용 대상이
+    아님"을 알 수 있게 한다(기존 "detections 없으면 카드 검출 스킵" 최적화와 동일한 신호를
+    호출부가 판단하도록 넘기는 것).
     """
-    import cv2
-    import numpy as np
-
-    from ai.core.card_client import CARD_LONG_MM, detect_card
-    from ai.core.crack_mm_measurement import measure_crack_width_mm
-
     model = get_crack_model()
     prediction = predict_crack_probability(model, image)
     top, left = prediction.content_top, prediction.content_left
@@ -316,55 +324,85 @@ def _crack_detections(image: "Image.Image") -> list[DetectedDefect]:
 
     detections = _crack_mask_to_detections(content_mask, content_probability, dark_ratio, scale=scale)
 
-    # 균열이 하나도 없으면 카드 검출 자체를 건너뛴다 — width_mm은 CRACK detection에만 붙는
-    # 부가 정보인데, 고비용 YOLO-World 추론(imgsz=2048, 실패 시 2x2 타일 재검출로 요청당 최대
-    # 5회)을 균열 없는 사진(대다수)에서 매번 돌 이유가 없다(#1547 P2).
     if not detections:
-        return detections
+        return detections, None
 
-    # 카드 검출 및 mm 환산 시도 — width_mm은 부가 정보(설계상 미검출 시 None)라, 이 호출이
-    # 던지는 예외가 균열 탐지 자체를 무너뜨리면 안 된다. _crack_detections는 상위 detect_defects의
-    # 유형별 try/except(카드 예외 없이도 존재)로 감싸여 있어, 여기서 예외가 새면 이미 구한 균열
-    # detections까지 통째로 failed_types["CRACK"]로 사라진다(#1547 정재봉 P1 리뷰).
+    return detections, content_probability
+
+
+def _apply_crack_width_mm(
+    detections: list[DetectedDefect],
+    image: "Image.Image",
+    content_probability: "np.ndarray",
+    card_scale_mm_per_px: float,
+) -> None:
+    """공유된 카드 스케일로 CRACK 탐지들의 width_mm을 채운다(in-place, #1487 로직을 #1658로 이전).
+
+    카드 검출 자체는 `run_defect_detection_chain`이 이미지당 1회만 수행해 여기 스케일로 전달한다
+    (이 함수는 예외를 삼키지 않는다 — 호출부가 카드 검출 성공을 확인한 뒤에만 부른다).
+    """
+    import cv2
+    import numpy as np
+
+    from ai.core.crack_mm_measurement import measure_crack_width_mm
+
+    # 원본 해상도 BGR 변환 — measure_crack_width_mm의 BLACKHAT 재측정 입력(축소본이 아니라
+    # 원본을 그대로 쓰는 것이 B안의 핵심).
+    image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+    content_h, content_w = content_probability.shape
+    for detection in detections:
+        if detection.type == "CRACK" and detection.width_px is not None:
+            # detection 자신의 bbox 영역만 남긴 마스크로 측정한다 — 이미지 전체
+            # content_probability를 그대로 넘기면 measure가 내부에서 "가장 큰 연결요소"
+            # 하나만 재므로, 분리된 균열이 여러 개일 때 모든 detection에 같은(가장 큰
+            # 균열의) 폭이 들어가는 정합성 버그가 된다(#1547 P2). bbox는 콘텐츠 좌표
+            # 정규화값이라 원복 시 ±2px 여유를 둔다(반올림 오차 방어).
+            x0 = max(0, int(detection.bbox_x * content_w) - 2)
+            y0 = max(0, int(detection.bbox_y * content_h) - 2)
+            x1 = min(content_w, int((detection.bbox_x + detection.bbox_w) * content_w) + 2)
+            y1 = min(content_h, int((detection.bbox_y + detection.bbox_h) * content_h) + 2)
+            scoped_probability = np.zeros_like(content_probability)
+            scoped_probability[y0:y1, x0:x1] = content_probability[y0:y1, x0:x1]
+            # content_probability는 패딩 제거본, crack_input_size는 고정 640(레터박스 캔버스
+            # 크기 — 비정사각 사진에서 콘텐츠 폭과 다르다)이어야 좌표가 맞는다(#1547 P1).
+            width_mm = measure_crack_width_mm(
+                image_bgr,
+                scoped_probability,
+                card_scale_mm_per_px,
+                crack_input_size=CRACK_INPUT_SIZE,
+                crack_mask_threshold=CRACK_MASK_THRESHOLD,
+            )
+            # 0.7mm 이상만 기록 (미만은 신뢰도 부족)
+            if width_mm and width_mm >= 0.7:
+                detection.width_mm = round(width_mm, 4)
+
+
+def _apply_area_mm2(detections: list[DetectedDefect], card_scale_mm_per_px: float) -> None:
+    """공유된 카드 스케일로 SPALLING/REBAR_EXPOSURE 탐지들의 area_mm2를 채운다(in-place, #1658).
+
+    CRACK은 width_mm(선형 측정, `_apply_crack_width_mm`)으로 별도 처리하므로 제외한다. area_ratio
+    기반 등급 산정에는 관여하지 않는 병기 정보 — area_px(원본 해상도 픽셀 수)에 스케일 제곱을
+    곱한다.
+    """
+    mm2_per_px2 = card_scale_mm_per_px * card_scale_mm_per_px
+    for detection in detections:
+        if detection.type != "CRACK" and detection.area_px is not None:
+            detection.area_mm2 = round(detection.area_px * mm2_per_px2, 1)
+
+
+def _safe_detect_card(image: "Image.Image") -> "CardDetectionResult | None":
+    """카드 검출 — 예외를 삼켜 mm 병기 실패가 하자 탐지 전체를 무너뜨리지 않게 한다.
+
+    이 호출은 이미지당 1회, detection이 1건 이상일 때만 상위(`run_defect_detection_chain`)에서
+    수행된다(#1547 P2 최적화를 CRACK 전용에서 세 유형 공통으로 확장, #1658). width_mm/area_mm2는
+    부가 정보(설계상 미검출 시 None)라 여기서 예외가 나도 이미 구한 detections는 그대로 반환돼야
+    한다(#1547 정재봉 P1 리뷰와 동일한 원칙).
+    """
     try:
-        card_result = detect_card(image)
+        return detect_card(image)
     except Exception:
-        logger.exception("카드 검출 실패 — width_mm 없이 균열 탐지는 계속 진행한다 (#1547)")
-        card_result = None
-    if card_result:
-        # mm/px(카드 실제 크기 ÷ 카드 픽셀 길이) — px/mm과 방향 반대이니 헷갈리지 말 것(#1547 P1).
-        card_scale_mm_per_px = CARD_LONG_MM / card_result.long_px
-        # 원본 해상도 BGR 변환 — measure_crack_width_mm의 BLACKHAT 재측정 입력(축소본이 아니라
-        # 원본을 그대로 쓰는 것이 B안의 핵심).
-        image_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        content_h, content_w = content_probability.shape
-        for detection in detections:
-            if detection.type == "CRACK" and detection.width_px is not None:
-                # detection 자신의 bbox 영역만 남긴 마스크로 측정한다 — 이미지 전체
-                # content_probability를 그대로 넘기면 measure가 내부에서 "가장 큰 연결요소"
-                # 하나만 재므로, 분리된 균열이 여러 개일 때 모든 detection에 같은(가장 큰
-                # 균열의) 폭이 들어가는 정합성 버그가 된다(#1547 P2). bbox는 콘텐츠 좌표
-                # 정규화값이라 원복 시 ±2px 여유를 둔다(반올림 오차 방어).
-                x0 = max(0, int(detection.bbox_x * content_w) - 2)
-                y0 = max(0, int(detection.bbox_y * content_h) - 2)
-                x1 = min(content_w, int((detection.bbox_x + detection.bbox_w) * content_w) + 2)
-                y1 = min(content_h, int((detection.bbox_y + detection.bbox_h) * content_h) + 2)
-                scoped_probability = np.zeros_like(content_probability)
-                scoped_probability[y0:y1, x0:x1] = content_probability[y0:y1, x0:x1]
-                # content_probability는 패딩 제거본, crack_input_size는 고정 640(레터박스 캔버스
-                # 크기 — 비정사각 사진에서 콘텐츠 폭과 다르다)이어야 좌표가 맞는다(#1547 P1).
-                width_mm = measure_crack_width_mm(
-                    image_bgr,
-                    scoped_probability,
-                    card_scale_mm_per_px,
-                    crack_input_size=CRACK_INPUT_SIZE,
-                    crack_mask_threshold=CRACK_MASK_THRESHOLD,
-                )
-                # 0.7mm 이상만 기록 (미만은 신뢰도 부족)
-                if width_mm and width_mm >= 0.7:
-                    detection.width_mm = round(width_mm, 4)
-
-    return detections
+        logger.exception("카드 검출 실패 — mm 병기 없이 하자 탐지는 계속 진행한다 (#1658)")
+        return None
 
 
 def _yolo_type_detections(defect_type: str, image: "Image.Image") -> list[DetectedDefect]:
@@ -424,25 +462,47 @@ def run_defect_detection_chain(image_base64: str) -> list[DetectedDefect]:
     실패했을 때만 요청 자체를 실패 처리한다. 응답 스키마에 실패 유형을 구조화해 노출하는 것(예:
     `data.failed_types`)은 Spring 쪽 Envelope 계약 변경이 필요해 이 PR 범위를 벗어난다 — 후속
     이슈로 분리.
+
+    ## 카드(기준물) 검출은 이미지당 1회만 공유한다 (#1658)
+
+    세 탐지기를 전부 실행해 detections를 모은 뒤, **1건 이상일 때만** `_safe_detect_card`를
+    호출한다 — 균열이 없어도 SPALLING/REBAR_EXPOSURE가 있으면 카드 검출을 시도해야 하므로,
+    "CRACK detections 없으면 스킵"(#1547 P2)이던 기존 조건을 "세 유형 통틀어 detections 없으면
+    스킵"으로 확장했다. 성공하면 같은 스케일(mm/px)을 CRACK의 width_mm(`_apply_crack_width_mm`)과
+    SPALLING/REBAR_EXPOSURE의 area_mm2(`_apply_area_mm2`)에 공통 적용한다. 등급 산정(area_ratio)은
+    이 스케일과 무관하게 이미 각 탐지기 안에서 끝나 있으므로 불변이다.
     """
     image = _decode_image(image_base64)
 
     detectors = (
         ("CRACK", lambda: _crack_detections(image)),
-        ("SPALLING", lambda: _yolo_type_detections("SPALLING", image)),
-        ("REBAR_EXPOSURE", lambda: _yolo_type_detections("REBAR_EXPOSURE", image)),
+        ("SPALLING", lambda: (_yolo_type_detections("SPALLING", image), None)),
+        ("REBAR_EXPOSURE", lambda: (_yolo_type_detections("REBAR_EXPOSURE", image), None)),
     )
 
     detections: list[DetectedDefect] = []
     failed_types: list[str] = []
+    crack_content_probability = None
     for defect_type, detect in detectors:
         try:
-            detections.extend(detect())
+            type_detections, crack_context = detect()
+            detections.extend(type_detections)
+            if defect_type == "CRACK":
+                crack_content_probability = crack_context
         except Exception:
             logger.exception("%s 유형 탐지 실패 — 나머지 유형은 계속 진행한다", defect_type)
             failed_types.append(defect_type)
 
     if len(failed_types) == len(detectors):
         raise DefectDetectionError("모든 하자 유형 탐지에 실패했습니다")
+
+    if detections:
+        card_result = _safe_detect_card(image)
+        if card_result:
+            # mm/px(카드 실제 크기 ÷ 카드 픽셀 길이) — px/mm과 방향 반대이니 헷갈리지 말 것(#1547 P1).
+            card_scale_mm_per_px = CARD_LONG_MM / card_result.long_px
+            if crack_content_probability is not None:
+                _apply_crack_width_mm(detections, image, crack_content_probability, card_scale_mm_per_px)
+            _apply_area_mm2(detections, card_scale_mm_per_px)
 
     return detections
