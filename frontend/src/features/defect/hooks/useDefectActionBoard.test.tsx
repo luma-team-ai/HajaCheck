@@ -165,6 +165,44 @@ describe('useDefectActionBoard', () => {
     });
   });
 
+  // (#1642 리뷰 P3) defectApi.handlers.ts의 PATCH /status가 "RESOLVED에서의 이탈은 reason 유무와
+  // 무관하게 무조건 409"로 stale 처리하던 걸 defectStatusWorkflow.ts(NEXT_STATUS/
+  // REASON_REQUIRED_TARGETS) 단일 진실 소스 기준으로 교체했다 — RESOLVED→IN_PROGRESS(#1556 정책,
+  // REASON_REQUIRED_TARGETS.RESOLVED=['IN_PROGRESS'])가 사유와 함께 PATCH 레벨까지 실제로 성공하는지
+  // (mock이 더 이상 무조건 409를 반환하지 않는지) 검증한다.
+  it('RESOLVED→IN_PROGRESS 드롭은 사유 제출 후 PATCH 레벨까지 성공해 카드가 IN_PROGRESS 컬럼으로 이동한다', async () => {
+    mockDefects[0].status = 'RESOLVED';
+
+    const { result } = renderHook(() => useDefectActionBoard({}), { wrapper });
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    const resolvedBefore = result.current.columns.find((column) => column.status === 'RESOLVED');
+    expect(resolvedBefore?.defects.some((defect) => defect.id === 1)).toBe(true);
+
+    // id=1은 RESOLVED — IN_PROGRESS 컬럼으로 되돌리기 드롭(역행).
+    act(() => {
+      result.current.handleDragEnd(dragEndEvent(1, 'IN_PROGRESS'));
+    });
+
+    expect(result.current.reasonRequest).not.toBeNull();
+    expect(result.current.reasonRequest?.targetStatus).toBe('IN_PROGRESS');
+
+    act(() => {
+      result.current.submitReason('추가 보강 필요로 재조치 요청');
+    });
+
+    expect(result.current.reasonRequest).toBeNull();
+
+    await waitFor(() => {
+      expect(result.current.dropError).toBeNull();
+      const inProgress = result.current.columns.find((column) => column.status === 'IN_PROGRESS');
+      expect(inProgress?.defects.some((defect) => defect.id === 1)).toBe(true);
+    });
+
+    const resolvedAfter = result.current.columns.find((column) => column.status === 'RESOLVED');
+    expect(resolvedAfter?.defects.some((defect) => defect.id === 1)).toBe(false);
+  });
+
   it('드롭 API가 실패하면(409) 카드를 원래 컬럼으로 롤백하고 에러 메시지를 노출한다', async () => {
     server.use(
       http.patch('/api/defects/:id/status', () => {
