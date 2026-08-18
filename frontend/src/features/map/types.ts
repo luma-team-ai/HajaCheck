@@ -23,7 +23,8 @@ export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 export interface FacilityLocation {
   id: number;
   name: string;
-  /** GET /api/facilities/map 응답에 주소 필드가 없다(경량 프로젝션, #1656 계약) — 항상 null. */
+  /** 주소 — nullable(주소 미입력 시설물이 있을 수 있음, #1656 계약). 목록 패널 검색(filterFacilities)
+   * 대상이며, null이면 "주소 정보 없음"으로 폴백 표시한다. */
   address: string | null;
   /** 시설물 유형 — features/facility Facility.type 필드 참고(로컬 재정의, import 금지) */
   category: string;

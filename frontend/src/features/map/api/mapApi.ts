@@ -1,11 +1,13 @@
 // 시설물 위치 조회 — feature별 api 모듈 (React_코드_컨벤션.md §3)
 // 백엔드 GET /api/facilities/map 연동 (#1656/#1657) — 기존에는 CRUD용 GET /facilities(500건 상한,
 // FACILITY_LIST_MAX)를 재사용해 500건 초과 회사는 지도 마커가 무통보로 누락됐다(#1656 P1). 지도
-// 전용 경량 엔드포인트로 전환해 상한을 없앤다. #1656 이슈 본문의 계약(2026-08-18 기준):
+// 전용 경량 엔드포인트로 전환해 상한을 없앤다. #1656 이슈 본문의 계약(2026-08-18 기준, 메인 재검수
+// 후 address 필드 추가로 갱신):
 // `{ facilities: [{id,name,latitude,longitude,facilityType,highestGrade,warningCount,cautionCount,
-// thumbnailUrl}] }` — 기존 목록 응답과 필드명은 동일하지만, 지도에 불필요한 필드(address 등)는
-// 프로젝션에서 빠진다. 백엔드 PR(#1656)이 아직 dev에 머지되지 않아 이 계약 기준으로 msw mock으로만
-// 검증했다 — 백엔드 머지 후 실응답과 어긋나면 mapApi.test.ts/mapApi.handlers.ts를 함께 갱신한다.
+// thumbnailUrl,address}] }` — 기존 목록 응답과 필드명은 동일하다. address는 nullable(주소 미입력
+// 시설물이 있을 수 있음)이며, 목록 패널의 주소 검색(filterFacilities)이 이 값을 사용한다. 백엔드
+// PR(#1656)이 아직 dev에 머지되지 않아 이 계약 기준으로 msw mock으로만 검증했다 — 백엔드 머지 후
+// 실응답과 어긋나면 mapApi.test.ts/mapApi.handlers.ts를 함께 갱신한다.
 import { api } from '../../../shared/api/axios';
 import type { FacilityLocation } from '../types';
 
@@ -15,6 +17,7 @@ interface FacilityMapItem {
   latitude: number | null;
   longitude: number | null;
   facilityType: string | null;
+  address: string | null;
   highestGrade: FacilityLocation['highestGrade'];
   warningCount: number | null;
   cautionCount: number | null;
@@ -40,9 +43,9 @@ export const mapApi = {
     return facilities.map((f) => ({
       id: f.id,
       name: f.name,
-      // GET /api/facilities/map 응답에는 address 필드가 없다(경량 프로젝션 계약) — 목록 패널은
-      // null을 "주소 정보 없음"으로 폴백 표시한다.
-      address: null,
+      // address는 nullable(주소 미입력 시설물)이라 null일 수 있다 — 목록 패널은 null을
+      // "주소 정보 없음"으로 폴백 표시하고, filterFacilities의 주소 검색도 이 값을 그대로 쓴다.
+      address: f.address ?? null,
       category: f.facilityType ?? '기타',
       latitude: f.latitude != null ? Number(f.latitude) : null,
       longitude: f.longitude != null ? Number(f.longitude) : null,

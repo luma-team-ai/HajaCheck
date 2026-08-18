@@ -11,8 +11,8 @@ export function filterFacilities(
   const query = searchQuery.trim().toLowerCase();
 
   return facilities.filter((facility) => {
-    // address는 GET /api/facilities/map 응답에 없어 null일 수 있다(#1657, 경량 프로젝션 계약) —
-    // null이면 검색어 매칭 대상에서 빈 문자열로 취급한다(name 매칭만으로 판정).
+    // address는 nullable이다(#1656 계약 — 주소 미입력 시설물이 있을 수 있음) — null이면 검색어
+    // 매칭 대상에서 빈 문자열로 취급한다(name 매칭만으로 판정, 예외 없이 동작해야 한다).
     const matchesSearch =
       query.length === 0 ||
       facility.name.toLowerCase().includes(query) ||
