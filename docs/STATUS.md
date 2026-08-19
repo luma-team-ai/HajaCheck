@@ -36,6 +36,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+> ✅ **2026-08-19 5차 승격 완료 — PR #1691 (dev→main / 이슈 6건 자동종료 / CD success).** 배치(후속 6건): V45 복합 인덱스(+중복 인덱스 drop)·보고서 후속(PDF mm²·유예 설정화)·시설물 수정 화면(재지오코딩·scale lost-update 픽스)·mm² 참고 등급 체인(ai 잠정밴드→BE V46 sanitize→FE 보조 배지, 본등급 불변). 전체검수: dev HEAD gradlew SUCCESSFUL·front build PASS·시크릿 0·G6 PASS. **prod 검증 완료**: flyway 45/46(true) · idx_inspections_recent_order 존재·idx_inspections_facility drop 확인 · area_mm2_reference_grade 컬럼 · front/api 200 · revision env 유지. 이슈 6건 종료+라벨 제거, dev ff 역머지, springdoc baseline 갱신 완료. 잔여: #1676 타임존 플레이크 · pr_machine 승격 PR 버그 · nginx timeout/#1604(기존).
+
 > ✅ **2026-08-19 4차 승격 완료 — PR #1678 (dev→main, merge `a11a5629` / 이슈 15건 자동종료 / CD success).** 배치(2026-08-18~19 데모 피드백+백로그 정합, PR 16건): 데모 5건(#1641~#1645 media purpose·RESOLVED 직행 차단·검수 버튼·조치 그룹 UI·revision 고정) + 보고서 정합 BE/FE(#1653/#1666) + 증분 분석(#1654, 머신 P1 핫픽스 #1672 포함) + 통계(#1655) + 지도 BE/FE(#1656/#1657) + mm² AI/BE/FE(#1658/#1668/#1669) + performed_at(#1667). **Flyway V41→V44 순차 적용**(전부 additive·멱등). 승격 전 전체검수: dev HEAD `./gradlew test --rerun-tasks` SUCCESSFUL·front build PASS·시크릿 0·G6 PASS(회귀 기록 대조 포함). **prod 검증 완료**: 컨테이너 전부 healthy · flyway top=44(true) · purpose 백필 42건(R4 예측 일치) · analyzed_at 428 marked(null 50건=분석 전 회차 정상) · performed_at 66/67 · front/api 200 · ai-server unpinned 경고 로그 동작(#1645 의도). 이슈 15건 native 자동종료 + `awaiting-promotion` 라벨 전건 제거. dev ff 역머지 + springdoc baseline 갱신(prod live spec) 완료. **운영 선택 조치**: arm1 `.env`에 `YOLO_REVISION`/`UNET_REVISION` 지정 시 모델 재현성 고정 · 카드 검출 호출 증가 모니터링(#1658). 잔여 후속: FacilityCard 타임존 플레이크(#1676) · performed_at 복합 인덱스(P3) · 로컬 전용 undici 테스트 실패 9건.
 
 > ✅ **2026-08-18 hotfix #1650 (base=main 직행) — prod 데모 계정 403 근본 수정 (#1648, merge `53e23186`).** 원인(prod DB 실측): 데모 회사는 provenance(ntsOutcome) 없는 "증명 불가 VERIFIED"라 **매일 05:30 국세청 재검증 배치**(`PendingBusinessReverifyScheduler`, #888) 대상 → 가짜 BRN `0000000000` 확정 불량 → `verification_status=FAILED` 강등 → 회사 스코프 판정(`existsEffectiveApprovedMembership`, VERIFIED 요구) 실패 → 데모 로그인은 200인데 회사 스코프 API(`/api/dashboard/*` 등 CompanyScopeGuard 사용처) 전부 403, 수동 복구해도 다음날 재발. 수정 3건: ①배치가 국세청 호출 전 데모 회사 스킵(BRN+provenance `DemoCompanyProvenance` 이중 판정, SQL 미수정) ②시더 멱등 경로 FAILED 자가복구(`markBusinessVerified()`만 — 허위 ntsOutcome #1324 P1 금지) ③판정 공용화(`DemoResetService` 위임, 리셋 4중 가드 불변). 검수: code-reviewer(sonnet) P0건 APPROVE + G1/G6, 테스트 2311/2311·CI PASS. **prod 검증 완료**: CD success → 재기동 자가치유 실측(company 13 FAILED→VERIFIED) → 데모 로그인 200→dashboard summary/grade-distribution 200. main 직행 사유: prod 라이브 데모가 매일 재발로 깨지는 프로덕션 버그(dev backend diff 0건이라 체리픽 클린). dev 역머지(merge 커밋) 완료. Closes #1648 자동종료.
@@ -424,11 +426,9 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 - **🔴 인계 — 2026-08-19 세션 종료 시점 (다음 세션은 여기부터)**
   ### 상태
   - 4차 승격(#1678, 이슈 15건) prod 배포·검증 완료. revision env 고정(`5b19c0d8…`) 서버 반영 완료.
-  - 후속 6건(#1679~#1684) **전부 dev 머지 완료**(`awaiting-promotion`) — **5차 승격 미실행** 상태.
+  - 후속 6건(#1679~#1684) **5차 승격 완료**(PR #1691, prod 검증 PASS) — 남은 건 아래 P1 마이너 픽스뿐.
   - PR머신 arm1 서버 상시 가동(로컬 plist는 잔재). dev PR은 머신 검수·머지, 마이그레이션 가드(needs-human)만 사람 머지. 승격 PR은 머신 처리 버그(base=main 오인)로 사람 검수·머지.
-  ### P0 — 5차 승격
-  - [ ] 승격 전 전체검수(dev HEAD gradlew test·front build·시크릿) + G6(V45~V46 additive·prod 65행 실측 근거 4차와 동일 절차)
-  - [ ] 승격 PR(dev→main): `Closes #1679 #1680 #1681 #1682 #1683 #1684` 나열 → 머지 → CD → prod 검증(헬스·flyway 46·인덱스 존재) → 라벨 제거 → dev ff 역머지 → springdoc baseline 갱신 → STATUS 기록
+  ### P0 — 5차 승격 ✅ 완료 (2026-08-19 PR #1691)
   ### P1 — 마이너 픽스 후보
   - [ ] #1676 FacilityCard D-day 타임존 플레이크 (+본문에 undici 로컬 실패 9건 참고)
   - [ ] pr_machine 승격 PR 처리 버그(base=main인데 "main으로 바꿔라") — **별도 레포**(toy_project/pr_machine)
