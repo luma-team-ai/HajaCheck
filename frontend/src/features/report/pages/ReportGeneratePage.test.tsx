@@ -255,15 +255,17 @@ describe('ReportGeneratePage', () => {
       expect.objectContaining({ facilityName: '테스트 시설물', inspectionRound: 1 }),
     );
     expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
+    // node 환경 전환(#1712) 이전에는 이 지점 자체가 undici webidl.is.File() assertion으로
+    // 크래시했다 — 지금 되찾은 건 "PDF 업로드 요청이 크래시 없이 서버까지 도달한다"는 것뿐이다.
+    // uploadedPdfFileName은 이 jsdom 환경에서 실측상 항상 리터럴 "blob"이다(truthy라 아래
+    // 단언은 통과하지만 실제 파일명과 무관 — jsdom FormData를 msw가 Node Request로 옮기는
+    // 과정에서 파일명이 유실된다, jsdom 메인테이너 확인: jsdom/jsdom#3800 "jsdom's FormData is
+    // only supported with jsdom's XMLHttpRequest". 이 레포에서 고칠 수 있는 범위 밖이다).
+    // 파일명이 실제로 올바르게(buildReportPdfFileName 결과 그대로) 전달되는지는 이 realm
+    // 문제와 무관한 finalizeReportFlow.test.ts가 reportApi.uploadPdf mock 호출 인자로
+    // 검증한다 — 바이트 내용 검증은 이 레포 어디에도 없다(원래도 없었다, facilityMediaApi
+    // 쪽 핸들러도 파일 개수만 세지 내용은 보지 않는다).
     expect(uploadedPdfFileName).toBeTruthy();
-    // uploadedPdfSize(바이트 수)는 여기서 검증하지 않는다(#1712) — jsdom의 FormData/Blob를
-    // msw(Node 내장 undici)가 실제 네트워크 경로로 파싱할 때, 값 자체는(realm 불일치로 인한
-    // undici assertion 크래시 없이) 전달되지만 바이트 내용이 0으로 유실된다. jsdom 메인테이너
-    // 확인 코멘트(jsdom/jsdom#3800): "jsdom's FormData is only supported with jsdom's
-    // XMLHttpRequest" — jsdom FormData를 Node Request로 옮기는 조합 자체가 비지원이라 이
-    // 레포에서 고칠 수 있는 범위 밖이다. "실제로 파일이 첨부돼 요청이 갔는지"는
-    // uploadedPdfFileName(truthy)로 충분히 검증되고, "바이트가 실제로 정확히 조립되는지"의
-    // 깊은 검증은 이 realm 문제가 없는 node 환경의 facilityMediaApi.test.ts가 전담한다.
     expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
     expect(screen.getByRole('link', { name: 'PDF 보기' }).getAttribute('href')).toBe('/reports/1?mode=export');
     const purposeTextarea = screen.getByLabelText('점검 목적') as HTMLTextAreaElement;
@@ -346,15 +348,17 @@ describe('ReportGeneratePage', () => {
       expect.objectContaining({ facilityName: '테스트 시설물', inspectionRound: 1 }),
     );
     expect(buildReportPdfFileName).toHaveBeenCalledWith(1);
+    // node 환경 전환(#1712) 이전에는 이 지점 자체가 undici webidl.is.File() assertion으로
+    // 크래시했다 — 지금 되찾은 건 "PDF 업로드 요청이 크래시 없이 서버까지 도달한다"는 것뿐이다.
+    // uploadedPdfFileName은 이 jsdom 환경에서 실측상 항상 리터럴 "blob"이다(truthy라 아래
+    // 단언은 통과하지만 실제 파일명과 무관 — jsdom FormData를 msw가 Node Request로 옮기는
+    // 과정에서 파일명이 유실된다, jsdom 메인테이너 확인: jsdom/jsdom#3800 "jsdom's FormData is
+    // only supported with jsdom's XMLHttpRequest". 이 레포에서 고칠 수 있는 범위 밖이다).
+    // 파일명이 실제로 올바르게(buildReportPdfFileName 결과 그대로) 전달되는지는 이 realm
+    // 문제와 무관한 finalizeReportFlow.test.ts가 reportApi.uploadPdf mock 호출 인자로
+    // 검증한다 — 바이트 내용 검증은 이 레포 어디에도 없다(원래도 없었다, facilityMediaApi
+    // 쪽 핸들러도 파일 개수만 세지 내용은 보지 않는다).
     expect(uploadedPdfFileName).toBeTruthy();
-    // uploadedPdfSize(바이트 수)는 여기서 검증하지 않는다(#1712) — jsdom의 FormData/Blob를
-    // msw(Node 내장 undici)가 실제 네트워크 경로로 파싱할 때, 값 자체는(realm 불일치로 인한
-    // undici assertion 크래시 없이) 전달되지만 바이트 내용이 0으로 유실된다. jsdom 메인테이너
-    // 확인 코멘트(jsdom/jsdom#3800): "jsdom's FormData is only supported with jsdom's
-    // XMLHttpRequest" — jsdom FormData를 Node Request로 옮기는 조합 자체가 비지원이라 이
-    // 레포에서 고칠 수 있는 범위 밖이다. "실제로 파일이 첨부돼 요청이 갔는지"는
-    // uploadedPdfFileName(truthy)로 충분히 검증되고, "바이트가 실제로 정확히 조립되는지"의
-    // 깊은 검증은 이 realm 문제가 없는 node 환경의 facilityMediaApi.test.ts가 전담한다.
     expect(finalizePdfUrl).toBe('/api/reports/1/pdf/storage-key');
   });
 

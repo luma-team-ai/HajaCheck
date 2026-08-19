@@ -37,8 +37,8 @@ vi.mock('../../../shared/lib/kakaoMap/geocodeAddress', async () => {
 
 const server = setupServer(...facilityHandlers, ...facilityMediaHandlers);
 // jsdom File과 msw(Node 내장 undici)의 realm 불일치로 실제 파일 업로드 요청이 크래시하는 문제
-// 회피(#1712) — 이 테스트는 업로드 API가 호출됐는지(URL 매칭)만 검증하고 바이트 내용은 보지
-// 않으므로 이 유틸로 충분하다(내용 검증은 facilityMediaApi.test.ts가 node 환경에서 전담).
+// 회피(#1712) — 이 테스트는 업로드 API가 호출됐는지(URL 매칭)만 검증하고 바이트 내용·파일명은
+// 애초에 보지 않으므로(이 레포 어디에도 그 검증은 없다) 이 유틸로 충분하다.
 const restoreFileRealm = installMswFileRealmCompat(server);
 
 // jsdom은 URL.createObjectURL/revokeObjectURL을 구현하지 않으므로 대표 사진 선택을 시뮬레이션하는

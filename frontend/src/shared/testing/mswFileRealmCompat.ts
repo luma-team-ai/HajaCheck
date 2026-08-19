@@ -23,12 +23,17 @@
 // 같은 테스트에서 그 다음에 만드는 jsdom 대상 File이 깨진다).
 //
 // 주의(트레이드오프): msw가 XHR 바디(jsdom FormData)로 Request를 구성하는 과정 자체가
-// vitest의 jsdom 환경 내부 호환 계층(File→Blob 변환, 파일명 유실)에 걸려 있어, 이 유틸을
-// 써도 서버로 전달되는 파일명/바이트 내용까지 100% 보존되진 않는다(라이브러리 내부 이슈,
-// 이 레포에서 손댈 수 없는 영역). 그래서 이 유틸은 "요청이 크래시하지 않고 실제로 도달하는지
-// (건수·성공/실패 분기)"를 검증하는 통합 테스트에만 쓴다 — 업로드 바이트가 실제로 정확히
-// 조립되는지의 "깊은" 검증은 facilityMediaApi.test.ts가 node 환경(jsdom 자체를 안 거치므로
-// 이 realm 문제가 없다)에서 전담한다.
+// jsdom 메인테이너가 명시적으로 비지원이라 밝힌 조합에 걸려 있다(jsdom/jsdom#3800 —
+// "jsdom's FormData is only supported with jsdom's XMLHttpRequest") — 이 유틸을 써도 서버로
+// 전달되는 파일명은 실측상 항상 "blob"으로, 바이트 내용은 0으로 유실된다(이 레포에서 손댈
+// 수 없는 라이브러리 내부 이슈). 그래서 이 유틸은 "요청이 크래시 없이 실제로 도달하고, 파일이
+// 문자열로 강등되지 않은 파일 엔트리로 정확한 개수만큼 전달되는지(성공/실패 분기 포함)"를
+// 검증하는 통합 테스트에만 쓴다. 참고로 이 레포는 바이트·파일명 내용을 검증하는 테스트를
+// 애초에 갖고 있지 않다 — facilityMediaApi.handlers.ts도 `typeof entry !== 'string'`으로
+// 개수만 판별한다. node 환경(jsdom을 안 거쳐 이 realm 문제가 없는 facilityMediaApi.test.ts)
+// 으로 옮겨서 되찾은 것도 "크래시 없이 개수가 정확히 전달됨"이지, 바이트 검증이 아니다.
+// 파일명이 올바르게 전달되는지는(realm 문제와 무관한 mock 단위 테스트로) reportApi.uploadPdf
+// 호출부를 다루는 finalizeReportFlow.test.ts가 인자 검증으로 별도 담당한다.
 import type { SetupServer } from 'msw/node';
 import { File as NodeFile } from 'node:buffer';
 
