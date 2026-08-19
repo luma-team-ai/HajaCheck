@@ -210,6 +210,132 @@ class CompanyTest {
         assertThat(company.isNtsVerified()).isFalse();
     }
 
+    // ── 플랫폼 관리자 무효화/복구 왕복(#1367) ──────────────────────────────────────────────────
+
+    @Test
+    void revokeBusinessVerificationByAdmin_FAILED로전이하고_배지도함께꺼진다() {
+        // 자동승인(#1324)으로 스코프가 열린 회사 — 국세청이 실제로 확인해 준 상태(배지 켜짐)를 가정한다.
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"VERIFIED\"}");
+        company.markBusinessVerified();
+        assertThat(company.isNtsVerified()).isTrue();
+
+        company.revokeBusinessVerificationByAdmin("사칭 신고 접수");
+
+        // 이 한 줄이 스코프 판정·DB 트리거의 VERIFIED 조건을 깨 전 구성원의 회사 스코프를 닫는다.
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.FAILED);
+        // 차단된 회사에 "사업자 인증 완료" 배지가 켜진 채 남으면 부정합 — ntsOutcome 을 반드시 덮는다.
+        assertThat(company.isNtsVerified()).isFalse();
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("ADMIN_REVOKED");
+    }
+
+    @Test
+    void revokeBusinessVerificationByAdmin_직전판정과_사유와시각을_병합보존한다() {
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"SKIPPED\"}");
+
+        company.revokeBusinessVerificationByAdmin("오등록 확인");
+
+        // 덮기 직전 판정을 남겨야 무효화가 오판이었는지 사후에 판단할 수 있다(감사 기록 소실 방지).
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("SKIPPED");
+        assertThat(ocrField(company, "adminRevokeReason")).isEqualTo("오등록 확인");
+        assertThat(ocrField(company, "adminRevokedAt")).isNotBlank();
+        // 통째 교체 금지(클래스 javadoc) — 다른 주체가 써넣은 기존 감사 키는 그대로 남아야 한다.
+        assertThat(ocrField(company, "source")).isEqualTo("MANUAL_INPUT");
+    }
+
+    @Test
+    void revokeBusinessVerificationByAdmin_직전판정이없으면_해당키를쓰지않는다() {
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\"}");
+
+        company.revokeBusinessVerificationByAdmin("사유");
+
+        // 없는 값을 "null" 문자열 등으로 지어내지 않는다.
+        assertThat(JsonValidator.readTextField(company.getBusinessRegistrationOcrRaw(),
+                "ntsOutcomeBeforeRevoke")).isEmpty();
+    }
+
+    @Test
+    void revokeBusinessVerificationByAdmin_이미FAILED면_예외이고_멱등no_op이아니다() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.revokeBusinessVerificationByAdmin("최초 사유");
+
+        // 두 번째 호출을 조용히 통과시키면 최초 사유·ntsOutcomeBeforeRevoke 가 덮여 감사 기록이 흐려진다.
+        assertThatThrownBy(() -> company.revokeBusinessVerificationByAdmin("나중 사유"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(ocrField(company, "adminRevokeReason")).isEqualTo("최초 사유");
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("VERIFIED");
+    }
+
+    @Test
+    void restoreBusinessVerificationByAdmin_VERIFIED가아니라_PENDING으로되돌린다() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.revokeBusinessVerificationByAdmin("사칭 신고 접수");
+
+        company.restoreBusinessVerificationByAdmin("오탐 확인");
+
+        // VERIFIED 직행은 관리자가 국세청 판정을 무시하고 스코프를 여는 경로가 된다 — PENDING 까지만.
+        // PENDING 은 findNtsReverifyTargets 첫 갈래라 다음 배치가 국세청에 재판정을 요청한다.
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.PENDING);
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("ADMIN_RESTORED");
+        assertThat(ocrField(company, "adminRestoreReason")).isEqualTo("오탐 확인");
+        assertThat(ocrField(company, "adminRestoredAt")).isNotBlank();
+        // 증명 불가 라벨이라 배지는 꺼진 채 유지된다 — 국세청이 확인해 주면 배치가 켠다.
+        assertThat(company.isNtsVerified()).isFalse();
+        // 무효화 감사 기록은 복구 후에도 남는다(병합).
+        assertThat(ocrField(company, "adminRevokeReason")).isEqualTo("사칭 신고 접수");
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("VERIFIED");
+    }
+
+    @Test
+    void restoreBusinessVerificationByAdmin_FAILED가아니면_예외() {
+        Company verified = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        verified.markBusinessVerified();
+
+        assertThatThrownBy(() -> verified.restoreBusinessVerificationByAdmin("사유"))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(verified.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+    }
+
+    @Test
+    void 배치강등FAILED도_관리자복구로_되돌릴수있다() {
+        // 실사고 재현 — 배치(markBusinessVerificationFailed)가 만든 FAILED 는 재검증 대상에서 영구
+        // 제외돼 자가치유가 없었다. 복구 경로가 그 FAILED 도 받아야 왕복이 완성된다.
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"SKIPPED\"}");
+        company.markBusinessVerificationFailed();
+
+        company.restoreBusinessVerificationByAdmin("MISMATCH 오탐 소명 완료");
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.PENDING);
+    }
+
+    @Test
+    void 무효화와복구_모두_verifiedAt을_건드리지않는다() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.markBusinessVerified();
+        java.time.Instant verifiedAt = company.getVerifiedAt();
+
+        company.revokeBusinessVerificationByAdmin("사유");
+        assertThat(company.getVerifiedAt()).isEqualTo(verifiedAt);
+
+        company.restoreBusinessVerificationByAdmin("사유");
+        // verifiedAt 은 "검증 성공 시각"으로 좁게 쓰인다 — 실패·복구 시각을 여기 재사용하면 의미가 오염된다
+        // (markBusinessVerificationFailed javadoc 방침).
+        assertThat(company.getVerifiedAt()).isEqualTo(verifiedAt);
+    }
+
+    @Test
+    void 무효화는_ocrRaw가null이어도_provenance를_남긴다() {
+        Company company = companyWithOcrRaw(null);
+
+        company.revokeBusinessVerificationByAdmin("사유");
+
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("ADMIN_REVOKED");
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    private static String ocrField(Company company, String field) {
+        return JsonValidator.readTextField(company.getBusinessRegistrationOcrRaw(), field).orElse(null);
+    }
+
     private Company companyWithOcrRaw(String ocrRaw) {
         return Company.createPendingReview(
                 1L, "HajaCheck", "123-45-67890", "Owner", "Seoul", null,

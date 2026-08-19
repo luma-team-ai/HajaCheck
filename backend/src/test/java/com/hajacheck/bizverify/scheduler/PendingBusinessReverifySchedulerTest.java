@@ -97,18 +97,22 @@ class PendingBusinessReverifySchedulerTest {
         verify(writer, never()).markFailed(anyLong(), any());
     }
 
+    /**
+     * #1367 정책 분리 — 이 테스트는 원래 4종(MISMATCH·SUSPENDED·CLOSED·NOT_REGISTERED)을 모두
+     * {@code markFailed} 로 단언했으나, MISMATCH·SUSPENDED 단언을 "강등되지 않음"으로 뒤집었다.
+     *
+     * <p><b>왜 바뀌었나</b>: 대표자 변경·계절 휴업·비영리 고유번호증은 사기가 아니라 정상 사업 변동인데
+     * 옛 정책은 그것을 무통보 서비스 중단으로 처리했다. 실제로 학회 회사 1건이 MISMATCH 로 자동 강등돼
+     * 6일간 전 API 가 차단됐고, FAILED 는 재검증 대상에서 영구 제외돼 자가치유도 되지 않아 수동 SQL 로
+     * 복구해야 했다. 자동 강등은 <b>확정 불량</b>(실재하지 않음·폐업)으로 좁히고, 사칭 대응은 사람 판단
+     * (플랫폼 관리자 revoke API)이 담당한다.
+     */
     @Test
-    @DisplayName("불일치/휴업/폐업/미등록 결과는 판정 outcome과 함께 writer.markFailed로 FAILED 전이된다")
-    void 불일치_휴업_폐업_미등록_FAILED_반영() {
-        Company mismatch = pendingCompany(1L, "1111111111", "A");
-        Company suspended = pendingCompany(2L, "2222222222", "B");
+    @DisplayName("#1367 폐업/미등록(확정 불량)만 판정 outcome과 함께 writer.markFailed로 FAILED 전이된다")
+    void 폐업_미등록만_FAILED_반영() {
         Company closed = pendingCompany(3L, "3333333333", "C");
         Company notRegistered = pendingCompany(4L, "4444444444", "D");
-        stubTargets(List.of(mismatch, suspended, closed, notRegistered));
-        when(ntsBusinessVerifyClient.verifyRealtime(eq("1111111111"), anyString(), any()))
-                .thenReturn(NtsVerificationOutcome.MISMATCH);
-        when(ntsBusinessVerifyClient.verifyRealtime(eq("2222222222"), anyString(), any()))
-                .thenReturn(NtsVerificationOutcome.SUSPENDED);
+        stubTargets(List.of(closed, notRegistered));
         when(ntsBusinessVerifyClient.verifyRealtime(eq("3333333333"), anyString(), any()))
                 .thenReturn(NtsVerificationOutcome.CLOSED);
         when(ntsBusinessVerifyClient.verifyRealtime(eq("4444444444"), anyString(), any()))
@@ -116,11 +120,30 @@ class PendingBusinessReverifySchedulerTest {
 
         scheduler.reverifyPendingCompanies();
 
-        verify(writer).markFailed(1L, NtsVerificationOutcome.MISMATCH);
-        verify(writer).markFailed(2L, NtsVerificationOutcome.SUSPENDED);
         verify(writer).markFailed(3L, NtsVerificationOutcome.CLOSED);
         verify(writer).markFailed(4L, NtsVerificationOutcome.NOT_REGISTERED);
         verify(writer, never()).markVerified(anyLong());
+    }
+
+    @Test
+    @DisplayName("#1367 불일치/휴업은 자동 강등하지 않는다 — writer를 전혀 호출하지 않고 상태를 그대로 둔다")
+    void 불일치_휴업은_강등되지않는다() {
+        Company mismatch = pendingCompany(1L, "1111111111", "A");
+        Company suspended = pendingCompany(2L, "2222222222", "B");
+        stubTargets(List.of(mismatch, suspended));
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("1111111111"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.MISMATCH);
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("2222222222"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.SUSPENDED);
+
+        scheduler.reverifyPendingCompanies();
+
+        // 강등도 승격도 없다 = 회사 상태 무변경(다음 회차에 다시 잡혀 경보가 반복된다 — 의도된 동작).
+        verify(writer, never()).markFailed(anyLong(), any());
+        verify(writer, never()).markVerified(anyLong());
+        // 엔티티 상태를 직접 바꾸는 경로가 없다는 것도 함께 고정한다(스케줄러는 writer 를 통해서만 쓴다).
+        verify(mismatch, never()).markBusinessVerificationFailed();
+        verify(suspended, never()).markBusinessVerificationFailed();
     }
 
     @Test
