@@ -63,6 +63,14 @@ import org.springframework.stereotype.Component;
  * 걸러 국세청을 아예 호출하지 않는다 — {@code findNtsReverifyTargets} SQL 자체는 건드리지 않는다(데모
  * 하드코딩을 쿼리에 넣지 않는다).
  *
+ * <p><b>대기열 공정성</b>(#1367 P1-C): 상태를 바꾸지 않는 판정(MISMATCH·SUSPENDED·SKIPPED·데모 스킵)은
+ * 회사를 대상 집합에 <b>영구 거주</b>시킨다. 옛 정렬({@code id asc})은 id 가 작은 앞 n 건만 반복
+ * 처리했으므로 영구 거주자가 회차 상한을 채우면 신규 가입 회사가 <b>영원히 재검증되지 않는</b> 무증상
+ * fail-open 이 성립했다. 그래서 처리한 회사마다 {@code ntsLastAttemptAt} 을 스탬프하고
+ * ({@link PendingBusinessReverifyWriter#stampAttempt}) 대상 조회가 그 값 오름차순으로 정렬해 순환시킨다
+ * ({@link CompanyRepository#findNtsReverifyTargets} 정렬 javadoc). 상한을 꽉 채운 회차는 별도
+ * {@code log.error} 로 표면화한다.
+ *
  * <p><b>총량 통제</b>: {@link PendingBusinessReverifyProperties#isEnabled()} 킬스위치 +
  * {@link PendingBusinessReverifyProperties#getMaxBatchSize()} 회차당 상한(설정값, Properties Javadoc
  * 참고). 이 배치는 {@code BusinessVerificationService}의 공개 API rate-limit을 타지 않고(공개 컨트롤러를
@@ -123,6 +131,9 @@ public class PendingBusinessReverifyScheduler {
                 // 데모 회사는 국세청에 실재하지 않는 BRN 이라 호출하면 항상 확정 불량(FAILED)으로
                 // 강등되어 회사 스코프가 영구 차단된다(#1648) — 국세청 호출 전에 스킵한다.
                 demoSkipped++;
+                // 데모 회사는 provenance 에 ntsOutcome 키가 없어 대상 집합의 "영구 거주자"다 — 스탬프를
+                // 찍지 않으면 id 가 작은 데모 회사가 매 회차 대기열 앞자리를 고정 점유한다(#1367 P1-C).
+                stampAttemptQuietly(company.getId());
                 log.debug("사업자 재검증 스킵 — 데모 시드 회사 (companyId={})", company.getId());
                 continue;
             }
@@ -147,19 +158,25 @@ public class PendingBusinessReverifyScheduler {
                         // #1367 — 정상 사업 변동(대표자 변경·계절 휴업·비영리 고유번호증)일 수 있어
                         // 자동 강등하지 않는다. 상태 무변경이라 다음 회차에도 같은 회사가 다시 잡혀
                         // 운영이 종결할 때까지 이 경보가 매일 반복된다(의도된 동작).
+                        // 판정 자체는 DB 에도 남긴다 — 로그에만 두면 진단 API 로 도달하지 못한다(P2-3).
+                        writer.stampAlert(company.getId(), outcome);
                         alertedCompanyIds.add(company.getId());
                         log.warn("사업자 재검증 경보 — 자동 강등하지 않음(#1367): 정상 사업 변동일 수 있다."
                                         + " 운영이 사칭으로 판단하면 POST /api/platform-admin/companies/{}"
-                                        + "/verification/revoke 로 무효화하고, 정상으로 확인되면 국세청 등록"
-                                        + "정보를 정정할 때까지 이 경보는 매 회차 반복된다."
-                                        + " companyId={}, outcome={}",
+                                        + "/verification/revoke 로 무효화하고, 실물 확인으로 정상이면"
+                                        + " .../verification/override 로 개방한다. 종결 전까지 이 경보는"
+                                        + " 매 회차 반복된다. companyId={}, outcome={}",
                                 company.getId(), company.getId(), outcome);
                     }
-                    case SKIPPED -> skipped++; // 국세청 장애·미설정 — 현 상태 유지, 다음 회차 재시도.
+                    case SKIPPED -> {
+                        skipped++; // 국세청 장애·미설정 — 현 상태 유지, 다음 회차 재시도.
+                        stampAttemptQuietly(company.getId());
+                    }
                 }
             } catch (Exception e) {
                 // 회사 1건 실패를 격리 — 같은 회차의 나머지 회사 처리는 계속한다.
                 errored++;
+                stampAttemptQuietly(company.getId());
                 log.warn("사업자 재검증 처리 실패 — companyId={} exception={}",
                         company.getId(), e.getClass().getSimpleName());
             }
@@ -177,6 +194,31 @@ public class PendingBusinessReverifyScheduler {
             log.warn(summary, args);
         } else {
             log.info(summary, args);
+        }
+
+        // 대기열 포화 표면화(#1367 P1-C) — 상한을 꽉 채웠다는 것은 뒤쪽(주로 신규 가입) 회사가 이번
+        // 회차에 아예 조회되지 않았다는 뜻이다. 라운드로빈 정렬로 굶주림은 막았지만, 하루 1회 배치에서
+        // 대상이 상한을 넘으면 각 회사의 재검증 주기가 그만큼 길어진다 — 자동 통제가 조용히 느려지는
+        // 상태라 반드시 사람에게 보여야 한다.
+        if (targets.size() >= properties.getMaxBatchSize()) {
+            log.error("재검증 대기열 포화 — 대상 {}건이 회차 상한 {}건을 채웠다. 신규 가입 회사의 재검증이"
+                            + " 지연되거나 누락될 수 있다(확정 불량 자동 강등이 늦어진다)."
+                            + " 경보 회사 종결(revoke/override) 또는 상한 상향을 검토할 것.",
+                    targets.size(), properties.getMaxBatchSize());
+        }
+    }
+
+    /**
+     * 처리 시도 스탬프 — 실패해도 회차를 중단시키지 않는다(#1367 P1-C).
+     * 스탬프는 정렬 축일 뿐 통제 자체가 아니므로, 여기서 예외가 새어 나가면 오히려 나머지 회사 처리를
+     * 막아 손해가 크다. 예외 경로에서도 호출되므로 반드시 조용히 삼킨다.
+     */
+    private void stampAttemptQuietly(Long companyId) {
+        try {
+            writer.stampAttempt(companyId);
+        } catch (Exception e) {
+            log.warn("사업자 재검증 시도 스탬프 실패(무시하고 진행) — companyId={} exception={}",
+                    companyId, e.getClass().getSimpleName());
         }
     }
 }
