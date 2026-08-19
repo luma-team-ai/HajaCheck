@@ -98,7 +98,14 @@ describe('runFinalizeReportFlow unit tests', () => {
       expect(result.report.status).toBe('FINALIZED');
     }
     expect(reportApi.groundingRecheck).toHaveBeenCalledWith(10);
-    expect(reportApi.uploadPdf).toHaveBeenCalled();
+    // finalizeReportFlow.ts:93-94 — buildReportPdfFileName(report.inspectionId)로 만든 파일명과
+    // exportReportToPdf가 만든 blob이 실제로 uploadPdf에 그대로 전달되는지 확인한다(#1712 리뷰
+    // P2 — 이 seam은 mock 기반 단위 테스트라 jsdom↔undici realm 문제와 무관하게 인자를 정확히
+    // 검증할 수 있다. 파일명 정합 검증은 이 파일이 전담하고, ReportGeneratePage.test.tsx는
+    // "요청이 크래시 없이 도달하는지"만 본다).
+    expect(reportApi.uploadPdf).toHaveBeenCalledWith(10, expect.any(Blob), 'report.pdf');
+    const [, uploadedBlob] = vi.mocked(reportApi.uploadPdf).mock.calls[0];
+    expect(uploadedBlob.size).toBeGreaterThan(0);
     expect(reportApi.finalizeReport).toHaveBeenCalledWith(10, '/api/reports/10/pdf/key');
   });
 
