@@ -1,19 +1,30 @@
 package com.hajacheck.platformadmin.controller;
 
+import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.platformadmin.dto.CompanyOptionResponse;
+import com.hajacheck.platformadmin.dto.CompanyVerificationActionRequest;
+import com.hajacheck.platformadmin.dto.CompanyVerificationResponse;
 import com.hajacheck.platformadmin.service.PlatformAdminCompanyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 플랫폼 관리자 콘솔 — 사용자 등록 모달의 기업명 selectbox 후보 목록(#576, PR #626 후속 요구사항).
+ * 플랫폼 관리자 콘솔 — 기업 목록(#576, PR #626 후속 요구사항) + <b>회사 검증 무효화 킬스위치·복구</b>(#1367).
  * PLATFORM_ADMIN 인가는 SecurityConfig의 "/api/platform-admin/**" 매처가 강제한다.
+ *
+ * <p>회사 관리자(ROLE_ADMIN)가 쓰는 "/api/admin/**" 와는 <b>절대 겹치지 않는</b> 별도 라우트다(설계 §6).
+ * 킬스위치는 자기 회사 관리자에게 열려서는 안 되는 전역 조치라 이 경계에 둔다.
  */
 @Tag(name = "PlatformAdmin", description = "플랫폼 관리자 API")
 @RestController
@@ -30,5 +41,38 @@ public class PlatformAdminCompanyController {
     @GetMapping
     public ResponseEntity<ApiResponse<List<CompanyOptionResponse>>> list() {
         return ResponseEntity.ok(ApiResponse.ok(platformAdminCompanyService.listAssignableCompanies()));
+    }
+
+    @Operation(summary = "기업 검증 상태 조회",
+            description = "회사 스코프 차단 판단 근거(PLATFORM_ADMIN 전용) — 승인 상태·검증 상태·국세청 provenance·개업일자 유무·활성 구성원 수.")
+    @GetMapping("/{companyId}/verification")
+    public ResponseEntity<ApiResponse<CompanyVerificationResponse>> getVerification(
+            @PathVariable Long companyId) {
+        return ResponseEntity.ok(
+                ApiResponse.ok(platformAdminCompanyService.getVerification(companyId)));
+    }
+
+    @Operation(summary = "기업 검증 무효화(킬스위치)",
+            description = "사칭·오등록 대응으로 회사 검증을 무효화해 전 구성원의 회사 스코프를 즉시 닫는다(PLATFORM_ADMIN 전용). 사유 필수. 이미 무효화된 기업이면 409.")
+    @PostMapping("/{companyId}/verification/revoke")
+    public ResponseEntity<ApiResponse<CompanyVerificationResponse>> revokeVerification(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long companyId,
+            @Valid @RequestBody CompanyVerificationActionRequest request) {
+        CompanyVerificationResponse response = platformAdminCompanyService.revokeVerification(
+                companyId, loginUser.getUserId(), request.reason());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "기업 검증 복구",
+            description = "무효화(FAILED)된 기업을 PENDING 으로 되돌려 재검증 배치가 국세청에 재판정하도록 한다(PLATFORM_ADMIN 전용). 사유 필수. 무효화 상태가 아니면 409, 개업일자가 없으면 400.")
+    @PostMapping("/{companyId}/verification/restore")
+    public ResponseEntity<ApiResponse<CompanyVerificationResponse>> restoreVerification(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long companyId,
+            @Valid @RequestBody CompanyVerificationActionRequest request) {
+        CompanyVerificationResponse response = platformAdminCompanyService.restoreVerification(
+                companyId, loginUser.getUserId(), request.reason());
+        return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }
