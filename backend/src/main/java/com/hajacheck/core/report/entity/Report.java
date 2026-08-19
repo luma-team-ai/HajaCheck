@@ -226,6 +226,25 @@ public class Report extends BaseTimeEntity {
         this.version = version;
     }
 
+    /**
+     * 버전 채번 경합 재시도 전용(#1702 리뷰 P1) — {@link #reassignVersionOnConflictRetry}와 짝이며, 재시도
+     * 직전에 다시 읽은 <b>현재</b> 점검 회차로 스냅샷을 갱신한다. 첫 시도 실패로 시간이 더 흐른 뒤라
+     * 처음 찍어 둔 회차가 낡았을 수 있기 때문이다.
+     *
+     * <p>{@link #roundNo}가 {@code updatable = false}인데도 이 경로가 성립하는 이유: 재시도 대상은 INSERT
+     * 자체가 실패해 아직 <b>영속되지 않은</b> 인스턴스다({@code updatable = false}는 UPDATE 문에서 컬럼을
+     * 빼는 설정일 뿐 INSERT에는 관여하지 않는다). 이미 저장된 보고서의 회차를 바꾸는 용도로 쓰면 안 된다 —
+     * 확정 후 회차 동결이 그 컬럼의 존재 이유이며, DRAFT 재동기화는
+     * {@link com.hajacheck.core.report.repository.ReportRepository#syncDraftRoundNoToInspection} 하나뿐이다.
+     */
+    public void resnapshotRoundNoOnConflictRetry(int roundNo) {
+        requireDraft("resnapshotRoundNoOnConflictRetry");
+        if (roundNo < 1) {
+            throw new DomainValidationException("보고서 회차는 1 이상이어야 한다");
+        }
+        this.roundNo = roundNo;
+    }
+
     public void markDeleted(Long editedBy) {
         requireDraft("delete");
         if (this.deletedAt != null) {

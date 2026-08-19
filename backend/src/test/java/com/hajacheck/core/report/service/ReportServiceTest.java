@@ -107,6 +107,12 @@ class ReportServiceTest {
                 LocalDate.now(), InspectionType.REGULAR, status, LocalDateTime.now());
     }
 
+    /** #1702 리뷰 P1 — 회차 스냅샷 시점 검증용(같은 점검이 서로 다른 회차로 관측되는 상황 모형화). */
+    private static InspectionResponse inspectionWithRound(Long facilityId, int roundNo) {
+        return new InspectionResponse(1L, facilityId, 100L, 100L, roundNo,
+                LocalDate.now(), InspectionType.REGULAR, InspectionStatus.CREATED, LocalDateTime.now());
+    }
+
     private static FacilityResponse facility() {
         return facility("서울시 강남구");
     }
@@ -179,7 +185,9 @@ class ReportServiceTest {
         assertThat(response.inspectionId()).isEqualTo(1L);
         assertThat(response.groundingCheckPassed()).isTrue();
         verify(companyScopeGuard).requireEffectiveMembership(200L, 100L);
-        verify(inspectionService).getInspection(200L, 100L, 1L);
+        // #1702 리뷰 P1 — 초입 1회 + persist 직전 회차 재조회 1회. AI 왕복 중 회차가 재정렬될 수 있어
+        // 스냅샷은 반드시 INSERT 직전 값으로 찍는다(generateDraft_AI왕복중회차가밀리면... 참고).
+        verify(inspectionService, times(2)).getInspection(200L, 100L, 1L);
         verify(facilityService).get(200L, 100L, 10L);
 
         ArgumentCaptor<ReportRequest> captor = ArgumentCaptor.forClass(ReportRequest.class);
@@ -1261,6 +1269,115 @@ class ReportServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ErrorCode.FILE_NOT_FOUND);
+    }
+
+    // ── 회차 재정렬(#1702) 리뷰 P1 회귀선 ──
+
+    /**
+     * 락 순서 역전(ABBA) 데드락 회귀선 — {@code InspectionService.createInspection}(소급 회차)은
+     * facilities → inspections → reports 순으로 락을 잡는다. {@code finalizeReport}가 그 반대
+     * (reports → inspections → facilities) 순으로 잡으면 같은 시설물에 두 요청이 동시에 올 때 순환이
+     * 완성돼 PostgreSQL이 한쪽을 40P01로 abort시킨다.
+     *
+     * <p>그래서 finalize는 <b>첫 쓰기보다 먼저</b> 시설물 행을 잠가 순서를 하나로 통일해야 한다. 여기서는
+     * 그 선취가 회차 상태 전이(= inspections 쓰기)보다 앞서는지를 호출 순서로 고정한다 — 이 순서가
+     * 뒤집히면(예: markInspectionReported 직전으로 옮기면) 그 사이 auto-flush가 reports 락을 먼저 잡아
+     * 회귀가 되살아난다.
+     */
+    @Test
+    void finalizeReport_시설물행을_회차전이보다먼저잠근다_락순서역전회귀() {
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspection(10L, InspectionStatus.ANALYZED));
+
+        reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
+
+        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(facilityService, inspectionService);
+        inOrder.verify(facilityService).lockForUpdate(10L);
+        inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
+        inOrder.verify(facilityService).recalculateNextInspectionDueAt(200L, 100L, 10L, LocalDate.now());
+    }
+
+    /**
+     * 회차 스냅샷 TOCTOU 회귀선 — generateDraft는 NOT_SUPPORTED(트랜잭션 없음)라 AI 왕복(수 초~수 분)
+     * 동안 보호가 없다. 그 창에서 소급 회차가 생겨 재정렬되면, 아직 INSERT되지 않은 이 보고서는
+     * syncDraftRoundNoToInspection의 대상이 될 수 없어 옛 회차가 그대로 굳는다(확정 시 틀린 회차가 PDF
+     * 표지에 인쇄됨). 그래서 스냅샷은 초입 값이 아니라 <b>persist 직전에 다시 읽은 값</b>이어야 한다.
+     */
+    @Test
+    void generateDraft_AI왕복중회차가밀리면_persist직전회차로스냅샷한다() {
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspectionWithRound(10L, 2))   // 초입 조회 — AI 호출 전
+                .thenReturn(inspectionWithRound(10L, 3));  // persist 직전 재조회 — 그 사이 소급 회차로 +1 밀림
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any()))
+                .thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        reportService.generateDraft(1L, 100L, 200L);
+
+        ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository).save(captor.capture());
+        assertThat(captor.getValue().getRoundNo())
+                .as("AI 왕복 전 값(2)이 아니라 persist 직전 재조회 값(3)이 찍혀야 한다")
+                .isEqualTo(3);
+    }
+
+    @Test
+    void cloneReport_persist직전회차로스냅샷한다() {
+        Report source = Report.draft(1L, 1, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(source));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspectionWithRound(10L, 2))
+                .thenReturn(inspectionWithRound(10L, 4));
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.of(source));
+        when(reportRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        reportService.cloneReport(5L, 100L, 200L);
+
+        ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getRoundNo()).isEqualTo(4);
+    }
+
+    /**
+     * 버전 채번 경합 재시도는 첫 시도 실패만큼 시간이 더 흐른 뒤라, 처음 찍어 둔 회차를 재사용하면
+     * 스냅샷이 어긋날 창이 오히려 넓어진다 — 재시도 시 버전과 함께 회차도 다시 읽어 찍는지 고정한다.
+     */
+    @Test
+    void cloneReport_버전경합재시도시_회차도다시읽어찍는다() {
+        Report source = Report.draft(1L, 1, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(source));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspectionWithRound(10L, 2))   // findCompanyReportWithInspection
+                .thenReturn(inspectionWithRound(10L, 2))   // 첫 persist 직전
+                .thenReturn(inspectionWithRound(10L, 5));  // 재시도 직전 — 그 사이 또 밀림
+        Report concurrentWinner = Report.draft(1L, 2, 3, "{}", 999L);
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L))
+                .thenReturn(Optional.of(source))
+                .thenReturn(Optional.of(concurrentWinner));
+        when(reportRepository.saveAndFlush(any()))
+                .thenThrow(new DataIntegrityViolationException("dup",
+                        new ConstraintViolationException(
+                                "dup", new SQLException("dup"), "uk_reports_inspection_version")))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.cloneReport(5L, 100L, 200L);
+
+        assertThat(response.version()).isEqualTo(4);
+        ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository, times(2)).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getRoundNo()).isEqualTo(5);
     }
 
     // ── 보고서 확정 시 회차 완료 전이(팀 테스트 피드백, 2026-08-01) ──

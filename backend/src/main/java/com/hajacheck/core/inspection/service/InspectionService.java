@@ -161,8 +161,17 @@ public class InspectionService {
             return insertRoundNo;
         }
 
-        inspectionRepository.shiftRoundNoToStagingRange(facilityId, insertRoundNo, ROUND_NO_SHIFT_OFFSET);
-        inspectionRepository.settleShiftedRoundNo(facilityId, ROUND_NO_SHIFT_OFFSET);
+        int staged = inspectionRepository.shiftRoundNoToStagingRange(
+                facilityId, insertRoundNo, ROUND_NO_SHIFT_OFFSET);
+        int settled = inspectionRepository.settleShiftedRoundNo(facilityId, ROUND_NO_SHIFT_OFFSET);
+        // 리뷰 P3 — 두 UPDATE는 정확히 같은 행 집합을 대상으로 해야 한다(1단계가 올려둔 것을 2단계가
+        // 그대로 내린다). 다르면 상위 구간에 남은 행이 있거나 남의 행을 건드렸다는 뜻이고, 그대로 커밋하면
+        // round_no가 통째로 어긋난 채 확정된다 — 오프셋 가드와 같은 철학으로 조용한 손상 대신 즉시 실패시킨다.
+        if (staged != settled) {
+            throw new IllegalStateException(
+                    "회차 시프트 2단계의 영향 행 수가 불일치한다: facilityId=%d, insertRoundNo=%d, staged=%d, settled=%d"
+                            .formatted(facilityId, insertRoundNo, staged, settled));
+        }
         // 회차가 밀린 시설물의 DRAFT 보고서 스냅샷을 현재 회차에 다시 맞춘다(#1702). FINALIZED는
         // 발급 시점에 동결이라 손대지 않는다 — 이미 인쇄·제출된 PDF 표지의 "제N회차"와 영구 일치해야 한다.
         reportRepository.syncDraftRoundNoToInspection(facilityId, ReportStatus.DRAFT.name());

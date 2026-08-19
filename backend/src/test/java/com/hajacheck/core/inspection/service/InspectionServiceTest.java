@@ -306,6 +306,27 @@ class InspectionServiceTest {
         verify(reportRepository, never()).syncDraftRoundNoToInspection(anyLong(), any());
     }
 
+    // 리뷰 P3 — 2단계 시프트의 두 UPDATE는 정확히 같은 행 집합을 대상으로 해야 한다. 영향 행 수가
+    // 다르면 상위 구간에 남은 행이 있거나 남의 행을 건드렸다는 뜻이라, 그대로 커밋하면 round_no가
+    // 통째로 어긋난 채 확정된다 → 조용히 통과시키지 않고 즉시 실패시킨다.
+    @Test
+    void createInspection_시프트2단계영향행수가불일치하면_즉시실패하고저장안됨() {
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(3);
+        when(inspectionRepository.countByFacilityIdAndInspectionDateLessThanEqual(1L, LocalDate.of(2026, 7, 20)))
+                .thenReturn(1L);
+        when(inspectionRepository.shiftRoundNoToStagingRange(
+                1L, 2, InspectionService.ROUND_NO_SHIFT_OFFSET)).thenReturn(2);
+        when(inspectionRepository.settleShiftedRoundNo(
+                1L, InspectionService.ROUND_NO_SHIFT_OFFSET)).thenReturn(1);
+
+        assertThatThrownBy(() -> service.createInspection(request, 100L, 300L))
+                .isInstanceOf(IllegalStateException.class);
+        verify(inspectionRepository, never()).saveAndFlush(any());
+        verify(reportRepository, never()).syncDraftRoundNoToInspection(anyLong(), any());
+    }
+
     // 2단계 시프트는 "실제 회차 번호 < 오프셋"을 전제로 한다. 전제가 깨지면 조용히 데이터를 망가뜨리는
     // 대신 즉시 실패해야 한다(실무상 도달 불가한 방어선).
     @Test

@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Set;
+import java.util.function.IntSupplier;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.stream.Stream;
@@ -156,7 +157,15 @@ public class ReportService {
         String aiContentJson = GroundingReportContentSerializer.serialize(aiReport);
         // #1702 — 발급 시점의 회차를 보고서에 스냅샷한다. 이후 점검일 소급 입력으로 회차가 재정렬돼도
         // 확정(FINALIZED) 보고서는 이 값이 동결되어 인쇄된 PDF 표지와 영구 일치한다(Report.roundNo 참고).
-        Report report = Report.draft(inspectionId, inspection.roundNo(), nextVersion, aiContentJson, userId);
+        //
+        // ⚠️ 리뷰 P1 — 회차는 위(:generateDraft 초입)에서 읽어 둔 inspection.roundNo()가 아니라 반드시
+        // <b>여기서 다시 읽는다</b>. 이 메서드는 NOT_SUPPORTED라 AI 왕복(callAiServer, 수 초~수 분) 동안
+        // 트랜잭션이 없고, 그 창에서 같은 시설물에 소급 회차가 생기면 재정렬이 일어난다. 그런데
+        // syncDraftRoundNoToInspection은 아직 INSERT되지 않은 이 보고서를 볼 수 없으므로, 옛 회차가 그대로
+        // 굳어 확정 시 <b>틀린 회차가 PDF 표지에 인쇄</b>된다(Report.roundNo는 updatable=false라 엔티티
+        // 경로로 되돌릴 수도 없다).
+        int roundNoAtPersist = currentRoundNo(userId, companyId, inspectionId);
+        Report report = Report.draft(inspectionId, roundNoAtPersist, nextVersion, aiContentJson, userId);
 
         GroundingCheckResult result =
                 GroundingCheckResultFactory.fromAiReport(context, aiReport, NO_GROUNDING_WARNINGS);
@@ -167,7 +176,8 @@ public class ReportService {
                     userId);
         }
 
-        Report saved = saveWithVersionConflictRetry(inspectionId, report, false);
+        Report saved = saveWithVersionConflictRetry(
+                inspectionId, report, false, () -> currentRoundNo(userId, companyId, inspectionId));
         return toDetailResponse(saved, userId, companyId, inspection, facility, confirmedDefects);
     }
 
@@ -190,10 +200,14 @@ public class ReportService {
         int nextVersion = nextVersion(source.getInspectionId());
         // 복제본은 원본의 스냅샷을 물려받지 않고 <b>복제 시점의 현재 회차</b>를 새로 찍는다(#1702) —
         // 복제로 만들어지는 건 아직 발급 전인 새 DRAFT라, 확정 보고서와 달리 현재 회차를 따라야 한다
-        // (원본이 재정렬 전에 확정된 FINALIZED였다면 원본 값은 이미 과거 번호다).
-        Report clone = Report.draft(source.getInspectionId(), scoped.inspection().roundNo(),
+        // (원본이 재정렬 전에 확정된 FINALIZED였다면 원본 값은 이미 과거 번호다). generateDraft와 동일하게
+        // 초입에서 읽어 둔 scoped.inspection()이 아니라 persist 직전에 다시 읽는다(리뷰 P1, 아래
+        // currentRoundNo javadoc 참고) — 이 메서드도 NOT_SUPPORTED라 조회와 INSERT 사이에 트랜잭션 보호가 없다.
+        int roundNoAtPersist = currentRoundNo(userId, companyId, source.getInspectionId());
+        Report clone = Report.draft(source.getInspectionId(), roundNoAtPersist,
                 nextVersion, source.getContentJson(), userId);
-        Report saved = saveWithVersionConflictRetry(source.getInspectionId(), clone, true);
+        Report saved = saveWithVersionConflictRetry(source.getInspectionId(), clone, true,
+                () -> currentRoundNo(userId, companyId, source.getInspectionId()));
         return toDetailResponse(saved, userId, companyId, scoped.inspection());
     }
 
@@ -620,6 +634,21 @@ public class ReportService {
             return toDetailResponse(report, editedByUserId, companyId, scoped.inspection());
         }
 
+        // ⚠️ 락 순서 통일(#1702 리뷰 P1) — 반드시 이 트랜잭션의 <b>첫 쓰기보다 먼저</b> 시설물 행을 잠근다.
+        // 이 메서드는 아래에서 reports(더티 체킹) → inspections(markInspectionReported의 advanceStatus)
+        // → facilities(recalculateNextInspectionDueAt의 updateSchedule) 순으로 락을 잡는데,
+        // InspectionService.createInspection(소급 회차 경로)은 정확히 그 반대인 facilities → inspections
+        // → reports(DRAFT 스냅샷 재동기화) 순으로 잡는다. 같은 시설물에 두 트랜잭션이 동시에 오면 완전한
+        // 순환(ABBA)이 되어 PostgreSQL이 deadlock_timeout 후 한쪽을 40P01로 abort시킨다(사용자에겐 500).
+        //
+        // 40P01 재시도로 덮지 않고 <b>순서 자체를 facilities → inspections → reports 하나로 통일</b>해
+        // 순환을 없앤다. 시설물 행 잠금이 단일 게이트가 되므로 그 뒤의 reports/inspections 획득 순서는
+        // 더 이상 문제가 되지 않는다(같은 시설물에 대해 한 트랜잭션만 게이트를 통과).
+        //
+        // 위치가 중요하다 — report를 먼저 변경(recordStructuralGroundingRecheck)한 뒤에 잠그면, 그 사이의
+        // 어떤 쿼리든 auto-flush로 reports 행 락을 facilities보다 먼저 잡아 순서 역전이 되살아난다.
+        facilityService.lockForUpdate(scoped.inspection().facilityId());
+
         String storageKey = requireOwnPdfUrl(reportId, pdfUrl);
         reportPdfStorage.load(reportId, storageKey);
         reportFinalizationValidator.validate(report.getContentJson());
@@ -716,7 +745,8 @@ public class ReportService {
      * {@code @Transactional} 덕분에 독립된 트랜잭션으로 실행되므로, 두 번째 시도는 첫 시도가 남긴
      * abort 상태의 영향을 받지 않는다.
      */
-    private Report saveWithVersionConflictRetry(Long inspectionId, Report report, boolean flush) {
+    private Report saveWithVersionConflictRetry(
+            Long inspectionId, Report report, boolean flush, IntSupplier roundNoSupplier) {
         try {
             return flush ? reportRepository.saveAndFlush(report) : reportRepository.save(report);
         } catch (DataIntegrityViolationException e) {
@@ -724,10 +754,32 @@ public class ReportService {
                 throw e;
             }
             int retryVersion = nextVersion(inspectionId);
+            // 리뷰 P1 — 재시도는 첫 시도 실패만큼 시간이 더 흐른 뒤라, 처음 찍어 둔 회차를 그대로
+            // 재사용하면 스냅샷이 어긋날 창이 오히려 더 넓어진다. 버전과 함께 회차도 다시 읽어 찍는다.
+            int retryRoundNo = roundNoSupplier.getAsInt();
             log.warn("보고서 버전 채번 경합 감지 — inspectionId={} 재시도 버전={}", inspectionId, retryVersion);
             report.reassignVersionOnConflictRetry(retryVersion);
+            report.resnapshotRoundNoOnConflictRetry(retryRoundNo);
             return flush ? reportRepository.saveAndFlush(report) : reportRepository.save(report);
         }
+    }
+
+    /**
+     * 대상 점검의 <b>현재</b> 회차를 다시 읽는다(#1702 리뷰 P1) — 보고서 회차 스냅샷은 반드시 이 값으로
+     * 찍는다. {@code generateDraft}/{@code cloneReport}는 AI 왕복 동안 DB 커넥션을 잡지 않으려고
+     * {@code NOT_SUPPORTED}(트랜잭션 없음)로 동작하므로, 메서드 초입에 읽은 회차는 INSERT 시점엔 이미
+     * 낡았을 수 있다.
+     *
+     * <p><b>잔여 창</b>: 이 재조회와 INSERT 커밋 사이의 짧은 구간은 여전히 열려 있다. 완전히 닫으려면
+     * INSERT를 {@code createInspection}과 같은 시설물 행 잠금 아래에서 수행해야 하는데, 그러면
+     * {@code saveWithVersionConflictRetry}의 전제(실패한 INSERT가 PG 트랜잭션을 abort 상태로 고정하므로
+     * 재시도는 반드시 별도 트랜잭션이어야 함)가 깨진다. 창을 "AI 왕복 전체(수 초~수 분)"에서
+     * "재조회~INSERT(마이크로초 수준)"로 줄이는 선에서 멈추고, 그래도 어긋난 DRAFT는 다음 재정렬 때
+     * {@code syncDraftRoundNoToInspection}의 절대값 대입이 자가복구한다(그때는 행이 이미 존재하므로).
+     * 확정 전 DRAFT 단계라 인쇄물에 굳는 경로도 아니다.
+     */
+    private int currentRoundNo(Long userId, Long companyId, Long inspectionId) {
+        return inspectionService.getInspection(userId, companyId, inspectionId).roundNo();
     }
 
     private static boolean isReportVersionConflict(DataIntegrityViolationException e) {
