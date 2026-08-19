@@ -65,13 +65,26 @@ public class PlatformAdminCompanyController {
     }
 
     @Operation(summary = "기업 검증 복구",
-            description = "무효화(FAILED)된 기업을 PENDING 으로 되돌려 재검증 배치가 국세청에 재판정하도록 한다(PLATFORM_ADMIN 전용). 사유 필수. 무효화 상태가 아니면 409, 개업일자가 없으면 400.")
+            description = "무효화(FAILED)를 되무른다(PLATFORM_ADMIN 전용). 관리자 무효화의 취소이고 직전 상태가 국세청 인정이면 VERIFIED 로 즉시 복원하고, 그 밖(배치 강등 등)은 PENDING 으로 되돌려 다음 재검증 배치가 국세청에 재판정하게 한다. 사유 필수. 무효화 상태가 아니면 409, PENDING 복귀 경로인데 재검증 대상이 될 수 없는 기업(개업일자 없음·반려·데모)이면 400.")
     @PostMapping("/{companyId}/verification/restore")
     public ResponseEntity<ApiResponse<CompanyVerificationResponse>> restoreVerification(
             @AuthenticationPrincipal LoginUser loginUser,
             @PathVariable Long companyId,
             @Valid @RequestBody CompanyVerificationActionRequest request) {
         CompanyVerificationResponse response = platformAdminCompanyService.restoreVerification(
+                companyId, loginUser.getUserId(), request.reason());
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @Operation(summary = "기업 검증 강제개방(override)",
+            description = "국세청 판정과 무관하게 회사 스코프를 여는 조치다(PLATFORM_ADMIN 전용). 국세청이 계속 불일치(대표자 변경 등)를 응답해 복구(restore)로는 PENDING 에 고착되는 기업을 사람이 실물 확인 후 여는 경로다. "
+                    + "인증 배지는 켜지지 않고(국세청이 확인해 준 것이 아니다) 재검증 대상에 남아 확정 불량(미등록·폐업) 시 배치가 자동 재차단한다. 사유 필수. 이미 검증된 기업이면 409.")
+    @PostMapping("/{companyId}/verification/override")
+    public ResponseEntity<ApiResponse<CompanyVerificationResponse>> overrideVerification(
+            @AuthenticationPrincipal LoginUser loginUser,
+            @PathVariable Long companyId,
+            @Valid @RequestBody CompanyVerificationActionRequest request) {
+        CompanyVerificationResponse response = platformAdminCompanyService.overrideVerification(
                 companyId, loginUser.getUserId(), request.reason());
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
