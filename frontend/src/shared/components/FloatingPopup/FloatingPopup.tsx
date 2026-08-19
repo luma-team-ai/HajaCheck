@@ -23,7 +23,7 @@ interface FloatingPopupProps {
 // 서브태스크(HAJA-138)로 묶여있어, 별도 래퍼 없이도 항상 FAB 바로 위(우하단)에 고정
 // 배치되도록 fixedPosition 기본값을 true로 둠
 export function FloatingPopup({
-  title = 'HajaCheck 도우미',
+  title = '상담 챗봇',
   onClose,
   links,
   onConnectAgent,

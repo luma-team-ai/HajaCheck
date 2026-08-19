@@ -6,7 +6,7 @@ import type { BreadcrumbItem, HeaderProfileMenu } from '../Header';
 import { SideNavBar } from '../SideNavBar';
 import type { SideNavItem } from '../SideNavBar';
 import type { Role } from '../../constants/roles';
-import { BottomNavBarFab } from '../BottomNavBarFab';
+import { BottomNavBarFab, SUPPORT_FAB_LABEL } from '../BottomNavBarFab';
 import { FloatingPopup } from '../FloatingPopup';
 
 // 고객지원 퀵링크 패널 진입점 — 상담 챗봇(#20, HAJA-33)이 구현되어, 카테고리 버튼들은 챗봇에서
@@ -103,7 +103,9 @@ export function AppLayout({
       return;
     }
     const target = event.target as Element | null;
-    suppressNextFabClickRef.current = Boolean(target?.closest('button[aria-label^="고객지원 챗봇"]'));
+    suppressNextFabClickRef.current = Boolean(
+      target?.closest(`button[aria-label="${SUPPORT_FAB_LABEL}"]`),
+    );
   }
 
   return (
