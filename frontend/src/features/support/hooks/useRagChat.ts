@@ -43,18 +43,20 @@ function waitAtMost(promise: Promise<void>, ms: number): Promise<void> {
 
 // 세션 이력 조회(ChatSessionMessageResponse[])를 화면 표시용 ChatMessage[]로 매핑한다(HAJA-668).
 // 필드명 차이: 백엔드 sender(USER/BOT/COUNSELOR)→role(user/assistant), citations는 SourceCitation과
-// 형태가 다르다(documentId→doc_id, chunkRef→chunk_ref, title/collection 필드가 세션 이력 응답엔
-// 없음 — 원본 질의(ragChat) 응답에만 있는 필드라 이력 복원 시엔 snippet을 title 대용으로 쓰고
-// collection은 화면 표시(SourceChip: title+locator만 사용)에 영향 없어 'regulations' 기본값을 둔다).
+// 형태가 다르다(documentId→doc_id, chunkRef→chunk_ref). title/collection은 #1698로 세션 이력
+// 응답에도 추가됐다 — 과거엔 없어서 snippet(청크 원문)을 title 대용으로 썼는데, 그게 재진입 시
+// 참고문서 칩에 청크 원문이 그대로 노출되던 버그였다(#1700). 이제 title을 그대로 쓰고, 빈 값일
+// 때만 `문서 #{documentId}`로 폴백한다. snippet은 title 대용이 아니라 칩 펼침 시 미리보기 전용.
 function toChatMessage(msg: ChatSessionMessageResponse): ChatMessage {
   const sources: SourceCitation[] = msg.citations.map((c) => ({
     // documentId는 백엔드 Long(JSON number)이라 SourceCitation.doc_id 계약(문자열)에 맞춰 변환한다
     // (PR #1563 P2 픽스 — 이전엔 number를 그대로 문자열 필드에 넣어 런타임 타입이 계약과 어긋났다).
     doc_id: String(c.documentId),
-    title: c.snippet || String(c.documentId),
-    collection: 'regulations',
+    title: c.title || `문서 #${c.documentId}`,
+    collection: c.collection,
     locator: c.locator,
     chunk_ref: c.chunkRef,
+    snippet: c.snippet,
   }));
   return {
     id: `session-msg-${msg.id}`,
