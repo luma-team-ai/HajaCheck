@@ -26,7 +26,7 @@ vi.mock('jspdf', () => ({
 const mockToDataURL = vi.fn().mockReturnValue('data:image/png;base64,fake');
 
 function mockHtml2Canvas(canvasWidth: number, canvasHeight: number) {
-  vi.doMock('html2canvas', () => ({
+  vi.doMock('html2canvas-pro', () => ({
     default: vi.fn().mockResolvedValue({
       width: canvasWidth,
       height: canvasHeight,
@@ -45,7 +45,7 @@ describe('exportStatisticsAsPdf', () => {
   });
 
   afterEach(() => {
-    vi.doUnmock('html2canvas');
+    vi.doUnmock('html2canvas-pro');
   });
 
   it('캡처 이미지가 한 페이지 높이 이내면 페이지를 추가하지 않는다', async () => {
@@ -81,7 +81,7 @@ describe('exportStatisticsAsPdf', () => {
   });
 
   it('html2canvas가 실패하면 에러를 그대로 전파한다', async () => {
-    vi.doMock('html2canvas', () => ({
+    vi.doMock('html2canvas-pro', () => ({
       default: vi.fn().mockRejectedValue(new Error('capture failed')),
     }));
     const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');

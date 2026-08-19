@@ -1,4 +1,4 @@
-import html2canvas from 'html2canvas';
+import html2canvas from 'html2canvas-pro';
 
 const PNG_MIME_TYPE = 'image/png';
 
@@ -10,6 +10,11 @@ function buildFileName(facilityId: string): string {
   return `회차간비교_${facilityId}_${yyyy}${mm}${dd}.pdf`;
 }
 
+// html2canvas(원본, 1.4.1)가 아니라 html2canvas-pro를 쓴다 — Tailwind v4 기본 팔레트(zinc/gray
+// 등)가 oklch로 컴파일되는데, 원본의 SUPPORTED_COLOR_FUNCTIONS는 rgb/rgba/hsl/hsla 4개뿐이라
+// oklch 색을 만나면 "Attempting to parse an unsupported color function" 예외를 던져 캡처
+// 전체가 실패한다(#1692, 2026-08-19 실측: Chrome getComputedStyle이 oklch(...)를 그대로 반환).
+// html2canvas-pro는 oklch/oklab/color() 등을 지원하는 포크라 이 문제가 없다.
 // html2canvas는 <select>처럼 OS/브라우저가 직접 그리는 네이티브 폼 컨트롤의 실제 픽셀을 읽어올
 // 방법이 없어, 캡처 시 선택된 옵션 텍스트가 겹쳐 그려지는 구조적 한계가 있다(2026-08-05 발견).
 // 캡처 직전 캡처 영역 안의 모든 select를 "선택된 옵션 텍스트를 보여주는 동일 스타일 span"으로
