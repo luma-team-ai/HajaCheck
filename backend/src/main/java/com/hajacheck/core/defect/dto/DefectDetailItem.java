@@ -23,6 +23,9 @@ import lombok.Getter;
  * <p>areaMm2(#1658/#1668)는 crackWidthMm과 동일하게 AI 서버가 카드 기준물로 환산해 내려준 결함
  * 실측 면적(mm²)이다 — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고, 카드 미검출이거나 CRACK
  * 타입이면 null.
+ *
+ * <p>areaMm2ReferenceGrade(#1682/#1683)는 areaMm2 기반으로 AI 서버가 산출한 mm² 참고 등급(A~E)이다 —
+ * areaMm2가 없으면 null. 본등급 grade와 무관·불변인 참고값이라 enum 변환 없이 문자열 그대로 노출한다.
  */
 // 전 필드 required — @JsonInclude 를 쓰지 않으므로 Jackson 이 값이 null 이어도 키는 항상 내보낸다.
 // OpenApiConfig 의 ModelConverter 는 record 만 승격하는데 이 DTO 는 class 라 대상 밖이어서, 여기서
@@ -31,7 +34,7 @@ import lombok.Getter;
 @Schema(requiredProperties = {
         "id", "inspectionId", "type", "typeLabel", "grade", "status", "confidence", "isReviewed",
         "bboxX", "bboxY", "bboxW", "bboxH", "crackWidthMm", "crackLengthMm", "areaRatio", "areaMm2",
-        "mediaId", "imageUrl", "detailUrl", "createdAt"})
+        "areaMm2ReferenceGrade", "mediaId", "imageUrl", "detailUrl", "createdAt"})
 @Getter
 @Builder
 public class DefectDetailItem {
@@ -52,6 +55,7 @@ public class DefectDetailItem {
     private Double crackLengthMm;
     private Double areaRatio;
     private Double areaMm2;
+    private String areaMm2ReferenceGrade;
     private Long mediaId;
     private String imageUrl;
     private String detailUrl;
@@ -75,6 +79,7 @@ public class DefectDetailItem {
                 .crackLengthMm(defect.getCrackLengthMm())
                 .areaRatio(defect.getAreaRatio())
                 .areaMm2(defect.getAreaMm2())
+                .areaMm2ReferenceGrade(defect.getAreaMm2ReferenceGrade())
                 .mediaId(defect.getMediaId())
                 .imageUrl(defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail")
                 .detailUrl(defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/detail")
