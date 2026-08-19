@@ -318,12 +318,20 @@ public enum ErrorCode {
     // 복구 대상이 FAILED 가 아님 — 정상(VERIFIED/PENDING) 회사를 복구한다며 PENDING 으로 되돌리면
     // 오히려 인가 플래그를 낮춰 스코프를 닫는 역효과가 난다.
     COMPANY_VERIFICATION_NOT_REVOKED(HttpStatus.CONFLICT, "검증이 무효화된 기업만 복구할 수 있습니다."),
+    // 강제개방(override) 대상이 이미 VERIFIED — 회사 스코프가 이미 열려 있어 할 일이 없다. 멱등 통과로
+    // 두지 않는 이유는 revoke 와 같다: 사유·직전 provenance 를 덮어 감사 기록을 흐린다.
+    COMPANY_VERIFICATION_ALREADY_VERIFIED(HttpStatus.CONFLICT, "이미 검증된 기업입니다."),
     // 개업일자 없는 회사의 복구 차단(#1329 에서 prod 2건 실측). 재검증 대상 조회
     // (CompanyRepository#findNtsReverifyTargets)가 business_start_date IS NOT NULL 을 요구하므로,
     // 개업일자 없이 PENDING 으로 되돌리면 배치가 영원히 잡지 못해 회사 스코프가 영구 폐쇄된다
     // (되돌린 줄 알고 방치하게 되므로 FAILED 로 두는 것보다 나쁘다).
     COMPANY_RESTORE_REQUIRES_BUSINESS_START_DATE(HttpStatus.BAD_REQUEST,
             "개업일자가 없는 기업은 복구할 수 없습니다. 개업일자를 먼저 보정해 주세요."),
+    // 개업일자 외의 "재검증 대상이 될 수 없는" 사유(데모 시드 회사 · 반려 기업). 위 코드와 분리해 두면
+    // 관리자가 "개업일자 보정"과 "애초에 배치가 볼 수 없는 회사"를 구분할 수 있다(구체 사유는 커스텀
+    // 메시지로 내려간다 — GlobalExceptionHandler 가 e.getMessage() 를 그대로 싣는다).
+    COMPANY_RESTORE_NOT_REVERIFIABLE(HttpStatus.BAD_REQUEST,
+            "재검증 대상이 될 수 없는 기업은 복구할 수 없습니다."),
 
     // 데모 계정 자기보호(#1626) — 데모 계정을 대상으로 한 role/status/비밀번호 변경을 통일 차단.
     // 비밀번호가 바뀌면 원클릭 데모 로그인 자체가 깨지고, 강등/정지되면 데모 세션이 전 기능을 잃는다.
