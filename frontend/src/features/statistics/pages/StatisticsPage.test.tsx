@@ -6,8 +6,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { statisticsHandlers } from '../api/statisticsApi.handlers';
 import { StatisticsPage } from './StatisticsPage';
 
-// html2canvas는 실 canvas 렌더링에 의존해 jsdom에서 재현 불가능한 브라우저 API 경계라
-// export util을 모듈 경계에서 모킹한다(FacilityInspectionComparePage.test.tsx와 동일 관용구).
+// exportStatisticsAsPdf는 실제로 폰트를 fetch하고 jsPDF/jspdf-autotable로 문서를 조립하는
+// 무거운 비동기 작업이라(#1692, 화면 캡처가 아니라 표 문서 조립으로 전환), 페이지 통합 테스트
+// 레벨에서는 모듈 경계에서 모킹하고 "어떤 데이터로 호출됐는지"만 검증한다
+// (FacilityInspectionComparePage.test.tsx와 동일 관용구 — 조립 로직 자체는
+// exportStatisticsAsPdf.test.ts에서 별도로 검증한다).
 const exportStatisticsAsPdfMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../utils/exportStatisticsAsPdf', () => ({
   exportStatisticsAsPdf: (...args: unknown[]) => exportStatisticsAsPdfMock(...args),
@@ -34,17 +37,21 @@ function renderPage(): void {
   );
 }
 
-describe('StatisticsPage — 내보내기 (#1692, CSV→PDF 전환)', () => {
-  it('"내보내기" 클릭 시 통계 카드 전체 영역을 대상으로 PDF 내보내기를 호출한다', async () => {
+describe('StatisticsPage — 내보내기 (#1692, CSV→화면 캡처→표 문서 최종 전환)', () => {
+  it('"내보내기" 클릭 시 현재 조회 조건과 이미 로드된 통계 데이터를 exportStatisticsAsPdf에 넘긴다', async () => {
     renderPage();
     await screen.findByText('통계');
+    // KPI 쿼리가 실제로 로드될 때까지 기다린다 — 클릭 시점에 아직 데이터가 없으면
+    // kpiSummary가 undefined로 넘어가 이 검증이 무의미해진다.
+    await screen.findByText('1,842');
 
     fireEvent.click(screen.getByRole('button', { name: '통계 데이터 내보내기' }));
 
     expect(exportStatisticsAsPdfMock).toHaveBeenCalledTimes(1);
-    const capturedNode = exportStatisticsAsPdfMock.mock.calls[0][0] as HTMLElement;
-    // 캡처 대상은 제목 "통계" + 필터바를 포함한 카드 전체 div여야 한다(조회 조건이 PDF에 남아야 함).
-    expect(capturedNode.textContent).toContain('통계');
+    const params = exportStatisticsAsPdfMock.mock.calls[0][0];
+    expect(params.periodLabel).toBe('최근 6개월');
+    expect(params.facilityLabel).toBe('전체 시설물');
+    expect(params.kpiSummary?.totalDefects).toBe(1842);
   });
 
   it('내보내는 중에는 버튼이 비활성화되고 완료되면 다시 활성화된다', async () => {
