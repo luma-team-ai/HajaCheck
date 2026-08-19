@@ -147,6 +147,14 @@ export function FacilityFormModal({
       payload.inspectionCycleMonths = initialFacility.inspectionCycleMonths;
       payload.nextInspectionDueAt = initialFacility.nextInspectionDueAt;
     }
+    // PR머신 P1(#1688) — scale lost-update: toCreateFacilityRequest는 scale을 항상 null로 세팅하는데
+    // (등록 폼에 애초에 scale 입력 필드가 없음, CreateFacilityRequest.scale 참고) 수정 폼에도 scale을
+    // 편집할 UI가 없다. 위 inspectionCycleMonths와 달리 "유형을 바꿨는지" 같은 대체 신호가 없으므로
+    // (편집 수단 자체가 없음) 무조건 원본을 보존한다 — 그러지 않으면 이름만 고쳐도 기존 규모 정보
+    // ('지상 20층, 지하 5층' 등)가 조용히 사라진다.
+    if (isEditMode && initialFacility) {
+      payload.scale = initialFacility.scale;
+    }
 
     // geocode 실패 경고는 등록(onSubmit)이 실제로 성공한 뒤에만 부모에 알린다 — 재검수 P1:
     // onSubmit 호출 전에 onGeocodeFailure를 부르면 "...등록되었습니다"(과거완료형) 문구가 아직

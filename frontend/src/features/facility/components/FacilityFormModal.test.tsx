@@ -450,7 +450,9 @@ describe('FacilityFormModal — 수정 모드(#1681)', () => {
     latitude: 37.5006,
     longitude: 127.0364,
     builtYear: 2008,
-    scale: null,
+    // PR머신 P1(#1688) 회귀고정 — scale이 null이면 "항상 null로 세팅"하는 버그가 결과적으로 정답과
+    // 같아져 가려진다. non-null 픽스처로 실제 소실 여부를 검증한다(아래 "규모 정보를 잃지 않는다" 테스트).
+    scale: '지상 20층, 지하 5층',
     inspectionCycleMonths: 4,
     nextInspectionDueAt: '2026-09-15',
     createdAt: '2026-01-10T09:00:00.000Z',
@@ -677,6 +679,36 @@ describe('FacilityFormModal — 수정 모드(#1681)', () => {
       type: '건물-정밀-24개월',
       inspectionCycleMonths: 24,
       nextInspectionDueAt: computeNextInspectionDueAt(24),
+    });
+  });
+
+  // PR머신 P1(#1688) — PUT은 전체 교체 계약인데 수정 폼엔 규모(scale) 입력 필드가 없다.
+  // toCreateFacilityRequest가 scale을 항상 null로 세팅하므로, 이름 등 무관한 필드만 고쳐도
+  // 기존 규모 정보가 조용히 소실됐던 lost-update를 회귀고정한다.
+  it('규모(scale) 입력 필드가 없어도 저장 시 기존 규모 정보를 잃지 않는다(#1688)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/시설물명/), {
+      target: { value: '강남 오피스타워 A동(리모델링)' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      scale: baseEditFacility.scale,
     });
   });
 
