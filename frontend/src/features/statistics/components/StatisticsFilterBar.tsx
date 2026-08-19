@@ -225,7 +225,11 @@ export function StatisticsFilterBar({
         )}
       </div>
 
-      {/* 3. 내보내기 버튼 (Figma 시안: rounded-full 둥근 알약 형태) */}
+      {/* 3. 내보내기 버튼 (Figma 시안: rounded-full 둥근 알약 형태)
+          data-export-ignore — exportStatisticsAsPdf가 html2canvas-pro onclone에서 이 버튼만
+          visibility:hidden 처리해 캡처에서 뺀다(#1692, 리포트 안에 액션 버튼이 찍히는 건
+          부자연스러움). shared Button은 ButtonHTMLAttributes를 그대로 spread하므로(...rest)
+          data-* 속성이 <button> DOM에 그대로 전달된다. */}
       <Button
         variant="secondary"
         size="md"
@@ -233,6 +237,7 @@ export function StatisticsFilterBar({
         disabled={isExporting}
         className="rounded-full! px-4.5! py-2.5! text-sm! font-medium! border-zinc-200! hover:bg-zinc-50! cursor-pointer shadow-2xs!"
         aria-label="통계 데이터 내보내기"
+        data-export-ignore="true"
       >
         <svg className="mr-1.5 h-4 w-4 inline-block text-zinc-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path
