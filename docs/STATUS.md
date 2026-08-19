@@ -36,6 +36,15 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+> ✅ **2026-08-20 dev 머지 — 관리자 콘솔 신규 등록 계정 회사 스코프 전면 403 해소 (PR #1721 / 이슈 #1433, `ai:needs-human` 가드 → 사람 검수 후 수동 머지).** 관리자 콘솔 > 사용자 관리로 만든 계정이 지도·보고서·통계 등 회사 스코프 API에서 **전부 403**이었다. 원인은 `AdminUserService.createUser`가 `users` 행만 만들고 `company_memberships` APPROVED 행을 만들지 않은 것 — 인가 판정은 `users.company_id`(조회 편의 포인터)가 아니라 `CompanyScopeGuard.requireEffectiveMembership` → `existsEffectiveApprovedMembership`가 보는 **`company_memberships` 행** 기준이다. #1368·#1474와 **같은 유형**(인가 조건을 "검사하는 코드"만 있고 "충족시키는 코드"가 없음).
+> - **수정**: `createUser`의 **같은 트랜잭션**에서 `CompanyMembership.approvedMember(companyId, savedUserId, invitedBy=요청 관리자)` 발급. 분리하면 "좌석은 소모되고 계정도 생겼는데 멤버십이 없어 403"인 부분 성공 상태가 남는다.
+> - 이슈 본문의 "승인 멤버 팩토리가 없다"는 **stale**이었다(`approvedMember`가 #1474로 이미 존재) → 신설 대신 **3-인자 오버로드**로 확장, 기존 2-인자는 `invitedBy=null` 위임이라 `InviteCodeService` 호출부 무변경.
+> - `DataIntegrityViolationException` catch 범위를 user save만 감싸도록 축소 — 그 catch는 unique(email) 위반만 번역하는 자리이고, 멤버십 유니크는 방금 채번된 신규 user_id라 위반이 구조상 불가능. 묶으면 성격이 다른 제약 위반이 "이메일 중복"으로 뭉개진다.
+> - **스키마 변경 없음**(`invited_by`는 V1에 존재) → Flyway 마이그레이션 불필요, 승격 시 DB 조치 없음.
+> - **회귀 테스트가 실제로 잡는지 뮤테이션으로 실증**: 배선 한 줄 제거 → 새 실 PG 통합 테스트만 FAIL(동시 61건 중 1건). 기존 201 테스트는 못 잡음. 목 단위 테스트만으로는 쿼리 조건 변경 회귀를 원리상 못 잡는다는 #1324 교훈 적용.
+> - 검수: code-reviewer(opus) 2회 **P1 0**, security-reviewer(opus) **P1 0·P2 0**(cross-tenant IDOR 없음 — DTO에 companyId 부재 + `SessionUserRevalidationFilter` 매 요청 DB 재검증, 회사 REJECTED/FAILED 시 쿼리·DB 트리거 양쪽 fail-closed). 테스트 2481/2481 PASS.
+> - **후속**: #1720(`PlatformAdminUserService.createUser`에 **동일 결함 잔존** — 회사 지정 계정도 좌석만 소모하고 멤버십 미생성) · #1722(방어 심층: 발급 경로 진입부 `requireEffectiveMembership` 가드). **이미 만들어진 피해 계정은 이 PR로 복구되지 않는다**(백필은 데이터 조치, 미실행).
+
 > ✅ **2026-08-20 dev 머지 — 점검일 소급 회차 생성 허용 (PR #1716 / 이슈 #1702·#1706, 사람 검수 후 수동 머지).** 19일 회차를 등록한 뒤 빠뜨린 18일 점검을 넣는 정상 업무가 400으로 막혀 있었다(#1291 가드). 근본 원인은 입력이 아니라 `round_no`가 `max+1`(생성 순서)로만 채번돼 점검일과 독립적이었던 것 — 회차 비교·추이 화면은 전부 "회차 번호 오름차순 = 시간 순서"를 가정한다. **가드를 지우는 대신 `round_no`를 점검일 순서로 유지해 그 가정을 실제로 성립시켰다.**
 > - **삽입 + 시프트**: `facilityService.lockForUpdate()` **뒤에서** 삽입 위치(`count(inspection_date <= 새 점검일) + 1`) 계산 → 그 이상 기존 회차를 +1 시프트 → 삽입. `unique(facility_id, round_no)`가 non-deferrable이라 단일 UPDATE는 행 단위 제약 검사에서 중간 충돌 → **2단계 오프셋 UPDATE**(+1,000,000 → -999,999, 두 구간 서로소라 충돌 구조적 불가). 맨 뒤 추가(가장 흔한 경로)는 시프트 미실행.
 > - **보고서 회차 스냅샷 V47**: 발급된 PDF 표지에 "제N회차"가 인쇄되는데 보고서가 회차를 실시간 조회해 재정렬 시 어긋났다 → `reports.round_no` 추가(백필+NOT NULL, 멱등 가드). **FINALIZED는 동결**(인쇄된 PDF와 영구 일치)·DRAFT만 재동기화. 보고서 조회·필터도 스냅샷 기준.
