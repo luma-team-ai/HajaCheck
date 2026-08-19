@@ -1,12 +1,21 @@
 package com.hajacheck.notification.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.hajacheck.core.analysis.support.InspectionAnalysisNotificationPayload;
+import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.inspection.repository.InspectionRoundNoProjection;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.notification.dto.NotificationResponse;
 import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -24,15 +33,87 @@ public class NotificationService {
     // openapi.yaml "GET /api/notifications" 설명의 "상위 30건"과 동기화 유지 — 이 값을 바꾸면 계약도 함께 갱신.
     private static final int LIST_LIMIT = 30;
 
-    private final NotificationRepository notificationRepository;
+    /**
+     * 회차 표기를 갖는 알림 유형(#1706). 이 둘만 payload에 {@code inspectionId}가 있고 부제목이
+     * "{roundNo}회차"다 — 나머지 유형(INSPECTION_DUE·COUNSEL_REPLIED·PLAN_* 등)의 payload는 건드리지 않는다.
+     */
+    private static final Set<NotificationType> ROUND_AWARE_TYPES =
+            EnumSet.of(NotificationType.ANALYSIS_DONE, NotificationType.REVIEW_PENDING);
 
-    /** 로그인 사용자에게 온 알림을 읽음/미읽음 모두 포함해 최신순 상위 {@value #LIST_LIMIT}건 반환한다(AP-020). */
+    private final NotificationRepository notificationRepository;
+    private final InspectionRepository inspectionRepository;
+
+    /**
+     * 로그인 사용자에게 온 알림을 읽음/미읽음 모두 포함해 최신순 상위 {@value #LIST_LIMIT}건 반환한다(AP-020).
+     *
+     * <p>#1706 — ANALYSIS_DONE/REVIEW_PENDING의 회차 표기는 저장된 payload 문자열이 아니라 <b>조회 시점의
+     * 현재 회차</b>로 다시 계산한다. #1702가 점검일 소급 입력 시 회차 번호를 재정렬하므로, 발행 당시 굳혀
+     * 저장한 "3회차"가 알림을 클릭해 들어간 화면의 회차와 어긋날 수 있기 때문이다.
+     *
+     * <p>목록 경로라 알림 건별 단건 조회(N+1)는 금지 — 대상 {@code inspectionId}를 전부 모아 회차 번호만
+     * 한 번에 배치 조회한다(최대 {@value #LIST_LIMIT}건이라 IN 절 크기도 유계다).
+     *
+     * <p>스코프: 알림은 이미 {@code userId} 기준으로만 조회되고, 여기서 추가로 읽는 값은 그 알림 payload에
+     * 원래부터 들어 있던 회차 번호뿐이다(점검 본문·회사 정보 등 다른 필드는 읽지 않는다) — 새로 노출되는
+     * 데이터가 없으므로 cross-company 유출 경로가 생기지 않는다.
+     */
     public List<NotificationResponse> getNotifications(Long userId) {
-        return notificationRepository
+        List<NotificationResponse> responses = notificationRepository
                 .findAllByUserIdOrderByCreatedAtDescIdDesc(userId, PageRequest.of(0, LIST_LIMIT))
                 .stream()
                 .map(NotificationResponse::from)
                 .toList();
+
+        Map<Long, Integer> currentRoundNos = currentRoundNoByInspectionId(responses);
+        if (currentRoundNos.isEmpty()) {
+            return responses;
+        }
+        return responses.stream()
+                .map(response -> withCurrentRound(response, currentRoundNos))
+                .toList();
+    }
+
+    /** 회차 표기 알림들의 대상 점검 회차를 한 번에 읽는다(#1706, N+1 방지). */
+    private Map<Long, Integer> currentRoundNoByInspectionId(List<NotificationResponse> responses) {
+        Set<Long> inspectionIds = responses.stream()
+                .map(NotificationService::roundAwareInspectionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (inspectionIds.isEmpty()) {
+            return Map.of();
+        }
+        return inspectionRepository.findRoundNosByIds(inspectionIds).stream()
+                .filter(projection -> projection.getRoundNo() != null)
+                .collect(Collectors.toMap(
+                        InspectionRoundNoProjection::getId, InspectionRoundNoProjection::getRoundNo));
+    }
+
+    /**
+     * 대상 점검이 조회되지 않으면(삭제·데모 리셋 등) 저장된 payload를 그대로 둔다 — 부제목을 통째로
+     * 비우는 것보다 "발송 당시 회차"를 남기는 편이 사용자에게 정보량이 크고, 지워진 점검의 "현재 회차"는
+     * 정의되지 않기 때문이다({@link InspectionAnalysisNotificationPayload#serialize} 주석과 세트).
+     */
+    private static NotificationResponse withCurrentRound(
+            NotificationResponse response, Map<Long, Integer> currentRoundNos) {
+        Long inspectionId = roundAwareInspectionId(response);
+        if (inspectionId == null) {
+            return response;
+        }
+        return response.withDescription(
+                InspectionAnalysisNotificationPayload.describeRound(currentRoundNos.get(inspectionId)));
+    }
+
+    /** 회차 표기 대상 알림이면 payload의 inspectionId를, 아니면 null을 돌려준다. */
+    private static Long roundAwareInspectionId(NotificationResponse response) {
+        if (!ROUND_AWARE_TYPES.contains(NotificationType.valueOf(response.type()))) {
+            return null;
+        }
+        JsonNode payload = response.payload();
+        if (payload == null) {
+            return null;
+        }
+        JsonNode inspectionId = payload.get("inspectionId");
+        return inspectionId == null || !inspectionId.canConvertToLong() ? null : inspectionId.asLong();
     }
 
     /**
