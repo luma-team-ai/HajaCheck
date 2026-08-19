@@ -15,7 +15,9 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -45,6 +47,9 @@ import org.hibernate.type.SqlTypes;
  *   <li>{@code ntsOutcome} — 국세청 진위확인 provenance. {@link #isNtsVerified()} 의 판정 근거</li>
  *   <li>{@code ntsCheckedAt}(신규 가입) / {@code ntsBackfilledAt}(V38 소급) — 기록 시각.
  *       <b>두 키는 출처가 달라 이름이 갈린다</b>(실제 조회 시각 vs 소급 스탬프 시각)</li>
+ *   <li>{@code ntsOutcomeBeforeRevoke} · {@code adminRevokedAt} · {@code adminRevokeReason} ·
+ *       {@code adminRestoredAt} · {@code adminRestoreReason} — 플랫폼 관리자 무효화/복구 감사(#1367).
+ *       {@link #revokeBusinessVerificationByAdmin} / {@link #restoreBusinessVerificationByAdmin} 참고</li>
  * </ul>
  *
  * <p><b>⚠️ {@code ntsOutcome} 의 값 공간은 enum 이 아니다</b> — {@code valueOf()} 로 파싱하면 터진다.
@@ -70,6 +75,31 @@ public class Company extends BaseTimeEntity {
 
     /** 국세청이 진위를 확인해 준 경우의 {@code ntsOutcome} 값({@code NtsVerificationOutcome.VERIFIED} 라벨). */
     private static final String NTS_OUTCOME_VERIFIED = "VERIFIED";
+
+    /**
+     * 플랫폼 관리자가 사람 판단으로 검증을 무효화했음을 뜻하는 {@code ntsOutcome} 값(#1367).
+     * 화이트리스트({@link #NTS_VERIFIED_OUTCOMES}) 밖이라 {@link #isNtsVerified()} 가 false 가 된다.
+     */
+    private static final String NTS_OUTCOME_ADMIN_REVOKED = "ADMIN_REVOKED";
+
+    /**
+     * 플랫폼 관리자가 무효화를 되돌렸음을 뜻하는 {@code ntsOutcome} 값(#1367). 이것 역시 화이트리스트
+     * 밖이다 — 관리자는 "차단을 푼다"고 말할 수 있을 뿐 "국세청이 확인해 줬다"고 말할 수 없다.
+     * 배지는 꺼진 채 유지되고, 재검증 배치가 국세청 확인에 성공하면 {@link #markBusinessVerifiedByNts()}
+     * 가 켠다.
+     */
+    private static final String NTS_OUTCOME_ADMIN_RESTORED = "ADMIN_RESTORED";
+
+    /** 무효화 직전 {@code ntsOutcome} 을 보존하는 키(#1367) — 덮어쓰기로 감사 기록이 사라지지 않게 한다. */
+    private static final String NTS_OUTCOME_BEFORE_REVOKE_FIELD = "ntsOutcomeBeforeRevoke";
+
+    /** 관리자 무효화 시각·사유 키(#1367). 사유는 이 조치의 유일한 근거라 반드시 함께 남긴다. */
+    private static final String ADMIN_REVOKED_AT_FIELD = "adminRevokedAt";
+    private static final String ADMIN_REVOKE_REASON_FIELD = "adminRevokeReason";
+
+    /** 관리자 복구 시각·사유 키(#1367). */
+    private static final String ADMIN_RESTORED_AT_FIELD = "adminRestoredAt";
+    private static final String ADMIN_RESTORE_REASON_FIELD = "adminRestoreReason";
 
     /**
      * "국세청 검증을 증명할 수 있다"로 인정하는 {@code ntsOutcome} 값 화이트리스트({@link #isNtsVerified}).
@@ -292,9 +322,7 @@ public class Company extends BaseTimeEntity {
      * 둘을 뒤바꾸면 자동승인 기능 자체가 되돌아간다.
      */
     public boolean isNtsVerified() {
-        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_OUTCOME_FIELD)
-                .filter(NTS_VERIFIED_OUTCOMES::contains)
-                .isPresent();
+        return ntsOutcome().filter(NTS_VERIFIED_OUTCOMES::contains).isPresent();
     }
 
     /**
@@ -362,11 +390,118 @@ public class Company extends BaseTimeEntity {
      * ({@code check_inspection_assigned_inspector_company})가 <b>둘 다</b>
      * {@code verificationStatus=VERIFIED} 를 요구하므로, FAILED 전이만으로 오너를 포함한 <b>전 구성원</b>의
      * 점검 생성·담당자 배정이 막힌다. 따라서 호출부가 {@link CompanyMembership} 을 추가로 회수할 필요는
-     * <b>없다</b> — 회수는 차단에 아무것도 더하지 않으면서 되돌릴 수 없는 상태만 만든다(근거·후속 #1367 은
+     * <b>없다</b> — 회수는 차단에 아무것도 더하지 않으면서 되돌릴 수 없는 상태만 만든다(근거는
      * {@code PendingBusinessReverifyWriter#markFailed} javadoc 참고).
+     *
+     * <p>이 배치 강등을 사람이 되돌리는 경로는 {@link #restoreBusinessVerificationByAdmin(String)} 이다
+     * (#1367). 사람 판단으로 <b>거는</b> 킬스위치는 {@link #revokeBusinessVerificationByAdmin(String)} 이며,
+     * 이 메서드와 달리 provenance 를 함께 남긴다 — 이 메서드는 배치 전용이라 provenance 를 건드리지 않고
+     * 사유는 호출부(writer)의 경고 로그가 담당한다.
      */
     public void markBusinessVerificationFailed() {
         this.verificationStatus = BusinessVerificationStatus.FAILED;
+    }
+
+    /**
+     * <b>플랫폼 관리자 킬스위치</b>(#1367) — 사람 판단으로 회사 검증을 무효화해 회사 스코프를 즉시 닫는다.
+     *
+     * <p><b>왜 필요한가</b>: #1324 자동승인은 진위확인 결과와 무관하게 회사 스코프를 연다. 사칭·오등록이
+     * 발견돼도 그것을 되돌리는 앱 경로가 {@link #markBusinessVerificationFailed()}(재검증 배치 전용)뿐이라
+     * 운영은 수동 SQL 말고는 손쓸 방법이 없었다. 이 메서드가 그 수동 SQL 을 앱 경로로 대체한다.
+     *
+     * <p><b>provenance 처리</b>(모두 {@link JsonValidator#mergeTextFields} 병합 — 통째 교체는 감사 기록
+     * 소실이다, 클래스 javadoc 경고):
+     * <ul>
+     *   <li>{@code ntsOutcome = ADMIN_REVOKED} — <b>반드시 덮는다.</b> 화이트리스트 밖 값이라
+     *       {@link #isNtsVerified()} 가 false 가 되어 "사업자 인증 완료" 배지가 함께 꺼진다. 이 키를 두면
+     *       차단된 회사에 인증 배지가 켜진 채 남는 부정합이 생긴다.</li>
+     *   <li>{@code ntsOutcomeBeforeRevoke} — 덮기 직전 값을 보존한다(없으면 키를 쓰지 않는다).
+     *       무효화가 오판이었는지 사후에 판단하려면 원래 판정이 남아 있어야 한다.</li>
+     *   <li>{@code adminRevokedAt} · {@code adminRevokeReason} — 조치 시각과 사유.</li>
+     * </ul>
+     *
+     * <p><b>멤버십은 회수하지 않는다</b> — {@code verificationStatus ≠ VERIFIED} 한 줄로 스코프 판정
+     * ({@code CompanyMembershipRepository.existsEffectiveApprovedMembership})과 DB 트리거
+     * ({@code check_inspection_assigned_inspector_company})가 둘 다 닫히므로 회수는 차단에 아무것도 더하지
+     * 않으면서 되돌릴 수 없는 상태만 만든다({@code PendingBusinessReverifyWriter#markFailed} javadoc 의
+     * 3근거). 넣으면 {@link #restoreBusinessVerificationByAdmin(String)} 이 반쪽이 된다.
+     *
+     * <p>{@code verifiedAt} 은 건드리지 않는다({@link #markBusinessVerificationFailed()} 방침 유지).
+     *
+     * <p><b>멱등 no-op 이 아니다</b>: 이미 {@code FAILED} 면 예외를 던진다. 두 번째 호출을 조용히 통과시키면
+     * 최초 사유·{@code ntsOutcomeBeforeRevoke} 가 덮여 감사 기록이 흐려진다.
+     *
+     * @param reason 무효화 사유(감사 기록의 유일한 근거 — 호출부가 필수값으로 검증한다)
+     */
+    public void revokeBusinessVerificationByAdmin(String reason) {
+        if (this.verificationStatus == BusinessVerificationStatus.FAILED) {
+            throw new DomainStateTransitionException(
+                    "검증 무효화 불가: 이미 무효화된 회사다(현재 verificationStatus=FAILED)");
+        }
+        Map<String, String> provenance = new LinkedHashMap<>();
+        provenance.put(NTS_OUTCOME_FIELD, NTS_OUTCOME_ADMIN_REVOKED);
+        // 직전 값이 없으면(키 부재·파손 JSON) null 이며, mergeTextFields 가 null 항목을 무시한다.
+        provenance.put(NTS_OUTCOME_BEFORE_REVOKE_FIELD, ntsOutcome().orElse(null));
+        provenance.put(ADMIN_REVOKED_AT_FIELD, Instant.now().toString());
+        provenance.put(ADMIN_REVOKE_REASON_FIELD, reason);
+        this.businessRegistrationOcrRaw =
+                JsonValidator.mergeTextFields(this.businessRegistrationOcrRaw, provenance);
+        this.verificationStatus = BusinessVerificationStatus.FAILED;
+    }
+
+    /**
+     * <b>플랫폼 관리자 복구</b>(#1367) — 무효화(또는 배치 강등)된 회사를 재검증 대상으로 되돌린다.
+     *
+     * <p><b>{@code PENDING} 으로 되돌린다 — {@code VERIFIED} 로 직행하지 않는다.</b> 관리자가 국세청 판정을
+     * 무시하고 회사 스코프를 직접 여는 경로가 되면 안 된다. {@code PENDING} 은
+     * {@code CompanyRepository#findNtsReverifyTargets} 의 첫 갈래에 자동으로 포함되므로 <b>다음 재검증
+     * 배치가 국세청에 다시 물어 재판정</b>한다 — 이것이 "왕복 완성"의 실체이며 리포지토리 쿼리는 수정이
+     * 필요 없다.
+     *
+     * <p>⚠️ 호출부는 {@code businessStartDate} 가 있는지 <b>먼저 확인</b>해야 한다. 재검증 대상 쿼리가
+     * {@code business_start_date is not null} 을 요구하므로, 개업일자 없는 회사를 PENDING 으로 되돌리면
+     * 배치가 영원히 잡지 못해 스코프가 <b>영구 폐쇄</b>된다(되돌린 줄 알고 방치하게 되므로 FAILED 보다
+     * 나쁘다 — #1329 에서 prod 2건으로 실측).
+     *
+     * <p>provenance 는 {@code ntsOutcome = ADMIN_RESTORED} + {@code adminRestoredAt} ·
+     * {@code adminRestoreReason} 을 병합한다. 증명 불가 라벨이라 "사업자 인증 완료" 배지는 꺼진 채
+     * 유지되며, 국세청이 확인해 주면 {@link #markBusinessVerifiedByNts()} 가 켠다.
+     *
+     * <p>{@code verifiedAt} 은 건드리지 않는다(무효화와 동일 방침).
+     *
+     * @param reason 복구 사유(감사 기록)
+     */
+    public void restoreBusinessVerificationByAdmin(String reason) {
+        if (this.verificationStatus != BusinessVerificationStatus.FAILED) {
+            throw new DomainStateTransitionException(
+                    "검증 복구 불가: 무효화(FAILED) 상태의 회사만 복구할 수 있다(현재 verificationStatus=%s)"
+                            .formatted(this.verificationStatus));
+        }
+        Map<String, String> provenance = new LinkedHashMap<>();
+        provenance.put(NTS_OUTCOME_FIELD, NTS_OUTCOME_ADMIN_RESTORED);
+        provenance.put(ADMIN_RESTORED_AT_FIELD, Instant.now().toString());
+        provenance.put(ADMIN_RESTORE_REASON_FIELD, reason);
+        this.businessRegistrationOcrRaw =
+                JsonValidator.mergeTextFields(this.businessRegistrationOcrRaw, provenance);
+        this.verificationStatus = BusinessVerificationStatus.PENDING;
+    }
+
+    /**
+     * 국세청 진위확인 provenance 라벨({@code ocr_raw.ntsOutcome}) — 값이 없거나 JSON 이 깨졌으면 empty.
+     *
+     * <p>키 이름을 이 클래스 밖으로 흘리지 않기 위한 읽기 전용 접근자다(플랫폼 관리자 진단 응답 ·
+     * 무효화 직전 값 보존이 쓴다). ⚠️ 값 공간은 enum 이 아니다 — 클래스 javadoc 참고.
+     */
+    public Optional<String> ntsOutcome() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_OUTCOME_FIELD);
+    }
+
+    /**
+     * 실제 국세청 조회 시각({@code ocr_raw.ntsCheckedAt}) — 없으면 empty.
+     * V38 소급 스탬프({@code ntsBackfilledAt})는 출처가 달라 <b>이 키에 담기지 않는다</b>(클래스 javadoc).
+     */
+    public Optional<String> ntsCheckedAt() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_CHECKED_AT_FIELD);
     }
 
     private void requirePendingReview(String action) {
