@@ -1,6 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.7 · **최종 수정:** 2026-08-19 · 이전 버전 `archive/`
+> **문서 버전:** v0.6 · **최종 수정:** 2026-08-19 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -693,7 +693,6 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 |---|---|---|---|---|---|
 | id | bigint (identity) | N | - | **PK** | 보고서 식별자 |
 | inspection_id | bigint | N | - | **FK→inspections**, UQ(복합) | 보고서 대상 점검 |
-| round_no | integer | N | - | | 발급 시점 점검 회차 스냅샷(#1702). 점검일 소급 입력으로 `inspections.round_no`가 재정렬돼도 `FINALIZED`는 이 값이 동결되어 이미 발급된 PDF 표지와 영구 일치한다. `DRAFT`만 재정렬을 따라 재동기화된다 |
 | version | integer | N | 1 | UQ(복합) | 동일 점검 내 보고서 버전 |
 | lock_version | bigint | N | 0 | | `version`과 별개인 상태 전이 낙관적 락 버전 |
 | content_json | jsonb | N | - | | 보고서 본문 구조화 데이터 |
