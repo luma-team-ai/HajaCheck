@@ -103,7 +103,7 @@ class ReportRepositoryTest extends PostgresTestSupport {
     // draft → grounding 통과 → finalize 전체 도메인 흐름을 거쳐 FINALIZED 보고서를 만든다
     // (Report.builder()가 private이라 이 경로로만 유효한 FINALIZED 상태를 만들 수 있다).
     private Report finalizedReport(Long inspectionId, int version, Long createdBy) {
-        Report report = Report.draft(inspectionId, version, "{}", createdBy);
+        Report report = Report.draft(inspectionId, 1, version, "{}", createdBy);
         GroundingRequestContext context = report.captureGroundingRequestContext();
         GroundingCheckTarget target = GroundingCheckTarget.capture(context, report.getContentJson());
         report.recordGroundingResult(GroundingCheckResultTestFactory.passed(target, null), createdBy);
@@ -123,7 +123,7 @@ class ReportRepositoryTest extends PostgresTestSupport {
         Report myReport = finalizedReport(myInspection, 1, ownerId);
         finalizedReport(strangerInspection, 1, stranger); // 타사 보고서 — 섞이면 안 된다
         // 같은 점검의 DRAFT 보고서 — FINALIZED만 대상이므로 제외돼야 한다
-        reportRepository.save(Report.draft(myInspection, 2, "{}", ownerId));
+        reportRepository.save(Report.draft(myInspection, 1, 2, "{}", ownerId));
 
         List<Report> result = reportRepository.findMyFinalizedReports(
                 ownerId, companyId(ownerId), ReportStatus.FINALIZED, FAR_PAST, PageRequest.of(0, 10));
@@ -179,7 +179,7 @@ class ReportRepositoryTest extends PostgresTestSupport {
         finalizedReport(myInspection, 1, ownerId);
         finalizedReport(myInspection, 2, ownerId);
         finalizedReport(strangerInspection, 1, stranger);
-        reportRepository.save(Report.draft(myInspection, 3, "{}", ownerId));
+        reportRepository.save(Report.draft(myInspection, 1, 3, "{}", ownerId));
 
         long count = reportRepository.countMyFinalizedReports(ownerId, companyId(ownerId), ReportStatus.FINALIZED);
 
@@ -191,8 +191,8 @@ class ReportRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-version@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, ownerId, 1);
-        Report active = reportRepository.save(Report.draft(inspectionId, 1, "{}", ownerId));
-        Report deleted = Report.draft(inspectionId, 2, "{}", ownerId);
+        Report active = reportRepository.save(Report.draft(inspectionId, 1, 1, "{}", ownerId));
+        Report deleted = Report.draft(inspectionId, 1, 2, "{}", ownerId);
         deleted.markDeleted(ownerId);
         reportRepository.save(deleted);
         em.flush();
@@ -208,8 +208,8 @@ class ReportRepositoryTest extends PostgresTestSupport {
         Long ownerId = seedOwner("owner-company-report@haja.com");
         Long facilityId = seedFacility(ownerId, "테스트빌딩");
         Long inspectionId = seedInspection(facilityId, ownerId, ownerId, 1);
-        Report active = reportRepository.save(Report.draft(inspectionId, 1, "{}", ownerId));
-        Report deleted = Report.draft(inspectionId, 2, "{}", ownerId);
+        Report active = reportRepository.save(Report.draft(inspectionId, 1, 1, "{}", ownerId));
+        Report deleted = Report.draft(inspectionId, 1, 2, "{}", ownerId);
         deleted.markDeleted(ownerId);
         reportRepository.save(deleted);
         em.flush();
@@ -234,8 +234,9 @@ class ReportRepositoryTest extends PostgresTestSupport {
         Long facilityId = seedFacility(ownerId, "회차필터빌딩");
         Long round1InspectionId = seedInspection(facilityId, ownerId, ownerId, 1);
         Long round2InspectionId = seedInspection(facilityId, ownerId, ownerId, 2);
-        Report round1Report = reportRepository.save(Report.draft(round1InspectionId, 1, "{}", ownerId));
-        reportRepository.save(Report.draft(round2InspectionId, 1, "{}", ownerId));
+        // #1702 — 회차 필터는 이제 보고서의 발급 시점 스냅샷(reports.round_no) 기준이다.
+        Report round1Report = reportRepository.save(Report.draft(round1InspectionId, 1, 1, "{}", ownerId));
+        reportRepository.save(Report.draft(round2InspectionId, 2, 1, "{}", ownerId));
         em.flush();
         em.clear();
 

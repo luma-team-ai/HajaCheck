@@ -133,7 +133,7 @@ class JpaEntitySchemaIntegrationTest extends PostgresTestSupport {
         em.persist(revision);
 
         Report report = Report.draft(
-                inspection.getId(), 1, "{\"summary\":\"균열 발견\"}", owner.getId());
+                inspection.getId(), 1, 1, "{\"summary\":\"균열 발견\"}", owner.getId());
         var groundingContext = report.captureGroundingRequestContext();
         var aiReport = new ReportResponse(
                 null,

@@ -154,7 +154,9 @@ public class ReportService {
         ReportResponse aiReport = callAiServer(userId, request);
 
         String aiContentJson = GroundingReportContentSerializer.serialize(aiReport);
-        Report report = Report.draft(inspectionId, nextVersion, aiContentJson, userId);
+        // #1702 — 발급 시점의 회차를 보고서에 스냅샷한다. 이후 점검일 소급 입력으로 회차가 재정렬돼도
+        // 확정(FINALIZED) 보고서는 이 값이 동결되어 인쇄된 PDF 표지와 영구 일치한다(Report.roundNo 참고).
+        Report report = Report.draft(inspectionId, inspection.roundNo(), nextVersion, aiContentJson, userId);
 
         GroundingCheckResult result =
                 GroundingCheckResultFactory.fromAiReport(context, aiReport, NO_GROUNDING_WARNINGS);
@@ -186,7 +188,11 @@ public class ReportService {
         ScopedReport scoped = findCompanyReportWithInspection(reportId, userId, companyId);
         Report source = scoped.report();
         int nextVersion = nextVersion(source.getInspectionId());
-        Report clone = Report.draft(source.getInspectionId(), nextVersion, source.getContentJson(), userId);
+        // 복제본은 원본의 스냅샷을 물려받지 않고 <b>복제 시점의 현재 회차</b>를 새로 찍는다(#1702) —
+        // 복제로 만들어지는 건 아직 발급 전인 새 DRAFT라, 확정 보고서와 달리 현재 회차를 따라야 한다
+        // (원본이 재정렬 전에 확정된 FINALIZED였다면 원본 값은 이미 과거 번호다).
+        Report clone = Report.draft(source.getInspectionId(), scoped.inspection().roundNo(),
+                nextVersion, source.getContentJson(), userId);
         Report saved = saveWithVersionConflictRetry(source.getInspectionId(), clone, true);
         return toDetailResponse(saved, userId, companyId, scoped.inspection());
     }
@@ -778,7 +784,7 @@ public class ReportService {
 
         return new ReportDetailResponse.ReportContext(
                 toFacilityContext(facility),
-                toInspectionContext(inspection),
+                toInspectionContext(inspection, report.getRoundNo()),
                 toCompanyContext(company),
                 toUserContext(users.get(inspection.assignedInspectorId())),
                 toUserContext(users.get(inspection.createdBy())),
@@ -819,13 +825,22 @@ public class ReportService {
                 facility.thumbnailUrl());
     }
 
-    private ReportDetailResponse.InspectionContext toInspectionContext(InspectionResponse inspection) {
+    /**
+     * #1702 — 여기 실리는 회차는 <b>점검의 현재 회차가 아니라 보고서의 스냅샷</b>이다. 이 컨텍스트가
+     * 곧 PDF 표지의 "제N회차" 출력 소스라(frontend exportReportToPdf.ts), 실시간 회차를 쓰면 점검일
+     * 소급 입력으로 회차가 재정렬된 뒤 <b>이미 발급된 확정 보고서를 다시 열었을 때 표지 번호가 바뀐다</b> —
+     * 파일로 나간 PDF는 되돌릴 수 없으므로 화면·재출력이 발급 당시 번호를 따라가야 한다. DRAFT는
+     * 시프트와 함께 스냅샷이 재동기화되므로(ReportRepository#syncDraftRoundNoToInspection) 이 경로로도
+     * 자연히 현재 회차가 나온다. 나머지 필드는 표시 시점 최신값이 맞아 그대로 점검에서 읽는다.
+     */
+    private ReportDetailResponse.InspectionContext toInspectionContext(
+            InspectionResponse inspection, int reportRoundNo) {
         return new ReportDetailResponse.InspectionContext(
                 inspection.id(),
                 inspection.facilityId(),
                 inspection.createdBy(),
                 inspection.assignedInspectorId(),
-                inspection.roundNo(),
+                reportRoundNo,
                 inspection.inspectionDate(),
                 inspection.type(),
                 inspection.status(),

@@ -124,7 +124,10 @@ public class MyInspectionsService {
                 .map(report -> MyReportRowResponse.from(
                         report,
                         report.getInspection().getFacility().getName(),
-                        report.getInspection().getRoundNo(),
+                        // #1702 — 확정 보고서 목록이라 회차는 점검의 현재 값이 아니라 발급 시점 스냅샷을
+                        // 쓴다(reports.round_no). 여기서 실시간 회차를 읽으면 점검일 소급 입력으로
+                        // 재정렬된 뒤 "내 보고서" 목록의 회차만 인쇄된 PDF와 어긋난다.
+                        report.getRoundNo(),
                         gradesByInspectionId.getOrDefault(report.getInspectionId(), Set.of()),
                         resolveFileSizeBytes(report)))
                 .toList();

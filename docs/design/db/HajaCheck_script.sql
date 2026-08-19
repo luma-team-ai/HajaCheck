@@ -1135,6 +1135,7 @@ create table reports
     inspection_id          bigint                                                       not null
         references inspections,
     version                integer                  default 1                           not null,
+    round_no               integer                                                      not null,
     content_json           jsonb                                                        not null,
     grounding_check_passed boolean,
     grounding_warnings     jsonb,
@@ -1160,6 +1161,8 @@ comment on column reports.lock_version is '보고서 업무 버전과 별개인 
 comment on column reports.inspection_id is '보고서 대상 점검 식별자';
 
 comment on column reports.version is '동일 점검 내 보고서 버전';
+
+comment on column reports.round_no is '보고서 발급 시점의 점검 회차 스냅샷(#1702). 점검일 소급 입력으로 inspections.round_no가 재정렬돼도 FINALIZED 보고서는 이 값이 동결되어 이미 발급된 PDF 표지와 영구 일치한다. DRAFT만 재정렬을 따라 재동기화된다.';
 
 comment on column reports.content_json is '보고서 본문 및 구조화된 콘텐츠 JSON';
 

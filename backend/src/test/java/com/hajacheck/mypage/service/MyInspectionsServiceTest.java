@@ -112,7 +112,9 @@ class MyInspectionsServiceTest {
     }
 
     private static Report reportOf(Long id, Long inspectionId, Inspection inspection, String pdfUrl) {
-        Report report = Report.draft(inspectionId, 1, "{}", 300L);
+        // #1702 — 확정 보고서의 회차는 발급 시점 스냅샷(reports.round_no)이다. 점검의 현재 회차를
+        // 그대로 물려 심어, 재정렬이 없는 이 시나리오에서 두 값이 일치하는 상태를 모형화한다.
+        Report report = Report.draft(inspectionId, inspection.getRoundNo(), 1, "{}", 300L);
         ReflectionTestUtils.setField(report, "id", id);
         ReflectionTestUtils.setField(report, "pdfUrl", pdfUrl);
         ReflectionTestUtils.setField(report, "status", ReportStatus.FINALIZED);
