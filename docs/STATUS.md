@@ -36,6 +36,17 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+> ✅ **2026-08-20 dev 머지 — 초대코드 동시 redeem 좌석 이중 계상 방어 (PR #1723 / 이슈 #1492, `ai:needs-human` → 사람 검수 후 수동 머지, merge `9338bb9f`).** `InviteCodeService.redeem` 진입부를 `UserRepository#findByIdForUpdate`(PESSIMISTIC_WRITE)로 직렬화. **스키마 변경 0.**
+> - **이슈 본문 정정**: 이슈가 지목한 *교차 회사* 축(서로 다른 두 회사 코드)에서는 누수가 재현되지 않는다 — V1 부분 유니크 인덱스 `uq_company_memberships_approved_user (user_id) WHERE status='APPROVED'`가 두 번째 INSERT를 막고 패자 트랜잭션이 좌석 예약까지 통째로 롤백한다(20/20 실측). 실재하는 축은 **동일 회사·동일 코드 2회 동시 제출**이며, 여기선 두 트랜잭션이 모두 stale WAITING을 읽고 통과해 `seat_count`가 3(실 ACTIVE 2)이 된다. `grantEffectiveMembership`이 기존 행을 재승인만 해 부분 UQ에 안 걸리므로 **DB가 지켜주지 않고 이 잠금이 유일한 방어선**이다.
+> - **⚠️ 사람 검수에서 머신 P2 해소(본 PR 내 픽스, 후속 분리 안 함)**: redeem만 users 행을 잠그고 **반대편 쓰기 경로가 잠금 없이 남아** 있었다. `User`에 `@DynamicUpdate`도 `@Version`도 없어(레포 전체 사용처 0건) Hibernate가 **로드 시점 스냅샷 기준 전 컬럼 UPDATE**를 날리므로, 관리자 `changeStatus`/`changeRole`이 redeem이 쓴 `company_id`를 stale `null`로 덮어써 "ACTIVE·`company_id=null`인데 APPROVED 멤버십·예약 좌석은 존재"하는 정합 붕괴가 가능했다 → **로드 자체를 `findUserForUpdate`(잠금 조회)로 대체**.
+> - **⚠️ 재발 방지 메모 — `changeSkill` 순서를 베끼지 말 것**: `changeSkill`은 `findUser`로 먼저 로드한 뒤 `findByIdForUpdate`를 부르는데, 그러면 엔티티가 이미 L1 캐시에 올라가 **뒤이은 잠금 조회가 스냅샷을 갱신하지 않는다**. `changeSkill`은 User를 더티 변경하지 않아 무해하지만 `changeStatus`/`changeRole`은 그 스냅샷이 곧 UPDATE 내용이라 **락-후-로드로는 결함이 그대로 남는다**. 양쪽 주석에 명시함.
+> - `findUser`/`findUserForUpdate`가 `requireManageableTarget`을 **공유** — 조회 방식이 달라도 미존재·PLATFORM_ADMIN 응답(`USER_NOT_FOUND`)이 갈리면 리소스 열거 방어가 깨진다.
+> - **잠금 순서 `users → companies`** + 순환 부재 근거(`CompanyRepository#findByIdForUpdate`의 유일 호출부가 `requireNotLastCompanyAdmin`이고 그 안 users는 평문 count · `PlatformAdminCompanyService`는 행 잠금 미사용 · `redeem`은 첫 락이 users로 같음)를 javadoc에 기록. 계약의 **단일 소스 = `UserRepository#findByIdForUpdate` javadoc**.
+> - **⚠️ 공허해질 뻔한 단언 정정**: 기존 목 테스트의 `verify(repo, never()).findById(anyLong())`("화이트리스트가 대상 조회보다 **먼저** 막는다" = 잘못된 상태 요청이 리소스 존재 여부 탐지 수단이 되지 않는다)는, 프로덕션이 더 이상 `findById`를 호출하지 않게 되면서 **항상 통과하는 공허한 단언**이 될 뻔했다 → `findByIdForUpdate`로 이동.
+> - 검증: **`./gradlew test --rerun-tasks` 2486/2486 PASS**(리베이스된 최신 dev 기준) · **사보타주 red 확인**(픽스 원복 시 `users.company_id expected 1L but was null`) · G6 PASS(운영 config 0 · Flyway 0 · 시크릿 0 · 엔티티 어노테이션 추가 0). 이슈 #1492 `awaiting-promotion`. **승격 대기.**
+> - **⚠️ 리베이스 필요했음**: 머신 검수 시점 CI 그린이 **#1433(PR #1721) 머지 전 트리** 기준이었다. #1433이 관리자 콘솔 멤버십 발급을 바꿨고 이 PR도 멤버십·좌석을 다뤄 최신 `origin/dev`로 리베이스 후 재검증했다(충돌 없음).
+> - 후속 후보: `spring.data.redis.timeout` 미설정(락 보유 중 Lettuce 기본 60초까지 대기 가능, 영향 범위 WAITING 사용자 1명) · 승격 전 프리플라이트 `select count(*) from users where status='WAITING' and company_id is not null`(0이 아니면 그 행들이 잠금 순서 불변식 밖).
+
 > ✅ **2026-08-20 dev 머지 — 관리자 콘솔 신규 등록 계정 회사 스코프 전면 403 해소 (PR #1721 / 이슈 #1433, `ai:needs-human` 가드 → 사람 검수 후 수동 머지).** 관리자 콘솔 > 사용자 관리로 만든 계정이 지도·보고서·통계 등 회사 스코프 API에서 **전부 403**이었다. 원인은 `AdminUserService.createUser`가 `users` 행만 만들고 `company_memberships` APPROVED 행을 만들지 않은 것 — 인가 판정은 `users.company_id`(조회 편의 포인터)가 아니라 `CompanyScopeGuard.requireEffectiveMembership` → `existsEffectiveApprovedMembership`가 보는 **`company_memberships` 행** 기준이다. #1368·#1474와 **같은 유형**(인가 조건을 "검사하는 코드"만 있고 "충족시키는 코드"가 없음).
 > - **수정**: `createUser`의 **같은 트랜잭션**에서 `CompanyMembership.approvedMember(companyId, savedUserId, invitedBy=요청 관리자)` 발급. 분리하면 "좌석은 소모되고 계정도 생겼는데 멤버십이 없어 403"인 부분 성공 상태가 남는다.
 > - 이슈 본문의 "승인 멤버 팩토리가 없다"는 **stale**이었다(`approvedMember`가 #1474로 이미 존재) → 신설 대신 **3-인자 오버로드**로 확장, 기존 2-인자는 `invitedBy=null` 위임이라 `InviteCodeService` 호출부 무변경.
