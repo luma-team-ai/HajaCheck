@@ -116,7 +116,16 @@ public class InviteCodeService {
             throw new BusinessException(ErrorCode.AUTH_TOO_MANY_REQUESTS);
         }
 
-        User user = userRepository.findById(userId)
+        // 사용자 행 선점(#1492) — 이 트랜잭션이 끝날 때까지 같은 사용자의 다른 redeem 을 직렬화한다.
+        // 잠금 없이 읽으면 한 사용자가 서로 다른 두 회사의 코드를 동시에 redeem 할 때 아래 좌석 예약
+        // (usage_counters 행 잠금 = 회사 단위)이 두 요청을 갈라놓지 못해, 둘 다 requireWaiting 을 통과하고
+        // 각자 회사 좌석까지 예약한 뒤 부분 UQ(uq_company_memberships_approved_user) 위반으로 승패가
+        // 갈린다 — 정합 자체는 DB 가 지켜주지만(실측: 멤버십 1행·좌석 승자만) 실패가 도메인 규칙이 아니라
+        // 제약 위반(raw DataIntegrityViolationException)으로 표면화된다. 잠금을 잡으면 뒤늦은 요청은
+        // 승자 커밋 후의 최신 상태(ACTIVE)를 읽어 바로 아래 requireWaiting() 에서 순차 실행과 동일하게
+        // 거부된다(INVALID_STATE_TRANSITION 409).
+        // ⚠️ 잠금 순서는 users → usage_counters 로 고정한다(UserRepository#findByIdForUpdate javadoc).
+        User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
         // Redis 코드를 소비하기 *전에* WAITING 여부부터 확인한다(PR머신 리뷰 P2). 순서를 바꾸면 이미

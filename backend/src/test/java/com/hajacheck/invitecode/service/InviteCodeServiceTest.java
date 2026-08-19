@@ -219,13 +219,13 @@ class InviteCodeServiceTest {
         assertThatThrownBy(() -> inviteCodeService.redeem("ABC123", 6L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
-        verify(userRepository, never()).findById(anyLong());
+        verify(userRepository, never()).findByIdForUpdate(anyLong());
     }
 
     @Test
     void redeem_WAITING사용자가_유효코드로_성공하면_ACTIVE로_전환되고_커밋후_코드가_소비된다() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-1", "a@haja.com", "홍길동");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(waitingUser));
+        when(userRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(waitingUser));
         when(inviteCodeStore.peek("ABC123")).thenReturn(Optional.of("10"));
         when(companyRepository.existsById(10L)).thenReturn(true);
         UserResponse expected = new UserResponse(1L, "a@haja.com", "홍길동", Role.USER, 10L, null, null, null,
@@ -251,7 +251,7 @@ class InviteCodeServiceTest {
     @Test
     void redeem_성공하면_APPROVED_멤버십이_같은_트랜잭션에서_발급된다() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-9", "m@haja.com", "이초대");
-        when(userRepository.findById(9L)).thenReturn(Optional.of(waitingUser));
+        when(userRepository.findByIdForUpdate(9L)).thenReturn(Optional.of(waitingUser));
         when(inviteCodeStore.peek("MEM001")).thenReturn(Optional.of("10"));
         when(companyRepository.existsById(10L)).thenReturn(true);
 
@@ -275,7 +275,7 @@ class InviteCodeServiceTest {
     @Test
     void redeem_기존_멤버십행이_있으면_새로_저장하지않고_재승인한다() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-10", "n@haja.com", "박재초대");
-        when(userRepository.findById(11L)).thenReturn(Optional.of(waitingUser));
+        when(userRepository.findByIdForUpdate(11L)).thenReturn(Optional.of(waitingUser));
         when(inviteCodeStore.peek("MEM002")).thenReturn(Optional.of("10"));
         when(companyRepository.existsById(10L)).thenReturn(true);
         CompanyMembership revoked = CompanyMembership.approvedMember(10L, 11L);
@@ -294,7 +294,7 @@ class InviteCodeServiceTest {
     @Test
     void redeem_이미ACTIVE인사용자가_요청하면_코드를_건드리지않고_예외를던진다() {
         User activeUser = User.createByAdmin("b@haja.com", "김철수", Role.USER, "$2a$hash", 5L);
-        when(userRepository.findById(2L)).thenReturn(Optional.of(activeUser));
+        when(userRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(activeUser));
 
         assertThatThrownBy(() -> inviteCodeService.redeem("ABC123", 2L))
                 .isInstanceOf(DomainStateTransitionException.class);
@@ -306,7 +306,7 @@ class InviteCodeServiceTest {
     @Test
     void redeem_코드가_유효하지않으면_AUTH_INVITE_CODE_INVALID() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-2", "c@haja.com", "박영희");
-        when(userRepository.findById(3L)).thenReturn(Optional.of(waitingUser));
+        when(userRepository.findByIdForUpdate(3L)).thenReturn(Optional.of(waitingUser));
         when(inviteCodeStore.peek("BADCODE")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> inviteCodeService.redeem("BADCODE", 3L))
@@ -317,7 +317,7 @@ class InviteCodeServiceTest {
 
     @Test
     void redeem_사용자가_없으면_USER_NOT_FOUND이고_코드를_건드리지않는다() {
-        when(userRepository.findById(4L)).thenReturn(Optional.empty());
+        when(userRepository.findByIdForUpdate(4L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> inviteCodeService.redeem("ABC123", 4L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
@@ -329,7 +329,7 @@ class InviteCodeServiceTest {
     @Test
     void redeem_회사가_존재하지않으면_AUTH_INVITE_CODE_INVALID이고_사용자는_WAITING으로_남고_코드는_소비되지않는다() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-3", "d@haja.com", "이순신");
-        when(userRepository.findById(5L)).thenReturn(Optional.of(waitingUser));
+        when(userRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(waitingUser));
         when(inviteCodeStore.peek("ABC123")).thenReturn(Optional.of("999"));
         when(companyRepository.existsById(999L)).thenReturn(false);
 
@@ -346,7 +346,7 @@ class InviteCodeServiceTest {
     @Test
     void redeem_DB커밋이_실패하면_afterCommit이_호출되지않아_코드가_남는다() {
         User waitingUser = User.createSocialUser(SocialProvider.KAKAO, "social-4", "e@haja.com", "정약용");
-        when(userRepository.findById(7L)).thenReturn(Optional.of(waitingUser));
+        when(userRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(waitingUser));
         when(inviteCodeStore.peek("ABC123")).thenReturn(Optional.of("10"));
         when(companyRepository.existsById(10L)).thenReturn(true);
         when(authService.getMe(7L)).thenReturn(

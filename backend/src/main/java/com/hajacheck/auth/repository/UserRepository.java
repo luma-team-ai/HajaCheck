@@ -3,10 +3,12 @@ package com.hajacheck.auth.repository;
 import com.hajacheck.auth.entity.SocialProvider;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -17,6 +19,30 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(String email);
 
     Optional<User> findBySocialProviderAndSocialId(SocialProvider socialProvider, String socialId);
+
+    /**
+     * 사용자 행 잠금(#1492) — 같은 사용자를 대상으로 한 동시 상태 전이를 트랜잭션 종료까지 직렬화한다
+     * ({@code CompanyRepository#findByIdForUpdate}·{@code FacilityRepository#findByIdForUpdate} 와 동일 패턴).
+     *
+     * <p><b>왜 필요한가</b>: 초대 코드 redeem 은 좌석을 {@code usage_counters} 행 잠금으로 지키는데 그
+     * 잠금은 <b>회사 단위</b>다. 한 사용자가 <b>서로 다른 두 회사</b>의 코드를 동시에 redeem 하면 잠금
+     * 대상 행이 서로 달라 두 트랜잭션이 나란히 진행하고, 승패가 서비스 규칙이 아니라 부분 UQ
+     * {@code uq_company_memberships_approved_user} 위반(=DB 제약)으로 갈린다. 이 잠금이 사용자 단위
+     * 직렬화를 만들어, 뒤늦은 요청이 <b>승자가 커밋한 최신 상태</b>(ACTIVE)를 읽고
+     * {@code User#requireWaiting} 도메인 가드에서 순차 실행과 동일하게 거부되도록 한다.
+     *
+     * <p><b>{@code @Version} 이 아니라 비관적 락인 이유</b>: 낙관적 락은 스키마 변경
+     * ({@code users.lock_version} 컬럼 + Flyway)이 필요하고, redeem 경합의 올바른 처리는 재시도가 아니라
+     * <b>직렬화 후 도메인 거부</b>다(같은 사용자가 두 회사에 동시에 합류할 수는 없다).
+     *
+     * <p><b>⚠️ 잠금 순서</b>: 이 잠금을 잡는 경로는 <b>users → usage_counters</b> 순서를 지켜야 한다.
+     * {@code usage_counters} 를 먼저 잠그는 경로({@code AdminUserService#createUser}·
+     * {@code PlatformAdminUserService#createUser} 의 {@code QuotaService#reserveSeat})는 그 뒤에
+     * <b>신규</b> users 행을 INSERT 할 뿐 기존 행을 잠그지 않으므로 역순 대기가 생기지 않는다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> findByIdForUpdate(@Param("id") Long id);
 
     // 마이페이지 좌석 현황(HAJA-177) — 회사 소속 "활성" 사용자만(비활성/정지 구성원은 좌석 과다집계·PII 노출 방지로 제외).
     List<User> findByCompanyIdAndStatus(Long companyId, UserStatus status);

@@ -9,6 +9,7 @@ import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
+import com.hajacheck.global.exception.DomainStateTransitionException;
 import com.hajacheck.membership.entity.Plan;
 import com.hajacheck.membership.entity.PlanName;
 import com.hajacheck.membership.entity.UserPlan;
@@ -188,6 +189,14 @@ class InviteCodeRedeemCrossCompanyConcurrencyTest extends PostgresTestSupport {
                         "select company_id from company_memberships where user_id = ? and status = 'APPROVED'",
                         Long.class, waitingUserId));
         assertThat(finalStatus).isEqualTo("ACTIVE");
+
+        // #1492 수정의 핵심 계약 — 패자의 실패는 DB 제약 위반(raw DataIntegrityViolationException)이
+        // 아니라 순차 실행과 동일한 도메인 거부여야 한다(User#requireWaiting → 409
+        // INVALID_STATE_TRANSITION). 사용자 행 잠금을 제거하면(사보타주) 여기서 다시 빨개진다.
+        Outcome failed = outcomes.stream().filter(outcome -> !outcome.success()).findFirst().orElseThrow();
+        assertThat(failed.thrown())
+                .as("패자 반환 예외: %s", failed.describe())
+                .isInstanceOf(DomainStateTransitionException.class);
     }
 
     private int seatCountOf(Long userPlanId) {
