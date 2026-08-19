@@ -555,7 +555,15 @@ class Ha25IncrementalMigrationTest {
                 // assertCanonicalSchemaParity 가 통과한다.
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource("db/migration/V47__add_reports_round_no.sql"),
-                        CONTAINER_ROOT + "V47__add_reports_round_no.sql");
+                        CONTAINER_ROOT + "V47__add_reports_round_no.sql")
+                // #1702 리뷰 P2 — Flyway V48(trg_reports_set_updated_at에 WHEN절 추가, round_no만 바뀌는
+                // UPDATE는 updated_at을 건드리지 않음)도 이어서 1회 forward-apply한다. 캐노니컬 DDL의
+                // 트리거 정의에도 같은 WHEN절이 반영돼 있으므로(pg_get_triggerdef 대조 대상) 이 증분
+                // 경로에서도 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V48__reports_updated_at_skip_round_no_resync.sql"),
+                        CONTAINER_ROOT + "V48__reports_updated_at_skip_round_no_resync.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -740,6 +748,11 @@ class Ha25IncrementalMigrationTest {
         // UPDATE는 no-op이다 — 스키마 시그니처(컬럼·nullability)만 파리티 대상.
         runPsql(postgres, "V47__add_reports_round_no.sql");
         runPsql(postgres, "V47__add_reports_round_no.sql");
+        // #1702 리뷰 P2 — Flyway V48(trg_reports_set_updated_at WHEN절 추가)도 이어서 forward-apply한다.
+        // DROP TRIGGER IF EXISTS + CREATE TRIGGER 조합이라 재실행해도 동일한 최종 정의로 수렴한다는 점까지
+        // 함께 고정한다.
+        runPsql(postgres, "V48__reports_updated_at_skip_round_no_resync.sql");
+        runPsql(postgres, "V48__reports_updated_at_skip_round_no_resync.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

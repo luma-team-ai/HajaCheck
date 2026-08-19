@@ -708,7 +708,11 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 
 - **UQ**: `(inspection_id, version)`
 - 인덱스: `idx_reports_created_by (created_by)`, `idx_reports_edited_by (edited_by)`
-- 트리거: `trg_reports_set_updated_at` — 행 수정 시 `updated_at` 자동 갱신
+- 트리거: `trg_reports_set_updated_at` — 행 수정 시 `updated_at` 자동 갱신. 단, `round_no`만 바뀌는
+  UPDATE(#1702 V48 — `ReportRepository.syncDraftRoundNoToInspection`의 DRAFT 회차 재동기화)는 WHEN절로
+  제외한다. `round_no`는 `updatable=false`(Report 엔티티)라 이 벌크 UPDATE가 `round_no` 변경의 유일한
+  경로이며, 시스템 재번호는 사용자의 편집이 아니므로 `updated_at`을 "최근 수정"처럼 보이게 하면 안
+  된다. content/status 등 다른 컬럼만 바뀌는 일반 UPDATE는 이전과 동일하게 트리거가 정상 발동한다.
 - **Grounding 신뢰 경계**: 콘텐츠 수정은 기존 grounding 판정을 `NULL`로 무효화한다. 판정값은 요청 DTO의
   boolean을 직접 저장하지 않고, 서비스 계층의 `GroundingCheckResultFactory`가 내부 AI 서버의
   `ReportResponse`를 도메인 `GroundingCheckResult`로 변환한 경우에만 갱신한다. Entity는 AI 전송 DTO에

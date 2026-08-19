@@ -1911,13 +1911,19 @@ execute procedure set_updated_at();
 
 comment on trigger trg_facilities_set_updated_at on facilities is 'facilities 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
 
+-- #1702 V48 — round_no만 바뀌는 UPDATE(ReportRepository.syncDraftRoundNoToInspection의 시스템 재번호
+-- 재동기화)는 WHEN절로 건너뛴다. Report.roundNo(Report.java)가 updatable=false라 이 벌크 UPDATE가
+-- round_no 변경의 유일한 경로이며, 시스템 재번호는 사용자의 편집이 아니므로 updated_at을 "최근 수정"
+-- 처럼 보이게 하면 안 된다. content/status 등 다른 컬럼만 바뀌는 일반 UPDATE는 round_no가 그대로라
+-- WHEN절이 참이 되어 이전과 동일하게 트리거가 정상 발동한다.
 create trigger trg_reports_set_updated_at
     before update
     on reports
     for each row
+    when (new.round_no is not distinct from old.round_no)
 execute procedure set_updated_at();
 
-comment on trigger trg_reports_set_updated_at on reports is 'reports 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+comment on trigger trg_reports_set_updated_at on reports is 'reports 행 수정 시 updated_at을 현재 시각으로 갱신한다. 단, round_no만 바뀌는 UPDATE(#1702 syncDraftRoundNoToInspection의 시스템 재번호 재동기화)는 WHEN절로 제외한다 — round_no는 Report.java에서 updatable=false라 이 벌크 UPDATE가 round_no 변경의 유일한 경로이며, 시스템 재번호는 사용자의 편집이 아니므로 updated_at을 "최근 수정"처럼 보이게 하면 안 된다.';
 
 create trigger trg_bot_scenarios_set_updated_at
     before update

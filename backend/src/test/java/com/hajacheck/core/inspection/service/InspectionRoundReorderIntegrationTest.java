@@ -31,6 +31,7 @@ import com.hajacheck.notification.service.NotificationService;
 import com.hajacheck.support.PostgresTestSupport;
 import jakarta.persistence.EntityManager;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -198,6 +199,29 @@ class InspectionRoundReorderIntegrationTest extends PostgresTestSupport {
     }
 
     /**
+     * #1702 리뷰 P2 / V48 — {@link com.hajacheck.core.report.repository.ReportRepository
+     * #syncDraftRoundNoToInspection} javadoc의 "updated_at은 일부러 갱신하지 않는다"는 문장이 실제로
+     * 성립하는지 고정한다. V47까지는 {@code trg_reports_set_updated_at} 트리거가 WHEN절 없이 모든
+     * UPDATE에서 무조건 발동해, 이 벌크 재동기화(round_no만 SET)조차 DRAFT의 updated_at을 재번호
+     * 시점으로 밀어 버렸다(prod tgenabled='O' 실측). V48이 트리거에 {@code WHEN (NEW.round_no IS NOT
+     * DISTINCT FROM OLD.round_no)}를 추가해 round_no가 실제로 바뀌는 이 경로만 건너뛴다.
+     */
+    @Test
+    void 회차재정렬로_초안회차스냅샷이바뀌어도_updated_at은변하지않는다() {
+        create(LocalDate.of(2026, 7, 10));
+        InspectionResponse target = create(LocalDate.of(2026, 7, 25));
+        Long draftId = saveDraftReport(target.id(), target.roundNo(), 1);
+        LocalDateTime updatedAtBeforeReorder = reportUpdatedAtOf(draftId);
+
+        create(LocalDate.of(2026, 7, 20));
+
+        // round_no 스냅샷은 재정렬을 따라 정상 갱신된다(기존 FINALIZED/DRAFT 테스트와 동일 단언).
+        assertThat(reportRoundNoOf(draftId)).isEqualTo(target.roundNo() + 1);
+        // 하지만 updated_at은 트리거 WHEN절 덕분에 이 재동기화 UPDATE에서 건드려지지 않아야 한다.
+        assertThat(reportUpdatedAtOf(draftId)).isEqualTo(updatedAtBeforeReorder);
+    }
+
+    /**
      * #1706 — 알림 payload에 굳혀 저장된 "{roundNo}회차"는 재정렬 뒤 stale해진다. 조회 시점에 현재
      * 회차로 다시 계산되는지 재정렬과 묶어 고정한다.
      */
@@ -271,6 +295,11 @@ class InspectionRoundReorderIntegrationTest extends PostgresTestSupport {
     private int reportRoundNoOf(Long reportId) {
         flushAndClear();
         return reportRepository.findById(reportId).orElseThrow().getRoundNo();
+    }
+
+    private LocalDateTime reportUpdatedAtOf(Long reportId) {
+        flushAndClear();
+        return reportRepository.findById(reportId).orElseThrow().getUpdatedAt();
     }
 
     private int roundNoOf(Long inspectionId) {

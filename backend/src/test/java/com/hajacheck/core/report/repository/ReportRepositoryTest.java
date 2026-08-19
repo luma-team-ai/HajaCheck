@@ -246,4 +246,31 @@ class ReportRepositoryTest extends PostgresTestSupport {
         assertThat(page.getContent()).extracting(Report::getId).containsExactly(round1Report.getId());
         assertThat(page.getTotalElements()).isEqualTo(1);
     }
+
+    /**
+     * #1702 리뷰 P2 / V48 회귀 방지 — {@code trg_reports_set_updated_at}의 WHEN절은 {@code round_no}가
+     * 실제로 바뀌는 UPDATE({@link ReportRepository#syncDraftRoundNoToInspection})만 건너뛴다. content
+     * 등 다른 컬럼만 바뀌는 일반 편집은 round_no를 건드리지 않으므로 WHEN절이 참이 되어 트리거가
+     * V47까지와 동일하게 정상 발동해야 한다 — WHEN절 도입이 일반 편집의 updated_at 갱신까지 함께
+     * 죽이면 안 된다.
+     */
+    @Test
+    void updateContent_일반편집은_updated_at이여전히갱신된다() {
+        Long ownerId = seedOwner("owner-updated-at@haja.com");
+        Long facilityId = seedFacility(ownerId, "테스트빌딩");
+        Long inspectionId = seedInspection(facilityId, ownerId, ownerId, 1);
+        Report saved = reportRepository.save(Report.draft(inspectionId, 1, 1, "{\"summary\":\"초안\"}", ownerId));
+        em.flush();
+        em.clear();
+        LocalDateTime updatedAtBefore = reportRepository.findById(saved.getId()).orElseThrow().getUpdatedAt();
+
+        Report managed = reportRepository.findById(saved.getId()).orElseThrow();
+        managed.updateContent("{\"summary\":\"수정본\"}", ownerId);
+        reportRepository.save(managed);
+        em.flush();
+        em.clear();
+
+        LocalDateTime updatedAtAfter = reportRepository.findById(saved.getId()).orElseThrow().getUpdatedAt();
+        assertThat(updatedAtAfter).isNotEqualTo(updatedAtBefore);
+    }
 }

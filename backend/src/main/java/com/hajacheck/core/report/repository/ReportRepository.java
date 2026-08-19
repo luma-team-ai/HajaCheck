@@ -96,6 +96,15 @@ public interface ReportRepository extends JpaRepository<Report, Long> {
      *
      * <p>{@code updated_at}은 일부러 갱신하지 않는다 — 시스템 재번호는 사용자의 편집이 아니라서,
      * 갱신하면 손대지도 않은 초안이 "최근 수정" 목록·기간 필터(reportPeriodStart) 맨 앞으로 튀어오른다.
+     * 이 문장이 실제로 성립하는 것은 {@code trg_reports_set_updated_at} 트리거(V1)가 WHERE/WHEN 조건
+     * 없이 모든 UPDATE에서 {@code NEW.updated_at = now()}를 무조건 덮어쓰던 V47까지의 버그가 V48
+     * ({@code V48__reports_updated_at_skip_round_no_resync.sql})로 고쳐진 뒤부터다 — V48은 트리거에
+     * {@code WHEN (NEW.round_no IS NOT DISTINCT FROM OLD.round_no)}를 추가해, 이 네이티브 벌크
+     * UPDATE처럼 {@code round_no}가 실제로 바뀌는 UPDATE에서만 트리거를 건너뛰게 한다({@link
+     * com.hajacheck.core.report.entity.Report#roundNo}가 {@code updatable = false}라 round_no가
+     * 바뀌는 UPDATE 경로는 이 메서드가 구조적으로 유일하다). content/status 변경 등 round_no를 건드리지
+     * 않는 일반 UPDATE는 WHEN절이 참이 되어 트리거가 여전히 정상 발동하므로 updated_at은 그대로
+     * 갱신된다.
      *
      * <p>JPQL은 UPDATE의 FROM 조인을 표현하지 못해 네이티브로 둔다. status는 PG named enum
      * ({@code report_status_type})이라 문자열 파라미터를 명시적으로 캐스팅해 바인딩한다.
