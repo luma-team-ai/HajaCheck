@@ -5,6 +5,7 @@ import {
   GeocodeFailedError,
   GeocodeNotFoundError,
 } from '../../../shared/lib/kakaoMap/geocodeAddress';
+import type { Facility } from '../types';
 import { computeNextInspectionDueAt } from '../utils/computeNextInspectionDueAt';
 import { FacilityFormModal } from './FacilityFormModal';
 
@@ -435,5 +436,300 @@ describe('FacilityFormModal', () => {
 
     expect(screen.queryByLabelText(/점검주기/)).toBeNull();
     expect(screen.queryByLabelText(/^규모$/)).toBeNull();
+  });
+});
+
+// #1681 — FacilityDetailPage의 수정 진입점이 mode='edit' + initialFacility로 이 모달을 재사용한다.
+// 프리필/재지오코딩 분기(이슈 스펙 (a)~(d))·실패 폴백을 검증한다.
+describe('FacilityFormModal — 수정 모드(#1681)', () => {
+  const baseEditFacility: Facility = {
+    id: 42,
+    name: '강남 오피스타워 A동',
+    type: '건물-정기-4개월',
+    address: '서울 강남구 테헤란로 123',
+    latitude: 37.5006,
+    longitude: 127.0364,
+    builtYear: 2008,
+    // PR머신 P1(#1688) 회귀고정 — scale이 null이면 "항상 null로 세팅"하는 버그가 결과적으로 정답과
+    // 같아져 가려진다. non-null 픽스처로 실제 소실 여부를 검증한다(아래 "규모 정보를 잃지 않는다" 테스트).
+    scale: '지상 20층, 지하 5층',
+    inspectionCycleMonths: 4,
+    nextInspectionDueAt: '2026-09-15',
+    createdAt: '2026-01-10T09:00:00.000Z',
+    updatedAt: '2026-01-10T09:00:00.000Z',
+    initialGrade: 'B',
+    assigneeUserId: 101,
+    memo: '외벽 균열 재점검 예정',
+    latestDefectId: null,
+    thumbnailUrl: null,
+    lastInspectedAt: null,
+    defectCount: 0,
+  };
+
+  it('수정 모드로 열면 initialFacility 값으로 폼을 프리필하고 문구가 수정용으로 바뀐다(#1681)', () => {
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: '시설물 수정' })).not.toBeNull();
+    expect((screen.getByLabelText(/시설물명/) as HTMLInputElement).value).toBe('강남 오피스타워 A동');
+    expect((screen.getByLabelText(/시설물 유형/) as HTMLSelectElement).value).toBe('건물-정기-4개월');
+    expect((screen.getByLabelText(/^주소/) as HTMLInputElement).value).toBe('서울 강남구 테헤란로 123');
+    expect((screen.getByLabelText('담당자') as HTMLSelectElement).value).toBe('101');
+    expect((screen.getByLabelText('메모') as HTMLTextAreaElement).value).toBe('외벽 균열 재점검 예정');
+    expect(screen.getByRole('button', { name: '수정하기' })).not.toBeNull();
+  });
+
+  it('수정 모드에서는 대표 사진 업로드 필드를 렌더링하지 않는다(#1681 — 이번 범위 밖)', () => {
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+      />,
+    );
+
+    expect(screen.queryByLabelText('대표 사진 업로드')).toBeNull();
+  });
+
+  it('주소를 변경하지 않고 저장하면 Geocoder를 호출하지 않고 기존 좌표를 그대로 전달한다(#1681 케이스 b)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(geocodeAddressMock).not.toHaveBeenCalled();
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      address: '서울 강남구 테헤란로 123',
+      latitude: 37.5006,
+      longitude: 127.0364,
+    });
+  });
+
+  it('주소를 변경하면 Geocoder로 재계산한 새 좌표를 전달한다(#1681 케이스 a)', async () => {
+    geocodeAddressMock.mockResolvedValue({ latitude: 37.1, longitude: 127.9 });
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+      />,
+    );
+
+    searchAndFillAddress('서울 서초구 반포대로 100');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(geocodeAddressMock).toHaveBeenCalledWith('서울 서초구 반포대로 100');
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      address: '서울 서초구 반포대로 100',
+      latitude: 37.1,
+      longitude: 127.9,
+    });
+  });
+
+  it('좌표가 없으면 주소가 그대로여도 Geocoder를 다시 시도한다(#1681 케이스 c)', async () => {
+    geocodeAddressMock.mockResolvedValue({ latitude: 37.55, longitude: 127.0 });
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+    const facilityWithoutCoords: Facility = { ...baseEditFacility, latitude: null, longitude: null };
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={facilityWithoutCoords}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(geocodeAddressMock).toHaveBeenCalledWith('서울 강남구 테헤란로 123');
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({ latitude: 37.55, longitude: 127.0 });
+  });
+
+  it('Geocoder가 실패해도 수정을 막지 않고 기존 좌표를 유지한 채 onSubmit을 진행한다(#1681 케이스 d)', async () => {
+    geocodeAddressMock.mockRejectedValue(new GeocodeFailedError('서울 서초구 반포대로 100'));
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+    const handleGeocodeFailure = vi.fn();
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+        onGeocodeFailure={handleGeocodeFailure}
+      />,
+    );
+
+    searchAndFillAddress('서울 서초구 반포대로 100');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(handleSubmit).toHaveBeenCalledTimes(1);
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      latitude: baseEditFacility.latitude,
+      longitude: baseEditFacility.longitude,
+    });
+    expect(handleGeocodeFailure).toHaveBeenCalledWith(
+      expect.stringContaining('기존 좌표를 유지한 채'),
+    );
+  });
+
+  // 레거시(#731 12종 조합 이전) 자유 입력 유형으로 저장된 기존 시설물 — 유형 <select>에 매칭되는
+  // <option>이 없어도(findFacilityTypeCycleMonths가 null 반환) 유형을 건드리지 않았다면 점검주기가
+  // 사라지면 안 된다(lost-update 방지, #1681).
+  it('유형을 바꾸지 않고 저장하면 기존 점검주기·다음점검일이 그대로 유지된다(#1681, 레거시 자유입력 유형 포함)', async () => {
+    const legacyTypeFacility: Facility = {
+      ...baseEditFacility,
+      type: '건물',
+      inspectionCycleMonths: 6,
+      nextInspectionDueAt: '2026-09-15',
+    };
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={legacyTypeFacility}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/시설물명/), {
+      target: { value: '강남 오피스타워 A동(리모델링)' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      type: '건물',
+      inspectionCycleMonths: 6,
+      nextInspectionDueAt: '2026-09-15',
+    });
+  });
+
+  it('유형을 새로 선택하면 새 유형 기준으로 점검주기·다음점검일을 다시 계산한다(#1681)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/시설물 유형/), {
+      target: { value: '건물-정밀-24개월' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      type: '건물-정밀-24개월',
+      inspectionCycleMonths: 24,
+      nextInspectionDueAt: computeNextInspectionDueAt(24),
+    });
+  });
+
+  // PR머신 P1(#1688) — PUT은 전체 교체 계약인데 수정 폼엔 규모(scale) 입력 필드가 없다.
+  // toCreateFacilityRequest가 scale을 항상 null로 세팅하므로, 이름 등 무관한 필드만 고쳐도
+  // 기존 규모 정보가 조용히 소실됐던 lost-update를 회귀고정한다.
+  it('규모(scale) 입력 필드가 없어도 저장 시 기존 규모 정보를 잃지 않는다(#1688)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/시설물명/), {
+      target: { value: '강남 오피스타워 A동(리모델링)' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
+      scale: baseEditFacility.scale,
+    });
+  });
+
+  it('수정 모드에서 onSubmit의 두 번째 인자(photos)는 항상 빈 배열이다(#1681)', async () => {
+    const handleSubmit = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <FacilityFormModal
+        open
+        onClose={vi.fn()}
+        onSubmit={handleSubmit}
+        isSubmitting={false}
+        mode="edit"
+        initialFacility={baseEditFacility}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+    });
+
+    expect(handleSubmit.mock.calls[0][1]).toEqual([]);
   });
 });
