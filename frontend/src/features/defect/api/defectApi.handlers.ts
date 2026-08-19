@@ -392,42 +392,13 @@ export const defectHandlers = [
     return HttpResponse.json(body);
   }),
 
-  // GET /api/inspections/:id — 점검 상세 헤더의 점검 상태 배지(#1693, useInspection). inspection
-  // feature의 동일 엔드포인트(inspectionApi.handlers.ts)와는 별개로 defect feature 자체 목이다
-  // (feature 간 직접 import 금지 컨벤션, mockInspections 재사용). 전역 handlers.ts에서는
-  // inspectionHandlers가 defectHandlers보다 먼저 등록돼 그쪽이 우선하므로(다른 하드코딩 값)
-  // 이 핸들러는 이 파일의 격리 테스트(defectHandlers만 등록)에서만 유효하게 동작한다.
-  // InspectionResponse 필수 필드 중 mockInspections에 없는 값(createdBy/assignedInspectorId)은
-  // 이 화면에서 쓰이지 않으므로 고정값으로 채운다.
-  http.get('/api/inspections/:id', ({ params }) => {
-    const id = Number(params.id);
-    const found = mockInspections.find((inspection) => inspection.id === id);
-
-    if (!found) {
-      const failure: ApiResponse<null> = {
-        success: false,
-        data: null,
-        error: { code: 'INSPECTION_NOT_FOUND', message: '점검 회차를 찾을 수 없습니다.' },
-      };
-      return HttpResponse.json(failure, { status: 404 });
-    }
-
-    return HttpResponse.json({
-      success: true,
-      data: {
-        id: found.id,
-        facilityId: found.facilityId,
-        createdBy: 1,
-        assignedInspectorId: 1,
-        roundNo: found.roundNo,
-        inspectionDate: found.inspectionDate,
-        status: found.status,
-        createdAt: `${found.inspectionDate}T09:00:00.000Z`,
-        reviewedCount: 0,
-        totalCount: found.defectCount,
-      },
-    });
-  }),
+  // GET /api/inspections/:id — 점검 상세 헤더의 점검 상태 배지(#1693, useInspection)가 쓰는
+  // 엔드포인트다. 여기 defect feature에는 등록하지 않는다 — inspectionApi.handlers.ts가 이미 같은
+  // 경로+메서드를 등록하고 있어(mocks/handlers.ts에서 inspectionHandlers가 defectHandlers보다 먼저
+  // 스프레드됨), 여기 추가하면 전역 체인에서는 절대 도달하지 않는 죽은 핸들러가 된다(코드리뷰
+  // P2 — #1693). 단일 소스는 mocks/fixtures/inspectionSummary.mock.ts(양쪽 feature가 참조),
+  // inspectionApi.handlers.ts 참고. InspectionDefectsPage.test.tsx의 격리 서버는 이 파일의
+  // defectHandlers뿐 아니라 inspectionHandlers도 함께 등록해 전역 체인과 동일하게 검증한다.
 
   // GET /api/facilities — 점검 목록 필터의 시설물 select 옵션(defect feature 자체 목, feature 간
   // 직접 import 금지 컨벤션에 따라 inspection/facility feature의 동일 핸들러와 별개로 등록).

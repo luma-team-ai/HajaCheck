@@ -1,5 +1,6 @@
 import { http, HttpResponse } from 'msw';
 import type { ApiResponse, PageResponse } from '../../../shared/api/types';
+import { mockInspectionSummaries } from '../../../mocks/fixtures/inspectionSummary.mock';
 import type {
   FacilityDetail,
   FacilityOption,
@@ -10,6 +11,7 @@ import type {
   DefectDetailItem,
   DefectCreateRequest,
   FacilityInspectionSummary,
+  InspectionResponse,
 } from './inspectionApi.types';
 
 // ponytail: /api/inspections/:id/result 목은 제거됨 — 실제 백엔드는
@@ -180,18 +182,31 @@ export const inspectionHandlers = [
   // 점검 요약 진입 시 회차 검수 확정(ANALYZED→REVIEWED) — ResultViewerPage "점검 요약" 버튼.
   http.post('/api/inspections/:id/confirm-review', () => HttpResponse.json({ success: true, data: null })),
 
-  // 점검 상세 조회 — useInspectionResultReal에서 사용. mockInspections 데이터를 기반으로 응답한다.
+  // 점검 상세 조회 — useInspectionResultReal(결과 뷰어)와 defect feature의
+  // useInspection(점검 상세 헤더 점검 상태 배지, #1693)이 함께 쓰는 단일 엔드포인트.
+  // mocks/fixtures/inspectionSummary.mock.ts를 단일 소스로 참조한다(코드리뷰 P2 — 과거엔 이
+  // 파일과 defect/api/defectApi.handlers.ts가 같은 경로를 각자 하드코딩값으로 중복 등록해,
+  // mocks/handlers.ts 전역 체인에서 먼저 등록되는 이쪽만 실제로 응답하고 defect 쪽은 죽은
+  // 코드였다). InspectionResponse 필수 필드 중 목 데이터에 없는 값(createdBy/assignedInspectorId/
+  // createdAt)은 두 소비 훅 모두 쓰지 않으므로 고정값으로 채운다.
   http.get('/api/inspections/:id', ({ params }) => {
     const id = Number(params.id);
-    const mockInspectionsData = [
-      { id: 101, facilityId: 1, roundNo: 3, inspectionDate: '2026-07-01', type: 'REGULAR', status: 'REVIEWED' },
-      { id: 202, facilityId: 3, roundNo: 1, inspectionDate: '2026-07-03', type: 'DETAILED', status: 'ANALYZED' },
-      { id: 301, facilityId: 2, roundNo: 2, inspectionDate: '2026-06-20', type: 'EMERGENCY', status: 'REPORTED' },
-    ];
-    const found = mockInspectionsData.find((i) => i.id === id);
+    const found = mockInspectionSummaries.find((i) => i.id === id);
     if (!found) {
       return HttpResponse.json({ success: false, data: null, error: { code: 'INSPECTION_NOT_FOUND', message: '점검을 찾을 수 없습니다.' } }, { status: 404 });
     }
-    return HttpResponse.json({ success: true, data: found });
+    const data: InspectionResponse = {
+      id: found.id,
+      facilityId: found.facilityId,
+      createdBy: 1,
+      assignedInspectorId: 1,
+      roundNo: found.roundNo,
+      inspectionDate: found.inspectionDate,
+      status: found.status,
+      createdAt: `${found.inspectionDate}T09:00:00.000Z`,
+      reviewedCount: 0,
+      totalCount: 0,
+    };
+    return HttpResponse.json({ success: true, data });
   }),
 ];
