@@ -28,6 +28,7 @@ from ai.core.llm_client import CACHE_TTL_SECONDS, get_llm, get_redis_client
 from ai.core.prompt_safety import UNTRUSTED_DATA_BEGIN, UNTRUSTED_DATA_END, wrap_untrusted
 from ai.core.schemas import AIErrorCode, AIResponse, RagAnswerData, SourceCitation
 from ai.core.semantic_cache import (
+    CACHE_VERSION_FIELD,
     CREATED_AT_FIELD,
     enforce_retention,
     fresh_entry_filter,
@@ -41,7 +42,17 @@ logger = logging.getLogger(__name__)
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 RAG_CHAT_TOP_K = 4  # 설계 §4.1 초안값
-RAG_CHAT_CACHE_PREFIX = "ai:cache:rag-chat"
+
+# 캐시 버전(#1699) — `prompts/rag_chat.md`에 출력 형식 규칙(결론 우선·불릿·600자 목표)을 추가하며
+# 기존 캐시가 옛 형식(형식 규칙 없는 장문) 답변을 계속 반환하지 않도록 **exact·semantic 두 캐시를
+# 함께** 버전한다. exact(Redis)는 키 prefix에, semantic(Chroma)은 저장 metadata 필드
+# (`RAG_CHAT_SEMANTIC_CACHE_VERSION`, 아래)에 반영한다. 옛 버전 키/항목은 삭제하지 않고 TTL로
+# 자연 소멸시킨다(운영 Redis FLUSH·Chroma 컬렉션 삭제 같은 destructive 조치 금지) — exact는 옛
+# prefix라 새 prefix로 조회 자체가 안 되고, semantic은 옛 항목에 새 버전 태그가 없어 필터에
+# 매칭되지 않는다(company_id/created_at 없는 레거시 항목이 필터에서 자연히 빠지는 것과 동일 원리,
+# `semantic_cache.py` 모듈 docstring 참고). 프롬프트를 다시 바꿀 때는 이 값을 함께 bump한다.
+RAG_CHAT_CACHE_PREFIX = "ai:cache:rag-chat:v2"
+RAG_CHAT_SEMANTIC_CACHE_VERSION = "v2"
 
 # 시맨틱 캐시 유사도 임계값은 `ai.core.semantic_cache.semantic_cache_threshold()`가 **런타임에**
 # 읽는다(#1594 P3) — 예전에는 이 모듈 최상단에서 `float(os.getenv(...))`로 읽어 ①레포 컨벤션
@@ -57,6 +68,9 @@ RAG_CHAT_CACHE_PREFIX = "ai:cache:rag-chat"
 MIN_CACHEABLE_ANSWER_LENGTH = 5
 # 상한은 프롬프트/컨텍스트 덤프 유출 같은 비정상 장문 출력 차단용 — 정상 답변은 RAG_CHAT_TOP_K(4)
 # 청크 기반 요약이라 이 근처에도 가지 않는다.
+# #1699 확인: `prompts/rag_chat.md`에 추가한 출력 형식 규칙의 목표 길이(공백 포함 약 600자)와
+# 이 상한이 충돌하지 않는다 — 8000자는 600자 목표의 10배 이상이라 "목표"를 다소 넘는 정상
+# 답변도 여유 있게 캐시된다. 상한을 낮출 필요 없음(정상 답변이 캐시에서 빠질 위험 없음).
 MAX_CACHEABLE_ANSWER_LENGTH = 8000
 
 
@@ -336,7 +350,9 @@ def _node_semantic_cache_check(state: RagChatState) -> RagChatState:
     # metadata가 없는 과거 캐시 항목은 어떤 필터에도 매칭되지 않으므로 자연히 조회 대상에서
     # 빠진다(실측 확인).
     results = vectorstore.similarity_search_with_score(
-        state["question"], k=1, filter=fresh_entry_filter(company_id)
+        state["question"],
+        k=1,
+        filter=fresh_entry_filter(company_id, RAG_CHAT_SEMANTIC_CACHE_VERSION),
     )
 
     cached_result = None
@@ -439,9 +455,9 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
     (no_result 경로는 그래프 구조상 이 노드를 거치지 않으므로 별도 분기 불필요).
 
     질문 원문을 page_content로, RagAnswerData 직렬화 결과를 metadata["answer_json"]으로,
-    요청자의 회사 식별자를 metadata["company_id"]로, 생성 시각(epoch seconds)을
-    metadata["created_at"]으로 저장한다(#1584, #1594) — 조회 시 앞의 둘로 회사 스코프와 TTL을
-    필터링한다.
+    요청자의 회사 식별자를 metadata["company_id"]로, 캐시 버전 태그를 metadata["cache_version"]으로,
+    생성 시각(epoch seconds)을 metadata["created_at"]으로 저장한다(#1584, #1594, #1699) — 조회 시
+    앞의 셋으로 회사 스코프·캐시 버전·TTL을 필터링한다.
 
     저장 직후 `enforce_retention()`으로 TTL 경과분 삭제 + 용량 상한 축출을 수행한다(#1594) —
     캐시가 커지는 유일한 지점이 여기이므로 정리도 같은 지점에 붙이는 것이 가장 단순하다.
@@ -477,6 +493,7 @@ def _node_semantic_cache_write(state: RagChatState) -> RagChatState:
             metadata={
                 "answer_json": answer_data.model_dump_json(),
                 "company_id": company_id,
+                CACHE_VERSION_FIELD: RAG_CHAT_SEMANTIC_CACHE_VERSION,
                 CREATED_AT_FIELD: now_epoch_seconds(),
             },
         )
