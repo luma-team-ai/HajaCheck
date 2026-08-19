@@ -94,4 +94,17 @@ describe('InspectionKpiSummary', () => {
       resolvedCard?.querySelector('.inspection-kpi-summary__dot')?.className,
     ).toContain('text-emerald-600');
   });
+
+  // #1693 — 점검 상세 헤더의 점검 상태(InspectionStatus) 배지와 이 KPI(하자 조치 상태 집계)가
+  // 같은 값으로 오인되지 않도록, 그룹 라벨 "하자 조치 현황"을 시각 + 접근성(role=group +
+  // aria-labelledby) 둘 다로 노출하는지 검증한다.
+  it('"하자 조치 현황" 그룹 라벨을 렌더링하고 KPI dl과 접근성으로 연결한다', () => {
+    render(<InspectionKpiSummary defects={defects} />);
+
+    const group = screen.getByRole('group', { name: '하자 조치 현황' });
+    expect(within(group).getByText('하자 조치 현황')).not.toBeNull();
+    // 그룹 안에 기존 KPI dl(aria-label="점검 하자 요약")이 그대로 포함돼 있어야 한다 —
+    // 집계 로직/기존 접근성 라벨을 건드리지 않았는지 확인.
+    expect(within(group).getByLabelText('점검 하자 요약')).not.toBeNull();
+  });
 });
