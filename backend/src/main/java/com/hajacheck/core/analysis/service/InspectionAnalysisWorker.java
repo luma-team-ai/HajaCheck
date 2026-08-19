@@ -385,6 +385,7 @@ public class InspectionAnalysisWorker {
                 .areaRatio(item.areaRatio())
                 .crackWidthMm(item.widthMm())
                 .areaMm2(item.areaMm2())
+                .areaMm2ReferenceGrade(item.areaMm2ReferenceGrade())
                 .build();
     }
 
