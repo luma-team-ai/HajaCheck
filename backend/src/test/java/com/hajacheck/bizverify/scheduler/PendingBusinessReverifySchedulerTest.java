@@ -144,6 +144,50 @@ class PendingBusinessReverifySchedulerTest {
         // 엔티티 상태를 직접 바꾸는 경로가 없다는 것도 함께 고정한다(스케줄러는 writer 를 통해서만 쓴다).
         verify(mismatch, never()).markBusinessVerificationFailed();
         verify(suspended, never()).markBusinessVerificationFailed();
+        // 판정 자체는 DB 에 남는다(P2-3) — 로그에만 두면 진단 API 로 도달하지 못한다.
+        verify(writer).stampAlert(1L, NtsVerificationOutcome.MISMATCH);
+        verify(writer).stampAlert(2L, NtsVerificationOutcome.SUSPENDED);
+    }
+
+    /**
+     * P1-C 회귀 방지(#1367) — 상태를 바꾸지 않는 경로는 대상 집합을 떠나지 않는다. 시도 스탬프를 남기지
+     * 않으면 그 회사가 대기열 앞자리를 고정 점유해(정렬 축이 곧 스탬프다) 뒤쪽 신규 가입 회사가 영원히
+     * 재검증되지 않는다.
+     */
+    @Test
+    @DisplayName("#1367 P1-C 데모 스킵·SKIPPED·처리 예외 모두 시도 스탬프를 남긴다")
+    void 상태무변경경로도_시도스탬프를남긴다() {
+        Company demo = demoCompany(1L);
+        Company skipped = pendingCompany(2L, "2222222222", "B");
+        Company failing = pendingCompany(3L, "3333333333", "C");
+        stubTargets(List.of(demo, skipped, failing));
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("2222222222"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.SKIPPED);
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("3333333333"), anyString(), any()))
+                .thenThrow(new RuntimeException("네트워크 오류"));
+
+        scheduler.reverifyPendingCompanies();
+
+        verify(writer).stampAttempt(1L);
+        verify(writer).stampAttempt(2L);
+        verify(writer).stampAttempt(3L);
+    }
+
+    @Test
+    @DisplayName("#1367 P1-C 스탬프가 실패해도 회차 처리는 계속된다(스탬프는 정렬 축일 뿐 통제가 아니다)")
+    void 스탬프실패해도_회차는계속된다() {
+        Company skipped = pendingCompany(1L, "1111111111", "A");
+        Company verified = pendingCompany(2L, "2222222222", "B");
+        stubTargets(List.of(skipped, verified));
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("1111111111"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.SKIPPED);
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("2222222222"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+        org.mockito.Mockito.doThrow(new RuntimeException("DB 오류")).when(writer).stampAttempt(1L);
+
+        scheduler.reverifyPendingCompanies();
+
+        verify(writer).markVerified(2L);
     }
 
     @Test
