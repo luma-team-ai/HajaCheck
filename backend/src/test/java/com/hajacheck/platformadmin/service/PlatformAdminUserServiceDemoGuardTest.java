@@ -49,7 +49,9 @@ class PlatformAdminUserServiceDemoGuardTest {
         when(demoUser.getEmail()).thenReturn(DEMO_LOGIN_ID);
         // findUser 의 PLATFORM_ADMIN 숨김 분기를 지나도록 일반 role — 데모 계정은 기업 ADMIN 이다.
         when(demoUser.getRole()).thenReturn(Role.ADMIN);
-        when(platformAdminUserRepository.findById(DEMO_USER_ID)).thenReturn(Optional.of(demoUser));
+        // changeRole·changeStatus 는 잠금 조회로 로드한다(#1492 P2,
+        // PlatformAdminUserService#findUserForUpdate) — findById 스텁은 더 이상 걸리지 않는다.
+        when(platformAdminUserRepository.findByIdForUpdate(DEMO_USER_ID)).thenReturn(Optional.of(demoUser));
     }
 
     @Test

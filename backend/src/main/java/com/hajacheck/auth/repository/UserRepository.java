@@ -25,8 +25,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * ({@code CompanyRepository#findByIdForUpdate}·{@code FacilityRepository#findByIdForUpdate} 와 동일 패턴).
      *
      * <p>참고: {@code PlatformAdminUserRepository#findByIdForUpdate} 가 같은 users 행 잠금을 이미 갖고
-     * 있으나 그쪽은 플랫폼 관리자 컨텍스트 전용({@code changeSkill} — COUNSELOR 대상, 좌석/사용량 자원은
-     * 건드리지 않는다)이라 auth 컨텍스트에서 재사용하지 않는다.
+     * 있으나 그쪽은 플랫폼 관리자 컨텍스트 전용({@code changeSkill}·{@code changeRole}·
+     * {@code changeStatus} — 좌석/사용량 자원은 건드리지 않는다)이라 auth 컨텍스트에서 재사용하지 않는다.
      *
      * <p><b>왜 필요한가</b>: 초대 코드 redeem 은 좌석을 {@code usage_counters} 행 잠금으로 지키는데 그
      * 잠금은 <b>회사 단위</b>라 "같은 사용자" 축의 경합을 갈라놓지 못한다. 실측된 두 축:
@@ -72,13 +72,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
      *       ({@code usage_counters} 등)을 끼워 넣는 것 — WAITING 이 아닌 사용자에 대해서도 users 락을
      *       쥔 채 회사 자원을 기다리게 된다.</li>
      *   <li>회사 스코프 <b>쓰기</b> 경로가 기존 users 행을 잠그게 되는 것. (현재 users 행을
-     *       <b>명시적으로</b>({@code PESSIMISTIC_WRITE}) 잠그는 다른 경로는
-     *       {@code PlatformAdminUserService#changeSkill} 하나뿐이고 좌석 자원과 무관하다 — FK
+     *       <b>명시적으로</b>({@code PESSIMISTIC_WRITE}) 잠그는 다른 경로는 플랫폼 관리자 콘솔
+     *       {@code PlatformAdminUserService} 의 {@code changeSkill}·{@code changeRole}·
+     *       {@code changeStatus} 셋뿐이고 <b>전부 좌석/사용량 자원과 무관</b>하다 — FK
      *       {@code FOR KEY SHARE} 로 <b>암묵적으로</b> 잠그는 경로는 위 "역순 경로" 문단 참조.
-     *       {@code PlatformAdminUserService#changeStatus} 는 {@code role == ADMIN && status ==
-     *       SUSPENDED} 일 때만 {@code requireNotLastCompanyAdmin} 으로 companies 를 잠그고, 그 안에서도
-     *       {@code companyId == null} 이면 즉시 반환하므로 WAITING 사용자에게는 어느 쪽으로도 걸리지
-     *       않는다. 또한 이제 {@code requireAssignableStatus} 가 WAITING 부여 자체를 막는다.)</li>
+     *       {@code changeRole}/{@code changeStatus} 는 users 를 먼저 잠그고 그 뒤 {@code role == ADMIN}
+     *       인 강등/정지에 한해 {@code requireNotLastCompanyAdmin} 으로 companies 를 잠근다
+     *       (= <b>users → companies</b>, 근거는 {@code PlatformAdminUserService#findUserForUpdate}
+     *       javadoc). 이 순서는 여기서 잡는 잠금(users 가 첫 락)과 방향이 같아 순환을 만들지 않고,
+     *       그 안에서도 {@code companyId == null} 이면 즉시 반환하므로 WAITING 사용자에게는 companies
+     *       쪽으로 걸릴 일 자체가 없다. 또한 {@code requireAssignableStatus} 가 WAITING 부여 자체를
+     *       막는다.)</li>
      *   <li>WAITING 사용자에게 {@code company_id} 가 남아 있게 되는 것. (과거엔 여기에 구멍이 있었다 —
      *       {@code PlatformAdminUserService#changeStatus} 에 {@code AdminUserService.ASSIGNABLE_STATUSES}
      *       같은 가드가 없어 회사 소속 사용자를 WAITING 으로 되돌릴 수 있었다. #1492 리뷰에서 같은

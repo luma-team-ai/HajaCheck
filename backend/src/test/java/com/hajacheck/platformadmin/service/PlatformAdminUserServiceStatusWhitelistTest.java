@@ -68,13 +68,17 @@ class PlatformAdminUserServiceStatusWhitelistTest {
 
         // 대상 조회보다 먼저 막아야 잘못된 상태 요청이 리소스 존재 여부 탐지 수단이 되지 않는다
         // (AdminUserServiceTest 의 동일 케이스와 같은 계약).
-        verify(platformAdminUserRepository, never()).findById(anyLong());
+        // ⚠️ findById 가 아니라 findByIdForUpdate 다(#1492 P2) — changeStatus 의 로드가 잠금 조회로
+        // 바뀌었으므로, findById 로 단언하면 프로덕션이 그 메서드를 아예 호출하지 않아 **항상 통과하는
+        // 공허한 단언**이 되어 이 계약이 조용히 사라진다.
+        verify(platformAdminUserRepository, never()).findByIdForUpdate(anyLong());
         verify(target, never()).changeStatus(UserStatus.WAITING);
     }
 
     @Test
     void changeStatus_ACTIVE_SUSPENDED는_화이트리스트를_통과한다() {
-        when(platformAdminUserRepository.findById(TARGET_USER_ID)).thenReturn(Optional.of(target));
+        // changeStatus 는 잠금 조회로 로드한다(#1492 P2, PlatformAdminUserService#findUserForUpdate).
+        when(platformAdminUserRepository.findByIdForUpdate(TARGET_USER_ID)).thenReturn(Optional.of(target));
         when(target.getId()).thenReturn(TARGET_USER_ID);
         when(target.getStatus()).thenReturn(UserStatus.SUSPENDED, UserStatus.ACTIVE);
 
