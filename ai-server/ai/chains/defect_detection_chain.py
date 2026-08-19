@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from ai.core.card_client import CARD_LONG_MM, detect_card
-from ai.core.grading import compute_crack_grade, compute_grade
+from ai.core.grading import compute_area_mm2_reference_grade, compute_crack_grade, compute_grade
 from ai.core.unet_client import (
     CRACK_INPUT_SIZE,
     CRACK_MASK_THRESHOLD,
@@ -100,6 +100,11 @@ class DetectedDefect(BaseModel):
     # SPALLING/REBAR_EXPOSURE만 — area_px × (mm/px)²(카드 기준물 스케일 공유, #1658). 카드
     # 미검출 시 None 유지(area_ratio 기반 등급 산정과는 무관한 병기 정보).
     area_mm2: float | None = None
+    # SPALLING/REBAR_EXPOSURE만, area_mm2가 있을 때만 산출(#1682) — grading.py의 잠정
+    # mm² 구간표(_PROVISIONAL_AREA_MM2_REFERENCE_BANDS) 기반 참고 등급. 본등급(grade)과 달리
+    # 재캘리브레이션 대상이며 본등급 판정에 절대 관여하지 않는다(grading.py 모듈 docstring
+    # "mm² 참고 등급" 절 참고). 카드 미검출·CRACK이면 None.
+    area_mm2_reference_grade: str | None = None
 
 
 class DefectDetectionError(Exception):
@@ -381,13 +386,22 @@ def _apply_area_mm2(detections: list[DetectedDefect], card_scale_mm_per_px: floa
     """공유된 카드 스케일로 SPALLING/REBAR_EXPOSURE 탐지들의 area_mm2를 채운다(in-place, #1658).
 
     CRACK은 width_mm(선형 측정, `_apply_crack_width_mm`)으로 별도 처리하므로 제외한다. area_ratio
-    기반 등급 산정에는 관여하지 않는 병기 정보 — area_px(원본 해상도 픽셀 수)에 스케일 제곱을
-    곱한다.
+    기반 등급(본등급) 산정에는 관여하지 않는 병기 정보 — area_px(원본 해상도 픽셀 수)에 스케일
+    제곱을 곱한다.
+
+    area_mm2를 채운 직후 같은 루프에서 `area_mm2_reference_grade`(mm² 참고 등급, #1682)도 함께
+    주입한다 — area_mm2 없이는 참고 등급도 산출 불가능하므로 같은 조건·같은 자리가 자연스럽다.
+    호출부(`run_defect_detection_chain`)가 이 함수 전체를 try/except로 감싸므로(#1658 P1 리뷰
+    패턴 유지) 참고 등급 계산 실패도 area_mm2와 동일하게 격리된다 — 실패해도 이미 확보한
+    detections는 그대로 반환된다.
     """
     mm2_per_px2 = card_scale_mm_per_px * card_scale_mm_per_px
     for detection in detections:
         if detection.type != "CRACK" and detection.area_px is not None:
             detection.area_mm2 = round(detection.area_px * mm2_per_px2, 1)
+            detection.area_mm2_reference_grade = compute_area_mm2_reference_grade(
+                detection.type, detection.area_mm2
+            )
 
 
 def _safe_detect_card(image: "Image.Image") -> "CardDetectionResult | None":
