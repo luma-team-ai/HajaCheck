@@ -210,9 +210,6 @@ class InspectionRepositoryTest extends PostgresTestSupport {
         assertThat(inspectionRepository.findMaxInspectionDateByFacilityIdAndStatus(
                 facilityId, InspectionStatus.REPORTED))
                 .contains(LocalDate.of(2026, 1, 10));
-        // 상태를 안 보는 기존 쿼리는 미확정 3회차까지 집계한다 — 두 쿼리가 실제로 다르다는 대조.
-        assertThat(inspectionRepository.findMaxInspectionDateByFacilityId(facilityId))
-                .contains(LocalDate.of(2026, 7, 10));
     }
 
     @Test

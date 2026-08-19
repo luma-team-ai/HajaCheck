@@ -998,14 +998,10 @@ class FacilityServiceTest {
         Facility facility = facilityWithCycle(6);
         when(facilityRepository.findByIdAndCompanyId(10L, OWNER_ID)).thenReturn(Optional.of(facility));
         LocalDate round2Date = LocalDate.of(2026, 1, 10);
-        LocalDate unreportedRound3Date = LocalDate.of(2026, 7, 10);
         // 3회차(2026-07-10)는 이미 생성돼 있지만 REPORTED가 아니라 이 집계에 잡히지 않는다.
+        // (상태를 보지 않는 옛 기준이었다면 미확정 3회차까지 집계돼 2026-07-10 이 나왔을 것 — 그 쿼리는
+        // #1702에서 회차 재정렬로 대체되며 제거됐고, 남은 기준은 status 조건이 붙은 이 쿼리뿐이다.)
         stubMaxReportedInspectionDate(round2Date);
-        // DB 상태를 그대로 모형화한다 — 상태를 안 보는 옛 기준(findMaxInspectionDateByFacilityId)이라면
-        // 미확정 3회차까지 집계돼 2026-07-10 이 나온다. 정상 코드는 이 스텁을 쓰지 않으므로 lenient 지만,
-        // 비교 기준이 그 쿼리로 되돌아가면 아래 단언이 실제로 깨져 회귀를 잡는다(스텁 위생이 아니라 의미로).
-        lenient().when(inspectionRepository.findMaxInspectionDateByFacilityId(10L))
-                .thenReturn(Optional.of(unreportedRound3Date));
 
         facilityService.recalculateNextInspectionDueAt(USER_ID, OWNER_ID, 10L, round2Date);
 
