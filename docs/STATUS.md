@@ -47,6 +47,7 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ✅ **2026-08-05 2차 승격 완료 — PR #1618 (dev→main, 14커밋 / 이슈 2건 자동종료 / merge commit `0e763ae9`).** 오전 #1603 이후 배치(코드 PR 7건 전부 머신 머지 + 문서). 주요: 보고서 확정 서버측 검증(`ReportFinalizationValidator`)·확정 보고서 PDF 재업로드 차단·외부 `/api/ai/report` 제거·하자 팬아웃 건너뛰기 동반 전이(#1609)·프론트 픽스 4건. G6 PASS: 마이그레이션 0건·운영 config 영향 0·backend gradle test 전건·frontend build PASS(vitest 로컬 9건 실패는 main 동일 재현=환경성)·문서 A안 정합(openapi v0.45.0)·시크릿 0건. **prod 배포·검증 완료**: CD success, front 200, spring 응답, `/api/plans` 200. Closes #1605·#1609 자동종료 실측, `awaiting-promotion` 라벨 3건(#1605·#1608·#1609) 제거, dev ff 역머지 완료.
 > 잔여 후속(비차단): **PR #1604 커밋 메시지의 "보고서 변경 API 7종 INSPECTOR/ADMIN 제한"이 실제 코드에 부재**(소유권 스코프만 존재) — role 제한 추가 여부 이슈화 판단 대기 · nginx 컨테이너 `/api/` `proxy_read_timeout` 60s vs AI 180s 불일치 이슈화 판단 대기 · dist 내 `mockServiceWorker.js` 잔존(P3) · Jira 전환은 중단 지시(08-04)로 미수행.
 
+- **mm² 참고 등급 BE/FE 완결 (→ dev, 2026-08-19)** — BE **#1689**(이슈 #1683, 머신 P3 값검증 픽스 후 가드 수동 머지, **V46**) + FE **#1690**(이슈 #1684, 머신 자동머지). `awaiting-promotion` 부여. sanitize(A~E 검증·위반 null+warn)·점선 보조 배지·잠정 기준 캡션. 본등급 불변. **⏳ 5차 승격 대기 배치**: #1679(V45)·#1680·#1681·#1682·#1683(V46)·#1684 — 승격 시 V45~V46 자동 적용(additive·prod 65행 실측), 신규 env 없음.
 - **최근 점검 정렬 복합 인덱스 V45 (→ dev, 2026-08-19)** — BE **#1685**(이슈 #1679, 머신 P1 2라운드 해소 → needs-human 가드 수동 머지). `awaiting-promotion` 부여. `idx_inspections_recent_order` + 중복 `idx_inspections_facility` drop. 비-CONCURRENTLY 근거=prod 실측 65행. table_design.md v0.6 bump(archive 스냅샷).
 - **시설물 수정 화면 + 재지오코딩 (→ dev, 2026-08-19)** — FE **#1688**(이슈 #1681, 머신 자동머지). `awaiting-promotion` 부여. edit 모드 재사용·재지오코딩 4분기·lost-update 보존(scale은 머신 P1 발견 후 픽스, 무입력 필드 전수 대조).
 - **mm² 참고 등급 ai-server (→ dev, 2026-08-19)** — AI **#1687**(이슈 #1682, 머신 자동머지). `awaiting-promotion` 부여. 잠정 밴드(px→mm 앵커 역산, 재캘리브레이션 대상 명시) 기반 `area_mm2_reference_grade` — 본등급 diff 0 테스트 고정. **후속**: #1683(BE V46, V45 머지 후)·#1684(FE 뱃지).
@@ -419,6 +420,21 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 - #86 `frontend/HAJA-41-result-viewer` (→ dev, 2026-07-09)
 
 ## 다음 작업
+
+- **🔴 인계 — 2026-08-19 세션 종료 시점 (다음 세션은 여기부터)**
+  ### 상태
+  - 4차 승격(#1678, 이슈 15건) prod 배포·검증 완료. revision env 고정(`5b19c0d8…`) 서버 반영 완료.
+  - 후속 6건(#1679~#1684) **전부 dev 머지 완료**(`awaiting-promotion`) — **5차 승격 미실행** 상태.
+  - PR머신 arm1 서버 상시 가동(로컬 plist는 잔재). dev PR은 머신 검수·머지, 마이그레이션 가드(needs-human)만 사람 머지. 승격 PR은 머신 처리 버그(base=main 오인)로 사람 검수·머지.
+  ### P0 — 5차 승격
+  - [ ] 승격 전 전체검수(dev HEAD gradlew test·front build·시크릿) + G6(V45~V46 additive·prod 65행 실측 근거 4차와 동일 절차)
+  - [ ] 승격 PR(dev→main): `Closes #1679 #1680 #1681 #1682 #1683 #1684` 나열 → 머지 → CD → prod 검증(헬스·flyway 46·인덱스 존재) → 라벨 제거 → dev ff 역머지 → springdoc baseline 갱신 → STATUS 기록
+  ### P1 — 마이너 픽스 후보
+  - [ ] #1676 FacilityCard D-day 타임존 플레이크 (+본문에 undici 로컬 실패 9건 참고)
+  - [ ] pr_machine 승격 PR 처리 버그(base=main인데 "main으로 바꿔라") — **별도 레포**(toy_project/pr_machine)
+  - [ ] nginx `/api/` timeout 60s vs AI 180s · #1604 role 제한 여부 (기존 잔여)
+  ### 참고
+  - mm² 참고 등급은 잠정 밴드(재캘리브레이션 대상) — 실측 라벨 쌓이면 본등급 전환 논의. 상세 이력은 이 파일 [마지막 머지 PR] 섹션 + 이슈 코멘트.
 
 - **🔴 승격 배치 인계 — 2026-08-05 세션 (다음 세션은 여기부터 읽을 것)**
 
