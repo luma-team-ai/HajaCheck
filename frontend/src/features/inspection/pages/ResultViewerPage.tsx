@@ -902,6 +902,21 @@ export function ResultViewerPage() {
                             <div className="text-sm font-semibold text-text-default">
                               {selected.areaMm2 != null ? `${selected.areaMm2}mm²` : '측정 예정'}
                             </div>
+                            {/* 참고 등급(mm² 기반, #1683/#1684) — areaMm2와 동일 조건에서만 값 존재,
+                                단독 null 체크(#1588 교훈). 본등급(GRADE_DOT_COLORS 실색 점)과 명확히
+                                다른 보조 톤(점선 아웃라인, 무채색)으로 구분하고 "잠정 기준(실측
+                                재캘리브레이션 전)" 안내를 title 툴팁 + 캡션으로 병기한다. */}
+                            {selected.areaMm2ReferenceGrade != null && (
+                              <div className="mt-1.5 flex flex-col gap-0.5">
+                                <span
+                                  className="inline-flex w-fit items-center rounded-full border border-dashed border-border bg-surface px-2 py-0.5 text-[11px] font-medium text-text-muted"
+                                  title="잠정 기준(실측 재캘리브레이션 전)"
+                                >
+                                  {`참고 등급 ${selected.areaMm2ReferenceGrade}`}
+                                </span>
+                                <span className="text-[10px] text-text-muted">잠정 기준(실측 재캘리브레이션 전)</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}

@@ -295,6 +295,20 @@
 .defect-metric-card em { margin-top: 0; color: var(--color-text-muted); font-size: 12px; font-style: normal; text-align: center; }
 .defect-metric-card .defect-metric-empty { color: var(--color-text-muted); font-size: 13px; font-weight: 500; font-style: italic; }
 
+/* 참고 등급 배지(mm² 기반, #1683/#1684) — 본등급 칩(.defect-chip--grade, DEFECT_GRADE_COLOR로 채운
+   실색 배지)과 한눈에 구분되는 보조 톤. 점선 테두리 + 무채색 배경으로 "확정 등급이 아니다"를
+   시각적으로 드러낸다. */
+.defect-chip--reference-grade {
+  min-height: auto;
+  padding: 2px 10px;
+  border: 1px dashed var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
 .defect-explain-panel {
   padding: 26px;
   border-color: #d9ccff;
