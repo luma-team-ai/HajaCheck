@@ -632,6 +632,7 @@ def test_run_defect_detection_chain_card_miss_leaves_mm_fields_none(monkeypatch)
     for detection in detections:
         assert detection.width_mm is None
         assert detection.area_mm2 is None
+        assert detection.area_mm2_reference_grade is None  # #1682 — 카드 미검출 시 참고등급도 null
 
 
 def test_run_defect_detection_chain_survives_card_scale_application_failure(monkeypatch):
@@ -674,6 +675,66 @@ def test_run_defect_detection_chain_survives_card_scale_application_failure(monk
     assert sorted(d.type for d in detections) == ["CRACK", "REBAR_EXPOSURE", "SPALLING"]
 
 
+def test_run_defect_detection_chain_reference_grade_computation_does_not_change_primary_grade(monkeypatch):
+    """#1682 완료기준 — 본등급 경로(grade)는 참고등급 주입과 무관하게 diff 0이어야 한다.
+
+    같은 SPALLING 탐지를 카드 검출 성공(참고등급 채워짐) vs 실패(참고등급 None) 두 경로로 돌려도
+    본등급(area_ratio 기반 grade)은 완전히 동일해야 한다.
+    """
+    from ai.core.card_client import CardDetectionResult
+
+    monkeypatch.setattr(chain, "_crack_detections", lambda image: ([], None))
+    fake_model = _FakeYoloModel(
+        _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.2, 0.2]], [0.9]), masks=None)
+    )
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    monkeypatch.setattr(
+        chain,
+        "detect_card",
+        lambda image: CardDetectionResult(long_px=100.0, short_px=63.0, confidence=0.9, method="quad"),
+    )
+    with_card = chain.run_defect_detection_chain(_tiny_valid_png_base64())
+
+    monkeypatch.setattr(chain, "detect_card", lambda image: None)
+    without_card = chain.run_defect_detection_chain(_tiny_valid_png_base64())
+
+    spalling_with_card = next(d for d in with_card if d.type == "SPALLING")
+    spalling_without_card = next(d for d in without_card if d.type == "SPALLING")
+
+    assert spalling_with_card.grade == spalling_without_card.grade  # 본등급 diff 0
+    assert spalling_with_card.area_ratio == pytest.approx(spalling_without_card.area_ratio)
+    assert spalling_with_card.area_mm2_reference_grade is not None
+    assert spalling_without_card.area_mm2_reference_grade is None
+
+
+def test_run_defect_detection_chain_survives_area_mm2_reference_grade_failure(monkeypatch):
+    """#1682 에러 격리 — 참고등급 계산 실패가 이미 확보한 탐지 결과 전체를 무너뜨리면 안 된다
+    (#1658이 정착시킨 '카드 스케일 적용 단계는 부가 정보' 원칙을 그대로 재사용, 새 실패 모드가
+    아니라 같은 try/except 블록 안에 있다는 걸 고정)."""
+    from ai.core.card_client import CardDetectionResult
+
+    monkeypatch.setattr(chain, "_crack_detections", lambda image: ([], None))
+    monkeypatch.setattr(
+        chain,
+        "detect_card",
+        lambda image: CardDetectionResult(long_px=100.0, short_px=63.0, confidence=0.9, method="quad"),
+    )
+    fake_model = _FakeYoloModel(
+        _FakeResult(boxes=_FakeBoxes([[0.0, 0.0, 0.2, 0.2]], [0.9]), masks=None)
+    )
+    monkeypatch.setattr(chain, "get_yolo_model", lambda defect_type: fake_model)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("compute_area_mm2_reference_grade boom")
+
+    monkeypatch.setattr(chain, "compute_area_mm2_reference_grade", _boom)
+
+    detections = chain.run_defect_detection_chain(_tiny_valid_png_base64())  # 예외 없이 반환돼야 함
+
+    assert sorted(d.type for d in detections) == ["REBAR_EXPOSURE", "SPALLING"]
+
+
 def test_apply_area_mm2_skips_crack_and_missing_area_px():
     crack = _make_crack_detection()
     assert crack.area_px is None
@@ -683,7 +744,35 @@ def test_apply_area_mm2_skips_crack_and_missing_area_px():
     chain._apply_area_mm2([crack, spalling], card_scale_mm_per_px=0.5)
 
     assert crack.area_mm2 is None  # CRACK 제외
+    assert crack.area_mm2_reference_grade is None  # #1682 — CRACK은 참고등급 대상 아님
     assert spalling.area_mm2 == pytest.approx(400.0 * 0.5 * 0.5)
+
+
+def test_apply_area_mm2_sets_reference_grade_for_spalling_and_rebar_exposure():
+    """#1682 — area_mm2를 채운 SPALLING/REBAR_EXPOSURE에 mm² 참고 등급도 함께 주입된다."""
+    spalling = _detection("SPALLING", 0.0, 0.0, 0.2, 0.2)
+    spalling.area_px = 100.0
+    rebar = _detection("REBAR_EXPOSURE", 0.0, 0.0, 0.2, 0.2)
+    rebar.area_px = 100.0
+
+    # card_scale_mm_per_px=10 → area_mm2 = 100 * 10^2 = 10,000 → s=0.3(SPALLING) → grade B
+    chain._apply_area_mm2([spalling, rebar], card_scale_mm_per_px=10.0)
+
+    assert spalling.area_mm2 == pytest.approx(10_000.0)
+    assert spalling.area_mm2_reference_grade == "B"
+    # REBAR_EXPOSURE는 floor(s>=0.6) 때문에 같은 area_mm2에서도 SPALLING보다 나쁜(또는 같은) 등급.
+    assert rebar.area_mm2_reference_grade == "C"
+
+
+def test_apply_area_mm2_reference_grade_none_when_area_mm2_not_applicable():
+    """area_px가 없어 area_mm2 자체가 안 채워진 탐지는 참고등급도 None으로 남는다."""
+    spalling = _detection("SPALLING", 0.0, 0.0, 0.2, 0.2)
+    assert spalling.area_px is None
+
+    chain._apply_area_mm2([spalling], card_scale_mm_per_px=10.0)
+
+    assert spalling.area_mm2 is None
+    assert spalling.area_mm2_reference_grade is None
 
 
 def test_safe_detect_card_swallows_exception(monkeypatch):

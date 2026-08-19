@@ -10,6 +10,8 @@ rebar_exposure 모델의 내부 클래스가 good/fair/poor라 라벨 텍스트�
 import pytest
 
 from ai.core.grading import (
+    compute_area_mm2_reference_grade,
+    compute_area_mm2_reference_severity_score,
     compute_crack_grade,
     compute_grade,
     compute_severity_score,
@@ -130,6 +132,61 @@ def test_compute_crack_grade_requires_both_area_and_darkness_for_severe():
     assert compute_crack_grade(0.01, 0.00005) == "B"  # 실금: 면적 0.9여도 어두움 0.1으로 제한
     assert compute_crack_grade(0.00001, 0.003) == "A"  # 어두운 소형 오탐: 면적 0.1로 제한
     assert compute_crack_grade(0.001, 0.0017) == "C"  # 중간 면적(0.5) × 중간 어두움(0.7) → min=0.5
+
+
+@pytest.mark.parametrize(
+    "area_mm2,expected_s",
+    [
+        (0.0, 0.1),
+        (9215.9, 0.1),
+        (9216.0, 0.3),  # 하한 포함(반열림)
+        (27647.9, 0.3),
+        (27648.0, 0.5),
+        (64511.9, 0.5),
+        (64512.0, 0.7),
+        (138239.9, 0.7),
+        (138240.0, 0.9),
+        (500000.0, 0.9),
+    ],
+)
+def test_compute_area_mm2_reference_severity_score_band_boundaries_for_spalling(area_mm2, expected_s):
+    # mm² 참고 등급(#1682) 잠정 구간표(_PROVISIONAL_AREA_MM2_REFERENCE_BANDS) 경계 — SPALLING은
+    # floor가 없어 구간표 그대로 나온다.
+    assert compute_area_mm2_reference_severity_score("SPALLING", area_mm2) == expected_s
+
+
+def test_compute_area_mm2_reference_severity_score_rebar_exposure_floor_overrides_small_area():
+    # 본등급과 동일 원칙(#1682 결정) — REBAR_EXPOSURE는 area_mm2가 작아도 최소 0.6.
+    assert compute_area_mm2_reference_severity_score("REBAR_EXPOSURE", 1.0) == 0.6
+
+
+def test_compute_area_mm2_reference_severity_score_rebar_exposure_floor_does_not_lower_large_area():
+    assert compute_area_mm2_reference_severity_score("REBAR_EXPOSURE", 64512.0) == 0.7
+    assert compute_area_mm2_reference_severity_score("REBAR_EXPOSURE", 500000.0) == 0.9
+
+
+def test_compute_area_mm2_reference_grade_end_to_end_for_spalling():
+    assert compute_area_mm2_reference_grade("SPALLING", 100.0) == "A"  # s=0.1 → g=0.9
+    assert compute_area_mm2_reference_grade("SPALLING", 10000.0) == "B"  # s=0.3 → g=0.7
+    assert compute_area_mm2_reference_grade("SPALLING", 30000.0) == "C"  # s=0.5 → g=0.5
+    assert compute_area_mm2_reference_grade("SPALLING", 70000.0) == "D"  # s=0.7 → g=0.3
+    assert compute_area_mm2_reference_grade("SPALLING", 150000.0) == "E"  # s=0.9 → g=0.1
+
+
+def test_compute_area_mm2_reference_grade_rebar_exposure_never_better_than_c_even_with_tiny_area():
+    assert compute_area_mm2_reference_grade("REBAR_EXPOSURE", 1.0) == "C"  # s=0.6 → g=0.4
+
+
+def test_compute_area_mm2_reference_grade_returns_none_when_area_missing():
+    # 카드 미검출 등으로 area_mm2가 없으면 참고등급 자체를 산출하지 않는다(본등급 grade와 달리
+    # 이 필드는 항상 nullable).
+    assert compute_area_mm2_reference_grade("SPALLING", None) is None
+    assert compute_area_mm2_reference_grade("REBAR_EXPOSURE", None) is None
+
+
+def test_compute_area_mm2_reference_grade_returns_none_for_crack():
+    # CRACK은 width_mm(선형)으로 별도 병기하므로 mm² 참고등급 대상이 아니다(#1682).
+    assert compute_area_mm2_reference_grade("CRACK", 100000.0) is None
 
 
 def test_compute_crack_grade_dark_band_boundaries():
