@@ -36,6 +36,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+> ✅ **2026-08-19 dev 머지 — PR #1695 (#1693, 프론트 전용, 머신 자동머지).** 점검 상세 화면에 점검 상태 배지 추가 — 목록의 `InspectionStatus`(6종)와 상세 KPI의 `DefectStatus`(4종)가 다른 축인데 상세에 점검 상태가 안 보여 사용자가 혼동하던 건. 두 축을 합치지 않고 분리 노출(배지 + "하자 조치 현황" 그룹 라벨). 부수로 `INSPECTION_STATUS_LABEL` 중복 정의 3곳 → `shared/constants/inspectionStatus.ts` 단일화, MSW `GET /api/inspections/:id` 중복 핸들러 제거 + 목 status 소스 단일화. **백엔드·DTO·마이그레이션 변경 없음**(기존 엔드포인트가 이미 status 반환). reviewer P1 0(P2·P3 각 1건 본 PR 내 픽스) · G1/G6 PASS · build PASS · test 2088/2097(실패 9건은 baseline 동일 실증). **승격 대기**(awaiting-promotion).
+
 > ✅ **2026-08-19 5차 승격 완료 — PR #1691 (dev→main / 이슈 6건 자동종료 / CD success).** 배치(후속 6건): V45 복합 인덱스(+중복 인덱스 drop)·보고서 후속(PDF mm²·유예 설정화)·시설물 수정 화면(재지오코딩·scale lost-update 픽스)·mm² 참고 등급 체인(ai 잠정밴드→BE V46 sanitize→FE 보조 배지, 본등급 불변). 전체검수: dev HEAD gradlew SUCCESSFUL·front build PASS·시크릿 0·G6 PASS. **prod 검증 완료**: flyway 45/46(true) · idx_inspections_recent_order 존재·idx_inspections_facility drop 확인 · area_mm2_reference_grade 컬럼 · front/api 200 · revision env 유지. 이슈 6건 종료+라벨 제거, dev ff 역머지, springdoc baseline 갱신 완료. 잔여: #1676 타임존 플레이크 · pr_machine 승격 PR 버그 · nginx timeout/#1604(기존).
 
 > ✅ **2026-08-19 4차 승격 완료 — PR #1678 (dev→main, merge `a11a5629` / 이슈 15건 자동종료 / CD success).** 배치(2026-08-18~19 데모 피드백+백로그 정합, PR 16건): 데모 5건(#1641~#1645 media purpose·RESOLVED 직행 차단·검수 버튼·조치 그룹 UI·revision 고정) + 보고서 정합 BE/FE(#1653/#1666) + 증분 분석(#1654, 머신 P1 핫픽스 #1672 포함) + 통계(#1655) + 지도 BE/FE(#1656/#1657) + mm² AI/BE/FE(#1658/#1668/#1669) + performed_at(#1667). **Flyway V41→V44 순차 적용**(전부 additive·멱등). 승격 전 전체검수: dev HEAD `./gradlew test --rerun-tasks` SUCCESSFUL·front build PASS·시크릿 0·G6 PASS(회귀 기록 대조 포함). **prod 검증 완료**: 컨테이너 전부 healthy · flyway top=44(true) · purpose 백필 42건(R4 예측 일치) · analyzed_at 428 marked(null 50건=분석 전 회차 정상) · performed_at 66/67 · front/api 200 · ai-server unpinned 경고 로그 동작(#1645 의도). 이슈 15건 native 자동종료 + `awaiting-promotion` 라벨 전건 제거. dev ff 역머지 + springdoc baseline 갱신(prod live spec) 완료. **운영 선택 조치**: arm1 `.env`에 `YOLO_REVISION`/`UNET_REVISION` 지정 시 모델 재현성 고정 · 카드 검출 호출 증가 모니터링(#1658). 잔여 후속: FacilityCard 타임존 플레이크(#1676) · performed_at 복합 인덱스(P3) · 로컬 전용 undici 테스트 실패 9건.
@@ -430,6 +432,8 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
   - PR머신 arm1 서버 상시 가동(로컬 plist는 잔재). dev PR은 머신 검수·머지, 마이그레이션 가드(needs-human)만 사람 머지. 승격 PR은 머신 처리 버그(base=main 오인)로 사람 검수·머지.
   ### P0 — 5차 승격 ✅ 완료 (2026-08-19 PR #1691)
   ### P1 — 마이너 픽스 후보
+  - [x] #1693 점검 상세 화면 점검 상태 미표시 → PR #1695 dev 머지(승격 대기)
+  - [ ] **시설물군별 히트맵 현재 월 열 누락** — `getMonthsForPeriod`가 축의 끝을 "데이터 마지막 월"로 잡아, 현재 월 점검이 0건이면 그 열이 통째로 사라짐(오늘 8월 기준 실증: 데이터 7월까지면 축이 2~7월). 백엔드는 점검 있는 (카테고리,월)만 반환(`StatisticsService.java:126-142`). 부가로 `FacilityTypeHeatmap.tsx:162-169`가 전체 0건이면 그리드 자체를 미노출(같은 파일 9-13행 주석 의도와 모순)
   - [ ] #1676 FacilityCard D-day 타임존 플레이크 (+본문에 undici 로컬 실패 9건 참고)
   - [ ] pr_machine 승격 PR 처리 버그(base=main인데 "main으로 바꿔라") — **별도 레포**(toy_project/pr_machine)
   - [ ] nginx `/api/` timeout 60s vs AI 180s · #1604 role 제한 여부 (기존 잔여)
