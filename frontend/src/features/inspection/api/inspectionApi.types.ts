@@ -48,6 +48,10 @@ export interface DefectDetailItem {
   // #1658/#1668). areaRatio(비율)와 별개 필드 — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고,
   // 카드 기준물 미검출이거나 CRACK 타입이면 null. areaRatio와 마찬가지로 단독 null 체크(#1588 교훈).
   areaMm2?: number | null;
+  // 참고 등급(mm² 기반, backend DefectDetailItem.areaMm2ReferenceGrade, #1683/#1684) — areaMm2와
+  // 동일 조건에서만 값이 있는 "잠정 기준(실측 재캘리브레이션 전)" 보조 등급. 본등급(grade)과 별개
+  // 축이라 집계·필터에 섞지 않는다. 단독 null 체크(#1588 교훈).
+  areaMm2ReferenceGrade?: string | null;
   createdAt: string; // ISO datetime
   mediaId?: number | null; // 이미지 ID — 백엔드에서 제공(#777 계약)
   imageUrl?: string | null; // 이미지 URL 형식: /api/media/{mediaId}/thumbnail — 백엔드에서 제공(#777 계약)
