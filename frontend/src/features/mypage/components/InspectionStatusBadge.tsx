@@ -1,4 +1,4 @@
-import { INSPECTION_STATUS_DOT_CLASS, INSPECTION_STATUS_LABEL } from '../statusClasses';
+import { MY_INSPECTION_DISPLAY_DOT_CLASS, MY_INSPECTION_DISPLAY_LABEL } from '../statusClasses';
 import type { InspectionHistoryStatus } from '../types';
 
 type Props = {
@@ -10,10 +10,10 @@ export function InspectionStatusBadge({ status }: Props) {
   return (
     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
       <span
-        className={`h-1.5 w-1.5 rounded-full ${INSPECTION_STATUS_DOT_CLASS[status]}`}
+        className={`h-1.5 w-1.5 rounded-full ${MY_INSPECTION_DISPLAY_DOT_CLASS[status]}`}
         aria-hidden="true"
       />
-      {INSPECTION_STATUS_LABEL[status] ?? status}
+      {MY_INSPECTION_DISPLAY_LABEL[status] ?? status}
     </span>
   );
 }

@@ -3,11 +3,13 @@
 // 활동 기록 사이드바 렌더링과, 카드 클릭 시 하자 상세 모달(§화면 구조 ③)이 열리고 닫히는 흐름을 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { api } from '../../../shared/api/axios';
+import { facilityAssigneeHandlers } from '../../facility/api/facilityAssigneeApi.handlers';
+import { inspectionHandlers } from '../../inspection/api/inspectionApi.handlers';
 import { defectHandlers } from '../api/defectApi.handlers';
 import { defectMediaApi } from '../api/defectMediaApi';
 import { mockDefects, mockInspectionDefectResponses } from '../mocks/defect.mock';
@@ -24,7 +26,15 @@ const explainHandler = http.post('/api/ai/defect-explain', () =>
   }),
 );
 
-const server = setupServer(...defectHandlers, explainHandler);
+// 코드리뷰 P2(#1693) — GET /api/inspections/:id는 inspectionApi.handlers.ts가 유일하게 소유한다
+// (defectApi.handlers.ts에 더는 등록하지 않음, 중복 시 mocks/handlers.ts 전역 체인에서 죽은
+// 코드가 되는 문제 재발 방지). 이 격리 서버도 mocks/handlers.ts의 상대 순서(facilityAssigneeHandlers
+// → inspectionHandlers → defectHandlers)를 그대로 반영해, 실제 앱과 동일한 핸들러가 응답하는지
+// 검증한다 — facilityAssigneeHandlers를 inspectionHandlers보다 먼저 두지 않으면 inspectionHandlers의
+// GET /api/facilities/:id(파라미터 라우트)가 GET /api/facilities/assignable-users를 가로챈다
+// (mocks/handlers.ts:50-52 주석과 동일 이유. 두 핸들러의 데이터값 자체는 동일해 지금까지는
+// 드러나지 않았을 뿐인 잠재 회귀였다).
+const server = setupServer(...facilityAssigneeHandlers, ...inspectionHandlers, ...defectHandlers, explainHandler);
 // PATCH 핸들러가 mockDefects를 in-place로 변경한다(조치 결과 등록 테스트가 상태를 RESOLVED로 바꿈) —
 // 다음 테스트를 오염시키지 않도록 매 테스트 후 스냅샷으로 복원한다.
 const mockDefectsSnapshot = JSON.parse(JSON.stringify(mockDefects)) as typeof mockDefects;
@@ -75,6 +85,52 @@ describe('InspectionDefectsPage (통합 테스트)', () => {
     renderPage('101');
 
     expect(await screen.findByRole('heading', { name: /INS-0101/ })).not.toBeNull();
+  });
+
+  // #1693 — 목록 "상태" 컬럼(InspectionStatus)과 상세 KPI(DefectStatus)가 서로 다른 엔티티의
+  // 상태인데 화면에 구분 표시가 없어 오인 사고가 났다. 상세 화면에 점검 상태 배지를 별도로 렌더링해야
+  // 한다(mockInspections id=101 status=REVIEWED → "검수완료").
+  it('헤더에 점검 상태(InspectionStatus) 배지를 렌더링한다', async () => {
+    renderPage('101');
+
+    expect(await screen.findByText('점검 상태: 검수완료')).not.toBeNull();
+  });
+
+  // 점검 조회(useInspection)는 하자 목록 조회(useInspectionDefects)와 완전히 독립된 쿼리라, 점검
+  // 조회가 아직 로딩 중이어도 하자 카드 그리드 렌더는 막지 않아야 한다 — 배지만 미표시.
+  it('점검 조회가 로딩 중이어도 하자 목록은 정상 렌더되고, 점검 상태 배지만 표시되지 않는다', async () => {
+    server.use(
+      http.get('/api/inspections/:id', async () => {
+        await delay('infinite');
+      }),
+    );
+
+    renderPage('101');
+
+    expect(await screen.findByRole('button', { name: '철근 노출 · 균열 이미지 카드 상세 보기' })).not.toBeNull();
+    expect(screen.queryByText(/^점검 상태:/)).toBeNull();
+  });
+
+  // 점검 조회가 실패해도(예: 네트워크 오류) 기존 하자 목록/에러 분기(isLoading/isError/ErrorFallback)
+  // 동작을 그대로 유지해야 한다 — 점검 상태 배지 하나만 조용히 빠진다.
+  it('점검 조회가 에러여도 하자 목록은 정상 렌더되고, 점검 상태 배지만 표시되지 않는다', async () => {
+    server.use(
+      http.get('/api/inspections/:id', () =>
+        HttpResponse.json(
+          {
+            success: false,
+            data: null,
+            error: { code: 'INSPECTION_NOT_FOUND', message: '점검 회차를 찾을 수 없습니다.' },
+          },
+          { status: 404 },
+        ),
+      ),
+    );
+
+    renderPage('101');
+
+    expect(await screen.findByRole('button', { name: '철근 노출 · 균열 이미지 카드 상세 보기' })).not.toBeNull();
+    expect(screen.queryByText(/^점검 상태:/)).toBeNull();
   });
 
   it('하자가 없는 점검(inspectionId=301)은 빈 상태 메시지를 표시한다', async () => {

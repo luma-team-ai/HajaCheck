@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { ErrorFallback } from '../../../shared/components/ErrorFallback';
+import {
+  INSPECTION_STATUS_DOT_CLASS,
+  INSPECTION_STATUS_LABEL,
+} from '../../../shared/constants/inspectionStatus';
 import { DefectCardGrid } from '../components/DefectCardGrid';
 import { DefectDetailModal } from '../components/DefectDetailModal';
 import { InspectionActivityPanel } from '../components/InspectionActivityPanel';
 import { InspectionKpiSummary } from '../components/InspectionKpiSummary';
+import { useInspection } from '../hooks/useInspection';
 import { useInspectionDefects } from '../hooks/useInspectionDefects';
 import { formatInspectionCode } from '../utils/defectFormat';
 import { findDefectImageGroup, groupDefectsByImage } from '../utils/defectImageGroups';
@@ -20,6 +25,10 @@ export function InspectionDefectsPage() {
   const { id } = useParams<{ id: string }>();
   const inspectionId = id != null ? Number(id) : undefined;
   const { data: defects, isLoading, isError, refetch } = useInspectionDefects(inspectionId);
+  // 점검 상태 배지(#1693) — 하자 목록 조회와 완전히 독립된 쿼리라 이 훅의 로딩/에러가 하자 카드
+  // 렌더를 막지 않는다. data가 있을 때만 배지를 그리고, 로딩 중이거나 에러여도 배지만 미표시한다
+  // (아래 헤더 렌더 참고 — isLoading/isError 분기를 별도로 두지 않는다).
+  const { data: inspection } = useInspection(inspectionId);
   const [searchParams, setSearchParams] = useSearchParams();
   // 대시보드 "검수하기"의 defectId 딥링크(#1117 회귀 수정) — 진입 시점의 쿼리파라미터로만 초기값을
   // 정하고, 이후 URL이 바뀌어도 모달은 사용자의 명시적 조작(카드 클릭/닫기)으로만 열고 닫는다.
@@ -69,6 +78,19 @@ export function InspectionDefectsPage() {
             {inspectionId != null ? formatInspectionCode(inspectionId) : '-'}
             <span className="inspection-defects-page__sr-only"> 하자 상세</span>
           </h1>
+
+          {inspection && (
+            <>
+              <span className="inspection-defects-page__header-divider" aria-hidden="true" />
+              <span className="inspection-status-badge">
+                <span
+                  className={`inspection-status-badge__dot ${INSPECTION_STATUS_DOT_CLASS[inspection.status]}`}
+                  aria-hidden="true"
+                />
+                {`점검 상태: ${INSPECTION_STATUS_LABEL[inspection.status]}`}
+              </span>
+            </>
+          )}
 
           {!isLoading && !isError && defects && (
             <>
