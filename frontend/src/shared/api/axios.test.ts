@@ -7,6 +7,16 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+// jsdom엔 기본적으로 indexedDB가 없어(fake-indexeddb 전역 폴리필 미설정) 실제 clearDraftMediaFiles
+// 구현을 그대로 쓰면 openDb()가 조용히 실패해(자체 try/catch로 삼킴) 호출 여부를 관찰할 수 없다 —
+// InspectionCreatePage.test.tsx/useLogout.test.tsx와 동일한 이유로 이 모듈만 스파이 가능한 목으로
+// 교체한다.
+vi.mock('../../features/inspection/utils/inspectionCreateDraftFiles', () => ({
+  saveDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+  loadDraftMediaFiles: vi.fn().mockResolvedValue([]),
+  clearDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+}));
+
 const server = setupServer(
   http.get('/api/test-401', () =>
     HttpResponse.json(
@@ -20,6 +30,7 @@ beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
 afterEach(() => {
   server.resetHandlers();
   vi.unstubAllEnvs();
+  localStorage.clear();
 });
 afterAll(() => server.close());
 
@@ -27,6 +38,24 @@ async function importFreshApi() {
   vi.resetModules();
   const mod = await import('./axios');
   return mod.api;
+}
+
+// axios.ts가 clearPreviousUserLocalState 경유로 지우는 점검 생성 폼 텍스트 초안(#1703, localStorage)
+// 검증용 — inspectionCreateDraft.ts는 모듈 스코프에 상태를 두지 않고 매번 실제 localStorage를 직접
+// 읽고 쓰므로(아래 inspectionStore와 달리) 반드시 axios와 같은 사이클에서 다시 import할 필요는
+// 없지만, 관례를 맞춰 함께 가져온다. IndexedDB 사진 초안(clearDraftMediaFiles) 쪽은
+// clearPreviousUserLocalState.test.ts에서 별도로 검증한다(주석 참고).
+async function importFreshApiWithDraftUtils() {
+  vi.resetModules();
+  const [axiosMod, draftMod] = await Promise.all([
+    import('./axios'),
+    import('../../features/inspection/utils/inspectionCreateDraft'),
+  ]);
+  return {
+    api: axiosMod.api,
+    loadInspectionCreateDraft: draftMod.loadInspectionCreateDraft,
+    saveInspectionCreateDraft: draftMod.saveInspectionCreateDraft,
+  };
 }
 
 // axios.ts는 내부에서 '../../features/inspection/store/inspectionStore'를 import한다 — 위
@@ -170,6 +199,34 @@ describe('axios 401 인터셉터 — 로그인 경로 가드 (기본 base=/)', (
     try {
       await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
       expect(getRagSessionId()).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  // #1703 / PR #1708 2차 P1 — 점검 생성 폼 임시저장이 sessionStorage에서 localStorage(TTL 7일)로
+  // 바뀌며, 이 401 강제 로그아웃이 지우지 않으면 공용 PC에서 세션 만료된 사용자가 입력하던
+  // 시설물·메모가 다음 로그인 사용자(다른 회사 포함)에게 그대로 복원된다. 로그인 3진입점·
+  // useLogout과 함께 이 계약을 지키는 6번째 지점이다. (IndexedDB 사진 초안까지 함께 정리되는지는
+  // clearPreviousUserLocalState.test.ts가 resetModules 없이 안정적으로 검증한다 — 이 파일처럼
+  // 매 테스트 vi.resetModules()로 모듈을 다시 불러오는 구성에서는 여러 번의 재평가 이후 mock
+  // 모듈 인스턴스가 갈라지는 경우가 있어, 여기서는 axios가 실제로 참조하는 이 인스턴스로도
+  // 안정적으로 검증 가능한 localStorage 초안 정리만 확인한다.)
+  it('401 하드 리다이렉트 시 점검 생성 폼의 localStorage 텍스트 초안을 비운다', async () => {
+    const { api, loadInspectionCreateDraft, saveInspectionCreateDraft } =
+      await importFreshApiWithDraftUtils();
+    saveInspectionCreateDraft({
+      facilityId: '1',
+      inspectionDate: '2026-08-01',
+      inspectionType: 'DETAILED',
+      memo: '세션 만료 전 입력 중이던 메모',
+    });
+    expect(loadInspectionCreateDraft()).not.toBeNull();
+
+    const { restore } = mockLocation('/dashboard');
+    try {
+      await expect(api.get('/test-401')).rejects.toMatchObject({ code: 'AUTH_UNAUTHORIZED' });
+      expect(loadInspectionCreateDraft()).toBeNull();
     } finally {
       restore();
     }

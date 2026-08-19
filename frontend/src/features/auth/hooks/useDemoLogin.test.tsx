@@ -6,13 +6,27 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
+import {
+  loadInspectionCreateDraft,
+  saveInspectionCreateDraft,
+} from '../../inspection/utils/inspectionCreateDraft';
+import { clearDraftMediaFiles } from '../../inspection/utils/inspectionCreateDraftFiles';
 import { getRagSessionId, setRagSessionId } from '../../support/utils/ragSessionId';
 import { useAuthStore } from '../store/authStore';
 import type { User } from '../types';
 import { useDemoLogin } from './useDemoLogin';
+
+// jsdom엔 기본적으로 indexedDB가 없어(fake-indexeddb 전역 폴리필 미설정) 실제 clearDraftMediaFiles
+// 구현을 그대로 쓰면 openDb()가 조용히 실패해(자체 try/catch로 삼킴) 호출 여부를 관찰할 수 없다 —
+// InspectionCreatePage.test.tsx와 동일한 이유로 이 모듈만 스파이 가능한 목으로 교체한다.
+vi.mock('../../inspection/utils/inspectionCreateDraftFiles', () => ({
+  saveDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+  loadDraftMediaFiles: vi.fn().mockResolvedValue([]),
+  clearDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+}));
 
 const mockDemoUser: User = {
   id: 999,
@@ -47,6 +61,7 @@ afterEach(() => {
   useInspectionStore.getState().clearActiveInspectionId();
   useInspectionStore.getState().clearActiveReportId();
   requestedPaths.length = 0;
+  localStorage.clear();
 });
 afterAll(() => server.close());
 
@@ -117,6 +132,29 @@ describe('useDemoLogin', () => {
     expect(useInspectionStore.getState().activeInspectionId).toBeNull();
     expect(useInspectionStore.getState().activeReportId).toBeNull();
     expect(getRagSessionId()).toBeNull();
+  });
+
+  // #1703 / PR #1708 2차 P1 — clearPreviousUserLocalState 도입 전에는 useDemoLogin이 점검 생성
+  // 폼 임시저장을 지우지 않아, 공용 PC에서 데모 로그인 전 사용자의 시설물·메모가 그대로 남았다.
+  // 최소한 이 훅이 clearPreviousUserLocalState를 호출한다는 사실을(localStorage 텍스트 초안이
+  // 지워지고 IndexedDB 정리도 시도되는지로) 고정한다.
+  it('성공 시 이전 사용자의 점검 생성 폼 임시저장(localStorage 텍스트+IndexedDB 사진)도 지운다', async () => {
+    vi.mocked(clearDraftMediaFiles).mockClear();
+    saveInspectionCreateDraft({
+      facilityId: '1',
+      inspectionDate: '2026-08-01',
+      inspectionType: 'DETAILED',
+      memo: '이전 사용자가 입력한 메모',
+    });
+    expect(loadInspectionCreateDraft()).not.toBeNull();
+
+    renderWithProviders();
+
+    fireEvent.click(screen.getByText('데모 계정으로 둘러보기'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/dashboard'));
+    expect(loadInspectionCreateDraft()).toBeNull();
+    expect(clearDraftMediaFiles).toHaveBeenCalled();
   });
 
   // 계약(handoff) — 비활성 시 404 계열. isUnavailable로 화면이 버튼을 숨길 수 있게 판별값을 낸다.
