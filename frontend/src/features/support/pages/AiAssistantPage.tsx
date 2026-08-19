@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { AIErrorFallback } from '../../../shared/components/AIErrorFallback/AIErrorFallback';
 import { Button } from '../../../shared/components/Button/Button';
+import { RagAnswer } from '../components/RagAnswer';
 import { useRagChat } from '../hooks/useRagChat';
 import type { SourceCitation } from '../types';
 
@@ -26,27 +27,32 @@ function AssistantTypingBubble() {
   );
 }
 
-// 출처 칩 — 설계 §5: title + locator를 그대로 표시(FE 재조립·Chroma 재조회 금지).
+// 출처 칩 — 설계 §5: title + locator를 그대로 표시(FE 재조립·Chroma 재조회 금지). 펼친 상태일 때만
+// 근거 발췌(snippet, Chroma 청크 원문)를 2~3줄 line-clamp 미리보기로 아래에 보여준다(#1700) —
+// 접힌 칩 라벨은 지금처럼 title+locator만.
 function SourceChip({ source }: { source: SourceCitation }) {
   const label = source.locator ? `${source.title} ${source.locator}` : source.title;
   return (
-    <span className="inline-flex items-center gap-2 rounded-[10px] border border-border bg-white px-3 py-2 text-sm font-medium text-primary">
-      <svg
-        width="12"
-        height="14"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <path d="M14 2v6h6" />
-      </svg>
-      {label}
-    </span>
+    <div className="flex max-w-[360px] flex-col gap-1.5 rounded-[10px] border border-border bg-white px-3 py-2">
+      <span className="inline-flex items-center gap-2 text-sm font-medium text-primary">
+        <svg
+          width="12"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+          <path d="M14 2v6h6" />
+        </svg>
+        {label}
+      </span>
+      {source.snippet && <p className="m-0 line-clamp-3 text-xs font-normal leading-5 text-text-muted">{source.snippet}</p>}
+    </div>
   );
 }
 
@@ -80,7 +86,7 @@ function SourcesToggle({ sources }: { sources: SourceCitation[] }) {
         참고문서 {sources.length}건
       </button>
       {open && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-start gap-2">
           {sources.map((source) => (
             <SourceChip key={`${source.collection}-${source.chunk_ref}`} source={source} />
           ))}
@@ -172,9 +178,7 @@ export function AiAssistantPage() {
                 </div>
               ) : (
                 <div key={message.id} className="flex flex-col items-start gap-3">
-                  <div className="max-w-[816px] whitespace-pre-wrap rounded-2xl rounded-tl-sm border border-border bg-white px-5 py-4 text-base font-medium text-primary">
-                    {message.text}
-                  </div>
+                  <RagAnswer text={message.text} />
                   {message.sources && message.sources.length > 0 && (
                     <SourcesToggle sources={message.sources} />
                   )}
