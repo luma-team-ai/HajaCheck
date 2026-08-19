@@ -28,6 +28,7 @@ import com.hajacheck.platformadmin.repository.PlatformAdminUserRepository;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -59,6 +60,20 @@ public class PlatformAdminUserService {
     // 이 화면 밖의 축이라 화이트리스트에 넣지 않는다.
     private static final Set<Role> ASSIGNABLE_ROLES =
             EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER, Role.COUNSELOR);
+
+    // 부여 가능한 상태 — AdminUserService.ASSIGNABLE_STATUSES 와 동일한 화이트리스트(#1492 리뷰 ⓐ).
+    // user_status_type 은 ACTIVE/SUSPENDED/WAITING 3개뿐이라 실제 차단 대상은 WAITING 하나다.
+    // WAITING 은 "소셜 가입 직후 아직 어느 회사에도 배선되지 않음"을 뜻하는 온보딩 상태이고,
+    // 유일한 생성 경로는 User.createSocialUser(company_id 없음)다. 관리자 콘솔이 이미 회사에 소속된
+    // 사용자를 WAITING 으로 되돌릴 수 있으면 company_id 가 남은 WAITING 행이 생겨,
+    // (a) SessionUserRevalidationFilter 가 보호 리소스를 막는데 초대 코드 redeem 은 통과하는
+    //     어정쩡한 상태가 되고,
+    // (b) UserRepository#findByIdForUpdate 의 교착 안전성 근거("WAITING ⇒ company_id IS NULL")가
+    //     깨진다(#1492).
+    // 회사 관리자 콘솔(AdminUserService)은 이미 같은 가드를 갖고 있었는데 플랫폼 관리자 콘솔만
+    // 빠져 있어 같은 우회로가 남아 있었다 — 같은 ErrorCode 로 대칭을 맞춘다.
+    private static final Set<UserStatus> ASSIGNABLE_STATUSES =
+            EnumSet.of(UserStatus.ACTIVE, UserStatus.SUSPENDED);
 
     public PlatformAdminUserListResponse list(String keyword, Role role, PlanName plan, UserStatus status,
                                                Pageable pageable) {
@@ -138,7 +153,10 @@ public class PlatformAdminUserService {
     @Transactional
     public AdminUserRoleUpdateResponse changeRole(Long userId, Role role) {
         requireAssignableRole(role);
-        User user = findUser(userId);
+        // ⚠️ findUser(잠금 없는 조회)가 아니라 findUserForUpdate 다 — 이 메서드가 쓰는 UPDATE 는
+        // "로드 시점 스냅샷 전 컬럼"이라 잠금 없이 읽으면 초대 코드 redeem 이 같은 행에 쓴
+        // company_id/status 를 통째로 덮는다(근거·잠금 순서는 findUserForUpdate javadoc).
+        User user = findUserForUpdate(userId);
         // 데모 계정 자기보호(#1626) — 플랫폼 관리자 콘솔 경로도 회사 관리자 콘솔(AdminUserService)과
         // 동일하게 차단한다. 여기가 열려 있으면 회사 콘솔 가드가 이 경로로 그대로 우회된다.
         demoAccountGuard.requireNotDemoAccount(user.getEmail());
@@ -151,7 +169,9 @@ public class PlatformAdminUserService {
 
     @Transactional
     public AdminUserStatusUpdateResponse changeStatus(Long userId, UserStatus status) {
-        User user = findUser(userId);
+        requireAssignableStatus(status);
+        // ⚠️ changeRole 과 동일 — 잠금 조회로 로드한다(findUserForUpdate javadoc).
+        User user = findUserForUpdate(userId);
         // 데모 계정 자기보호(#1626) — changeRole 과 동일.
         demoAccountGuard.requireNotDemoAccount(user.getEmail());
         if (user.getRole() == Role.ADMIN && status == UserStatus.SUSPENDED) {
@@ -183,6 +203,16 @@ public class PlatformAdminUserService {
     public AdminUserSkillUpdateResponse changeSkill(Long userId, CounselType skill) {
         User user = findUser(userId);
         requireCounselor(user);
+        // ⚠️ 이 "먼저 로드 → 나중에 잠금" 순서를 changeRole/changeStatus 로 그대로 베끼지 말 것
+        // (#1492 PR머신 2차 검토 P2). 잠금 없이 먼저 읽으면 엔티티가 이미 영속성 컨텍스트(L1)에 올라가고,
+        // 뒤이은 잠금 조회는 **같은 인스턴스를 돌려줄 뿐 스냅샷을 갱신하지 않는다**.
+        //  · 여기서는 무해하다 — 이 메서드는 User 를 더티 변경하지 않고 counselor_skills 행만
+        //    delete/insert 한다. 필요한 것은 "같은 상담사 요청의 직렬화"뿐이고 User 스냅샷의 신선도는
+        //    어디에도 쓰이지 않는다.
+        //  · changeRole/changeStatus 는 다르다 — 그 스냅샷이 곧 UPDATE 내용이다(User 에
+        //    @DynamicUpdate·@Version 이 없어 Hibernate 가 스냅샷 기준 전 컬럼 UPDATE 를 날린다).
+        //    락-후-로드로는 stale 한 company_id 를 그대로 다시 써서 lost update 가 남는다 → 그쪽은
+        //    findUserForUpdate 로 **로드 자체를 잠금 조회로 대체**한다.
         platformAdminUserRepository.findByIdForUpdate(userId);
         counselorSkillRepository.deleteByCounselorId(userId);
         counselorSkillRepository.save(CounselorSkill.assign(userId, skill));
@@ -222,11 +252,68 @@ public class PlatformAdminUserService {
         }
     }
 
+    // AdminUserService.requireAssignableStatus 와 동일 패턴·동일 ErrorCode. 대상 조회보다 *먼저*
+    // 검사해 잘못된 상태 요청이 리소스 존재 여부를 탐지하는 수단이 되지 않게 한다.
+    private void requireAssignableStatus(UserStatus status) {
+        if (!ASSIGNABLE_STATUSES.contains(status)) {
+            throw new BusinessException(ErrorCode.ADMIN_STATUS_NOT_ASSIGNABLE);
+        }
+    }
+
     // PLATFORM_ADMIN 자신은 이 화면의 관리 대상이 아니다(목록에서도 항상 제외) — 그런 id로 직접
     // 요청해도 회사 소속 사용자와 동일하게 "존재하지 않음"으로 응답한다(리소스 존재 여부 열거 방지).
     private User findUser(Long userId) {
-        User user = platformAdminUserRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
+        return requireManageableTarget(platformAdminUserRepository.findById(userId));
+    }
+
+    /**
+     * 대상 사용자 행을 <b>잠근 채</b> 로드한다(#1492 PR머신 2차 검토 P2) — {@link #changeRole}·
+     * {@link #changeStatus} 전용. 미존재·PLATFORM_ADMIN 처리는 {@link #findUser} 와 동일
+     * ({@code USER_NOT_FOUND})하고 <b>조회 방식만</b> 잠금 조회로 바뀐다.
+     *
+     * <p><b>왜 "먼저 로드 → 나중에 잠금"이 아니라 로드 자체를 잠금 조회로 대체하는가</b>: {@code User}
+     * 에는 {@code @DynamicUpdate} 도 {@code @Version} 도 없어(레포 전체 사용처 0건) Hibernate 가
+     * <b>로드 시점 스냅샷 기준으로 전 컬럼 UPDATE</b> 를 날리고, 낙관적 락으로도 걸리지 않는다.
+     * 잠금 없이 먼저 읽으면 그 스냅샷이 stale 해질 수 있는데, 뒤에 잠금을 잡아도 엔티티는 이미
+     * 영속성 컨텍스트에 있어 <b>스냅샷이 갱신되지 않는다</b>({@link #changeSkill} 의 순서가 그 형태이며,
+     * 거기서는 User 를 더티 변경하지 않아 무해하다 — 그 메서드의 주석 참고).
+     *
+     * <p><b>막는 붕괴</b>: 관리자가 WAITING 사용자를 읽은 직후(그 시점 {@code company_id = null}) 그
+     * 사용자가 초대 코드를 redeem 해 {@code status=ACTIVE} + {@code company_id} 를 함께 커밋하면
+     * ({@code User#activateWithInviteCode} 가 두 값을 같이 쓴다), 관리자 트랜잭션의 flush UPDATE 가
+     * redeem 의 행 잠금 해제를 기다렸다가 스냅샷의 {@code company_id = null} 로 덮어쓴다 → APPROVED
+     * 멤버십과 예약된 좌석은 그대로 남는데 {@code users.company_id} 만 사라진다. 인가는 멤버십 기반이라
+     * 즉시 권한을 잃지는 않지만 좌석 실측({@code QuotaService#measureSeats} 이 {@code company_id} 로
+     * 센다)·마이페이지·회사 스코프 조회가 어긋난다.
+     * {@code InviteCodeRedeemAdminStatusChangeConcurrencyTest} 가 이 계약을 고정한다.
+     *
+     * <h2>잠금 순서 — users → companies</h2>
+     * 이 잠금이 생기면서 {@link #changeRole}/{@link #changeStatus} 의 잠금 순서는 <b>users → companies</b>
+     * 가 된다({@link #requireNotLastCompanyAdmin} 이 {@code CompanyRepository#findByIdForUpdate} 를
+     * 잡는다). 순환이 없는 근거는 <b>companies → users 방향으로 잠그는 경로가 레포에 없다</b>는 것이다:
+     * <ul>
+     *   <li>{@code CompanyRepository#findByIdForUpdate} 의 유일한 호출부가 바로 그
+     *       {@link #requireNotLastCompanyAdmin} 이고(레포 전체 실측), 그 안에서 users 는 잠금 없는
+     *       {@code countByCompanyIdAndRoleAndStatus} 평문 count 다.</li>
+     *   <li>{@code PlatformAdminCompanyService}(#1367)는 행 잠금을 전혀 쓰지 않는다 — 회사·멤버십·사용자
+     *       모두 평문 SELECT.</li>
+     *   <li>{@code InviteCodeService#redeem} 은 users → usage_counters 라 <b>첫 락이 users 로 같아</b>
+     *       이 경로와 직렬화될 뿐 순환을 만들지 않는다.</li>
+     * </ul>
+     *
+     * <p>잠금 순서 계약의 <b>단일 소스는 {@code UserRepository#findByIdForUpdate} javadoc</b> 이다
+     * (역순 경로 목록·"WAITING ⇒ company_id IS NULL" 불변식·근거를 무효화하는 변경 목록). users 행
+     * 잠금을 새로 추가하거나 이 순서를 바꾸기 전에 반드시 그 문서를 먼저 읽을 것 — 여기에 같은 내용을
+     * 다시 적지 않는다.
+     */
+    private User findUserForUpdate(Long userId) {
+        return requireManageableTarget(platformAdminUserRepository.findByIdForUpdate(userId));
+    }
+
+    // findUser·findUserForUpdate 공용 — 조회 방식이 달라도 미존재/PLATFORM_ADMIN 응답(USER_NOT_FOUND)은
+    // 반드시 같아야 한다(둘이 갈리면 잠금 도입만으로 열거 방어가 깨진다).
+    private User requireManageableTarget(Optional<User> found) {
+        User user = found.orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         if (user.getRole() == Role.PLATFORM_ADMIN) {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
