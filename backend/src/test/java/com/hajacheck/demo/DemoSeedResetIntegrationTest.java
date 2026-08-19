@@ -157,6 +157,27 @@ class DemoSeedResetIntegrationTest extends PostgresTestSupport {
     }
 
     @Test
+    void 시드_시설물은_전부_좌표를_갖는다_지도뷰_마커_누락_방지() {
+        demoSeedService.seedAll();
+
+        List<Facility> facilities = facilityRepository.findAll().stream()
+                .filter(f -> demoCompanyId().equals(f.getCompanyId()))
+                .toList();
+
+        assertThat(facilities).hasSize(SEEDED_FACILITIES);
+        // 프론트 지도(mapApi.ts)가 latitude/longitude != null 로 거르므로, 하나라도 비면 그 시설물은
+        // 마커에서 사라진다(#1710). 값 범위도 함께 본다 — (0,0)·범위밖은 필터가 걸러내는 대상이다.
+        assertThat(facilities).allSatisfy(f -> {
+            assertThat(f.getLatitude()).as("%s 위도", f.getName()).isNotNull();
+            assertThat(f.getLongitude()).as("%s 경도", f.getName()).isNotNull();
+            assertThat(f.getLatitude().doubleValue()).as("%s 위도 범위(한반도)", f.getName())
+                    .isBetween(33.0, 39.0);
+            assertThat(f.getLongitude().doubleValue()).as("%s 경도 범위(한반도)", f.getName())
+                    .isBetween(124.0, 132.0);
+        });
+    }
+
+    @Test
     void 리셋은_데모_회사만_비우고_시드_상태로_복원하며_타_회사는_건드리지_않는다() {
         demoSeedService.seedAll();
         Long demoCompanyId = demoCompanyId();

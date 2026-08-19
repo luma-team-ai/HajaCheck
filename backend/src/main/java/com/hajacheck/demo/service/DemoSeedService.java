@@ -32,6 +32,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
@@ -242,19 +243,25 @@ public class DemoSeedService {
         LocalDate today = LocalDate.now();
 
         // ── 시설물 3건 ──
+        // 좌표를 반드시 함께 넣는다 — 프론트 지도뷰(mapApi.ts)가 latitude/longitude != null 로 거르므로
+        // 좌표가 비면 마커가 하나도 찍히지 않고 목록에 "좌표 없음" 배지만 남는다(#1710). 지오코딩 백필로
+        // 채워도 일일 리셋이 이 메서드로 시설물을 재생성하면서 도로 날아가므로, 시드에 값을 둔다.
         Facility tower = facilityRepository.save(Facility.builder()
                 .companyId(companyId).name("데모 오피스 타워").type("건물")
                 .address("서울특별시 강남구 테헤란로 100").builtYear(2008).scale("지상 15층/지하 2층")
+                .latitude(new BigDecimal("37.500300")).longitude(new BigDecimal("127.033500"))
                 .inspectionCycleMonths(12).nextInspectionDueAt(today.plusDays(14))
                 .assigneeUserId(adminUserId).memo("데모 시드 시설물 — 정기점검 이력 2회").build());
         Facility warehouse = facilityRepository.save(Facility.builder()
                 .companyId(companyId).name("데모 물류센터 A동").type("건물")
                 .address("경기도 성남시 분당구 판교로 255").builtYear(1999).scale("지상 4층 창고동")
+                .latitude(new BigDecimal("37.402500")).longitude(new BigDecimal("127.106000"))
                 .inspectionCycleMonths(6).nextInspectionDueAt(today.plusDays(40))
                 .assigneeUserId(adminUserId).memo("데모 시드 시설물 — 분석 완료 1회").build());
         facilityRepository.save(Facility.builder()
                 .companyId(companyId).name("데모 보행교").type("교량")
                 .address("서울특별시 성동구 뚝섬로 273").builtYear(2005).scale("연장 85m 보도교")
+                .latitude(new BigDecimal("37.540500")).longitude(new BigDecimal("127.055000"))
                 .inspectionCycleMonths(24).nextInspectionDueAt(today.plusDays(5))
                 .assigneeUserId(adminUserId).memo("데모 시드 시설물 — 점검 예정(이력 없음)").build());
 
