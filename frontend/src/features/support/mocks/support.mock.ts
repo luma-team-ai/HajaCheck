@@ -11,6 +11,7 @@ export const mockRagAnswer: RagAnswerData = {
       collection: 'regulations',
       locator: '제11조 ①',
       chunk_ref: '12_3',
+      snippet: '관리주체는 정기안전점검을 반기별 1회 이상 실시하여야 한다.',
     },
     {
       doc_id: '12',
@@ -18,6 +19,7 @@ export const mockRagAnswer: RagAnswerData = {
       collection: 'regulations',
       locator: '제12조',
       chunk_ref: '12_5',
+      snippet: '정밀안전진단은 시설물의 안전등급에 따라 실시 주기를 달리한다.',
     },
   ],
 };
