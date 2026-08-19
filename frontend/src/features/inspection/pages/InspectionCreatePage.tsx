@@ -127,7 +127,7 @@ export function InspectionCreatePage() {
 
   // 시설물 상세 "+새 점검"(FacilityDetailPage)이 ?facilityId=로 넘겨준 값이 있으면 시설물
   // 셀렉트 초기값으로 채운다 — 방금 보던 시설물을 다시 고르는 수고를 없앤다. 그 다음 우선순위로
-  // 임시저장된 이전 입력(sessionStorage)이 있으면 복원한다 — 명시적 딥링크(쿼리파라미터)가 항상 우선.
+  // 임시저장된 이전 입력(localStorage, TTL 7일)이 있으면 복원한다 — 명시적 딥링크(쿼리파라미터)가 항상 우선.
   const inspectionCreateDraft = useState(() => loadInspectionCreateDraft())[0];
   const [values, setValues] = useState<InspectionCreateFormValues>(() => ({
     facilityId:
@@ -189,7 +189,8 @@ export function InspectionCreatePage() {
     memo.trim() !== '' ||
     mediaFiles.length > 0;
 
-  // 텍스트 입력(facilityId/inspectionDate/memo)은 sessionStorage에 임시저장한다.
+  // 텍스트 입력(facilityId/inspectionDate/memo)은 localStorage에 임시저장한다(저장 시각도 함께
+  // 기록돼 로드 시 TTL 7일이 지난 초안은 자동 폐기된다 — inspectionCreateDraft.ts 참고).
   useEffect(() => {
     if (hasSubmittedRef.current) {
       return;
@@ -206,9 +207,11 @@ export function InspectionCreatePage() {
     });
   }, [values.facilityId, values.inspectionDate, values.inspectionType, memo, hasDraftInput]);
 
-  // 마운트 시 1회 — 텍스트 초안이 있을 때만(=같은 세션) IndexedDB의 첨부 파일을 복원한다.
-  // 텍스트 초안이 없다면(탭을 새로 열었거나 sessionStorage가 이미 소거된 상태) IndexedDB에
-  // 남아있는 파일은 이전 세션의 고아 데이터이므로 복원하지 않고 정리한다. 완료 시(성공/실패 모두)
+  // 마운트 시 1회 — 텍스트 초안이 있을 때만(=localStorage에 TTL 이내로 남아있을 때) IndexedDB의
+  // 첨부 파일을 복원한다. 텍스트 초안이 없다면(애초에 저장된 적 없거나, localStorage에서 지워졌거나,
+  // TTL 7일이 지나 loadInspectionCreateDraft가 만료로 간주해 폐기한 경우) IndexedDB에 남아있는
+  // 파일은 텍스트와 짝이 안 맞는 고아 데이터이므로 복원하지 않고 정리한다(#1703 — 텍스트/사진
+  // 초안이 따로 남지 않게 함께 정리). 완료 시(성공/실패 모두)
   // hasHydratedMediaRef를 세워 아래 저장 effect가 그 전엔 mediaFiles 초기값([])으로 먼저
   // 덮어쓰지 못하게 한다.
   useEffect(() => {
@@ -230,7 +233,7 @@ export function InspectionCreatePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 마운트 시 1회만 실행
   }, []);
 
-  // 첨부 파일(Blob)은 sessionStorage 용량을 훌쩍 넘길 수 있어 IndexedDB에 별도 저장한다.
+  // 첨부 파일(Blob)은 localStorage 용량을 훌쩍 넘길 수 있어 IndexedDB에 별도 저장한다.
   // 위 복원 effect가 끝나기 전에는(hasHydratedMediaRef.current === false) 쓰지 않는다 — 마운트
   // 직후 mediaFiles 초기값([])으로 먼저 저장해버리면 복원 대상 파일을 지울 수 있다(PR 리뷰 P2).
   // 저장은 매번 현재 mediaFiles 전체(Blob 포함)를 다시 쓴다 — 파일을 여러 번에 나눠 추가하거나
