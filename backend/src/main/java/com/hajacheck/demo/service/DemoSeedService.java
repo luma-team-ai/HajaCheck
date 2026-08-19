@@ -141,9 +141,10 @@ public class DemoSeedService {
      */
     @Transactional
     public void seedAll() {
-        // 사업자등록증 자리에 샘플 이미지를 정식 저장 경로로 저장 — 컬럼이 not null 이고, 관리자 화면의
-        // 등록증 다운로드가 404 로 깨지지 않게 실제 파일을 둔다(내용은 명백한 데모 합성 이미지).
-        StoredFile license = fileStorage.storeBytes(readResource("demo/sample-crack-1.jpg"),
+        // 사업자등록증 자리에 견본 문서를 정식 저장 경로로 저장 — 컬럼이 not null 이고, 관리자 화면의
+        // 등록증 다운로드가 404 로 깨지지 않게 실제 파일을 둔다. 실물이 아님을 오인할 수 없도록
+        // "SAMPLE" 워터마크와 "실제 사업자등록증이 아닙니다" 문구가 박힌 견본을 쓴다.
+        StoredFile license = fileStorage.storeBytes(readResource("demo/business-license-sample.jpg"),
                 "image/jpeg", LICENSE_CATEGORY, JPEG_ONLY, ORIGINAL_MAX_BYTES);
 
         Company company = companyAccountWriter.createAccount(
@@ -258,7 +259,7 @@ public class DemoSeedService {
                 .assigneeUserId(adminUserId).memo("데모 시드 시설물 — 점검 예정(이력 없음)").build());
 
         // ── 시설물 대표 사진(폴리모픽 facility_id 로우) ──
-        seedImage(null, tower.getId(), "demo/sample-leak-1.jpg", "tower-front.jpg");
+        seedImage(null, tower.getId(), "demo/facility-facade.jpg", "tower-front.jpg");
 
         // ── 점검 회차: 타워 1회차(검수 확정) → 2회차(분석 완료), 물류센터 1회차(분석 완료) ──
         Inspection towerRound1 = inspectionRepository.save(Inspection.builder()
@@ -275,10 +276,10 @@ public class DemoSeedService {
                 .type(InspectionType.DETAILED).status(InspectionStatus.ANALYZED).build());
 
         // ── 미디어(원본+썸네일+상세 3종 저장 — 정식 저장 계층) ──
-        Media r1Crack = seedImage(towerRound1.getId(), null, "demo/sample-crack-2.jpg", "r1-slab-crack.jpg");
-        Media r2Crack = seedImage(towerRound2.getId(), null, "demo/sample-crack-1.jpg", "r2-wall-crack.jpg");
-        Media r2Leak = seedImage(towerRound2.getId(), null, "demo/sample-leak-1.jpg", "r2-ceiling-leak.jpg");
-        Media whSpalling = seedImage(warehouseRound1.getId(), null, "demo/sample-spalling-1.jpg", "wh-column-spalling.jpg");
+        Media r1Crack = seedImage(towerRound1.getId(), null, "demo/defect-crack-slab.jpg", "r1-slab-crack.jpg");
+        Media r2Crack = seedImage(towerRound2.getId(), null, "demo/defect-crack-wall.jpg", "r2-wall-crack.jpg");
+        Media r2Spalling = seedImage(towerRound2.getId(), null, "demo/defect-spalling-floor.jpg", "r2-floor-spalling.jpg");
+        Media whSpalling = seedImage(warehouseRound1.getId(), null, "demo/defect-spalling-floor.jpg", "wh-floor-spalling.jpg");
 
         // ── 1회차: 검수·조치까지 끝난 하자 2건(RESOLVED) — "완료 상태 AI 분석 결과 + 조치 이력" ──
         Defect r1CrackDefect = defectRepository.save(defect(towerRound1.getId(), r1Crack.getId(),
@@ -286,11 +287,11 @@ public class DemoSeedService {
                 0.32, 0.41, 0.28, 0.12, 0.93, 0.3, 1200.0, null, "지하주차장 슬래브 중앙부"));
         r1CrackDefect.updateActionResultFields(r1Crack.getId(),
                 "에폭시 수지 주입 공법으로 균열 보수 완료", today.minusDays(30), adminUserId);
-        Defect r1LeakDefect = defectRepository.save(defect(towerRound1.getId(), r1Crack.getId(),
-                DefectType.LEAK_EFFLORESCENCE, DefectGrade.B, DefectStatus.RESOLVED, true,
-                0.55, 0.18, 0.22, 0.19, 0.88, null, null, 0.04, "지하주차장 천장 조인트 부위"));
-        r1LeakDefect.updateActionResultFields(r1Crack.getId(),
-                "방수층 재시공 및 백화 제거", today.minusDays(28), adminUserId);
+        Defect r1SpallingDefect = defectRepository.save(defect(towerRound1.getId(), r1Crack.getId(),
+                DefectType.SPALLING, DefectGrade.B, DefectStatus.RESOLVED, true,
+                0.55, 0.18, 0.22, 0.19, 0.88, null, null, 0.04, "지하주차장 슬래브 마감재 박락부"));
+        r1SpallingDefect.updateActionResultFields(r1Crack.getId(),
+                "탈락부 제거 후 단면 복구 모르타르 충전 완료", today.minusDays(28), adminUserId);
 
         // ── 2회차: 분석 완료 상태 — 검수 확정 1건 + 조치 진행 중 1건 + 방문자 검수용 미확정 1건 ──
         Defect r2CrackDefect = defectRepository.save(defect(towerRound2.getId(), r2Crack.getId(),
@@ -299,11 +300,11 @@ public class DemoSeedService {
         // 회차 간 비교(#1157) 배선 — 1회차 슬래브 균열의 진행으로 확정(검수자 확정 행위를 시드로 재현).
         r2CrackDefect.confirmPreviousDefect(r1CrackDefect.getId());
 
-        Defect r2Progress = defectRepository.save(defect(towerRound2.getId(), r2Leak.getId(),
-                DefectType.LEAK_EFFLORESCENCE, DefectGrade.B, DefectStatus.IN_PROGRESS, true,
-                0.48, 0.22, 0.26, 0.21, 0.90, null, null, 0.05, "옥상층 천장 슬래브"));
-        r2Progress.updateActionResultFields(r2Leak.getId(),
-                "누수 경로 확인 후 1차 방수 보강 진행 중", today.minusDays(2), adminUserId);
+        Defect r2Progress = defectRepository.save(defect(towerRound2.getId(), r2Spalling.getId(),
+                DefectType.SPALLING, DefectGrade.B, DefectStatus.IN_PROGRESS, true,
+                0.48, 0.22, 0.26, 0.21, 0.90, null, null, 0.05, "옥상층 바닥 마감재"));
+        r2Progress.updateActionResultFields(r2Spalling.getId(),
+                "탈락부 범위 확인 후 1차 단면 보수 진행 중", today.minusDays(2), adminUserId);
 
         // 방문자 체험용 미확정(DETECTED·미검수) — AI 가 등급을 채워 넣은 직후 상태(분석 파이프라인과 동일).
         defectRepository.save(defect(towerRound2.getId(), r2Crack.getId(),
@@ -313,7 +314,7 @@ public class DemoSeedService {
         // ── 물류센터 1회차: 검수 확정된 박리 1건 ──
         defectRepository.save(defect(warehouseRound1.getId(), whSpalling.getId(),
                 DefectType.SPALLING, DefectGrade.D, DefectStatus.CONFIRMED, true,
-                0.42, 0.39, 0.24, 0.22, 0.91, null, null, 0.08, "1층 기둥 C-3 하단"));
+                0.42, 0.39, 0.24, 0.22, 0.91, null, null, 0.08, "1층 바닥 마감재 박락부"));
 
         // ── 보고서 초안(검수 확정된 1회차 기준) — 프론트 ReportContent 계약 형태(reportDetail.mock 참조) ──
         reportRepository.save(Report.draft(towerRound1.getId(), 1, reportContentJson(), adminUserId));
@@ -377,12 +378,12 @@ public class DemoSeedService {
                     "scope": "주요 구조부 및 지하주차장 마감재 하자 조사"
                   },
                   "summary": {
-                    "overall_opinion": "지하주차장 슬래브 건조수축 균열과 천장 조인트 부위 누수 흔적이 확인되었으나, 보수 조치가 완료되어 전체 구조 안전성에는 이상이 없습니다.",
+                    "overall_opinion": "지하주차장 슬래브 건조수축 균열과 마감재 박락이 확인되었으나, 보수 조치가 완료되어 전체 구조 안전성에는 이상이 없습니다.",
                     "total_count": 2,
                     "count_by_grade": { "A": 0, "B": 1, "C": 1, "D": 0, "E": 0 },
                     "key_findings": [
                       "지하주차장 슬래브 중앙부 건조수축 균열(폭 0.3mm) — 에폭시 주입 보수 완료",
-                      "지하주차장 천장 조인트 부위 누수·백화 — 방수층 재시공 완료"
+                      "지하주차장 슬래브 마감재 박락(면적비 4%) — 단면 복구 모르타르 충전 완료"
                     ]
                   },
                   "detail": {
@@ -395,11 +396,11 @@ public class DemoSeedService {
                         "cause": "콘크리트 건조수축 및 하중 작용"
                       },
                       {
-                        "defect_type": "누수",
-                        "location": "지하주차장 천장 조인트 부위",
+                        "defect_type": "박리·박락",
+                        "location": "지하주차장 슬래브 마감재 박락부",
                         "severity_grade": "B",
-                        "description": "슬래브 조인트 부위 미세 누수 및 백화 현상",
-                        "cause": "방수층 균열 및 누수 경로 형성"
+                        "description": "마감재 탈락 면적비 약 4%, 골재 노출",
+                        "cause": "동결융해 반복 및 마감재 접착력 저하"
                       }
                     ]
                   },
@@ -415,7 +416,7 @@ public class DemoSeedService {
                     ],
                     "monitoring_points": [
                       "균열 게이지 설치 후 주기적 진행성 관측",
-                      "우천 시 누수 부위 재발 여부 모니터링"
+                      "박락 보수 부위 재탈락 여부 주기적 확인"
                     ]
                   }
                 }
