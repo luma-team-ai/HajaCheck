@@ -385,8 +385,38 @@ public class InspectionAnalysisWorker {
                 .areaRatio(item.areaRatio())
                 .crackWidthMm(item.widthMm())
                 .areaMm2(item.areaMm2())
-                .areaMm2ReferenceGrade(item.areaMm2ReferenceGrade())
+                .areaMm2ReferenceGrade(sanitizeAreaMm2ReferenceGrade(
+                        inspectionId, mediaId, item.areaMm2ReferenceGrade()))
                 .build();
+    }
+
+    /**
+     * area_mm2_reference_grade 방어 검증(머신 리뷰 P3, #1683) — AI 서버가 grade와 동일하게 A~E 계약을
+     * 지킨다고 전제하지만, DetectedDefectItem은 이 필드를 String으로 받아 Java enum 파싱을 거치지 않는다
+     * (참고값이라 DefectGrade 변환 자체를 하지 않기로 한 설계 — 클래스 javadoc 참고). 계약 위반 값이
+     * 그대로 저장되면 varchar(1) 컬럼이라 DB에서 truncation 오류로 전체 INSERT가 실패할 수 있다.
+     *
+     * <p>DB CHECK 제약 대신 애플리케이션 계층에서 막는 이유 — CHECK 제약을 추가하면 위반 값이 들어올
+     * 때 이 이미지의 하자 저장 전체(saveAll)가 트랜잭션 롤백되어 정상 탐지 결과까지 유실된다. 여기서
+     * null로 걸러내면 이 필드 하나만 비워지고 나머지 탐지 결과·트랜잭션은 정상 진행된다 — grade/type
+     * 파싱 실패 시 해당 탐지 1건만 스킵(toDefect가 null 반환)하는 것과 같은 "격리 우선" 원칙이다.
+     *
+     * <p>DefectGrade.valueOf로 검증만 하고 반환은 원본 String 그대로 — 이 필드는 본등급 grade와
+     * 무관한 참고값이라 enum 변환 없이 저장하기로 한 결정(#1683)은 유지한다.
+     */
+    private String sanitizeAreaMm2ReferenceGrade(Long inspectionId, Long mediaId, String areaMm2ReferenceGrade) {
+        if (areaMm2ReferenceGrade == null) {
+            return null;
+        }
+        try {
+            DefectGrade.valueOf(areaMm2ReferenceGrade);
+            return areaMm2ReferenceGrade;
+        } catch (IllegalArgumentException e) {
+            log.warn("AI 서버가 area_mm2_reference_grade에 A~E 밖의 값을 반환(AI 계약 위반) — "
+                            + "inspectionId={} mediaId={} value={} — null로 저장하고 계속 진행",
+                    inspectionId, mediaId, areaMm2ReferenceGrade);
+            return null;
+        }
     }
 
     private void publish(Long inspectionId, int total, int analyzedCount, List<FileProgress> files,
