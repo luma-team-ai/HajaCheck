@@ -8,6 +8,8 @@ import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useSearchParams } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { api } from '../../../shared/api/axios';
+import { facilityAssigneeHandlers } from '../../facility/api/facilityAssigneeApi.handlers';
+import { inspectionHandlers } from '../../inspection/api/inspectionApi.handlers';
 import { defectHandlers } from '../api/defectApi.handlers';
 import { defectMediaApi } from '../api/defectMediaApi';
 import { mockDefects, mockInspectionDefectResponses } from '../mocks/defect.mock';
@@ -24,7 +26,15 @@ const explainHandler = http.post('/api/ai/defect-explain', () =>
   }),
 );
 
-const server = setupServer(...defectHandlers, explainHandler);
+// 코드리뷰 P2(#1693) — GET /api/inspections/:id는 inspectionApi.handlers.ts가 유일하게 소유한다
+// (defectApi.handlers.ts에 더는 등록하지 않음, 중복 시 mocks/handlers.ts 전역 체인에서 죽은
+// 코드가 되는 문제 재발 방지). 이 격리 서버도 mocks/handlers.ts의 상대 순서(facilityAssigneeHandlers
+// → inspectionHandlers → defectHandlers)를 그대로 반영해, 실제 앱과 동일한 핸들러가 응답하는지
+// 검증한다 — facilityAssigneeHandlers를 inspectionHandlers보다 먼저 두지 않으면 inspectionHandlers의
+// GET /api/facilities/:id(파라미터 라우트)가 GET /api/facilities/assignable-users를 가로챈다
+// (mocks/handlers.ts:50-52 주석과 동일 이유. 두 핸들러의 데이터값 자체는 동일해 지금까지는
+// 드러나지 않았을 뿐인 잠재 회귀였다).
+const server = setupServer(...facilityAssigneeHandlers, ...inspectionHandlers, ...defectHandlers, explainHandler);
 // PATCH 핸들러가 mockDefects를 in-place로 변경한다(조치 결과 등록 테스트가 상태를 RESOLVED로 바꿈) —
 // 다음 테스트를 오염시키지 않도록 매 테스트 후 스냅샷으로 복원한다.
 const mockDefectsSnapshot = JSON.parse(JSON.stringify(mockDefects)) as typeof mockDefects;
