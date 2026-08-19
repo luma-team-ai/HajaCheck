@@ -15,8 +15,14 @@ import { inspectionHandlers } from '../api/inspectionApi.handlers';
 import { mediaApi } from '../api/mediaApi';
 import type { Media } from '../types';
 import { todayDateString } from '../utils/validateInspectionCreateForm';
-import { saveDraftMediaFiles } from '../utils/inspectionCreateDraftFiles';
+import {
+  clearDraftMediaFiles,
+  saveDraftMediaFiles,
+} from '../utils/inspectionCreateDraftFiles';
+import { saveInspectionCreateDraft } from '../utils/inspectionCreateDraft';
 import { InspectionCreatePage } from './InspectionCreatePage';
+
+const DRAFT_KEY = 'hajacheckInspectionCreateDraft';
 
 // jsdom엔 기본적으로 indexedDB가 없어(fake-indexeddb 전역 폴리필 미설정) 실제 구현을 그대로 쓰면
 // openDb()가 조용히 실패해(자체 try/catch로 삼킴) 호출 여부를 관찰할 수 없다. PR머신 리뷰 P2 —
@@ -52,6 +58,7 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   useAuthStore.setState({ user: null });
+  localStorage.clear();
 });
 afterAll(() => server.close());
 
@@ -514,5 +521,48 @@ describe('InspectionCreatePage (통합 테스트)', () => {
     unmount();
 
     expect(saveDraftMediaFiles).toHaveBeenCalledWith([file]);
+  });
+
+  // #1703 — 텍스트 초안을 localStorage로 옮기고 TTL(7일)을 도입한 회귀 방지 테스트.
+  it('TTL 7일 이내의 임시저장은 폼에 복원되고 IndexedDB 사진 초안은 지우지 않는다', async () => {
+    vi.mocked(clearDraftMediaFiles).mockClear();
+    saveInspectionCreateDraft({
+      facilityId: '1',
+      inspectionDate: todayDateString(),
+      inspectionType: 'DETAILED',
+      memo: '균열 확인 필요',
+    });
+
+    renderPage();
+    await screen.findByText('판교 테크노밸리 B동');
+
+    expect((screen.getByLabelText('시설물') as HTMLSelectElement).value).toBe('1');
+    expect((screen.getByLabelText('메모') as HTMLTextAreaElement).value).toBe('균열 확인 필요');
+    expect(clearDraftMediaFiles).not.toHaveBeenCalled();
+  });
+
+  it('TTL 7일이 지난 임시저장은 폼에 복원하지 않고, IndexedDB 사진 초안도 함께 정리한다', async () => {
+    vi.mocked(clearDraftMediaFiles).mockClear();
+    const eightDaysAgo = Date.now() - 8 * 24 * 60 * 60 * 1000;
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        facilityId: '1',
+        inspectionDate: todayDateString(),
+        inspectionType: 'DETAILED',
+        memo: '만료된 초안',
+        savedAt: eightDaysAgo,
+      }),
+    );
+
+    renderPage();
+    await screen.findByText('판교 테크노밸리 B동');
+
+    expect((screen.getByLabelText('시설물') as HTMLSelectElement).value).toBe('');
+    expect((screen.getByLabelText('메모') as HTMLTextAreaElement).value).toBe('');
+    expect(clearDraftMediaFiles).toHaveBeenCalled();
+    // 만료 감지 시 localStorage 레코드 자체도 정리해 다음 로드마다 매번 다시 만료 판정을
+    // 반복하지 않는다.
+    expect(localStorage.getItem(DRAFT_KEY)).toBeNull();
   });
 });
