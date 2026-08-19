@@ -33,21 +33,26 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * #1492 — <b>같은 사용자</b>가 서로 다른 두 회사의 초대 코드를 동시에 redeem 할 때의 정합성 검증.
+ * #1492 — <b>같은 사용자</b>를 축으로 하는 초대 코드 동시 redeem 정합성 검증(두 축 모두).
  *
- * <p>{@code QuotaEnforcementConcurrencyTest} 의 좌석 경합 테스트는 "한 회사"의 좌석 한도만 본다
- * (경합 축 = usage_counters 한 행). 여기서는 경합 축이 <b>users 한 행</b>이고 좌석 행은 서로 달라
- * {@code QuotaService.reserveSeat} 의 행 잠금이 두 요청을 직렬화하지 못한다.
+ * <p>{@code QuotaEnforcementConcurrencyTest} 의 좌석 경합 테스트는 <b>서로 다른 사용자들</b>이 한 회사
+ * 좌석을 다투는 축만 본다(그 축은 {@code usage_counters} 한 행 잠금으로 직렬화된다). 여기서는 경합 축이
+ * <b>users 한 행</b>이라 {@code QuotaService.reserveSeat} 의 회사 단위 잠금이 두 요청을 갈라놓지
+ * 못한다 — 서로 다른 두 회사 코드(좌석 행이 아예 다름)든, 같은 회사 같은 코드(좌석 행은 같지만 패자가
+ * 잠금 해제 후 재실측해 미러를 덮음)든 마찬가지다.
  *
  * <p>⚠️ 클래스 레벨 {@code @Transactional} 금지 — 워커 스레드마다 독립 트랜잭션이어야 실제 경합이
  * 재현된다(같은 이유로 커밋된 데이터는 {@link #tearDown()} 에서 직접 정리한다).
  *
- * <h2>수정 전 실측(20회 반복, 전 회차 동일)</h2>
+ * <h2>⚠️ 결함의 성격은 축마다 다르다 — 두 축을 함께 고정한다</h2>
+ *
+ * <h3>축 (a) 서로 다른 두 회사 코드 동시 redeem — 정합은 DB 가 지켜준다</h3>
+ * 락 제거 상태 20회 반복 실측, 전 회차 동일:
  * <ul>
  *   <li>APPROVED 멤버십 행 수 = <b>1</b> — 부분 UQ {@code uq_company_memberships_approved_user}(V1)가
- *       두 번째 INSERT 를 막는다. 이슈 본문이 서술한 "APPROVED 2행"은 발생하지 않는다.</li>
+ *       두 번째 INSERT 를 막는다. 이슈 본문이 서술한 "APPROVED 2행"은 이 축에서 발생하지 않는다.</li>
  *   <li>두 회사 {@code usage_counters.seat_count} 합계 = <b>2</b>(승자 회사만 대표 1 + 초대 1,
- *       패자 회사는 집계 행 자체가 롤백) — <b>좌석 누수 없음</b>.</li>
+ *       패자 회사는 집계 행 자체가 롤백) — 이 축에 한해 <b>좌석 누수 없음</b>.</li>
  *   <li>{@code users.company_id} = 승자 회사, {@code users.status} = ACTIVE — 멤버십과 정합.</li>
  *   <li>패자 트랜잭션 반환 = raw {@code DataIntegrityViolationException}
  *       (root {@code org.postgresql.util.PSQLException}, constraint
@@ -55,12 +60,20 @@ import org.springframework.test.context.ActiveProfiles;
  *       {@code GlobalExceptionHandler} 의 제약명 매핑 덕에 HTTP 는 500 이 아니라
  *       409({@code AUTH_APPROVED_MEMBERSHIP_CONFLICT})로 나간다.</li>
  * </ul>
+ * 즉 이 축의 결함은 "실패 경로가 서비스 도메인 규칙이 아니라 DB 제약 위반에 의존한다"는 점이다.
  *
- * <p>즉 <b>정합성 결함(좌석·멤버십 누수)은 재현되지 않았고</b>, 남은 결함은 "동시 요청의 실패 경로가
- * 서비스 계층 도메인 규칙이 아니라 DB 제약 위반에 의존한다"는 점이다. #1492 의 수정
- * ({@code UserRepository#findByIdForUpdate} 로 사용자 단위 직렬화)은 그 경로를 순차 실행과 동일한
- * 도메인 거부({@code User#requireWaiting} → {@code INVALID_STATE_TRANSITION} 409)로 수렴시킨다 —
- * 아래 테스트가 그 계약을 고정한다.
+ * <h3>축 (b) 같은 회사·같은 코드 2회 동시 제출 — <b>DB 가 지켜주지 못한다(좌석 이중 계상 실재)</b></h3>
+ * 락 제거 상태 실측: <b>성공 2 / APPROVED 1 / {@code seat_count} 3 / 실제 ACTIVE 사용자 2</b> →
+ * <b>1석 영구 누수</b>. 메커니즘: 두 트랜잭션이 모두 stale WAITING 을 읽고 통과 →
+ * {@code reserveSeat} 는 같은 회사 카운터 행 잠금으로 직렬화되지만, 패자가 승자 커밋 후 재실측
+ * ({@code measured=2})해 {@code seat_count = measured + 1 = 3} 으로 덮는다
+ * ({@code UsageCounterRepository#reserveSeat}). 멤버십은 이 시점에 이미 존재하므로
+ * {@code InviteCodeService#grantEffectiveMembership} 이 INSERT 가 아니라 <b>재승인(UPDATE)</b> 으로
+ * 빠져 어떤 UQ 에도 걸리지 않고 둘 다 커밋된다.
+ *
+ * <p><b>⚠️ 그러므로 "어차피 부분 UQ 가 막으니 이 락은 불필요하다"는 판단은 틀렸다</b> — 축 (b) 에서
+ * 이 락({@code UserRepository#findByIdForUpdate})이 유일한 방어선이다. 두 테스트 모두 락을 되돌리면
+ * red 가 되며(사보타주 확인 완료), 축 (b) 의 red 는 에러 코드 취향 차이가 아니라 <b>좌석 수 오류</b>다.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -193,6 +206,45 @@ class InviteCodeRedeemCrossCompanyConcurrencyTest extends PostgresTestSupport {
         // #1492 수정의 핵심 계약 — 패자의 실패는 DB 제약 위반(raw DataIntegrityViolationException)이
         // 아니라 순차 실행과 동일한 도메인 거부여야 한다(User#requireWaiting → 409
         // INVALID_STATE_TRANSITION). 사용자 행 잠금을 제거하면(사보타주) 여기서 다시 빨개진다.
+        Outcome failed = outcomes.stream().filter(outcome -> !outcome.success()).findFirst().orElseThrow();
+        assertThat(failed.thrown())
+                .as("패자 반환 예외: %s", failed.describe())
+                .isInstanceOf(DomainStateTransitionException.class);
+    }
+
+    @Test
+    void 같은회사_같은코드를_한사용자가_동시에_두번_redeem해도_좌석이_이중계상되지_않는다() throws Exception {
+        // 축 (b) — 경합 축이 users 한 행이면서 좌석 카운터까지 같은 행이라, 패자가 승자 커밋 후
+        // 재실측해 seat_count 를 덮는다. 부분 UQ 는 멤버십 UPDATE 경로라 걸리지 않는다(클래스 javadoc).
+        Long companyId = companyIds.get(0);
+        Long userPlanId = userPlanIds.get(0);
+        String code = inviteCodeService.issue(companyId).code();
+
+        List<Outcome> outcomes = runConcurrently(2, index -> inviteCodeService.redeem(code, waitingUserId));
+
+        long succeeded = outcomes.stream().filter(Outcome::success).count();
+        int seatCount = seatCountOf(userPlanId);
+        int actualActiveSeats = jdbcTemplate.queryForObject(
+                "select count(*) from users where company_id = ? and status = 'ACTIVE'",
+                Integer.class, companyId);
+        int approvedMemberships = jdbcTemplate.queryForObject(
+                "select count(*) from company_memberships where user_id = ? and status = 'APPROVED'",
+                Integer.class, waitingUserId);
+
+        System.out.println("[#1492 실측/동일코드] 성공 스레드 수=" + succeeded
+                + " / APPROVED 멤버십 행 수=" + approvedMemberships
+                + " / seat_count=" + seatCount
+                + " / 실제 ACTIVE 좌석 수=" + actualActiveSeats);
+        outcomes.forEach(outcome -> System.out.println("[#1492 실측/동일코드] 스레드 결과: " + outcome.describe()));
+
+        // 핵심 단언 — 좌석 미러가 실측을 넘어서면(3 vs 2) 그 1석은 영구히 회수되지 않는다.
+        assertThat(seatCount)
+                .as("seat_count 는 실제 ACTIVE 좌석 수와 같아야 한다(초과분 = 영구 좌석 누수)")
+                .isEqualTo(actualActiveSeats);
+        assertThat(actualActiveSeats).as("대표 1 + 초대 성공 1").isEqualTo(2);
+        assertThat(succeeded).as("같은 코드 2회 제출 중 성공은 1건").isEqualTo(1);
+        assertThat(approvedMemberships).isEqualTo(1);
+
         Outcome failed = outcomes.stream().filter(outcome -> !outcome.success()).findFirst().orElseThrow();
         assertThat(failed.thrown())
                 .as("패자 반환 예외: %s", failed.describe())

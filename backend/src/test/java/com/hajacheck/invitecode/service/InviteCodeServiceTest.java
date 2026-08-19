@@ -11,6 +11,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.hajacheck.auth.config.AuthProperties;
@@ -219,7 +220,9 @@ class InviteCodeServiceTest {
         assertThatThrownBy(() -> inviteCodeService.redeem("ABC123", 6L))
                 .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
                         .isEqualTo(ErrorCode.AUTH_TOO_MANY_REQUESTS));
-        verify(userRepository, never()).findByIdForUpdate(anyLong());
+        // 특정 조회 메서드명에 결합하지 않는다(#1492 리뷰 P3) — findById 등으로 조회가 재도입되어도
+        // 잡히도록 "사용자 저장소를 아예 건드리지 않는다"를 단언한다.
+        verifyNoInteractions(userRepository);
     }
 
     @Test

@@ -117,20 +117,35 @@ public class InviteCodeService {
         }
 
         // 사용자 행 선점(#1492) — 이 트랜잭션이 끝날 때까지 같은 사용자의 다른 redeem 을 직렬화한다.
-        // 잠금 없이 읽으면 한 사용자가 서로 다른 두 회사의 코드를 동시에 redeem 할 때 아래 좌석 예약
-        // (usage_counters 행 잠금 = 회사 단위)이 두 요청을 갈라놓지 못해, 둘 다 requireWaiting 을 통과하고
-        // 각자 회사 좌석까지 예약한 뒤 부분 UQ(uq_company_memberships_approved_user) 위반으로 승패가
-        // 갈린다 — 정합 자체는 DB 가 지켜주지만(실측: 멤버십 1행·좌석 승자만) 실패가 도메인 규칙이 아니라
-        // 제약 위반(raw DataIntegrityViolationException)으로 표면화된다. 잠금을 잡으면 뒤늦은 요청은
-        // 승자 커밋 후의 최신 상태(ACTIVE)를 읽어 바로 아래 requireWaiting() 에서 순차 실행과 동일하게
-        // 거부된다(INVALID_STATE_TRANSITION 409).
-        // ⚠️ 잠금 순서는 users → usage_counters 로 고정한다(UserRepository#findByIdForUpdate javadoc).
+        // 아래 좌석 예약(quotaService.reserveSeat)의 잠금은 usage_counters 행 = **회사 단위**라, 같은
+        // 사용자를 축으로 하는 경합을 갈라놓지 못한다. 실측된 두 축(InviteCodeRedeemCrossCompany
+        // ConcurrencyTest):
+        //  (a) 서로 다른 두 회사 코드 동시 redeem — 둘 다 stale WAITING 을 통과해 각자 회사 좌석을
+        //      예약하지만, 부분 UQ(uq_company_memberships_approved_user)가 두 번째 멤버십 INSERT 를 막아
+        //      패자가 통째로 롤백된다. 정합은 지켜지되 실패가 도메인 규칙이 아니라 제약 위반(raw
+        //      DataIntegrityViolationException)으로 표면화됐다.
+        //  (b) 같은 회사 코드(같은 코드 2회 제출) 동시 redeem — **DB 가 지켜주지 못한다**. 패자는
+        //      usage_counters 행 잠금에서 대기하다 승자 커밋 후 재실측(measured=2)하는데, 그 시점엔
+        //      멤버십 행이 이미 있어 grantEffectiveMembership 이 INSERT 가 아니라 재승인(UPDATE)으로
+        //      빠져 어떤 UQ 에도 걸리지 않는다 → 둘 다 커밋되고 seat_count 만 1 부풀어 영구 이중
+        //      계상된다(락 제거 실측: 성공 2 / APPROVED 1 / seat_count 3 / 실제 ACTIVE 2).
+        // 이 잠금이 두 축을 모두 사용자 단위로 직렬화한다 — 뒤늦은 요청은 승자 커밋 후의 최신 상태
+        // (ACTIVE)를 읽어 바로 아래 requireWaiting() 에서 순차 실행과 동일하게 거부된다(409
+        // INVALID_STATE_TRANSITION).
+        // ⚠️ 잠금 순서는 users → usage_counters 로 고정한다. 이 레포에는 역순(usage_counters → users)
+        // 경로가 실재하며, 교착이 없는 근거는 UserRepository#findByIdForUpdate javadoc 의 불변식에
+        // 걸려 있다 — 이 호출 위치를 옮기기 전에 반드시 그 javadoc 을 읽을 것.
         User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-        // Redis 코드를 소비하기 *전에* WAITING 여부부터 확인한다(PR머신 리뷰 P2). 순서를 바꾸면 이미
-        // ACTIVE인 계정의 redeem 시도(실수/악의 모두)가 상태전이 예외를 맞기 전에 코드를 태워버려,
-        // 그 코드를 받은 정당한 WAITING 사용자가 못 쓰게 된다(griefing).
+        // 코드 조회(peek)보다 WAITING 검사를 *먼저* 한다 — 근거 정정(#1492 리뷰 P3).
+        // 이전 주석은 "순서를 바꾸면 코드가 소각된다"고 적었지만 틀렸다: 실제 코드 소비는 아래
+        // afterCommit 콜백이라 peek 이 앞서도 코드는 타지 않는다. 이 순서의 진짜 효용은 **열거 방지**다 —
+        // 이미 ACTIVE 인 계정(또는 탈취 세션)이 redeem 을 반복 호출하면서 응답만 보고 임의의 6자리 값이
+        // 유효한 초대 코드인지 떠보는 오라클로 쓰지 못하게 한다. WAITING 검사가 앞에 있으면 어떤 코드를
+        // 넣든 상태 전이 거부(409 INVALID_STATE_TRANSITION)로 통일돼 코드 유효성이 새지 않는다.
+        // ⚠️ 순서를 바꾸면(peek 먼저) AUTH_INVITE_CODE_INVALID 와 INVALID_STATE_TRANSITION 이 갈리면서
+        // 그 오라클이 곧바로 열린다.
         user.requireWaiting();
 
         String storedCompanyId = inviteCodeStore.peek(code)
@@ -146,6 +161,15 @@ public class InviteCodeService {
         // 좌석 한도(plans.max_seats) 강제(#843) — 활성화 직전, 같은 트랜잭션에서 1석을 예약한다.
         // 같은 트랜잭션이어야 (a) 한도 초과 시 활성화가 통째로 롤백되고 (b) 예약이 커밋될 때까지 잠금이
         // 유지돼 동시 redeem 이 같은 좌석을 이중 사용하지 못한다.
+        //
+        // ⚠️ 계약(#1492 리뷰 P3) — **redeem 은 companyId 가 반드시 non-null 이어야 한다**. 이 호출은
+        // 위에서 잡은 users 행 FOR UPDATE 를 쥔 채 이뤄지고, reserveSeat 내부의 자가 프로비저닝
+        // (PlanProvisioningService#provisionFreePlanInNewTransaction)은 REQUIRES_NEW = **별도 커넥션**이다.
+        // 지금 안전한 이유는 companyId != null 이라 회사 스코프 경로(ensureFreePlanForCompany →
+        // UserPlan.forCompany, user_id 를 null 로 둔다)만 타서 내부 트랜잭션이 users 를 전혀 건드리지
+        // 않기 때문이다. 개인 스코프 프로비저닝(ensureFreePlanForUser → UserPlan.forUser)에 닿게 되면
+        // 내부 트랜잭션이 잠긴 users 행에 FK FOR KEY SHARE 를 요구하는데 바깥 트랜잭션은
+        // idle-in-transaction 이라, **PG 교착 탐지기가 잡지 못하는 자기교착(무한 대기)** 이 된다.
         quotaService.reserveSeat(companyId);
 
         user.activateWithInviteCode(companyId);
