@@ -35,8 +35,9 @@ export function ComparisonVisualPanel({ beforeCycle, afterCycle, beforeImageUrl,
         <div className="relative">
           <ComparisonImage url={beforeImageUrl} label={`${beforeCycle.cycle}회차 촬영 이미지`} />
           {/* bg-black/60이 아니라 명시적 rgba: Tailwind v4는 /NN 투명도를 color-mix(in oklab, ...)로
-              컴파일하는데, 이 배지가 exportComparisonReportAsPdf(html2canvas)의 캡처 대상 안에 있어
-              html2canvas가 oklab을 파싱하지 못해 내보내기 전체가 실패한다(2026-08-05 발견). */}
+              컴파일한다. exportComparisonReportAsPdf가 html2canvas-pro로 교체돼(#1692, 2026-08-19)
+              oklch/oklab 자체는 더 이상 캡처 실패 원인이 아니지만, 이 배지는 그때 도입한 명시적
+              rgba를 그대로 유지한다(2026-08-05 원 발견 당시 배경 — 굳이 되돌릴 이유 없음). */}
           <span className="absolute left-3 top-3 rounded-full bg-[rgba(0,0,0,0.6)] px-2.5 py-1 text-xs font-bold text-white">
             {beforeCycle.cycle}회차 (이전)
           </span>

@@ -30,7 +30,8 @@ interface StatisticsFilterBarProps {
   selectedFacility: FacilityOptionValue;
   onFacilityChange: (facility: FacilityOptionValue) => void;
   facilityOptions?: FacilityOptionItem[];
-  onExport: () => void;
+  /** 성공 시 true, 실패 시 false를 resolve한다 — "완료!" 배지는 성공했을 때만 표시한다(PR머신 P2 픽스). */
+  onExport: () => Promise<boolean>;
   isExporting?: boolean;
 }
 
@@ -48,6 +49,7 @@ export function StatisticsFilterBar({
   const [isExportingSuccess, setIsExportingSuccess] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 외부 클릭 및 Escape 키 입력 시 드롭다운 닫기
   useEffect(() => {
@@ -72,10 +74,22 @@ export function StatisticsFilterBar({
     };
   }, []);
 
-  const handleExportClick = () => {
-    onExport();
+  // 언마운트 시 예약해둔 "완료!" 해제 타이머가 남아 setState-after-unmount로 새지 않게 정리한다.
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    };
+  }, []);
+
+  // PR머신 P2 픽스(2라운드 연속 지적) — 예전엔 onExport()를 await 하지 않고 곧바로
+  // "완료!"를 예약해, 내보내기가 실패해서 에러 배너가 뜬 상태에서도 "완료!"가 함께
+  // 보이는 모순이 있었다. onExport가 돌려주는 성공 여부(true/false)를 실제로 기다렸다가,
+  // 성공했을 때만 "완료!"를 표시한다.
+  const handleExportClick = async () => {
+    const succeeded = await onExport();
+    if (!succeeded) return;
     setIsExportingSuccess(true);
-    setTimeout(() => setIsExportingSuccess(false), 2000);
+    successTimeoutRef.current = setTimeout(() => setIsExportingSuccess(false), 2000);
   };
 
   const currentPeriodLabel =
@@ -225,7 +239,11 @@ export function StatisticsFilterBar({
         )}
       </div>
 
-      {/* 3. 내보내기 버튼 (Figma 시안: rounded-full 둥근 알약 형태) */}
+      {/* 3. 내보내기 버튼 (Figma 시안: rounded-full 둥근 알약 형태)
+          data-export-ignore — exportStatisticsAsPdf가 html2canvas-pro onclone에서 이 버튼만
+          visibility:hidden 처리해 캡처에서 뺀다(#1692, 리포트 안에 액션 버튼이 찍히는 건
+          부자연스러움). shared Button은 ButtonHTMLAttributes를 그대로 spread하므로(...rest)
+          data-* 속성이 <button> DOM에 그대로 전달된다. */}
       <Button
         variant="secondary"
         size="md"
@@ -233,6 +251,7 @@ export function StatisticsFilterBar({
         disabled={isExporting}
         className="rounded-full! px-4.5! py-2.5! text-sm! font-medium! border-zinc-200! hover:bg-zinc-50! cursor-pointer shadow-2xs!"
         aria-label="통계 데이터 내보내기"
+        data-export-ignore="true"
       >
         <svg className="mr-1.5 h-4 w-4 inline-block text-zinc-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path
