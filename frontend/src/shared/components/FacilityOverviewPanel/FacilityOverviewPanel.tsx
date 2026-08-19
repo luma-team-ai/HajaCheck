@@ -44,6 +44,9 @@ export interface FacilityOverviewPanelProps {
   onNewInspection?: () => void;
   /** 기본 "+ 새 점검" — 호출부 맥락에 따라 문구를 바꿀 수 있게 */
   newInspectionLabel?: string;
+  /** 시설물 정보 수정 진입점(#1681) — 넘기지 않으면 "수정" 버튼 자체를 렌더링하지 않는다(기존
+   * 소비자인 점검 생성 화면은 이 prop을 넘기지 않아 동작이 그대로 유지된다). */
+  onEdit?: () => void;
   /** "하자 현황" 탭 클릭 시 로컬 탭 전환 대신 호출된다(예: 하자 상세 오버레이로 이동).
    * 넘기지 않으면 다른 탭과 동일하게 로컬 탭 전환만 한다. */
   onDefectsTabClick?: () => void;
@@ -69,6 +72,7 @@ export function FacilityOverviewPanel({
   history,
   onNewInspection,
   newInspectionLabel = '+ 새 점검',
+  onEdit,
   onDefectsTabClick,
   onViewInspectionPhotos,
   onViewResult,
@@ -98,6 +102,15 @@ export function FacilityOverviewPanel({
             </div>
 
             <div className="flex items-center gap-3">
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  className="rounded-xl border border-neutral-300 bg-white px-5 py-2 text-base font-normal text-zinc-900"
+                >
+                  수정
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onNewInspection}
