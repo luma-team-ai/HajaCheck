@@ -65,13 +65,21 @@ export const INSPECTION_ROLE_LABEL: Record<InspectionHistoryRole, string> = {
 
 // 점검 이력 상태 점 — 검수완료=emerald·검수대기=amber·분석중=blue(handoff 지시). Tailwind 표준
 // 팔레트만 사용(신규 hex 도입 없음) — 하자 표현 상수와 동일 계열.
-export const INSPECTION_STATUS_DOT_CLASS: Record<InspectionHistoryStatus, string> = {
+//
+// 이름에 MY_INSPECTION_DISPLAY_* 접두를 쓰는 이유(#1693): InspectionHistoryStatus는 실
+// InspectionStatus(점검 회차 상태, 6종 — shared/constants/inspectionStatus.ts)를 백엔드가 마이페이지
+// 전용 3종으로 압축해 내려주는 별도 타입(com.hajacheck.mypage.dto.MyInspectionDisplayStatus, types.ts
+// 참고)이다. 과거엔 defect feature와 같은 이름(INSPECTION_STATUS_LABEL/_DOT_CLASS)을 각자 다른 값으로
+// 갖고 있어, "점검 상태"라는 같은 말이 화면마다 다른 축(점검 회차 상태 vs 하자 조치 상태로 오인되기도
+// 했던 문제와는 별개로 6종 vs 3종 축 자체가 뒤섞여 보이는) 문제가 있었다 — 이름부터 마이페이지 요약
+// 전용임을 명시한다. 특히 REVIEWED+REPORTED(실 상태 6종 중 2개) → REVIEW_DONE 하나로 합쳐진다.
+export const MY_INSPECTION_DISPLAY_DOT_CLASS: Record<InspectionHistoryStatus, string> = {
   REVIEW_DONE: 'bg-emerald-500',
   REVIEW_PENDING: 'bg-amber-500',
   ANALYZING: 'bg-blue-500',
 };
 
-export const INSPECTION_STATUS_LABEL: Record<InspectionHistoryStatus, string> = {
+export const MY_INSPECTION_DISPLAY_LABEL: Record<InspectionHistoryStatus, string> = {
   REVIEW_DONE: '검수완료',
   REVIEW_PENDING: '검수대기',
   ANALYZING: '분석중',

@@ -1,6 +1,15 @@
 // 하자 목록/상세 조회 — HAJA-30, backend DefectResponse/PageResponse<DefectResponse>와 1:1
 // feature 간 직접 import 금지(React_코드_컨벤션.md §1) — map/dashboard의 등급 라벨과 별개로 로컬 정의
 
+// 점검(회차) 진행 상태 — shared/constants/inspectionStatus.ts가 단일 정의(#1693, mypage feature의
+// 동명이의 3종 상수와 오독 방지를 위해 shared로 승격). 여기서는 re-export만 하고, 기존 참조처
+// 4곳(InspectionTable/InspectionFilterBar/InspectionAppliedFilters/inspectionListFiltersUrl)은
+// 이 파일에서 그대로 import하므로 무변경이다.
+import type { InspectionStatus } from '../../shared/constants/inspectionStatus';
+import { INSPECTION_STATUS_LABEL } from '../../shared/constants/inspectionStatus';
+export type { InspectionStatus };
+export { INSPECTION_STATUS_LABEL };
+
 export type DefectType = 'CRACK' | 'SPALLING' | 'LEAK_EFFLORESCENCE' | 'REBAR_EXPOSURE' | 'PAINT_DAMAGE';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'IN_PROGRESS' | 'RESOLVED';
@@ -178,19 +187,6 @@ export const DEFECT_GRADE_COLOR: Record<DefectGrade, string> = {
 // docs/api-contract/contract.md §"하자 목록·상세 화면 개편" 참고 — 목록 화면은 하자 단건이 아니라
 // 점검(Inspection) 단위로 재해석한다(사용자 확정 지시, 시각 디자인은 유지).
 // ---------------------------------------------------------------------------
-
-// 점검(회차) 진행 상태 — inspection feature의 InspectionStatus와 동일한 백엔드 enum 값이지만
-// feature 간 직접 import 금지(React_코드_컨벤션.md §1)로 로컬 재정의한다.
-export type InspectionStatus = 'CREATED' | 'UPLOADING' | 'ANALYZING' | 'ANALYZED' | 'REVIEWED' | 'REPORTED';
-
-export const INSPECTION_STATUS_LABEL: Record<InspectionStatus, string> = {
-  CREATED: '생성됨',
-  UPLOADING: '업로드중',
-  ANALYZING: '분석중',
-  ANALYZED: '분석완료',
-  REVIEWED: '검수완료',
-  REPORTED: '보고완료',
-};
 
 // 등급별 하자 건수 분포 — 점검 목록 테이블의 "등급분포" 컬럼(contract.md 화면 구조 ①)
 export type InspectionGradeDistribution = Record<DefectGrade, number>;
