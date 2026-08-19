@@ -867,6 +867,11 @@ create index idx_inspections_facility
 create index idx_inspections_assigned_inspector
     on inspections (assigned_inspector_id);
 
+-- #1679/#1667 — findRecentByFacilityIds/findLatestByFacilityIds 정렬(facility_id,
+-- inspection_date desc, performed_at desc nulls last, id desc)을 뒷받침하는 복합 인덱스.
+create index idx_inspections_recent_order
+    on inspections (facility_id, inspection_date desc, performed_at desc nulls last, id desc);
+
 create table media
 (
     id                      bigint generated always as identity
