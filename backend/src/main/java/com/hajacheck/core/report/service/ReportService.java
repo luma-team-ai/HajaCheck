@@ -871,6 +871,7 @@ public class ReportService {
                 defect.getCrackWidthMm(),
                 defect.getCrackLengthMm(),
                 defect.getAreaRatio(),
+                defect.getAreaMm2(),
                 defect.getActionContent(),
                 defect.getActionDate(),
                 defect.getActionAssigneeId());
