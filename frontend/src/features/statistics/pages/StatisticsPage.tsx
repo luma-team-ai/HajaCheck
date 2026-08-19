@@ -43,15 +43,21 @@ export function StatisticsPage() {
   // #1692 — CSV(숫자 나열)는 어떤 데이터를 봐야 할지 알기 어렵다는 피드백으로, 회차 간
   // 비교 화면(#489)과 동일하게 화면 자체를 캡처한 PDF로 바꿨다. 조회 조건(기간·시설물)이
   // 이미 화면 상단에 렌더링돼 있으므로 캡처 범위(exportTargetRef)에 포함해 PDF에 함께 남는다.
-  const handleExport = async () => {
-    if (!exportTargetRef.current) return;
+  // PR머신 P2 픽스 — StatisticsFilterBar가 onExport를 await 하지 않고 곧바로 "완료!"를
+  // 표시하면, 실패해서 에러 배너가 뜬 상태에서도 "완료!"가 함께 보이는 모순이 생긴다(2라운드
+  // 연속 지적). 성공 여부를 boolean으로 반환해 필터바가 그 결과를 보고 성공했을 때만
+  // "완료!"를 표시하도록 한다.
+  const handleExport = async (): Promise<boolean> => {
+    if (!exportTargetRef.current) return false;
     setIsExporting(true);
     setExportError(null);
     try {
       await exportStatisticsAsPdf(exportTargetRef.current);
+      return true;
     } catch (error) {
       console.error('통계 PDF 내보내기 실패', error);
       setExportError('내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.');
+      return false;
     } finally {
       setIsExporting(false);
     }

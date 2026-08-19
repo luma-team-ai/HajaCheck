@@ -72,6 +72,15 @@ export async function exportStatisticsAsPdf(node: HTMLElement): Promise<void> {
   const pxPerMm = canvas.width / contentWidthMm;
   const pageSliceHeightPx = Math.round(contentHeightMm * pxPerMm);
 
+  // PR머신 P1 픽스 — canvas.width가 0이면 pxPerMm=0 → pageSliceHeightPx=0이 되어, 아래
+  // while 루프의 sliceHeightPx가 항상 Math.min(0, 남은높이)=0으로 고정돼 sourceY가 영영
+  // 증가하지 않는다(canvas.height>0인 한 무한루프, 브라우저 탭 멈춤). 조용히 빈 PDF를
+  // 저장하는 대신 루프 진입 전에 도메인 에러로 실패시킨다 — 호출부(StatisticsPage.handleExport)가
+  // catch해 기존 에러 배너로 사용자에게 실패를 드러낸다.
+  if (canvas.width <= 0 || canvas.height <= 0 || pageSliceHeightPx <= 0) {
+    throw new Error('화면 캡처 결과가 비어 있어 PDF를 만들 수 없습니다.');
+  }
+
   let sourceY = 0;
   let isFirstPage = true;
   while (sourceY < canvas.height) {

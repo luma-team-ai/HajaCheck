@@ -164,4 +164,38 @@ describe('exportStatisticsAsPdf', () => {
     // 조회 조건(기간·시설물 필터)은 화면과 동일한 자리에 그대로 남아야 한다.
     expect(filterDropdown.style.visibility).not.toBe('hidden');
   });
+
+  // PR머신 P1 픽스 — canvas.width===0이면 pxPerMm=0 → pageSliceHeightPx=0이 되어, while 루프의
+  // sliceHeightPx가 항상 Math.min(0, 남은높이)=0으로 고정돼 sourceY가 영영 늘지 않는다(canvas.height>0인
+  // 한 무한루프 → 브라우저 탭 멈춤). 회귀 시 이 테스트도 함께 멈추지 않도록 짧은 timeout을 건다.
+  it(
+    '캡처 캔버스 폭이 0이면 무한루프 없이 즉시 reject된다(폭 0 캡처 결과 방어)',
+    async () => {
+      mockHtml2Canvas(0, 100);
+      const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
+
+      await expect(exportFn(document.createElement('div'))).rejects.toThrow(
+        '화면 캡처 결과가 비어 있어 PDF를 만들 수 없습니다.',
+      );
+      expect(mockAddImage).not.toHaveBeenCalled();
+      expect(mockAddPage).not.toHaveBeenCalled();
+      expect(mockSave).not.toHaveBeenCalled();
+    },
+    1000,
+  );
+
+  it(
+    '캡처 캔버스 높이가 0이면 무한루프 없이 즉시 reject된다',
+    async () => {
+      mockHtml2Canvas(CONTENT_WIDTH_MM, 0);
+      const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
+
+      await expect(exportFn(document.createElement('div'))).rejects.toThrow(
+        '화면 캡처 결과가 비어 있어 PDF를 만들 수 없습니다.',
+      );
+      expect(mockAddImage).not.toHaveBeenCalled();
+      expect(mockSave).not.toHaveBeenCalled();
+    },
+    1000,
+  );
 });

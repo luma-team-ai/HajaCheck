@@ -85,5 +85,9 @@ describe('StatisticsPage — 내보내기 (#1692, CSV→PDF 전환)', () => {
       'textContent',
       '내보내기에 실패했습니다. 잠시 후 다시 시도해 주세요.',
     );
+    // PR머신 P2 픽스(2라운드 연속 지적) — 실패해서 에러 배너가 뜬 상태에서 "완료!"가 함께
+    // 뜨는 모순이 없어야 한다. handleExport가 실패 시 false를 반환하고, StatisticsFilterBar는
+    // 그 값을 await해 true일 때만 "완료!"를 예약한다.
+    expect(screen.queryByText('완료!')).toBeNull();
   });
 });

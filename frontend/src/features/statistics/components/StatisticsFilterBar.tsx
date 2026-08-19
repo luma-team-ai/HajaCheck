@@ -30,7 +30,8 @@ interface StatisticsFilterBarProps {
   selectedFacility: FacilityOptionValue;
   onFacilityChange: (facility: FacilityOptionValue) => void;
   facilityOptions?: FacilityOptionItem[];
-  onExport: () => void;
+  /** 성공 시 true, 실패 시 false를 resolve한다 — "완료!" 배지는 성공했을 때만 표시한다(PR머신 P2 픽스). */
+  onExport: () => Promise<boolean>;
   isExporting?: boolean;
 }
 
@@ -48,6 +49,7 @@ export function StatisticsFilterBar({
   const [isExportingSuccess, setIsExportingSuccess] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 외부 클릭 및 Escape 키 입력 시 드롭다운 닫기
   useEffect(() => {
@@ -72,10 +74,22 @@ export function StatisticsFilterBar({
     };
   }, []);
 
-  const handleExportClick = () => {
-    onExport();
+  // 언마운트 시 예약해둔 "완료!" 해제 타이머가 남아 setState-after-unmount로 새지 않게 정리한다.
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    };
+  }, []);
+
+  // PR머신 P2 픽스(2라운드 연속 지적) — 예전엔 onExport()를 await 하지 않고 곧바로
+  // "완료!"를 예약해, 내보내기가 실패해서 에러 배너가 뜬 상태에서도 "완료!"가 함께
+  // 보이는 모순이 있었다. onExport가 돌려주는 성공 여부(true/false)를 실제로 기다렸다가,
+  // 성공했을 때만 "완료!"를 표시한다.
+  const handleExportClick = async () => {
+    const succeeded = await onExport();
+    if (!succeeded) return;
     setIsExportingSuccess(true);
-    setTimeout(() => setIsExportingSuccess(false), 2000);
+    successTimeoutRef.current = setTimeout(() => setIsExportingSuccess(false), 2000);
   };
 
   const currentPeriodLabel =

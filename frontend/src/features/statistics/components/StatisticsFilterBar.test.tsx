@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StatisticsFilterBar } from './StatisticsFilterBar';
 
@@ -75,5 +75,46 @@ describe('StatisticsFilterBar', () => {
     const exportBtn = screen.getByRole('button', { name: /내보내기/i });
     fireEvent.click(exportBtn);
     expect(onExport).toHaveBeenCalledTimes(1);
+  });
+
+  // PR머신 P2 픽스(2라운드 연속 지적) — onExport가 실패(false)를 resolve하면 부모(StatisticsPage)
+  // 쪽 에러 배너만 뜨고, 이 컴포넌트 자체의 "완료!" 배지는 뜨지 않아야 한다.
+  it('onExport가 false를 resolve하면 "완료!" 배지를 표시하지 않는다', async () => {
+    const onExport = vi.fn().mockResolvedValue(false);
+
+    render(
+      <StatisticsFilterBar
+        selectedPeriod="6m"
+        onPeriodChange={vi.fn()}
+        selectedFacility="all"
+        onFacilityChange={vi.fn()}
+        onExport={onExport}
+      />,
+    );
+
+    const exportBtn = screen.getByRole('button', { name: /내보내기/i });
+    fireEvent.click(exportBtn);
+
+    await waitFor(() => expect(onExport).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('완료!')).toBeNull();
+  });
+
+  it('onExport가 true를 resolve하면 "완료!" 배지를 표시한다', async () => {
+    const onExport = vi.fn().mockResolvedValue(true);
+
+    render(
+      <StatisticsFilterBar
+        selectedPeriod="6m"
+        onPeriodChange={vi.fn()}
+        selectedFacility="all"
+        onFacilityChange={vi.fn()}
+        onExport={onExport}
+      />,
+    );
+
+    const exportBtn = screen.getByRole('button', { name: /내보내기/i });
+    fireEvent.click(exportBtn);
+
+    expect(await screen.findByText('완료!')).not.toBeNull();
   });
 });
