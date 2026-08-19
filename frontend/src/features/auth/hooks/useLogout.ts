@@ -3,8 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '../api/authApi';
 import { AUTH_ME_QUERY_KEY, LOGIN_ROUTE } from '../constants';
 import { useAuthStore } from '../store/authStore';
-import { useInspectionStore } from '../../inspection/store/inspectionStore';
-import { clearRagSessionId } from '../../support/utils/ragSessionId';
+import { clearPreviousUserLocalState } from '../../../shared/utils/clearPreviousUserLocalState';
 
 // 로그아웃 — SideNavBar/Header가 공유하는 단일 훅 (React_코드_컨벤션.md §0 "공통 로직 중복 금지")
 // logout API가 실패해도 클라이언트 세션(react-query 캐시·authStore)은 항상 정리한다 —
@@ -16,8 +15,6 @@ export function useLogout(redirectTo: string = LOGIN_ROUTE) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const clearUser = useAuthStore((state) => state.clearUser);
-  const clearActiveInspectionId = useInspectionStore((state) => state.clearActiveInspectionId);
-  const clearActiveReportId = useInspectionStore((state) => state.clearActiveReportId);
 
   const logout = async (): Promise<void> => {
     try {
@@ -37,11 +34,11 @@ export function useLogout(redirectTo: string = LOGIN_ROUTE) {
       await queryClient.cancelQueries({ queryKey: AUTH_ME_QUERY_KEY });
       queryClient.setQueryData(AUTH_ME_QUERY_KEY, null);
       clearUser();
-      clearActiveInspectionId();
-      clearActiveReportId();
-      // 로그아웃 시 RAG 챗봇 세션(localStorage 영속)도 지운다(#1590) — 남겨두면 다음 사용자의
-      // 첫 질의가 이전 사용자의 session_id로 나가 403으로 실패한다(#1194와 같은 계약).
-      clearRagSessionId();
+      // 로그아웃 시 이전 세션의 로컬 잔여 상태(activeInspectionId/activeReportId #1194, RAG
+      // 세션 #1590, 점검 생성 폼 임시저장 #1703 등)를 지운다 — 로그인 3진입점·401 강제
+      // 리다이렉트와 동일한 계약을 clearPreviousUserLocalState 하나로 지킨다(PR #1708 2차 P1 —
+      // 개별 지점에 각자 복붙하다 새 저장소 추가 시 다른 지점을 놓친 게 반복 누락의 원인이었다).
+      clearPreviousUserLocalState();
       navigate(redirectTo);
     }
   };

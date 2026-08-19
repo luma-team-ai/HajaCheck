@@ -6,11 +6,25 @@ import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
+import {
+  loadInspectionCreateDraft,
+  saveInspectionCreateDraft,
+} from '../../inspection/utils/inspectionCreateDraft';
+import { clearDraftMediaFiles } from '../../inspection/utils/inspectionCreateDraftFiles';
 import { getRagSessionId, setRagSessionId } from '../../support/utils/ragSessionId';
 import { AUTH_ME_QUERY_KEY } from '../constants';
 import { useAuthStore } from '../store/authStore';
 import type { User } from '../types';
 import { useLogout } from './useLogout';
+
+// jsdom엔 기본적으로 indexedDB가 없어(fake-indexeddb 전역 폴리필 미설정) 실제 clearDraftMediaFiles
+// 구현을 그대로 쓰면 openDb()가 조용히 실패해(자체 try/catch로 삼킴) 호출 여부를 관찰할 수 없다
+// — InspectionCreatePage.test.tsx와 동일한 이유로 이 모듈만 스파이 가능한 목으로 교체한다.
+vi.mock('../../inspection/utils/inspectionCreateDraftFiles', () => ({
+  saveDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+  loadDraftMediaFiles: vi.fn().mockResolvedValue([]),
+  clearDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+}));
 
 const mockUser: User = {
   id: 1,
@@ -41,6 +55,7 @@ afterEach(() => {
   server.resetHandlers();
   cleanup();
   useAuthStore.setState({ user: null });
+  localStorage.clear();
 });
 afterAll(() => server.close());
 
@@ -111,6 +126,34 @@ describe('useLogout', () => {
     await waitFor(() => screen.getByTestId('location').textContent === '/login');
 
     expect(getRagSessionId()).toBeNull();
+  });
+
+  // PR #1708 리뷰 P1 — 텍스트 초안이 sessionStorage(tab 종료 시 소멸) → localStorage(TTL 7일,
+  // 브라우저 재시작에도 유지)로 바뀌면서(#1703), 로그아웃에서 지우지 않으면 공유 PC에서 최대
+  // 7일 안에 같은 브라우저로 로그인한 다른 사용자(다른 회사 포함)에게 이전 사용자가 입력한
+  // 시설물·메모가 그대로 복원되는 정보 노출이 생긴다.
+  it('로그아웃 시 점검 생성 폼의 localStorage 텍스트 초안과 IndexedDB 사진 초안을 모두 정리해, 다음 로그인 사용자에게 이전 사용자의 입력이 복원되지 않는다', async () => {
+    vi.mocked(clearDraftMediaFiles).mockClear();
+    saveInspectionCreateDraft({
+      facilityId: '1',
+      inspectionDate: '2026-08-01',
+      inspectionType: 'DETAILED',
+      memo: '이전 사용자가 입력한 메모',
+    });
+    expect(loadInspectionCreateDraft()).not.toBeNull();
+
+    const queryClient = new QueryClient();
+    renderWithProviders(queryClient);
+
+    fireEvent.click(screen.getByText('로그아웃'));
+
+    await waitFor(() => screen.getByTestId('location').textContent === '/login');
+
+    // 다음 로그인 사용자 관점에서 복원되지 않아야 한다 — 텍스트 초안은 정말 지워졌는지 확인.
+    expect(loadInspectionCreateDraft()).toBeNull();
+    // IndexedDB 사진 초안도 함께 정리를 시도했는지 확인(jsdom에 indexedDB가 없어 모듈을
+    // 목으로 대체 — InspectionCreatePage.test.tsx와 동일 근거).
+    expect(clearDraftMediaFiles).toHaveBeenCalled();
   });
 
   it('logout API가 실패해도 RAG session_id는 정리된다', async () => {

@@ -8,13 +8,28 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import { useInspectionStore } from '../../inspection/store/inspectionStore';
+import {
+  loadInspectionCreateDraft,
+  saveInspectionCreateDraft,
+} from '../../inspection/utils/inspectionCreateDraft';
+import { clearDraftMediaFiles } from '../../inspection/utils/inspectionCreateDraftFiles';
 import { getRagSessionId, setRagSessionId } from '../../support/utils/ragSessionId';
 import { useAuthStore } from '../store/authStore';
 import type { User } from '../types';
 import { useLogin } from './useLogin';
+
+// jsdom엔 기본적으로 indexedDB가 없어(fake-indexeddb 전역 폴리필 미설정) 실제
+// clearDraftMediaFiles 구현을 그대로 쓰면 openDb()가 조용히 실패해(자체 try/catch로 삼킴) 호출
+// 여부를 관찰할 수 없다 — InspectionCreatePage.test.tsx/useLogout.test.tsx와 동일한 이유로 이
+// 모듈만 스파이 가능한 목으로 교체한다.
+vi.mock('../../inspection/utils/inspectionCreateDraftFiles', () => ({
+  saveDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+  loadDraftMediaFiles: vi.fn().mockResolvedValue([]),
+  clearDraftMediaFiles: vi.fn().mockResolvedValue(undefined),
+}));
 
 const mockUser: User = {
   id: 1,
@@ -51,6 +66,7 @@ afterEach(() => {
   useInspectionStore.getState().clearActiveInspectionId();
   useInspectionStore.getState().clearActiveReportId();
   requestedPaths.length = 0;
+  localStorage.clear();
 });
 afterAll(() => server.close());
 
@@ -118,6 +134,31 @@ describe('useLogin', () => {
     expect(useInspectionStore.getState().activeInspectionId).toBeNull();
     expect(useInspectionStore.getState().activeReportId).toBeNull();
     expect(useAuthStore.getState().user).toEqual(mockUser);
+  });
+
+  // #1703 / PR #1708 2차 P1 — 점검 생성 폼 임시저장이 sessionStorage에서 localStorage(TTL 7일)로
+  // 바뀌며, 로그인 진입점이 지우지 않으면 공용 PC에서 이전 사용자(다른 회사 포함)가 입력한
+  // 시설물·메모가 다음 로그인 사용자에게 그대로 복원된다. useLogin·useDemoLogin·
+  // usePlatformAdminLogin·useCounselorLogin·useLogout·401 강제 리다이렉트 6개 지점이 전부
+  // clearPreviousUserLocalState 하나로 이 계약을 지킨다.
+  it('로그인 성공 시 이전 사용자의 점검 생성 폼 임시저장(localStorage 텍스트+IndexedDB 사진)을 지운다', async () => {
+    vi.mocked(clearDraftMediaFiles).mockClear();
+    saveInspectionCreateDraft({
+      facilityId: '1',
+      inspectionDate: '2026-08-01',
+      inspectionType: 'DETAILED',
+      memo: '이전 사용자가 입력한 메모',
+    });
+    expect(loadInspectionCreateDraft()).not.toBeNull();
+
+    renderWithProviders();
+
+    fireEvent.click(screen.getByText('로그인'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/dashboard'));
+
+    expect(loadInspectionCreateDraft()).toBeNull();
+    expect(clearDraftMediaFiles).toHaveBeenCalled();
   });
 
   // #1442 — ProtectedRoute가 비로그인 접근 시 state.from으로 보존한 원래 목적지로 로그인 후

@@ -8,8 +8,7 @@ import {
   PLATFORM_ADMIN_LOGIN_PATH,
   PLATFORM_ADMIN_PATH_PREFIX,
 } from '../constants/authPaths';
-import { useInspectionStore } from '../../features/inspection/store/inspectionStore';
-import { clearRagSessionId } from '../../features/support/utils/ragSessionId';
+import { clearPreviousUserLocalState } from '../utils/clearPreviousUserLocalState';
 import { API_TIMEOUT_MS } from './timeouts';
 import type { ApiError, ApiResponse } from './types';
 
@@ -67,15 +66,13 @@ api.interceptors.response.use(
     // 이미 로그인 경로면 리다이렉트 스킵 — 로그인 화면 세션체크·로그인 실패 401이 무한 리로드로 이어지는 것 방지
     // redirectTarget이 basename까지 반영된 정확한 경로라 정확 일치로 비교(과매칭 방지 — 예: '/company/login')
     if (status === 401 && !skipAuthRedirect && window.location.pathname !== redirectTarget) {
-      // inspectionStore가 localStorage에 영속화되므로(#1194), 로그인 화면으로 하드 리다이렉트하기
-      // 전에 지워야 한다 — 안 그러면 공용 PC에서 세션 만료된 사용자의 activeInspectionId가
-      // 브라우저에 남아 다음 로그인 사용자의 사이드바 동적 링크에 노출된다(PR머신 리뷰 P1).
-      const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
-      clearActiveInspectionId();
-      clearActiveReportId();
-      // RAG 챗봇 session_id도 같은 이유로 함께 지운다(#1590) — 이 401 강제 로그아웃은 로그인
-      // 3진입점·useLogout과 동일한 "이전 사용자 잔여 상태 정리" 계약을 지키는 5번째 지점이다.
-      clearRagSessionId();
+      // 로그인 화면으로 하드 리다이렉트하기 전에 이전 세션의 로컬 잔여 상태를 지운다 —
+      // activeInspectionId/activeReportId(#1194)·RAG 세션(#1590)·점검 생성 폼 임시저장(#1703) 등이
+      // 모두 localStorage/IndexedDB에 영속화되므로, 안 지우면 공용 PC에서 세션 만료된 사용자의
+      // 데이터가 브라우저에 남아 다음 로그인 사용자에게 노출된다(PR머신 리뷰 P1). 이 401 강제
+      // 로그아웃은 로그인 3진입점·useLogout과 동일 계약을 지키는 6번째 지점이라
+      // clearPreviousUserLocalState 하나로 함께 관리한다(PR #1708 2차 P1).
+      clearPreviousUserLocalState();
       window.location.href = redirectTarget; // 401 일괄 처리
     }
     // timeout(#1598) 초과도 여기로 온다 — 응답 자체가 없어(error.response undefined) status는

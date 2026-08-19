@@ -4,8 +4,7 @@ import type { ApiError } from '../../../shared/api/types';
 import { DASHBOARD_ROUTE } from '../../../shared/constants/routes';
 import { isSafeInternalPath } from '../../../shared/utils/safeInternalPath';
 import { authApi } from '../api/authApi';
-import { useInspectionStore } from '../../inspection/store/inspectionStore';
-import { clearRagSessionId } from '../../support/utils/ragSessionId';
+import { clearPreviousUserLocalState } from '../../../shared/utils/clearPreviousUserLocalState';
 import { useAuthStore } from '../store/authStore';
 import type { LoginRequest, UserResponse } from '../types';
 
@@ -24,16 +23,13 @@ export function useLogin() {
   const mutation = useMutation<UserResponse, ApiError, LoginRequest>({
     mutationFn: (body) => authApi.login(body).then((res) => res.data),
     onSuccess: (user) => {
-      // 로그인 성공 시점에 이전 세션의 activeInspectionId/activeReportId를 지운다 — 이 스토어가
-      // localStorage에 영속화되므로(#1194), 공용 PC에서 다른 사용자가 로그인해도 지우지 않으면
-      // 방금 로그인한 사용자의 사이드바에 이전 사용자의 회차 id가 그대로 노출된다(PR머신 리뷰 P1).
-      const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
-      clearActiveInspectionId();
-      clearActiveReportId();
-      // 같은 이유로 RAG 챗봇 세션(localStorage 영속)도 지운다(#1590) — 계정이 바뀌었는데 이전
-      // 사용자의 session_id가 남으면 첫 질의가 소유자 검증 403으로 실패한다(백엔드가 막아
-      // 유출은 없지만 새 사용자에게 에러 배너가 뜬다).
-      clearRagSessionId();
+      // 로그인 성공 시점에 이전 세션의 로컬 잔여 상태(activeInspectionId/activeReportId #1194,
+      // RAG 세션 #1590, 점검 생성 폼 임시저장 #1703 등)를 지운다 — 공용 PC에서 다른 사용자가
+      // 로그인해도 지우지 않으면 방금 로그인한 사용자에게 이전 사용자의 데이터가 그대로 노출된다
+      // (PR머신 리뷰 P1). 로그인 3진입점·useLogout·401 강제 리다이렉트가 전부 같은 계약을
+      // clearPreviousUserLocalState 하나로 지킨다(PR #1708 2차 P1 — 개별 복붙이 반복 누락의
+      // 근본 원인이었다).
+      clearPreviousUserLocalState();
 
       setUser(user);
       // ProtectedRoute(shared/components/ProtectedRoute.tsx)가 비로그인 접근 시 원래 목적지를
