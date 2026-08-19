@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -86,10 +87,14 @@ class AdminUserServiceTest {
         given(adminUserRepository.existsByEmail("new@haja.test")).willReturn(false);
         given(passwordEncoder.encode("pw12345678")).willReturn("hashed");
         given(adminUserRepository.save(any(User.class))).willAnswer(invocation -> {
-            User user = invocation.getArgument(0);
-            // IDENTITY 채번을 흉내낸다 — 멤버십은 반드시 save가 반환한 id를 써야 한다(요청 엔티티는 id=null).
-            ReflectionTestUtils.setField(user, "id", CREATED_USER_ID);
-            return user;
+            User argument = invocation.getArgument(0);
+            // IDENTITY 채번을 흉내내되, id를 심은 '별도 인스턴스'를 반환한다 — 인자 인스턴스에 그대로
+            // 심어 되돌려주면 구현이 user.getId()를 써도 통과해 "save가 반환한 id를 써야 한다"는 계약이
+            // 검증되지 않는다. 인자 쪽 id는 null로 남으므로 그 뮤테이션이 실제로 잡힌다.
+            User persisted = User.createByAdmin(argument.getEmail(), argument.getName(), argument.getRole(),
+                    "hashed", argument.getCompanyId());
+            ReflectionTestUtils.setField(persisted, "id", CREATED_USER_ID);
+            return persisted;
         });
 
         AdminUserResponse response = adminUserService.createUser(
@@ -111,6 +116,23 @@ class AdminUserServiceTest {
         assertThat(membership.getApprovedAt()).isNotNull();
         assertThat(membership.getRevokedAt()).isNull();
         assertThat(membership.getExpiresAt()).isNull();
+    }
+
+    // 좌석 예약(#872 후속)은 User 저장 직전에 호출되므로, 한도 초과 시 계정도 멤버십도 남지 않아야 한다 —
+    // 멤버십만 먼저 만들면 "좌석 없는 유효 소속"이라는 유령 상태가 생긴다.
+    @Test
+    void createUser_좌석한도초과면_계정도_멤버십도_저장하지_않는다() {
+        willThrow(new BusinessException(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED))
+                .given(quotaService).reserveSeat(COMPANY_ID);
+
+        assertThatThrownBy(() -> adminUserService.createUser(
+                new AdminUserCreateRequest("overseat@haja.test", "pw12345678", "좌석초과", Role.USER),
+                COMPANY_ID, REQUESTING_ADMIN_ID))
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.PLAN_SEAT_QUOTA_EXCEEDED));
+
+        verify(adminUserRepository, never()).save(any(User.class));
+        verify(companyMembershipRepository, never()).save(any(CompanyMembership.class));
     }
 
     @Test
