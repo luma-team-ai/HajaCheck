@@ -60,6 +60,20 @@ public class PlatformAdminUserService {
     private static final Set<Role> ASSIGNABLE_ROLES =
             EnumSet.of(Role.ADMIN, Role.INSPECTOR, Role.USER, Role.COUNSELOR);
 
+    // 부여 가능한 상태 — AdminUserService.ASSIGNABLE_STATUSES 와 동일한 화이트리스트(#1492 리뷰 ⓐ).
+    // user_status_type 은 ACTIVE/SUSPENDED/WAITING 3개뿐이라 실제 차단 대상은 WAITING 하나다.
+    // WAITING 은 "소셜 가입 직후 아직 어느 회사에도 배선되지 않음"을 뜻하는 온보딩 상태이고,
+    // 유일한 생성 경로는 User.createSocialUser(company_id 없음)다. 관리자 콘솔이 이미 회사에 소속된
+    // 사용자를 WAITING 으로 되돌릴 수 있으면 company_id 가 남은 WAITING 행이 생겨,
+    // (a) SessionUserRevalidationFilter 가 보호 리소스를 막는데 초대 코드 redeem 은 통과하는
+    //     어정쩡한 상태가 되고,
+    // (b) UserRepository#findByIdForUpdate 의 교착 안전성 근거("WAITING ⇒ company_id IS NULL")가
+    //     깨진다(#1492).
+    // 회사 관리자 콘솔(AdminUserService)은 이미 같은 가드를 갖고 있었는데 플랫폼 관리자 콘솔만
+    // 빠져 있어 같은 우회로가 남아 있었다 — 같은 ErrorCode 로 대칭을 맞춘다.
+    private static final Set<UserStatus> ASSIGNABLE_STATUSES =
+            EnumSet.of(UserStatus.ACTIVE, UserStatus.SUSPENDED);
+
     public PlatformAdminUserListResponse list(String keyword, Role role, PlanName plan, UserStatus status,
                                                Pageable pageable) {
         String likeKeyword = normalizeKeyword(keyword);
@@ -151,6 +165,7 @@ public class PlatformAdminUserService {
 
     @Transactional
     public AdminUserStatusUpdateResponse changeStatus(Long userId, UserStatus status) {
+        requireAssignableStatus(status);
         User user = findUser(userId);
         // 데모 계정 자기보호(#1626) — changeRole 과 동일.
         demoAccountGuard.requireNotDemoAccount(user.getEmail());
@@ -219,6 +234,14 @@ public class PlatformAdminUserService {
     private void requireAssignableRole(Role role) {
         if (!ASSIGNABLE_ROLES.contains(role)) {
             throw new BusinessException(ErrorCode.ADMIN_ROLE_NOT_ASSIGNABLE);
+        }
+    }
+
+    // AdminUserService.requireAssignableStatus 와 동일 패턴·동일 ErrorCode. 대상 조회보다 *먼저*
+    // 검사해 잘못된 상태 요청이 리소스 존재 여부를 탐지하는 수단이 되지 않게 한다.
+    private void requireAssignableStatus(UserStatus status) {
+        if (!ASSIGNABLE_STATUSES.contains(status)) {
+            throw new BusinessException(ErrorCode.ADMIN_STATUS_NOT_ASSIGNABLE);
         }
     }
 

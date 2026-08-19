@@ -71,15 +71,25 @@ public interface UserRepository extends JpaRepository<User, Long> {
      *   <li>이 잠금과 {@code requireWaiting()} <b>사이</b>에 회사 스코프 자원 잠금
      *       ({@code usage_counters} 등)을 끼워 넣는 것 — WAITING 이 아닌 사용자에 대해서도 users 락을
      *       쥔 채 회사 자원을 기다리게 된다.</li>
-     *   <li>회사 스코프 <b>쓰기</b> 경로가 기존 users 행을 잠그게 되는 것. (현재 users 행을 잠그는 다른
-     *       경로는 {@code PlatformAdminUserService#changeSkill} 하나뿐이고 좌석 자원과 무관하다.
-     *       {@code PlatformAdminUserService#changeStatus} 는 {@code requireNotLastCompanyAdmin} 에서
-     *       companies 를 잠근 뒤 users 를 UPDATE 하지만, {@code companyId == null} 이면 즉시 반환하므로
-     *       WAITING 사용자에게는 그 잠금 자체가 걸리지 않는다.)</li>
-     *   <li>WAITING 사용자에게 {@code company_id} 가 남아 있게 되는 것. ⚠️ 여기엔 이미 이론적 구멍이
-     *       하나 있다 — {@code PlatformAdminUserService#changeStatus} 에는
-     *       {@code AdminUserService.ASSIGNABLE_STATUSES}(ACTIVE/SUSPENDED) 같은 가드가 없어 회사 소속
-     *       사용자를 WAITING 으로 되돌릴 수 있다(현재 프론트 노출 경로는 없다).</li>
+     *   <li>회사 스코프 <b>쓰기</b> 경로가 기존 users 행을 잠그게 되는 것. (현재 users 행을
+     *       <b>명시적으로</b>({@code PESSIMISTIC_WRITE}) 잠그는 다른 경로는
+     *       {@code PlatformAdminUserService#changeSkill} 하나뿐이고 좌석 자원과 무관하다 — FK
+     *       {@code FOR KEY SHARE} 로 <b>암묵적으로</b> 잠그는 경로는 위 "역순 경로" 문단 참조.
+     *       {@code PlatformAdminUserService#changeStatus} 는 {@code role == ADMIN && status ==
+     *       SUSPENDED} 일 때만 {@code requireNotLastCompanyAdmin} 으로 companies 를 잠그고, 그 안에서도
+     *       {@code companyId == null} 이면 즉시 반환하므로 WAITING 사용자에게는 어느 쪽으로도 걸리지
+     *       않는다. 또한 이제 {@code requireAssignableStatus} 가 WAITING 부여 자체를 막는다.)</li>
+     *   <li>WAITING 사용자에게 {@code company_id} 가 남아 있게 되는 것. (과거엔 여기에 구멍이 있었다 —
+     *       {@code PlatformAdminUserService#changeStatus} 에 {@code AdminUserService.ASSIGNABLE_STATUSES}
+     *       같은 가드가 없어 회사 소속 사용자를 WAITING 으로 되돌릴 수 있었다. #1492 리뷰에서 같은
+     *       화이트리스트를 적용해 막았고, {@code PlatformAdminUserServiceStatusWhitelistTest} 가 이를
+     *       고정한다. WAITING 을 만드는 경로를 새로 열 때는 이 불변식을 먼저 확인할 것.)</li>
+     *   <li><b>이 잠금보다 <i>앞에</i> DB 행 잠금·쓰기를 추가하는 것</b>(감사 로그 INSERT·회사 행 선조회
+     *       잠금·멱등키 UPSERT 등). 위 근거의 나머지 절반은 "이 잠금이 트랜잭션의 <b>첫 락</b>"(앞에는
+     *       Redis rate-limit 뿐)이라는 전제다. 앞에 다른 락이 생기면 <b>WAITING 여부와 무관하게</b>
+     *       redeem 이 "자원 X 보유 → users 대기" 형태가 되어, 반대로 "users 보유 → X 대기" 하는 경로와
+     *       곧바로 순환을 만든다. 조건 1~3 은 전제 "락 보유 지속은 WAITING 뿐"만 지키므로 이 조건이
+     *       별도로 필요하다 — 실무에서 가장 흔한 회귀 형태다.</li>
      * </ol>
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
