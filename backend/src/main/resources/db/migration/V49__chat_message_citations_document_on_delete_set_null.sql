@@ -20,11 +20,37 @@
 alter table chat_message_citations
     alter column document_id drop not null;
 
--- 2) 기존 FK 제거(V1이 인라인 `references`로 만들어 이름이 PostgreSQL 기본 생성 규칙
---    {table}_{column}_fkey다). 캐노니컬 DDL이 이미 아래 3)의 이름으로 재정의된 기존 DB에서는
---    이 이름의 제약이 없으므로 IF EXISTS로 no-op.
-alter table chat_message_citations
-    drop constraint if exists chat_message_citations_document_id_fkey;
+-- 2) 기존 FK 제거(이름 무관 조회). V1 baseline이 인라인 `references`로 만든 DB에서는
+--    PostgreSQL 기본 생성 이름(chat_message_citations_document_id_fkey)이 맞지만, prod는
+--    Flyway 도입 시 V1을 "스탬프만" 하고 내용을 적용한 적이 없다(레포 알려진 사각지대).
+--    즉 prod의 이 테이블은 과거 ddl-auto 산물일 수 있고, 그 경우 FK 이름이 Hibernate 생성
+--    해시(FKxxxxxxxxxx)다. 이름 하드코딩 드롭은 그런 DB에서 조용히 no-op되어 옛 FK가 살아남고
+--    아래 3)에서 새 FK가 추가돼 같은 컬럼에 FK 2개가 공존한다 — 옛 FK가 NO ACTION이면 삭제는
+--    여전히 막히는데 마이그레이션 자체는 성공으로 보고된다(#531과 같은 클래스의 사고).
+--    따라서 pg_constraint를 이름과 무관하게 "document_id 단일 컬럼으로 rag_documents를
+--    참조하는 FK"라는 구조적 조건으로 조회해 전부 드롭한다. 재실행 멱등성을 위해 아래 3)에서
+--    추가할 fk_chat_message_citations_document 자신은 대상에서 제외한다.
+do $$
+declare
+    fk record;
+begin
+    for fk in
+        select con.conname
+          from pg_constraint con
+          join pg_attribute att
+            on att.attrelid = con.conrelid
+           and att.attnum = con.conkey[1]
+         where con.contype = 'f'
+           and con.conrelid = 'public.chat_message_citations'::regclass
+           and con.confrelid = 'public.rag_documents'::regclass
+           and array_length(con.conkey, 1) = 1
+           and att.attname = 'document_id'
+           and con.conname <> 'fk_chat_message_citations_document'
+    loop
+        execute format('alter table public.chat_message_citations drop constraint %I', fk.conname);
+    end loop;
+end
+$$;
 
 -- 3) ON DELETE SET NULL로 명시적 이름의 FK를 재생성(저장소 FK 네이밍 컨벤션 fk_{table}_{역할}).
 do $$
