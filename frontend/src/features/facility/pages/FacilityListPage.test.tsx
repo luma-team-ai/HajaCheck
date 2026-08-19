@@ -8,6 +8,7 @@ import { setupServer } from 'msw/node';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
+import { installMswFileRealmCompat } from '../../../shared/testing/mswFileRealmCompat';
 import { facilityHandlers, resetFacilityMockStore } from '../api/facilityApi.handlers';
 import { facilityMediaHandlers, resetFacilityMediaMockStore } from '../api/facilityMediaApi.handlers';
 import { FacilityListPage } from './FacilityListPage';
@@ -35,6 +36,10 @@ vi.mock('../../../shared/lib/kakaoMap/geocodeAddress', async () => {
 });
 
 const server = setupServer(...facilityHandlers, ...facilityMediaHandlers);
+// jsdom File과 msw(Node 내장 undici)의 realm 불일치로 실제 파일 업로드 요청이 크래시하는 문제
+// 회피(#1712) — 이 테스트는 업로드 API가 호출됐는지(URL 매칭)만 검증하고 바이트 내용은 보지
+// 않으므로 이 유틸로 충분하다(내용 검증은 facilityMediaApi.test.ts가 node 환경에서 전담).
+const restoreFileRealm = installMswFileRealmCompat(server);
 
 // jsdom은 URL.createObjectURL/revokeObjectURL을 구현하지 않으므로 대표 사진 선택을 시뮬레이션하는
 // 테스트를 위해 스텁한다(FacilityPhotoUploadField.test.tsx와 동일 이유).
@@ -54,6 +59,7 @@ afterEach(() => {
   // 않으므로, 한 테스트에서 등록한 데이터가 다음 테스트로 새지 않도록 명시적으로 리셋한다.
   resetFacilityMockStore();
   resetFacilityMediaMockStore();
+  restoreFileRealm();
   cleanup();
   vi.restoreAllMocks();
 });
@@ -271,7 +277,12 @@ describe('FacilityListPage (통합 테스트)', () => {
         fireEvent.click(screen.getByRole('button', { name: '등록하기' }));
       });
 
-      expect(screen.queryByRole('dialog')).toBeNull();
+      // 재시도 성공 응답이 act() 한 사이클의 마이크로태스크 큐 안에서 반드시 해소된다고
+      // 보장할 수 없다(msw 라이프사이클 리스너 수·이벤트 처리 홉 수는 구현 세부사항) —
+      // waitFor로 실제로 모달이 닫히길 기다린다.
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).toBeNull();
+      });
       expect(createFacilityRequests).toHaveLength(1);
       expect(mediaAttempt).toBe(2);
     } finally {
