@@ -151,7 +151,7 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("report-owner@haja.com");
         Inspection inspection = seedInspection(owner);
         Report report = reportRepository.save(
-                Report.draft(inspection.getId(), 1, "{\"summary\":\"점검 결과\"}", owner.getId()));
+                Report.draft(inspection.getId(), 1, 1, "{\"summary\":\"점검 결과\"}", owner.getId()));
 
         mockMvc.perform(get("/api/reports/{id}", report.getId()).with(authentication(authOf(owner))))
                 .andExpect(status().isOk())
@@ -166,7 +166,7 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("report-owner2@haja.com");
         User stranger = seedOwner("report-stranger@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
 
         mockMvc.perform(get("/api/reports/{id}", report.getId()).with(authentication(authOf(stranger))))
                 .andExpect(status().isNotFound())
@@ -177,8 +177,8 @@ class ReportControllerTest extends PostgresTestSupport {
     void 목록조회_본인소유_버전목록을최신순으로반환() throws Exception {
         User owner = seedOwner("report-owner3@haja.com");
         Inspection inspection = seedInspection(owner);
-        reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
-        reportRepository.save(Report.draft(inspection.getId(), 2, "{}", owner.getId()));
+        reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
+        reportRepository.save(Report.draft(inspection.getId(), 1, 2, "{}", owner.getId()));
 
         mockMvc.perform(get("/api/inspections/{id}/reports", inspection.getId())
                         .with(authentication(authOf(owner))))
@@ -191,7 +191,7 @@ class ReportControllerTest extends PostgresTestSupport {
     void 본문수정_DRAFT상태_200과grounding필드리셋() throws Exception {
         User owner = seedOwner("report-owner4@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{\"a\":1}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{\"a\":1}", owner.getId()));
         String body = objectMapper.writeValueAsString(new UpdateReportContentRequest("{\"a\":2}"));
 
         mockMvc.perform(patch("/api/reports/{id}", report.getId())
@@ -209,7 +209,7 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("report-owner5@haja.com");
         User stranger = seedOwner("report-stranger2@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
         String body = objectMapper.writeValueAsString(new UpdateReportContentRequest("{\"a\":2}"));
 
         mockMvc.perform(patch("/api/reports/{id}", report.getId())
@@ -243,7 +243,7 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("recheck-owner@haja.com");
         User stranger = seedOwner("recheck-stranger@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
 
         mockMvc.perform(post("/api/reports/{id}/grounding-recheck", report.getId())
                         .with(csrf())
@@ -256,7 +256,7 @@ class ReportControllerTest extends PostgresTestSupport {
     void 근거재검증_본인소유_200과재검증결과반환() throws Exception {
         User owner = seedOwner("recheck-owner2@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
 
         mockMvc.perform(post("/api/reports/{id}/grounding-recheck", report.getId())
                         .with(csrf())
@@ -292,7 +292,7 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("resync-owner@haja.com");
         User stranger = seedOwner("resync-stranger@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
 
         mockMvc.perform(post("/api/reports/{id}/resync-defects", report.getId())
                         .with(csrf())
@@ -306,7 +306,7 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("resync-owner2@haja.com");
         Inspection inspection = seedInspection(owner);
         Report report = reportRepository.save(
-                Report.draft(inspection.getId(), 1, "{\"detail\":{\"items\":[]}}", owner.getId()));
+                Report.draft(inspection.getId(), 1, 1, "{\"detail\":{\"items\":[]}}", owner.getId()));
 
         mockMvc.perform(post("/api/reports/{id}/resync-defects", report.getId())
                         .with(csrf())
@@ -330,7 +330,7 @@ class ReportControllerTest extends PostgresTestSupport {
     void 복제_본인소유_다음버전DRAFT를생성하고검증필드를초기화() throws Exception {
         User owner = seedOwner("report-clone-owner@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report source = Report.draft(inspection.getId(), 1, "{\"summary\":\"복제 원본\"}", owner.getId());
+        Report source = Report.draft(inspection.getId(), 1, 1, "{\"summary\":\"복제 원본\"}", owner.getId());
         source.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -368,7 +368,7 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("report-clone-owner2@haja.com");
         User stranger = seedOwner("report-clone-stranger@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report source = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report source = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
 
         mockMvc.perform(post("/api/reports/{id}/clone", source.getId())
                         .with(csrf())
@@ -381,7 +381,7 @@ class ReportControllerTest extends PostgresTestSupport {
     void 삭제_DRAFT상태_200과softDelete처리() throws Exception {
         User owner = seedOwner("report-delete-owner@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
 
         mockMvc.perform(delete("/api/reports/{id}", report.getId())
                         .with(csrf())
@@ -401,7 +401,7 @@ class ReportControllerTest extends PostgresTestSupport {
     void 삭제_FINALIZED상태_409_INVALID_STATE_TRANSITION() throws Exception {
         User owner = seedOwner("report-delete-finalized-owner@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = Report.draft(inspection.getId(), 1, "{}", owner.getId());
+        Report report = Report.draft(inspection.getId(), 1, 1, "{}", owner.getId());
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -430,7 +430,7 @@ class ReportControllerTest extends PostgresTestSupport {
     void PDF업로드후_pdfUrl로_GET하면_200과원본바이트() throws Exception {
         User owner = seedOwner("report-pdf-owner@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
         byte[] pdfBytes = "%PDF-1.4 test-report-body".getBytes();
         MockMultipartFile file = new MockMultipartFile(
                 "file", "report.pdf", MediaType.APPLICATION_PDF_VALUE, pdfBytes);
@@ -461,7 +461,7 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("report-pdf-owner2@haja.com");
         User stranger = seedOwner("report-pdf-stranger@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
         byte[] pdfBytes = "%PDF-1.4 test-report-body".getBytes();
         MockMultipartFile file = new MockMultipartFile(
                 "file", "report.pdf", MediaType.APPLICATION_PDF_VALUE, pdfBytes);
@@ -489,7 +489,7 @@ class ReportControllerTest extends PostgresTestSupport {
     void PDF업로드_매직넘버아닌바이트면_FILE_INVALID_TYPE() throws Exception {
         User owner = seedOwner("report-pdf-owner3@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
         MockMultipartFile file = new MockMultipartFile(
                 "file", "fake.pdf", MediaType.APPLICATION_PDF_VALUE, "not-a-real-pdf-body".getBytes());
 
@@ -509,7 +509,7 @@ class ReportControllerTest extends PostgresTestSupport {
     void 확정_임의문자열pdfUrl이면_REPORT_PDF_URL_INVALID() throws Exception {
         User owner = seedOwner("report-finalize-owner@haja.com");
         Inspection inspection = seedInspection(owner);
-        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        Report report = reportRepository.save(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -542,8 +542,8 @@ class ReportControllerTest extends PostgresTestSupport {
         Inspection inspectionA = seedInspection(userA);
         Inspection inspectionB = seedInspection(userB);
 
-        Report reportA = reportRepository.save(Report.draft(inspectionA.getId(), 1, "{}", userA.getId()));
-        Report reportB = reportRepository.save(Report.draft(inspectionB.getId(), 1, "{}", userB.getId()));
+        Report reportA = reportRepository.save(Report.draft(inspectionA.getId(), 1, 1, "{}", userA.getId()));
+        Report reportB = reportRepository.save(Report.draft(inspectionB.getId(), 1, 1, "{}", userB.getId()));
 
         byte[] pdfBytesA = "%PDF-1.4 test-report-body-A".getBytes();
         MockMultipartFile fileA = new MockMultipartFile(
@@ -577,11 +577,11 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("report-dup-owner@haja.com");
         Inspection inspection = seedInspection(owner);
 
-        reportRepository.saveAndFlush(Report.draft(inspection.getId(), 1, "{}", owner.getId()));
+        reportRepository.saveAndFlush(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId()));
 
         org.springframework.dao.DataIntegrityViolationException ex =
                 org.assertj.core.api.Assertions.catchThrowableOfType(
-                        () -> reportRepository.saveAndFlush(Report.draft(inspection.getId(), 1, "{}", owner.getId())),
+                        () -> reportRepository.saveAndFlush(Report.draft(inspection.getId(), 1, 1, "{}", owner.getId())),
                         org.springframework.dao.DataIntegrityViolationException.class);
 
         assertThat(ex).isNotNull();
@@ -600,8 +600,8 @@ class ReportControllerTest extends PostgresTestSupport {
         User owner = seedOwner("company-report-list-owner@haja.com");
         Inspection first = seedInspection(owner);
         Inspection second = seedInspection(owner);
-        reportRepository.save(Report.draft(first.getId(), 1, "{}", owner.getId()));
-        reportRepository.save(Report.draft(second.getId(), 1, "{}", owner.getId()));
+        reportRepository.save(Report.draft(first.getId(), 1, 1, "{}", owner.getId()));
+        reportRepository.save(Report.draft(second.getId(), 1, 1, "{}", owner.getId()));
 
         mockMvc.perform(get("/api/reports")
                         .param("status", ReportStatus.DRAFT.name())
@@ -621,9 +621,9 @@ class ReportControllerTest extends PostgresTestSupport {
         User stranger = seedOwner("company-report-summary-stranger@haja.com");
         Inspection ownInspection = seedInspection(owner);
         Inspection strangerInspection = seedInspection(stranger);
-        reportRepository.save(Report.draft(ownInspection.getId(), 1, "{}", owner.getId()));
-        reportRepository.save(Report.draft(ownInspection.getId(), 2, "{}", owner.getId()));
-        reportRepository.save(Report.draft(strangerInspection.getId(), 1, "{}", stranger.getId()));
+        reportRepository.save(Report.draft(ownInspection.getId(), 1, 1, "{}", owner.getId()));
+        reportRepository.save(Report.draft(ownInspection.getId(), 1, 2, "{}", owner.getId()));
+        reportRepository.save(Report.draft(strangerInspection.getId(), 1, 1, "{}", stranger.getId()));
 
         mockMvc.perform(get("/api/reports/summary").with(authentication(authOf(owner))))
                 .andExpect(status().isOk())

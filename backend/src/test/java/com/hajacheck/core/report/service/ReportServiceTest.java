@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -107,6 +109,12 @@ class ReportServiceTest {
                 LocalDate.now(), InspectionType.REGULAR, status, LocalDateTime.now());
     }
 
+    /** #1702 리뷰 P1 — 회차 스냅샷 시점 검증용(같은 점검이 서로 다른 회차로 관측되는 상황 모형화). */
+    private static InspectionResponse inspectionWithRound(Long facilityId, int roundNo) {
+        return new InspectionResponse(1L, facilityId, 100L, 100L, roundNo,
+                LocalDate.now(), InspectionType.REGULAR, InspectionStatus.CREATED, LocalDateTime.now());
+    }
+
     private static FacilityResponse facility() {
         return facility("서울시 강남구");
     }
@@ -179,7 +187,9 @@ class ReportServiceTest {
         assertThat(response.inspectionId()).isEqualTo(1L);
         assertThat(response.groundingCheckPassed()).isTrue();
         verify(companyScopeGuard).requireEffectiveMembership(200L, 100L);
-        verify(inspectionService).getInspection(200L, 100L, 1L);
+        // #1702 리뷰 P1 — 초입 1회 + persist 직전 회차 재조회 1회. AI 왕복 중 회차가 재정렬될 수 있어
+        // 스냅샷은 반드시 INSERT 직전 값으로 찍는다(generateDraft_AI왕복중회차가밀리면... 참고).
+        verify(inspectionService, times(2)).getInspection(200L, 100L, 1L);
         verify(facilityService).get(200L, 100L, 10L);
 
         ArgumentCaptor<ReportRequest> captor = ArgumentCaptor.forClass(ReportRequest.class);
@@ -323,7 +333,7 @@ class ReportServiceTest {
         when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of());
-        Report existing = Report.draft(1L, 2, "{}", 100L);
+        Report existing = Report.draft(1L, 1, 2, "{}", 100L);
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.of(existing));
         when(aiProxyService.generateReport(anyLong(), any())).thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
         when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -342,7 +352,7 @@ class ReportServiceTest {
         when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
                 .thenReturn(List.of());
-        Report concurrentWinner = Report.draft(1L, 1, "{}", 999L);
+        Report concurrentWinner = Report.draft(1L, 1, 1, "{}", 999L);
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(concurrentWinner));
@@ -434,7 +444,7 @@ class ReportServiceTest {
 
     @Test
     void updateContent_수정후grounding필드를null로리셋() {
-        Report report = Report.draft(1L, 1, "{\"a\":1}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{\"a\":1}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
         report.recordGroundingResult(
@@ -452,7 +462,7 @@ class ReportServiceTest {
 
     @Test
     void updateContent_FINALIZED상태에서시도하면예외() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -484,7 +494,7 @@ class ReportServiceTest {
                         .inspectionDate(LocalDate.now()).status(InspectionStatus.ANALYZED).build();
         ReflectionTestUtils.setField(inspection, "id", 1L);
         ReflectionTestUtils.setField(inspection, "facility", facility);
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         ReflectionTestUtils.setField(report, "inspection", inspection);
         org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(0, 10);
         org.springframework.data.domain.Page<Report> page =
@@ -545,7 +555,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_유형등급일치_grounding통과로기록() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -560,7 +570,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_details섹션제외보고서는상세비교를건너뛰고확정가능하다() {
-        Report report = Report.draft(1L, 1, contentJsonWithoutDetailsSection(), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithoutDetailsSection(), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
@@ -577,7 +587,7 @@ class ReportServiceTest {
 
     @Test
     void updateContent_details제외로생성된보고서의빈상세옵션은보존한다() {
-        Report report = Report.draft(1L, 1, contentJsonWithoutDetailsSection(), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithoutDetailsSection(), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
@@ -595,7 +605,7 @@ class ReportServiceTest {
     @Test
     void recheckGrounding_reportOptions를조작해도detailItems가있으면실제하자와비교한다() {
         Report report = Report.draft(
-                1L, 1, contentJsonWithForgedOptionsAndDetailItems("박리·박락", "B"), 100L);
+                1L, 1, 1, contentJsonWithForgedOptionsAndDetailItems("박리·박락", "B"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
@@ -612,7 +622,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_details포함생성후Patch로상세를비우면불일치로판정한다() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
@@ -632,7 +642,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_순서가달라도멀티셋일치하면통과() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("박리·박락", "B", "균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("박리·박락", "B", "균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -647,7 +657,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_등급만달라도불일치() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "B"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "B"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -661,7 +671,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_유형만달라도불일치() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("박리·박락", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("박리·박락", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -674,7 +684,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_개수가달라도불일치() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -689,7 +699,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_타인소유_REPORT_NOT_FOUND() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
                 .when(inspectionService).getInspection(999L, 500L, 1L);
@@ -702,7 +712,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_FINALIZED상태에서시도하면예외() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -739,7 +749,7 @@ class ReportServiceTest {
     void resyncDefects_새확정하자를추가하고서술은비워둔다() {
         // #1653 P2 — resync-defects는 새로 확정된 하자를 구조 필드만 채워 추가한다. 서술(description/
         // cause)은 AI 재호출 없이는 채울 수 없으므로 빈 문자열로 두고 사용자가 직접 작성해야 한다.
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems(), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems(), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -761,7 +771,7 @@ class ReportServiceTest {
 
     @Test
     void resyncDefects_여전히확정된항목은서술을보존한다() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItem(1L, "균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItem(1L, "균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -779,7 +789,7 @@ class ReportServiceTest {
 
     @Test
     void resyncDefects_더이상확정하자가아닌항목은제거한다() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItem(1L, "균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItem(1L, "균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -799,7 +809,7 @@ class ReportServiceTest {
         // 안 된다는 이유로 잉여 취급해 지우면 검수자가 직접 쓴 서술이 무경고로 사라진다. 확정 하자가
         // 0건이라(잉여로 오판되기 가장 쉬운 조건) 이 항목이 정말 "제거 대상이 아니라 보존 대상"인지를
         // extraItems(제거)가 아니라 unmatchedItems(보존)로 판정하는지 검증한다.
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -820,7 +830,7 @@ class ReportServiceTest {
 
     @Test
     void recheckGrounding_defectId없는레거시항목은diff의unmatchedItems로노출된다() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(100L, 500L, 1L)).thenReturn(inspection(10L));
         when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
@@ -837,7 +847,7 @@ class ReportServiceTest {
 
     @Test
     void resyncDefects_타인소유_REPORT_NOT_FOUND() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems(), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems(), 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
                 .when(inspectionService).getInspection(999L, 500L, 1L);
@@ -850,7 +860,7 @@ class ReportServiceTest {
 
     @Test
     void resyncDefects_FINALIZED상태에서시도하면예외() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -878,7 +888,7 @@ class ReportServiceTest {
 
     @Test
     void getReport_타인소유_존재하지않는id와동일하게REPORT_NOT_FOUND() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
                 .when(inspectionService).getInspection(200L, 999L, 1L);
@@ -890,7 +900,7 @@ class ReportServiceTest {
 
     @Test
     void cloneReport_원본content를다음버전DRAFT로복제하고검증필드는초기화() {
-        Report source = Report.draft(1L, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
+        Report source = Report.draft(1L, 1, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
         source.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -938,10 +948,10 @@ class ReportServiceTest {
 
     @Test
     void cloneReport_버전채번경합시1회재시도후성공() {
-        Report source = Report.draft(1L, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
+        Report source = Report.draft(1L, 1, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(source));
         when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
-        Report concurrentWinner = Report.draft(1L, 3, "{}", 999L);
+        Report concurrentWinner = Report.draft(1L, 1, 3, "{}", 999L);
         when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L))
                 .thenReturn(Optional.of(source))
                 .thenReturn(Optional.of(concurrentWinner));
@@ -959,7 +969,7 @@ class ReportServiceTest {
 
     @Test
     void cloneReport_타인소유_REPORT_NOT_FOUND() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         doThrow(new BusinessException(ErrorCode.FACILITY_NOT_FOUND))
                 .when(inspectionService).getInspection(200L, 999L, 1L);
@@ -973,7 +983,7 @@ class ReportServiceTest {
 
     @Test
     void deleteDraftReport_DRAFT보고서를softDelete한다() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
 
@@ -985,7 +995,7 @@ class ReportServiceTest {
 
     @Test
     void deleteDraftReport_FINALIZED보고서는INVALID_STATE_TRANSITION() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1003,7 +1013,7 @@ class ReportServiceTest {
 
     @Test
     void getReport_softDeleted보고서는REPORT_NOT_FOUND() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.markDeleted(100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
 
@@ -1015,7 +1025,7 @@ class ReportServiceTest {
 
     @Test
     void getReport_기존데이터로보고서Context를함께반환한다() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         Defect defect = Defect.builder()
                 .inspectionId(1L)
                 .mediaId(9L)
@@ -1066,7 +1076,7 @@ class ReportServiceTest {
      */
     @Test
     void getReport_조치후사진은보고서media목록에서제외된다() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
         when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
@@ -1092,8 +1102,8 @@ class ReportServiceTest {
     @Test
     void listReports_소유권검증후버전목록을최신순으로반환() {
         when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
-        Report v1 = Report.draft(1L, 1, "{}", 100L);
-        Report v2 = Report.draft(1L, 2, "{}", 100L);
+        Report v1 = Report.draft(1L, 1, 1, "{}", 100L);
+        Report v2 = Report.draft(1L, 1, 2, "{}", 100L);
         when(reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(1L)).thenReturn(List.of(v2, v1));
         User author = User.builder().name("김기준").build();
         ReflectionTestUtils.setField(author, "id", 100L);
@@ -1111,7 +1121,7 @@ class ReportServiceTest {
     @Test
     void listReports_작성자를찾을수없으면createdByName이null이다() {
         when(inspectionService.getInspection(200L, 100L, 1L)).thenReturn(inspection(10L));
-        Report v1 = Report.draft(1L, 1, "{}", 999L);
+        Report v1 = Report.draft(1L, 1, 1, "{}", 999L);
         when(reportRepository.findByInspectionIdAndDeletedAtIsNullOrderByVersionDesc(1L)).thenReturn(List.of(v1));
         when(userRepository.findAllById(List.of(999L))).thenReturn(List.of());
 
@@ -1122,7 +1132,7 @@ class ReportServiceTest {
 
     @Test
     void finalizeReport_근거검증통과후PDF와확정상태기록() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1142,7 +1152,7 @@ class ReportServiceTest {
     void finalizeReport_이미FINALIZED이고pdfUrl있으면_재확정없이현재상태를반환한다() {
         // #1653 P2 — 확정 응답 유실(멱등성) 재현: 클라이언트가 성공 응답을 못 받고 재시도해도
         // 재확정을 시도하지 않고 현재 확정 상태를 그대로 반환한다(재검증·회차 상태전이 등 부수효과 없음).
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1168,7 +1178,7 @@ class ReportServiceTest {
         // #1653 P1 — finalize가 저장된 groundingCheckPassed=true(stale)를 그대로 신뢰하면 안 된다.
         // 보고서 자체는 편집되지 않았지만(그래서 groundingCheckPassed는 여전히 true) 그 사이 하자
         // 등급이 수정돼(C→B) 확정 하자 목록과 본문(detail.items)이 더 이상 일치하지 않는 상황.
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1189,7 +1199,7 @@ class ReportServiceTest {
 
     @Test
     void finalizeReport_grounding재검증은상시수행_최신확정하자와일치하면성공() {
-        Report report = Report.draft(1L, 1, contentJsonWithDetailItems("균열", "C"), 100L);
+        Report report = Report.draft(1L, 1, 1, contentJsonWithDetailItems("균열", "C"), 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1209,7 +1219,7 @@ class ReportServiceTest {
 
     @Test
     void finalizeReport_다른보고서용pdfUrl이면REPORT_PDF_URL_INVALID() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1227,7 +1237,7 @@ class ReportServiceTest {
 
     @Test
     void finalizeReport_임의문자열pdfUrl이면REPORT_PDF_URL_INVALID() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1245,7 +1255,7 @@ class ReportServiceTest {
 
     @Test
     void finalizeReport_업로드되지않은storageKey로finalize시도시거부됨() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1263,13 +1273,127 @@ class ReportServiceTest {
                 .isEqualTo(ErrorCode.FILE_NOT_FOUND);
     }
 
+    // ── 회차 재정렬(#1702) 리뷰 P1 회귀선 ──
+
+    /**
+     * 락 순서 역전(ABBA) 데드락 회귀선 — {@code InspectionService.createInspection}(소급 회차)은
+     * facilities → inspections → reports 순으로 락을 잡는다. {@code finalizeReport}가 그 반대
+     * (reports → inspections → facilities) 순으로 잡으면 같은 시설물에 두 요청이 동시에 올 때 순환이
+     * 완성돼 PostgreSQL이 한쪽을 40P01로 abort시킨다.
+     *
+     * <p>지켜야 할 불변식은 "회차 전이보다 앞"이 아니라 <b>이 트랜잭션의 첫 쓰기보다 앞</b>이다. 락을
+     * 첫 쓰기({@code recordStructuralGroundingRecheck}) 뒤로 옮기면, 그 사이의 어떤 쿼리든 auto-flush로
+     * 더티해진 report 행 락을 facilities보다 먼저 잡아 순서 역전이 그대로 되살아난다 — 그런데도 "전이보다
+     * 앞"만 보는 단언은 통과해 버린다. 그래서 report를 스파이로 감싸 <b>첫 쓰기 시점 자체</b>를 순서
+     * 검증에 끼워 넣는다(스파이는 실제 메서드를 그대로 위임하므로 동작은 바뀌지 않는다).
+     */
+    @Test
+    void finalizeReport_시설물행을_첫쓰기보다먼저잠근다_락순서역전회귀() {
+        Report report = org.mockito.Mockito.spy(Report.draft(1L, 1, 1, "{}", 100L));
+        report.recordGroundingResult(
+                com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
+                        com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
+                                report.captureGroundingRequestContext(), report.getContentJson()),
+                        null),
+                100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspection(10L, InspectionStatus.ANALYZED));
+
+        reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
+
+        org.mockito.InOrder inOrder =
+                org.mockito.Mockito.inOrder(facilityService, report, inspectionService);
+        inOrder.verify(facilityService).lockForUpdate(10L);
+        // ↓ 이 트랜잭션이 report 를 처음 더럽히는 지점. 락이 이 뒤로 밀리면 여기서 실패한다.
+        inOrder.verify(report).recordStructuralGroundingRecheck(anyBoolean(), any(), anyLong());
+        inOrder.verify(report).finalizeReport(anyString(), anyLong());
+        inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
+        inOrder.verify(facilityService).recalculateNextInspectionDueAt(200L, 100L, 10L, LocalDate.now());
+    }
+
+    /**
+     * 회차 스냅샷 TOCTOU 회귀선 — generateDraft는 NOT_SUPPORTED(트랜잭션 없음)라 AI 왕복(수 초~수 분)
+     * 동안 보호가 없다. 그 창에서 소급 회차가 생겨 재정렬되면, 아직 INSERT되지 않은 이 보고서는
+     * syncDraftRoundNoToInspection의 대상이 될 수 없어 옛 회차가 그대로 굳는다(확정 시 틀린 회차가 PDF
+     * 표지에 인쇄됨). 그래서 스냅샷은 초입 값이 아니라 <b>persist 직전에 다시 읽은 값</b>이어야 한다.
+     */
+    @Test
+    void generateDraft_AI왕복중회차가밀리면_persist직전회차로스냅샷한다() {
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspectionWithRound(10L, 2))   // 초입 조회 — AI 호출 전
+                .thenReturn(inspectionWithRound(10L, 3));  // persist 직전 재조회 — 그 사이 소급 회차로 +1 밀림
+        when(facilityService.get(200L, 100L, 10L)).thenReturn(facility());
+        when(defectRepository.findByInspectionIdAndStatusInAndDeletedFalse(anyLong(), any()))
+                .thenReturn(List.of());
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.empty());
+        when(aiProxyService.generateReport(anyLong(), any()))
+                .thenAnswer(inv -> ApiResponse.ok(aiReportMatching(inv.getArgument(1))));
+        when(reportRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        reportService.generateDraft(1L, 100L, 200L);
+
+        ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository).save(captor.capture());
+        assertThat(captor.getValue().getRoundNo())
+                .as("AI 왕복 전 값(2)이 아니라 persist 직전 재조회 값(3)이 찍혀야 한다")
+                .isEqualTo(3);
+    }
+
+    @Test
+    void cloneReport_persist직전회차로스냅샷한다() {
+        Report source = Report.draft(1L, 1, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(source));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspectionWithRound(10L, 2))
+                .thenReturn(inspectionWithRound(10L, 4));
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L)).thenReturn(Optional.of(source));
+        when(reportRepository.saveAndFlush(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        reportService.cloneReport(5L, 100L, 200L);
+
+        ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getRoundNo()).isEqualTo(4);
+    }
+
+    /**
+     * 버전 채번 경합 재시도는 첫 시도 실패만큼 시간이 더 흐른 뒤라, 처음 찍어 둔 회차를 재사용하면
+     * 스냅샷이 어긋날 창이 오히려 넓어진다 — 재시도 시 버전과 함께 회차도 다시 읽어 찍는지 고정한다.
+     */
+    @Test
+    void cloneReport_버전경합재시도시_회차도다시읽어찍는다() {
+        Report source = Report.draft(1L, 1, 2, "{\"overview\":{\"purpose\":\"copy\"}}", 100L);
+        when(reportRepository.findById(5L)).thenReturn(Optional.of(source));
+        when(inspectionService.getInspection(200L, 100L, 1L))
+                .thenReturn(inspectionWithRound(10L, 2))   // findCompanyReportWithInspection
+                .thenReturn(inspectionWithRound(10L, 2))   // 첫 persist 직전
+                .thenReturn(inspectionWithRound(10L, 5));  // 재시도 직전 — 그 사이 또 밀림
+        Report concurrentWinner = Report.draft(1L, 2, 3, "{}", 999L);
+        when(reportRepository.findFirstByInspectionIdOrderByVersionDesc(1L))
+                .thenReturn(Optional.of(source))
+                .thenReturn(Optional.of(concurrentWinner));
+        when(reportRepository.saveAndFlush(any()))
+                .thenThrow(new DataIntegrityViolationException("dup",
+                        new ConstraintViolationException(
+                                "dup", new SQLException("dup"), "uk_reports_inspection_version")))
+                .thenAnswer(inv -> inv.getArgument(0));
+
+        ReportDetailResponse response = reportService.cloneReport(5L, 100L, 200L);
+
+        assertThat(response.version()).isEqualTo(4);
+        ArgumentCaptor<Report> captor = ArgumentCaptor.forClass(Report.class);
+        verify(reportRepository, times(2)).saveAndFlush(captor.capture());
+        assertThat(captor.getValue().getRoundNo()).isEqualTo(5);
+    }
+
     // ── 보고서 확정 시 회차 완료 전이(팀 테스트 피드백, 2026-08-01) ──
     // REVIEWED/REPORTED 둘 다 상태 머신엔 도착 상태로 정의돼 있었지만 실제로 전이시키는 코드가
     // 없어, 검수를 끝내고 보고서까지 만들어도 회차가 ANALYZED에 영원히 머물던 문제.
 
     @Test
     void finalizeReport_회차가ANALYZED면_REVIEWED거쳐REPORTED로전이한다() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1292,7 +1416,7 @@ class ReportServiceTest {
 
     @Test
     void finalizeReport_회차가REVIEWED면_REVIEWED전이없이바로REPORTED로전이한다() {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1315,7 +1439,7 @@ class ReportServiceTest {
     void finalizeReport_회차가이미REPORTED면_전이를시도하지않는다() {
         // REPORTED는 상태 머신상 종단(더 이상 어디로도 전이 불가)이라, 같은 회차의 다른 보고서
         // 버전을 재확정하는 경우 재전이를 시도하면 DomainStateTransitionException이 난다.
-        Report report = Report.draft(1L, 2, "{}", 100L);
+        Report report = Report.draft(1L, 1, 2, "{}", 100L);
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1344,7 +1468,7 @@ class ReportServiceTest {
         };
         for (int i = 0; i < statuses.length; i++) {
             long reportId = 50L + i;
-            Report report = Report.draft(1L, 1, "{}", 100L);
+            Report report = Report.draft(1L, 1, 1, "{}", 100L);
             report.recordGroundingResult(
                     com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                             com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1378,7 +1502,7 @@ class ReportServiceTest {
 
     @Test
     void getReport_검증중FORBIDDEN도404로변환하지않는다() {
-        Report report = Report.draft(1L, 1, "{}", 200L);
+        Report report = Report.draft(1L, 1, 1, "{}", 200L);
         when(reportRepository.findById(5L)).thenReturn(Optional.of(report));
         doThrow(new BusinessException(ErrorCode.FORBIDDEN))
                 .when(inspectionService).getInspection(200L, 100L, 1L);

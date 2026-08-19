@@ -324,7 +324,8 @@ public class DemoSeedService {
                 0.42, 0.39, 0.24, 0.22, 0.91, null, null, 0.08, "1층 바닥 마감재 박락부"));
 
         // ── 보고서 초안(검수 확정된 1회차 기준) — 프론트 ReportContent 계약 형태(reportDetail.mock 참조) ──
-        reportRepository.save(Report.draft(towerRound1.getId(), 1, reportContentJson(), adminUserId));
+        reportRepository.save(Report.draft(
+                towerRound1.getId(), towerRound1.getRoundNo(), 1, reportContentJson(), adminUserId));
     }
 
     private Defect defect(Long inspectionId, Long mediaId, DefectType type, DefectGrade grade,

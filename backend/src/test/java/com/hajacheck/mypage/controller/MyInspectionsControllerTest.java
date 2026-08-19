@@ -114,7 +114,7 @@ class MyInspectionsControllerTest extends PostgresTestSupport {
 
     // draft → grounding 통과 → finalize 전체 도메인 흐름을 거쳐 FINALIZED 보고서를 만든다.
     private Report seedFinalizedReport(Long inspectionId, int version, Long createdBy) {
-        Report report = Report.draft(inspectionId, version, "{}", createdBy);
+        Report report = Report.draft(inspectionId, 1, version, "{}", createdBy);
         GroundingRequestContext context = report.captureGroundingRequestContext();
         GroundingCheckTarget target = GroundingCheckTarget.capture(context, report.getContentJson());
         report.recordGroundingResult(GroundingCheckResultTestFactory.passed(target, null), createdBy);
@@ -230,7 +230,7 @@ class MyInspectionsControllerTest extends PostgresTestSupport {
         Facility facility = seedFacility(owner, "보고서빌딩");
         Inspection inspection = seedInspection(facility, owner.getId(), owner.getId(), 1, InspectionStatus.REPORTED);
         seedFinalizedReport(inspection.getId(), 1, owner.getId());
-        reportRepository.saveAndFlush(Report.draft(inspection.getId(), 2, "{}", owner.getId()));
+        reportRepository.saveAndFlush(Report.draft(inspection.getId(), 1, 2, "{}", owner.getId()));
         entityManager.clear();
 
         mockMvc.perform(get("/api/me/reports")
