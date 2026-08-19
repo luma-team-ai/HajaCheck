@@ -127,6 +127,12 @@ public class Defect {
     @Column(name = "area_mm2")
     private Double areaMm2;
 
+    // mm² 기반 참고 등급(A~E, #1682/#1683 additive) — area_mm2가 있는 SPALLING/REBAR_EXPOSURE만 값이
+    // 있을 수 있고, area_mm2가 없으면 null. AI 서버가 산출해 내려준 값을 그대로 저장한다(Spring
+    // 재계산 없음). 본등급 grade 컬럼과 무관·불변인 참고값이라 enum 변환 없이 문자열 그대로 둔다.
+    @Column(name = "area_mm2_reference_grade")
+    private String areaMm2ReferenceGrade;
+
     // 조치 결과 등록(HAJA-393/#725, "조치 완료 등록" 버튼) — 4개 필드 모두 registerActionResult() 를
     // 통해서만 함께 채워진다(V12, nullable — 조치 등록 전에는 전부 NULL).
     @Column(name = "action_media_id")
@@ -155,7 +161,7 @@ public class Defect {
     private Defect(Long inspectionId, Long mediaId, DefectType type, Double bboxX, Double bboxY, Double bboxW,
                     Double bboxH, Double confidence, DefectGrade grade, DefectStatus status, boolean reviewed,
                     boolean deleted, Double crackWidthMm, Double crackLengthMm, Double areaRatio, Double areaMm2,
-                    String location) {
+                    String areaMm2ReferenceGrade, String location) {
         this.inspectionId = inspectionId;
         this.mediaId = mediaId;
         this.type = type;
@@ -172,6 +178,7 @@ public class Defect {
         this.crackLengthMm = crackLengthMm;
         this.areaRatio = areaRatio;
         this.areaMm2 = areaMm2;
+        this.areaMm2ReferenceGrade = areaMm2ReferenceGrade;
         this.location = location;
     }
 

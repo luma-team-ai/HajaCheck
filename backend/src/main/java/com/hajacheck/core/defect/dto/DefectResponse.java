@@ -38,6 +38,10 @@ import java.time.LocalDateTime;
  * <p>areaMm2(#1658/#1668)는 crackWidthMm과 동일하게 AI 서버가 카드 기준물로 환산해 내려준 값을
  * 그대로 노출한다 — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고, 카드 미검출이면 null.
  *
+ * <p>areaMm2ReferenceGrade(#1682/#1683)는 areaMm2 기반으로 AI 서버가 산출한 mm² 참고 등급(A~E)을
+ * 그대로 노출한다 — areaMm2가 없으면 null. 본등급 grade와 무관·불변인 참고값이라 enum 변환 없이
+ * 문자열 그대로 내려준다.
+ *
  * <p>groupSize/groupStatus(이미지 단위 보수 작업 v0.2, #1456)는 신규 저장 컬럼이 아니라 조치 등록
  * ({@code PATCH /api/defects/{id}/action}) 응답에서만 계산돼 채워지는 값이다 — 같은
  * inspection_id+media_id로 확정된(CONFIRMED 이상) 비삭제 하자 그룹의 크기와, 그 그룹 전체를
@@ -70,6 +74,7 @@ public record DefectResponse(
         Double crackWidthMm,
         Double crackLengthMm,
         Double areaMm2,
+        String areaMm2ReferenceGrade,
         String imageUrl,
         Long mediaId,
         Long previousDefectId,
@@ -114,6 +119,7 @@ public record DefectResponse(
                 defect.getCrackWidthMm(),
                 defect.getCrackLengthMm(),
                 defect.getAreaMm2(),
+                defect.getAreaMm2ReferenceGrade(),
                 defect.getMediaId() == null ? null : "/api/media/" + defect.getMediaId() + "/thumbnail",
                 defect.getMediaId(),
                 defect.getPreviousDefectId(),
@@ -132,7 +138,8 @@ public record DefectResponse(
         return new DefectResponse(
                 id, inspectionId, facilityId, facilityName, facilityType, location, assigneeName, foundCycle,
                 type, typeLabel, grade, status, confidence, reviewed, bboxX, bboxY, bboxW, bboxH,
-                crackWidthMm, crackLengthMm, areaMm2, imageUrl, mediaId, previousDefectId, actionPhotoUrl,
-                actionContent, actionDate, actionAssigneeId, actionAssigneeName, createdAt, groupSize, groupStatus);
+                crackWidthMm, crackLengthMm, areaMm2, areaMm2ReferenceGrade, imageUrl, mediaId, previousDefectId,
+                actionPhotoUrl, actionContent, actionDate, actionAssigneeId, actionAssigneeName, createdAt,
+                groupSize, groupStatus);
     }
 }

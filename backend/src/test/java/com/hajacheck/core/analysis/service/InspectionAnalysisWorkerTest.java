@@ -567,16 +567,77 @@ class InspectionAnalysisWorkerTest {
                 .containsExactlyInAnyOrder(1234.5, null);
     }
 
+    @Test
+    void runAsync_AI응답의areaMm2ReferenceGrade가Defect_areaMm2ReferenceGrade로저장된다() {
+        // #1682/#1683 — ai-server가 area_mm2 기반으로 산출한 mm² 참고 등급을 응답에 실어도
+        // DetectedDefectItem에 필드가 없으면 @JsonIgnoreProperties(ignoreUnknown)에 의해 조용히
+        // 버려져 Defect.areaMm2ReferenceGrade가 항상 null로 남는 문제의 회귀 테스트
+        // (areaMm2/widthMm 회귀 테스트와 동일한 위험 패턴).
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(
+                detectionWithReferenceGrade("SPALLING", "C", "B"), // 카드 검출 성공 — 참고 등급 전달됨
+                detectionWithReferenceGrade("CRACK", "A", null)));  // CRACK — area_mm2 없음, null 유지
+        when(defectWriter.softDeleteAllForInspectionThenSaveAndMarkAnalyzed(any(), any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(2));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)),
+                InspectionStatus.UPLOADING, false, GENERATION, CHARGE);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Defect>> captor = ArgumentCaptor.forClass(List.class);
+        verify(defectWriter).softDeleteAllForInspectionThenSaveAndMarkAnalyzed(any(), eq(INSPECTION_ID), captor.capture(), any(), any());
+        List<Defect> saved = captor.getValue();
+
+        assertThat(saved)
+                .extracting(Defect::getAreaMm2ReferenceGrade)
+                .containsExactlyInAnyOrder("B", null);
+    }
+
+    @Test
+    void runAsync_AI응답의areaMm2ReferenceGrade가A_E범위밖이면null로저장하고정상진행한다() {
+        // 머신 리뷰 P3(#1683) — DetectedDefectItem.areaMm2ReferenceGrade는 grade와 달리 enum 파싱을
+        // 거치지 않는 String이라, AI 서버가 A~E 계약을 어긴 값을 내려보내면 varchar(1) 컬럼 truncation
+        // 오류로 INSERT 전체가 실패할 위험이 있다. sanitizeAreaMm2ReferenceGrade가 A~E 밖의 값을 null로
+        // 걸러내고(경고 로그만 남기고) 나머지 탐지 결과는 정상 저장·진행됨을 고정한다.
+        when(fileStorage.read(anyString())).thenReturn(new byte[] {1});
+        when(aiProxyService.detectDefects(anyString())).thenReturn(List.of(
+                detectionWithReferenceGrade("SPALLING", "C", "AB"), // 두 글자 — 계약 위반
+                detectionWithReferenceGrade("SPALLING", "C", "F"),  // 등급 범위 밖 — 계약 위반
+                detectionWithReferenceGrade("SPALLING", "C", "a"),  // 소문자 — 계약 위반
+                detectionWithReferenceGrade("SPALLING", "C", "B")));  // 정상값 — 그대로 저장
+        when(defectWriter.softDeleteAllForInspectionThenSaveAndMarkAnalyzed(any(), any(), any(), any(), any()))
+                .thenAnswer(inv -> inv.getArgument(2));
+
+        worker.runAsync(USER_ID, COMPANY_ID, INSPECTION_ID, List.of(image(1L)),
+                InspectionStatus.UPLOADING, false, GENERATION, CHARGE);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<Defect>> captor = ArgumentCaptor.forClass(List.class);
+        verify(defectWriter).softDeleteAllForInspectionThenSaveAndMarkAnalyzed(any(), eq(INSPECTION_ID), captor.capture(), any(), any());
+        List<Defect> saved = captor.getValue();
+
+        // 계약 위반 3건은 null로 걸러지고, 정상값 1건만 살아남는다 — 4건 모두 저장은 계속된다(격리만 됨).
+        assertThat(saved).hasSize(4);
+        assertThat(saved)
+                .extracting(Defect::getAreaMm2ReferenceGrade)
+                .containsExactlyInAnyOrder("B", null, null, null);
+    }
+
     private DetectedDefectItem detection(String type, String grade) {
         return detection(type, grade, null);
     }
 
     private DetectedDefectItem detection(String type, String grade, Double widthMm) {
-        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, widthMm, null);
+        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, widthMm, null, null);
     }
 
     private DetectedDefectItem detectionWithArea(String type, String grade, Double areaMm2) {
-        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, null, areaMm2);
+        return new DetectedDefectItem(type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, null, areaMm2, null);
+    }
+
+    private DetectedDefectItem detectionWithReferenceGrade(String type, String grade, String areaMm2ReferenceGrade) {
+        return new DetectedDefectItem(
+                type, 0.1, 0.1, 0.2, 0.2, 0.9, grade, null, null, null, areaMm2ReferenceGrade);
     }
 
     @SuppressWarnings("unchecked")
