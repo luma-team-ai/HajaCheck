@@ -45,7 +45,7 @@ function hideExportIgnoredElements(clonedDoc: Document): void {
 
 // #1692 — 통계 화면 "내보내기"를 CSV(숫자 나열)에서 화면 캡처 PDF로 전환한다. 회차 간 비교
 // 화면의 exportComparisonReportAsPdf(#489/#1371)와 동일한 접근: html2canvas로 캡처 대상을
-// 이미지로 뜨고, jsPDF a4/mm 문서에 그대로 삽입한다. 콘텐츠가 A4 한 페이지보다 길면 페이지
+// 이미지로 뜨고, jsPDF a4 가로/mm 문서에 그대로 삽입한다. 콘텐츠가 한 페이지보다 길면 페이지
 // 콘텐츠 영역(여백 제외) 높이만큼 소스 캔버스를 잘라 페이지마다 별도 이미지로 그린다.
 // jsPDF는 통계 화면 진입 시점엔 쓰이지 않는 번들이라 동적 import로 분리하고(선례와 동일),
 // html2canvas는 내보내기 클릭 시 곧바로 필요해 선례와 동일하게 정적 import를 유지한다.
@@ -61,7 +61,10 @@ export async function exportStatisticsAsPdf(node: HTMLElement): Promise<void> {
   const canvas = await html2canvas(node, { onclone: hideExportIgnoredElements });
   const { default: jsPDF } = await jsPdfModulePromise;
 
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  // 용지는 A4 가로(landscape) — 통계 대시보드는 KPI 4열·차트 2열처럼 가로로 넓은 레이아웃이라
+  // 세로 A4에 폭을 맞추면 내용이 페이지 상단 40%에만 작게 들어가고 아래가 통째로 비었다
+  // (2026-08-19 실측 출력물 확인). 가로로 두면 화면 비율과 맞아 같은 내용이 더 크게 담긴다.
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const contentWidthMm = pageWidth - MARGIN_MM * 2;

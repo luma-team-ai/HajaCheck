@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mockAddImage = vi.fn();
 const mockAddPage = vi.fn();
 const mockSave = vi.fn();
-const PAGE_WIDTH = 210;
-const PAGE_HEIGHT = 297;
+// A4 가로(landscape) 기준 — exportStatisticsAsPdf가 orientation:'landscape'로 문서를 만든다.
+const PAGE_WIDTH = 297;
+const PAGE_HEIGHT = 210;
 // 여백(10mm) 제외 콘텐츠 영역 — exportStatisticsAsPdf.ts의 MARGIN_MM=10과 동기화된 상수.
 const MARGIN_MM = 10;
-const CONTENT_WIDTH_MM = PAGE_WIDTH - MARGIN_MM * 2; // 190
-const CONTENT_HEIGHT_MM = PAGE_HEIGHT - MARGIN_MM * 2; // 277
+const CONTENT_WIDTH_MM = PAGE_WIDTH - MARGIN_MM * 2; // 277
+const CONTENT_HEIGHT_MM = PAGE_HEIGHT - MARGIN_MM * 2; // 190
 
 class MockJsPDF {
   internal = {
@@ -62,9 +63,9 @@ describe('exportStatisticsAsPdf', () => {
   });
 
   it('캡처 이미지가 한 페이지 콘텐츠 영역 높이 이내면 페이지를 추가하지 않고, 10mm 여백 좌표로 그린다', async () => {
-    // 캔버스 폭을 콘텐츠 폭(190mm)과 같게 잡아 pxPerMm=1로 계산을 단순화한다.
-    // 높이(200px)가 콘텐츠 높이(277mm)보다 작아 한 페이지에 다 들어간다.
-    mockHtml2Canvas(CONTENT_WIDTH_MM, 200);
+    // 캔버스 폭을 콘텐츠 폭(277mm)과 같게 잡아 pxPerMm=1로 계산을 단순화한다.
+    // 높이(150px)가 콘텐츠 높이(190mm)보다 작아 한 페이지에 다 들어간다.
+    mockHtml2Canvas(CONTENT_WIDTH_MM, 150);
     const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
 
     await exportFn(document.createElement('div'));
@@ -77,15 +78,15 @@ describe('exportStatisticsAsPdf', () => {
       MARGIN_MM,
       MARGIN_MM,
       CONTENT_WIDTH_MM,
-      200,
+      150,
     );
     expect(mockSave).toHaveBeenCalledTimes(1);
     expect(mockSave.mock.calls[0][0]).toMatch(/^통계리포트_\d{8}\.pdf$/);
   });
 
   it('콘텐츠가 한 페이지보다 길면 콘텐츠 영역 높이만큼 캔버스를 잘라 페이지를 나누고, 마지막 조각은 남은 높이만큼만 그린다', async () => {
-    // pxPerMm=1이 되도록 폭을 190으로 고정 — 콘텐츠 높이(277)+150 = 427px:
-    // 1페이지는 277px(콘텐츠 영역 가득), 2페이지는 남은 150px만(늘려 그리지 않음).
+    // pxPerMm=1이 되도록 폭을 277로 고정 — 콘텐츠 높이(190)+150 = 340px:
+    // 1페이지는 190px(콘텐츠 영역 가득), 2페이지는 남은 150px만(늘려 그리지 않음).
     mockHtml2Canvas(CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM + 150);
     const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
 
