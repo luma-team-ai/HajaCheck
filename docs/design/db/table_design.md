@@ -1,9 +1,6 @@
 # hajaCheck 테이블 디자인 설계
 
-> **문서 버전:** v0.5 · **최종 수정:** 2026-07-24 · 이전 버전 `archive/`
-> (버전 관리 확인: v0.5는 아직 `main`에 released되지 않음 — `main`은 v0.4(2026-07-21)까지만 반영됨.
-> released 문서 실질 변경 시 요구되는 archive 스냅샷·버전 bump는 미released 문서의 예외 규칙에 따라
-> 생략하고, 이번 PR의 media_id 행 추가(dev-05-04) 반영 시각으로 최종 수정일만 갱신한다.)
+> **문서 버전:** v0.6 · **최종 수정:** 2026-08-19 · 이전 버전 `archive/`
 
 - 대상 스키마 파일: [HajaCheck_script.sql](HajaCheck_script.sql)
 - DB 엔진: PostgreSQL — RAG 벡터 검색은 PostgreSQL이 아닌 **Chroma**(FastAPI 임베디드, 로컬 파일 저장)가 전담한다. PostgreSQL에는 RAG 문서 메타데이터와 인용 참조 정보만 저장한다 (§2.4, §5.5 참조).
@@ -614,7 +611,10 @@ api_system_logs.user_id ···> users.id (논리 참조, FK 없음)
 | created_at | timestamptz | N | now() | | 생성 시각 |
 
 - **UQ**: `(facility_id, round_no)` — 시설별 회차 중복 방지.
-- 인덱스: `idx_inspections_facility (facility_id)`, `idx_inspections_assigned_inspector (assigned_inspector_id)`
+- 인덱스: `idx_inspections_assigned_inspector (assigned_inspector_id)`,
+  `idx_inspections_recent_order (facility_id, inspection_date desc, performed_at desc nulls last, id desc)`
+  (V45, #1679/#1667 후속 — 최근 점검 정렬 조회를 뒷받침. 옛 `idx_inspections_facility (facility_id)`는
+  이 복합 인덱스 선두 컬럼에 완전 포함되는 중복이라 V45에서 drop됨)
 - 마이그레이션 이전 행은 모두 `REGULAR`로 백필한다. `facilities.inspection_cycle_months`와
   `next_inspection_due_at`은 정기 점검에만 적용하며, 정밀·긴급 점검에는 다음 회차를 자동 설정하지 않는다.
 - `assigned_inspector_id`가 가리키는 사용자는 애플리케이션에서 `users.status=ACTIVE AND role IN (INSPECTOR, ADMIN)`인지 검증한다. 기존 데이터 마이그레이션은 담당자 확정값으로 백필한 뒤 NOT NULL을 적용하며, 근거 없이 `created_by`를 자동 복사하지 않는다.

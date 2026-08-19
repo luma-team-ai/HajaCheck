@@ -1,5 +1,6 @@
 package com.hajacheck.core.report.scheduler;
 
+import com.hajacheck.core.report.config.ReportPdfCleanupProperties;
 import com.hajacheck.core.report.entity.Report;
 import com.hajacheck.core.report.entity.ReportStatus;
 import com.hajacheck.core.report.repository.ReportRepository;
@@ -36,12 +37,12 @@ public class OrphanReportPdfCleanupScheduler {
     // 겨냥하므로 촘촘히 돌 필요가 없다. 최초 실행은 기동 직후 부하를 피해 5분 뒤부터.
     private static final long CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000L;
     private static final long CLEANUP_INITIAL_DELAY_MS = 5 * 60 * 1000L;
-    // 업로드 후 finalize까지 유예를 충분히 준다 — 확정 직전 잠깐 재업로드하는 정상 흐름을
-    // 오탐하지 않도록(짧은 임계는 정상 작업 중인 파일까지 지울 위험이 있다).
-    private static final int ORPHAN_RETENTION_DAYS = 7;
 
     private final ReportRepository reportRepository;
     private final ReportPdfStorage reportPdfStorage;
+    // 유예기간(일)은 hajacheck.report.pdf-cleanup.retention-days로 외부화(#1680) — 기본 7일은
+    // ReportPdfCleanupProperties에서 관리한다(운영 env로 조정 가능).
+    private final ReportPdfCleanupProperties reportPdfCleanupProperties;
 
     @Scheduled(fixedDelay = CLEANUP_INTERVAL_MS, initialDelay = CLEANUP_INITIAL_DELAY_MS)
     public void cleanupOrphanPdfs() {
@@ -49,7 +50,7 @@ public class OrphanReportPdfCleanupScheduler {
         if (reportIds.isEmpty()) {
             return;
         }
-        Instant cutoff = Instant.now().minus(ORPHAN_RETENTION_DAYS, ChronoUnit.DAYS);
+        Instant cutoff = Instant.now().minus(reportPdfCleanupProperties.getRetentionDays(), ChronoUnit.DAYS);
         int totalRemoved = 0;
         int failed = 0;
         for (Long reportId : reportIds) {

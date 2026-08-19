@@ -303,6 +303,21 @@ export function DefectDetailModal({ defects, initialDefectId, onClose }: Props) 
                         ? `${selectedDefect.areaMm2}mm²`
                         : <span className="defect-metric-empty">측정 예정</span>}
                     </strong>
+                    {/* 참고 등급(mm² 기반, #1683/#1684) — areaMm2와 동일 조건에서만 값 존재,
+                        단독 null 체크(#1588 교훈). 본등급 칩(defect-chip--grade, 실색 채움)과
+                        시각적으로 명확히 구분되는 보조 톤(무채색 아웃라인)으로 표시하고, "잠정
+                        기준(실측 재캘리브레이션 전)" 안내를 title 툴팁 + 캡션 텍스트로 병기한다. */}
+                    {selectedDefect.areaMm2ReferenceGrade != null && (
+                      <>
+                        <span
+                          className="defect-chip defect-chip--reference-grade"
+                          title="잠정 기준(실측 재캘리브레이션 전)"
+                        >
+                          {`참고 등급 ${selectedDefect.areaMm2ReferenceGrade}`}
+                        </span>
+                        <em>잠정 기준(실측 재캘리브레이션 전)</em>
+                      </>
+                    )}
                   </article>
                 </div>
               </div>

@@ -535,7 +535,21 @@ class Ha25IncrementalMigrationTest {
                 // 적용해야 assertCanonicalSchemaParity 가 통과한다.
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource("db/migration/V44__add_defect_area_mm2.sql"),
-                        CONTAINER_ROOT + "V44__add_defect_area_mm2.sql");
+                        CONTAINER_ROOT + "V44__add_defect_area_mm2.sql")
+                // #1679 — Flyway V45(inspections 최근 점검 정렬 복합 인덱스, #1667 후속)도 이어서 1회
+                // forward-apply한다. 캐노니컬 DDL에 이 인덱스가 반영돼 있으므로 이 증분 경로에서도
+                // 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V45__add_inspections_recent_order_index.sql"),
+                        CONTAINER_ROOT + "V45__add_inspections_recent_order_index.sql")
+                // #1682/#1683 — Flyway V46(defects.area_mm2_reference_grade 컬럼, ai-server mm² 참고 등급
+                // additive)도 이어서 1회 forward-apply한다. 캐노니컬 DDL에 이 컬럼이 반영돼 있으므로 이
+                // 증분 경로에서도 적용해야 assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V46__add_defect_area_mm2_reference_grade.sql"),
+                        CONTAINER_ROOT + "V46__add_defect_area_mm2_reference_grade.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -706,6 +720,14 @@ class Ha25IncrementalMigrationTest {
         // EXISTS라 재실행이 안전하다는 점까지 함께 고정한다(V16/V41과 동일 패턴).
         runPsql(postgres, "V44__add_defect_area_mm2.sql");
         runPsql(postgres, "V44__add_defect_area_mm2.sql");
+        // #1679 — Flyway V45(inspections 최근 점검 정렬 복합 인덱스)도 이어서 forward-apply한다.
+        // CREATE INDEX IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다(V9/V25/V34와 동일 패턴).
+        runPsql(postgres, "V45__add_inspections_recent_order_index.sql");
+        runPsql(postgres, "V45__add_inspections_recent_order_index.sql");
+        // #1682/#1683 — Flyway V46(defects.area_mm2_reference_grade)도 이어서 forward-apply한다.
+        // ADD COLUMN IF NOT EXISTS라 재실행이 안전하다는 점까지 함께 고정한다(V16/V41/V44와 동일 패턴).
+        runPsql(postgres, "V46__add_defect_area_mm2_reference_grade.sql");
+        runPsql(postgres, "V46__add_defect_area_mm2_reference_grade.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

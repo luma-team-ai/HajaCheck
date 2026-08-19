@@ -861,11 +861,16 @@ comment on column inspections.performed_at is '점검 실제 수행 시각(#1667
 alter table inspections
     owner to postgres;
 
-create index idx_inspections_facility
-    on inspections (facility_id);
-
 create index idx_inspections_assigned_inspector
     on inspections (assigned_inspector_id);
+
+-- #1679/#1667 — findRecentByFacilityIds/findLatestByFacilityIds 정렬(facility_id,
+-- inspection_date desc, performed_at desc nulls last, id desc)을 뒷받침하는 복합 인덱스.
+-- PR머신 P3(2026-08-19) — 이 인덱스의 선두 컬럼(facility_id)이 옛 idx_inspections_facility(facility_id
+-- 단일)를 완전히 커버하므로(멀티컬럼 btree는 선두 컬럼만 쓰는 등치/IN 조회에도 그대로 쓰인다) 그
+-- 인덱스는 V45에서 drop했고 캐노니컬에서도 제거한다.
+create index idx_inspections_recent_order
+    on inspections (facility_id, inspection_date desc, performed_at desc nulls last, id desc);
 
 create table media
 (
@@ -967,6 +972,7 @@ create table defects
     crack_length_mm double precision,
     area_ratio      double precision,
     area_mm2        double precision,
+    area_mm2_reference_grade varchar(1),
     action_media_id    bigint
         references media,
     action_content     text,
@@ -1016,6 +1022,8 @@ comment on column defects.crack_length_mm is '균열 길이(mm)';
 comment on column defects.area_ratio is '결함 면적비율(탐지 bbox 면적 ÷ 이미지 전체 면적, HAJA-803, nullable)';
 
 comment on column defects.area_mm2 is '결함 실측 면적(mm², #1658/#1668) — SPALLING/REBAR_EXPOSURE만 값 존재 가능, 카드 미검출·CRACK 타입이면 nullable';
+
+comment on column defects.area_mm2_reference_grade is 'mm² 기반 참고 등급(A~E, #1682/#1683) — area_mm2가 있는 SPALLING/REBAR_EXPOSURE만 값 존재 가능, 본등급(grade)과 무관한 참고값·nullable';
 
 comment on column defects.action_media_id is '조치 후 사진(HAJA-393/#725) — 조치 결과 등록 시 업로드한 촬영 이미지 식별자, nullable';
 

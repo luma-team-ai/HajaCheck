@@ -82,6 +82,9 @@ const mockDefects: DefectDetailItem[] = [
     bboxW: 0.25,
     bboxH: 0.1,
     areaMm2: 3800.2, // 카드 기준물 검출된 케이스(#1658/#1669) — '측정 예정'이 아니라 실값 표시 검증용
+    // 참고 등급 값 케이스(#1683/#1684) — 본등급(D)과 다른 값(B)으로 둬서 두 등급 표시가
+    // 서로 독립적인 값임을 검증한다.
+    areaMm2ReferenceGrade: 'B',
     createdAt: '2026-07-22T10:00:00Z',
     mediaId: 67,
     imageUrl: '/api/media/67/thumbnail',
@@ -753,6 +756,20 @@ describe('ResultViewerPage (통합 테스트)', () => {
     expect(screen.getByText('사진 내 비율')).not.toBeNull();
     expect(screen.getByText('3800.2mm²')).not.toBeNull();
     expect(screen.queryByText('측정 예정')).toBeNull();
+    // 참고 등급 배지(#1683/#1684) — areaMm2와 동일 조건에서만 표시.
+    expect(screen.getByText('참고 등급 B')).not.toBeNull();
+  });
+
+  it('참고 등급(areaMm2ReferenceGrade)이 null이면 배지를 표시하지 않는다(#1683/#1684, 단독 null 체크)', async () => {
+    renderPage();
+    await screen.findByText('DEF-0001');
+
+    fireEvent.load(screen.getByAltText('점검 이미지'));
+    // id=2(박리박락) — areaMm2/areaMm2ReferenceGrade 둘 다 미제공(카드 기준물 미검출 케이스).
+    fireEvent.click(screen.getByTitle(/박리박락 · B등급/));
+
+    expect(screen.getByText('측정 예정')).not.toBeNull();
+    expect(screen.queryByText(/^참고 등급 /)).toBeNull();
   });
 
   it('빈 데이터: 탐지된 하자가 없으면 해당 메시지를 표시한다', async () => {

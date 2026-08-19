@@ -38,6 +38,10 @@ export interface Defect {
   // 실측 면적(mm², #1658/#1669) — 카드 기준물로 환산한 값. 박리박락·철근노출만 있을 수 있고
   // 카드 미검출이면 null. areaRatio와 독립적으로 null 체크(AND 묶기 금지, #1588 교훈).
   areaMm2?: number | null;
+  // 참고 등급(mm² 기반, #1683/#1684) — backend DefectDetailItem.areaMm2ReferenceGrade 그대로 전달.
+  // areaMm2와 동일 조건에서만 값이 있는 잠정 보조 등급("실측 재캘리브레이션 전" 기준). 본등급(grade)
+  // 과 절대 같은 축으로 섞지 않는다 — 단독 null 체크(#1588 교훈).
+  areaMm2ReferenceGrade?: string | null;
   summary: string; // 분석 요약
   mediaId?: number | null; // 이미지 ID — 백엔드에서 제공. null이면 미지정(수동 추가 등)
   imageUrl?: string | null; // 이미지 URL — 백엔드 형식: /api/media/{mediaId}/thumbnail

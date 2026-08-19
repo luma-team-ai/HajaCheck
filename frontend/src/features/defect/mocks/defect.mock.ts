@@ -26,6 +26,9 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
     crackLengthMm: null,
     areaRatio: 0.045,
     areaMm2: 4200.5, // 실측 면적 값 케이스(#1658/#1669) — 철근 노출은 카드 기준물 검출됨
+    // 참고 등급 값 케이스(#1683/#1684) — 본등급(D)과 다른 값(C)으로 둬서 화면에서 두 등급이
+    // 실제로 독립적인 표시라는 걸 검증한다(단순히 본등급을 복제한 게 아님).
+    areaMm2ReferenceGrade: 'C',
     mediaId: 901,
     imageUrl: '/api/media/901/thumbnail',
     detailUrl: '/api/media/901/detail',
@@ -48,6 +51,7 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
     crackLengthMm: 45.0,
     areaRatio: null,
     areaMm2: null, // 균열은 항상 null(#1658/#1669 — SPALLING/REBAR_EXPOSURE 전용)
+    areaMm2ReferenceGrade: null, // 균열은 항상 null(#1683/#1684 — areaMm2와 동일 조건)
     mediaId: 902,
     imageUrl: '/api/media/902/thumbnail',
     detailUrl: '/api/media/902/detail',
@@ -70,6 +74,7 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
     crackLengthMm: null,
     areaRatio: null,
     areaMm2: null, // 박리박락이지만 카드 기준물 미검출 케이스(#1658/#1669) — '측정 예정' 표시 검증용
+    areaMm2ReferenceGrade: null, // 카드 기준물 미검출이면 참고 등급도 null(#1683/#1684)
     // mediaId 없는 하자(HAJA-314) — 이미지 없이 조회되는 케이스를 목데이터에서도 재현.
     mediaId: null,
     imageUrl: null,
@@ -93,6 +98,7 @@ export const mockInspectionDefectResponses: InspectionDefectResponse[] = [
     crackLengthMm: 31.5,
     areaRatio: null,
     areaMm2: null, // 균열은 항상 null(#1658/#1669)
+    areaMm2ReferenceGrade: null, // 균열은 항상 null(#1683/#1684)
     mediaId: 901,
     imageUrl: '/api/media/901/thumbnail',
     detailUrl: '/api/media/901/detail',
@@ -124,6 +130,7 @@ export const mockDefects: Defect[] = mockInspectionDefects.map((defect): Defect 
     crackWidthMm: defect.crackWidthMm,
     crackLengthMm: defect.crackLengthMm,
     areaMm2: defect.areaMm2, // backend DefectResponse.areaMm2(#1658/#1669) — InspectionDefect에서 그대로 전달
+    areaMm2ReferenceGrade: defect.areaMm2ReferenceGrade, // backend DefectResponse.areaMm2ReferenceGrade(#1683/#1684)
     imageUrl: defect.imageUrl,
     createdAt: defect.createdAt,
   };

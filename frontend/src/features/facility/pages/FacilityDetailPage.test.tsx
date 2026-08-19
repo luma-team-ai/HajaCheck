@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // FacilityDetailPage 통합 테스트 — 실제 useFacility(MSW facilityHandlers) + 목 useFacilityInspectionOverview 조합을 검증한다.
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { setupServer } from 'msw/node';
@@ -204,5 +204,43 @@ describe('FacilityDetailPage (통합 테스트)', () => {
     fireEvent.click(screen.getByRole('button', { name: '+ 새 점검' }));
 
     expect(await screen.findByText('점검 생성 화면')).not.toBeNull();
+  });
+
+  // #1681 — PUT /api/facilities/{id}는 기존 존재했으나(#618) 이 화면엔 미배선 상태였다. "수정"
+  // 버튼으로 진입해 프리필된 폼을 저장하면 실 API로 반영되고, 갱신된 값이 화면에 다시 표시돼야 한다.
+  describe('시설물 수정(#1681)', () => {
+    it('"수정" 버튼을 누르면 기존 값이 프리필된 수정 모달이 열린다', async () => {
+      renderPage();
+      await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
+
+      fireEvent.click(screen.getByRole('button', { name: '수정' }));
+
+      expect(await screen.findByRole('heading', { name: '시설물 수정' })).not.toBeNull();
+      expect((screen.getByLabelText(/시설물명/) as HTMLInputElement).value).toBe(
+        '강남 오피스타워 A동',
+      );
+    });
+
+    it('수정 폼을 저장하면 PUT API로 반영되고 화면에 갱신된 값이 표시된다', async () => {
+      renderPage();
+      await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
+
+      fireEvent.click(screen.getByRole('button', { name: '수정' }));
+      await screen.findByRole('heading', { name: '시설물 수정' });
+
+      fireEvent.change(screen.getByLabelText(/시설물명/), {
+        target: { value: '강남 오피스타워 A동(리모델링)' },
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: '수정하기' }));
+      });
+
+      expect(
+        await screen.findByRole('heading', { name: '강남 오피스타워 A동(리모델링)' }),
+      ).not.toBeNull();
+      // 저장이 성공하면 모달이 닫힌다 — 다음 렌더에서 수정 모달 제목은 더 이상 없어야 한다.
+      expect(screen.queryByRole('heading', { name: '시설물 수정' })).toBeNull();
+    });
   });
 });

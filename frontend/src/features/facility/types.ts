@@ -219,6 +219,11 @@ export interface FacilityDefectDetail {
   /** 박리박락·철근노출만 값이 있을 수 있음(backend DefectResponse.areaMm2, #1658/#1669) —
    * 카드 기준물 미검출이거나 균열 타입이면 null. widthMm/lengthM과 독립적으로 null 체크(#1588 교훈). */
   areaMm2: number | null;
+  /** 참고 등급(mm² 기반, backend DefectResponse.areaMm2ReferenceGrade, #1683/#1684) — areaMm2와
+   * 동일 조건에서만 값이 있는 잠정 보조 등급("실측 재캘리브레이션 전" 기준). 본등급(grade)과 별개
+   * 축이라 섞지 않는다. 화면 표시는 공간 여유에 따라 선택적(#1684 — FacilityDefectInfoPanel은 좁은
+   * 레이아웃이라 생략). 단독 null 체크(#1588 교훈). */
+  areaMm2ReferenceGrade?: string | null;
   foundCycle: number;
   /** YYYY-MM-DD */
   foundAt: string;
@@ -258,6 +263,8 @@ export interface FacilityDefectDetailResponse {
   crackLengthMm: number | null;
   // 실측 면적(mm², #1658/#1669) — backend DefectResponse.areaMm2와 1:1.
   areaMm2: number | null;
+  // 참고 등급(mm² 기반, #1683/#1684) — backend DefectResponse.areaMm2ReferenceGrade와 1:1.
+  areaMm2ReferenceGrade?: string | null;
   imageUrl: string | null;
   // #1369 — 0~1 정규화 좌표(backend DefectResponse.bboxX/Y/W/H), nullable.
   bboxX: number | null;

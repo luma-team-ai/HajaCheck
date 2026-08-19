@@ -16,6 +16,7 @@ function toFacilityDefectDetail(raw: FacilityDefectDetailResponse): FacilityDefe
     widthMm: raw.crackWidthMm,
     lengthM: raw.crackLengthMm == null ? null : raw.crackLengthMm / MM_PER_M,
     areaMm2: raw.areaMm2, // 실측 면적(mm²) — 단위 변환 없이 그대로 전달(#1658/#1669)
+    areaMm2ReferenceGrade: raw.areaMm2ReferenceGrade, // 참고 등급(mm² 기반) — 그대로 전달(#1683/#1684)
     foundCycle: raw.foundCycle,
     foundAt: raw.createdAt.slice(0, 10),
     location: raw.location,

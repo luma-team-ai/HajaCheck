@@ -1026,6 +1026,8 @@ class ReportServiceTest {
                 .location("교량 하부 익명 위치")
                 .crackWidthMm(0.3)
                 .crackLengthMm(1200.0)
+                .areaRatio(0.005)
+                .areaMm2(45.5)
                 .build();
         Media media = Media.builder()
                 .inspectionId(1L)
@@ -1052,6 +1054,7 @@ class ReportServiceTest {
         assertThat(response.context().defects()).hasSize(1);
         assertThat(response.context().defects().get(0).typeLabel()).isEqualTo("균열");
         assertThat(response.context().defects().get(0).location()).isEqualTo("교량 하부 익명 위치");
+        assertThat(response.context().defects().get(0).areaMm2()).isEqualTo(45.5);
         assertThat(response.context().media()).hasSize(1);
         assertThat(response.context().media().get(0).thumbnailUrl()).isNull();
     }

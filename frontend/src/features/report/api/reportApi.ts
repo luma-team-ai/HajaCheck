@@ -72,6 +72,7 @@ export interface ReportDefectContext {
   crackWidthMm?: number | null;
   crackLengthMm?: number | null;
   areaRatio?: number | null;
+  areaMm2?: number | null;
   actionContent?: string | null;
   actionDate?: string | null;
   actionAssigneeId?: number | null;

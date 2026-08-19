@@ -48,8 +48,16 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
                 name = "uk_inspections_facility_round",
                 columnNames = {"facility_id", "round_no"}),
         indexes = {
-                @Index(name = "idx_inspections_facility", columnList = "facility_id"),
-                @Index(name = "idx_inspections_assigned_inspector", columnList = "assigned_inspector_id")
+                // #1679(V45) — idx_inspections_facility(facility_id 단일)는 아래 복합 인덱스의 선두
+                // 컬럼에 완전 포함되는 중복이라 drop했다. ddl-auto=validate라 이 @Index 목록은 스키마
+                // 생성에 관여하지 않지만(Flyway가 실제 DDL을 관리) 엔티티 문서가 실제 인덱스와
+                // 어긋나지 않도록 함께 갱신한다.
+                @Index(name = "idx_inspections_assigned_inspector", columnList = "assigned_inspector_id"),
+                // columnList는 JPA @Index 표현의 한계로 "nulls last"를 담지 못한다(desc만 표현 가능) —
+                // 실제 정렬·정합 소스는 V45 SQL(performed_at desc nulls last)이며, 이 columnList는 그
+                // 근사치일 뿐이다.
+                @Index(name = "idx_inspections_recent_order",
+                        columnList = "facility_id, inspection_date desc, performed_at desc, id desc")
         })
 @EntityListeners(AuditingEntityListener.class)
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

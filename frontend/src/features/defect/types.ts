@@ -27,6 +27,12 @@ export interface Defect {
   // AI 서버가 카드 기준물로 환산해 내려준 값 — SPALLING/REBAR_EXPOSURE만 값이 있을 수 있고,
   // 카드 미검출이면 null. 단독 null 체크(다른 필드와 AND 묶기 금지, #1588 교훈).
   areaMm2: number | null;
+  // 참고 등급(mm² 기반, #1683/#1684) — backend DefectResponse.areaMm2ReferenceGrade와 1:1. areaMm2와
+  // 동일 조건(SPALLING/REBAR_EXPOSURE + 카드 기준물 검출)에서만 값이 있고, 그 외엔 null. "잠정 기준
+  // (실측 재캘리브레이션 전)"으로 산출된 보조 등급이라 본등급(grade)과 절대 같은 축으로 섞지 않는다 —
+  // 집계·필터 로직 대상이 아니며 화면 표시 전용. optional인 이유는 기존 mock/테스트가 이 필드 없이도
+  // 유효하도록(다른 optional 필드와 동일 관례, #1588 교훈대로 단독 null 체크).
+  areaMm2ReferenceGrade?: string | null;
   // 인가된 /api/media/{id}/thumbnail 경로 — mediaId가 없으면 null(HAJA-314)
   imageUrl: string | null;
   createdAt: string;
@@ -63,6 +69,9 @@ export interface InspectionDefectResponse {
   // 실측 면적(mm², #1658/#1669) — areaRatio(사진 내 비율)와 별개 지표. 단독 null 체크
   // (다른 필드와 AND 묶기 금지, #1588 교훈).
   areaMm2: number | null;
+  // 참고 등급(mm² 기반, #1683/#1684) — areaMm2와 동일 조건에서만 값이 있는 잠정 보조 등급.
+  // 본등급(grade)과 절대 같은 축으로 섞지 않는다. 단독 null 체크(#1588 교훈).
+  areaMm2ReferenceGrade?: string | null;
   mediaId: number | null;
   imageUrl: string | null;
   detailUrl: string | null;
@@ -89,6 +98,9 @@ export interface InspectionDefect {
   // 실측 면적(mm², #1658/#1669) — areaRatio(사진 내 비율)와 별개 지표. 단독 null 체크
   // (다른 필드와 AND 묶기 금지, #1588 교훈).
   areaMm2: number | null;
+  // 참고 등급(mm² 기반, #1683/#1684) — areaMm2와 동일 조건에서만 값이 있는 잠정 보조 등급.
+  // 본등급(grade)과 절대 같은 축으로 섞지 않는다. 단독 null 체크(#1588 교훈).
+  areaMm2ReferenceGrade?: string | null;
   mediaId: number | null;
   imageUrl: string | null;
   detailUrl: string | null;

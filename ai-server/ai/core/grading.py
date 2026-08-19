@@ -76,6 +76,25 @@ area_ratio(하자 마스크 픽셀 / 이미지 전체 픽셀)는 박리박락·�
 심각도와 교란(ρ(거리,정답등급)=-0.144, 심각한 균열일수록 가까이서 촬영하는 경향)돼 있어 독립
 보정 변수로 못 쓴다. 밴드를 넓혀 흔들림을 줄이면 그만큼 불량이 다시 A·B로 몰려 원래 버그로
 회귀하므로, 밴드 조정으로는 이 근본 한계에 대응하지 않는다 — 현재 미해결 상태로 남아 있다.
+
+## mm² 참고 등급 (2026-08-19, #1682 — 본등급과 완전히 분리된 additive 잠정치)
+
+바로 위 "프레이밍 의존성" 한계를 근본적으로 피하려면 area_ratio(비율) 대신 **실측 물리량(mm²)**
+이 필요하다는 게 #1658(카드 기준물 스케일 공유)의 동기였다. 카드가 검출된 SPALLING/
+REBAR_EXPOSURE 탐지에는 이제 `area_mm2`(실측 면적)이 있으므로, 이를 별도 구간표로 매핑한
+'참고 등급'(`area_mm2_reference_grade`)을 병기한다 — **본등급(compute_grade/area_ratio 경로)은
+이 절과 무관하게 절대 불변**이다.
+
+⚠️ `_PROVISIONAL_AREA_MM2_REFERENCE_BANDS`는 SPALLING/REBAR_EXPOSURE의 **mm² 실측 라벨
+데이터가 아직 없는 상태**에서 만든 잠정치다 — §3.2(위 area_ratio 밴드, 본등급 정본)의 경계값
+(1%/3%/7%/15%)을, 이 저장소에 문서화된 **유일한 기존 px→mm 환산 앵커**
+(`docs/design/crack-measurement-protocol.md` §1 "640 입력에서 1px≈1.5mm")로 역산해 만들었다
+(`반올림(area_ratio_threshold × (640×1.5mm)²)` = `area_ratio_threshold × 921,600mm²`). 이
+앵커는 원래 CRACK 모델(U-Net, 640 입력)의 촬영 조건(~1m 거리) 기준이라 SPALLING/REBAR_EXPOSURE
+(다른 해상도의 YOLOv8n-seg)에 그대로 맞다는 보장이 없고, 그 조건 자체도 위 "미해결 —
+프레이밍 의존성" 절에서 이미 한계로 지적된 촬영거리 가정에 다시 기대는 것이다 — **자릿수
+단위의 임시 참고치일 뿐, 본등급 판정에는 절대 사용하지 않는다.** 실측 mm² 라벨이 쌓이면
+(문서 §5 "후속 개발 태스크" 참고) 재캘리브레이션 대상이다.
 """
 from __future__ import annotations
 
@@ -163,3 +182,36 @@ def severity_score_to_grade(s: float) -> str:
 
 def compute_grade(defect_type: str, area_ratio: float) -> str:
     return severity_score_to_grade(compute_severity_score(defect_type, area_ratio))
+
+
+# mm² 참고 등급 전용 잠정 구간표 — 근거·재캘리브레이션 조건은 모듈 docstring
+# "mm² 참고 등급(2026-08-19, #1682)" 절 참고. **본등급 산정(compute_grade/compute_severity_score)
+# 경로와 완전히 분리** — 이 상수는 아래 compute_area_mm2_reference_* 함수에서만 쓰인다.
+_PROVISIONAL_AREA_MM2_REFERENCE_BANDS: list[tuple[float, float]] = [
+    (9216.0, 0.1),
+    (27648.0, 0.3),
+    (64512.0, 0.5),
+    (138240.0, 0.7),
+]
+
+
+def compute_area_mm2_reference_severity_score(defect_type: str, area_mm2: float) -> float:
+    """mm² 참고 등급의 원점수 s ∈ [0, 1] — SPALLING/REBAR_EXPOSURE 전용, 잠정치(모듈 docstring
+    "mm² 참고 등급" 절 참고). REBAR_EXPOSURE의 '존재=고위험' floor는 본등급과 동일 원칙으로
+    참고등급에도 적용한다(#1682 결정)."""
+    s = _band_severity(area_mm2, _PROVISIONAL_AREA_MM2_REFERENCE_BANDS)
+    if defect_type == "REBAR_EXPOSURE":
+        s = max(s, REBAR_EXPOSURE_SEVERITY_FLOOR)
+    return s
+
+
+def compute_area_mm2_reference_grade(defect_type: str, area_mm2: float | None) -> str | None:
+    """mm² 참고 등급(A~E | None) — `area_mm2`가 있는 SPALLING/REBAR_EXPOSURE에만 산출한다(#1682).
+
+    CRACK은 대상이 아니다(선형 하자라 width_mm으로 별도 병기, area_mm2 자체를 안 채움 —
+    `defect_detection_chain._apply_area_mm2` 참고). area_mm2가 None(카드 미검출 등)이면 None을
+    반환해 '참고등급 산정 불가'를 그대로 전달한다 — 본등급(grade)과 달리 이 필드는 항상 nullable.
+    """
+    if defect_type not in ("SPALLING", "REBAR_EXPOSURE") or area_mm2 is None:
+        return None
+    return severity_score_to_grade(compute_area_mm2_reference_severity_score(defect_type, area_mm2))
