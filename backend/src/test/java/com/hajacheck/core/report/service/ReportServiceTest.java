@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -1279,14 +1281,15 @@ class ReportServiceTest {
      * (reports → inspections → facilities) 순으로 잡으면 같은 시설물에 두 요청이 동시에 올 때 순환이
      * 완성돼 PostgreSQL이 한쪽을 40P01로 abort시킨다.
      *
-     * <p>그래서 finalize는 <b>첫 쓰기보다 먼저</b> 시설물 행을 잠가 순서를 하나로 통일해야 한다. 여기서는
-     * 그 선취가 회차 상태 전이(= inspections 쓰기)보다 앞서는지를 호출 순서로 고정한다 — 이 순서가
-     * 뒤집히면(예: markInspectionReported 직전으로 옮기면) 그 사이 auto-flush가 reports 락을 먼저 잡아
-     * 회귀가 되살아난다.
+     * <p>지켜야 할 불변식은 "회차 전이보다 앞"이 아니라 <b>이 트랜잭션의 첫 쓰기보다 앞</b>이다. 락을
+     * 첫 쓰기({@code recordStructuralGroundingRecheck}) 뒤로 옮기면, 그 사이의 어떤 쿼리든 auto-flush로
+     * 더티해진 report 행 락을 facilities보다 먼저 잡아 순서 역전이 그대로 되살아난다 — 그런데도 "전이보다
+     * 앞"만 보는 단언은 통과해 버린다. 그래서 report를 스파이로 감싸 <b>첫 쓰기 시점 자체</b>를 순서
+     * 검증에 끼워 넣는다(스파이는 실제 메서드를 그대로 위임하므로 동작은 바뀌지 않는다).
      */
     @Test
-    void finalizeReport_시설물행을_회차전이보다먼저잠근다_락순서역전회귀() {
-        Report report = Report.draft(1L, 1, 1, "{}", 100L);
+    void finalizeReport_시설물행을_첫쓰기보다먼저잠근다_락순서역전회귀() {
+        Report report = org.mockito.Mockito.spy(Report.draft(1L, 1, 1, "{}", 100L));
         report.recordGroundingResult(
                 com.hajacheck.core.report.entity.GroundingCheckResultTestFactory.passed(
                         com.hajacheck.core.report.entity.GroundingCheckTarget.capture(
@@ -1299,8 +1302,12 @@ class ReportServiceTest {
 
         reportService.finalizeReport(5L, "/api/reports/5/pdf/r.pdf", 100L, 200L);
 
-        org.mockito.InOrder inOrder = org.mockito.Mockito.inOrder(facilityService, inspectionService);
+        org.mockito.InOrder inOrder =
+                org.mockito.Mockito.inOrder(facilityService, report, inspectionService);
         inOrder.verify(facilityService).lockForUpdate(10L);
+        // ↓ 이 트랜잭션이 report 를 처음 더럽히는 지점. 락이 이 뒤로 밀리면 여기서 실패한다.
+        inOrder.verify(report).recordStructuralGroundingRecheck(anyBoolean(), any(), anyLong());
+        inOrder.verify(report).finalizeReport(anyString(), anyLong());
         inOrder.verify(inspectionService).advanceStatus(200L, 100L, 1L, InspectionStatus.REVIEWED);
         inOrder.verify(facilityService).recalculateNextInspectionDueAt(200L, 100L, 10L, LocalDate.now());
     }

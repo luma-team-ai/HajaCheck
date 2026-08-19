@@ -3,6 +3,7 @@ package com.hajacheck.core.report.entity;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.hajacheck.global.exception.DomainStateTransitionException;
 import com.hajacheck.global.exception.DomainValidationException;
 import org.junit.jupiter.api.Test;
 
@@ -297,6 +298,56 @@ class ReportTest {
         assertThatThrownBy(() -> report.reassignVersionOnConflictRetry(2))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(report.getVersion()).isEqualTo(1);
+    }
+
+    // ── 회차 스냅샷 재시도 가드(#1702 리뷰 P1/P3) ──
+
+    @Test
+    void resnapshotRoundNoOnConflictRetry_미영속DRAFT_회차만교체하고나머지필드는유지() {
+        Report report = Report.draft(10L, 1, 1, "{}", 20L);
+        report.recordGroundingResult(grounding(report, true, null), 30L);
+
+        report.resnapshotRoundNoOnConflictRetry(4);
+
+        assertThat(report.getRoundNo()).isEqualTo(4);
+        assertThat(report.getVersion()).isEqualTo(1);
+        assertThat(report.getGroundingCheckPassed()).isTrue();
+    }
+
+    /**
+     * 리뷰 P3 — 이 메서드는 "INSERT가 실패해 아직 영속되지 않은 인스턴스" 전용이다. 이미 저장된
+     * 보고서에 호출하면 {@code round_no}가 {@code updatable = false}라 DB에는 반영되지 않고 메모리·응답에만
+     * 새 회차가 실리는 <b>조용한 불일치</b>가 된다(예외도 안 남). 그래서 식별자가 배정된 인스턴스는
+     * 런타임 가드로 거부해야 한다.
+     */
+    @Test
+    void resnapshotRoundNoOnConflictRetry_이미영속된보고서면예외_회차불변() {
+        Report report = Report.draft(10L, 1, 1, "{}", 20L);
+        org.springframework.test.util.ReflectionTestUtils.setField(report, "id", 99L);
+
+        assertThatThrownBy(() -> report.resnapshotRoundNoOnConflictRetry(4))
+                .isInstanceOf(DomainStateTransitionException.class);
+        assertThat(report.getRoundNo()).isEqualTo(1);
+    }
+
+    @Test
+    void resnapshotRoundNoOnConflictRetry_회차가1보다작으면예외() {
+        Report report = Report.draft(10L, 1, 1, "{}", 20L);
+
+        assertThatThrownBy(() -> report.resnapshotRoundNoOnConflictRetry(0))
+                .isInstanceOf(DomainValidationException.class);
+        assertThat(report.getRoundNo()).isEqualTo(1);
+    }
+
+    @Test
+    void resnapshotRoundNoOnConflictRetry_FINALIZED상태에서시도하면예외() {
+        Report report = Report.draft(10L, 1, 1, "{}", 20L);
+        report.recordGroundingResult(grounding(report, true, null), 30L);
+        report.finalizeReport("https://files.example/report.pdf", 30L);
+
+        assertThatThrownBy(() -> report.resnapshotRoundNoOnConflictRetry(4))
+                .isInstanceOf(DomainStateTransitionException.class);
+        assertThat(report.getRoundNo()).isEqualTo(1);
     }
 
     private static GroundingCheckResult grounding(Report report, boolean passed, String warnings) {

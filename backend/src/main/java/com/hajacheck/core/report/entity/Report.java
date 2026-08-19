@@ -236,9 +236,19 @@ public class Report extends BaseTimeEntity {
      * 빼는 설정일 뿐 INSERT에는 관여하지 않는다). 이미 저장된 보고서의 회차를 바꾸는 용도로 쓰면 안 된다 —
      * 확정 후 회차 동결이 그 컬럼의 존재 이유이며, DRAFT 재동기화는
      * {@link com.hajacheck.core.report.repository.ReportRepository#syncDraftRoundNoToInspection} 하나뿐이다.
+     *
+     * <p>그래서 그 전제를 주석이 아니라 <b>런타임 가드</b>로 강제한다(리뷰 P3): 이미 식별자가 배정된
+     * (= 영속된) 인스턴스에 호출하면 {@code updatable = false} 탓에 DB에는 반영되지 않고 메모리와 응답에만
+     * 새 회차가 실리는 <b>조용한 불일치</b>가 된다 — 예외조차 나지 않아 발견이 늦다. public 메서드라 미래
+     * 호출자가 생길 수 있으므로 오용을 시끄럽게 실패시킨다.
      */
     public void resnapshotRoundNoOnConflictRetry(int roundNo) {
         requireDraft("resnapshotRoundNoOnConflictRetry");
+        if (this.id != null) {
+            throw new DomainStateTransitionException(
+                    "resnapshotRoundNoOnConflictRetry 불가: 이미 저장된 보고서의 회차 스냅샷은 바꿀 수 없다"
+                            + "(round_no는 updatable=false라 DB에 반영되지 않는다)");
+        }
         if (roundNo < 1) {
             throw new DomainValidationException("보고서 회차는 1 이상이어야 한다");
         }
