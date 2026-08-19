@@ -14,6 +14,7 @@ import com.hajacheck.platformadmin.dto.CompanyOptionResponse;
 import com.hajacheck.platformadmin.dto.CompanyVerificationResponse;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -153,9 +154,18 @@ public class PlatformAdminCompanyService {
      * 확정하면 배치가 자동으로 다시 차단한다({@code PendingBusinessReverifyWriter#markFailed} 가 override
      * 회사에는 상태 가드를 두지 않는 이유).
      *
-     * <p>⚠️ 개업일자가 없거나 데모 시드 회사면 대상 쿼리에 잡히지 않거나 국세청 호출 전에 스킵되므로
-     * <b>그 자동 재차단이 동작하지 않는다</b>. 조치 자체는 허용하되(배치에 의존하는 경로가 아니다) 그
-     * 사실을 경고 로그로 분명히 남긴다.
+     * <p>⚠️ <b>경고만 하고 막지 않는 두 경우</b>(관리자 조치의 자유도를 유지하되, 조치 결과가 기대와
+     * 다르다는 사실은 반드시 남긴다):
+     * <ul>
+     *   <li><b>자동 재차단 없음</b> — 개업일자가 없거나 반려·데모 시드 회사면 배치가 대상으로 조회하지
+     *       못하거나 국세청 호출 전에 스킵하므로 위 안전장치가 <b>동작하지 않는다</b>. 진단 응답의
+     *       {@code reverifiableByBatch} 로도 사후 확인할 수 있다.</li>
+     *   <li><b>스코프가 실제로는 열리지 않음</b> — 스코프 판정은 {@code companies.status = APPROVED} 도
+     *       요구하므로({@code CompanyMembershipRepository#existsEffectiveApprovedMembership}),
+     *       {@code PENDING_REVIEW}·{@code REJECTED} 회사에 override 하면 {@code verificationStatus} 만
+     *       VERIFIED 가 되고 <b>회사 스코프는 닫힌 채</b>다. "열었다"는 응답을 받고 방치하는 것이 위험해
+     *       별도 경고로 구분해 남긴다.</li>
+     * </ul>
      */
     @Transactional
     public CompanyVerificationResponse overrideVerification(Long companyId, Long actorUserId, String reason) {
@@ -170,36 +180,57 @@ public class PlatformAdminCompanyService {
         log.warn("회사 검증 강제개방(플랫폼 관리자) — companyId={}, actorUserId={}, 직전 ntsOutcome={}, "
                         + "인증 배지는 꺼진 채 유지되고 재검증 대상에 남아 확정 불량 시 자동 재차단된다, reason={}",
                 companyId, actorUserId, previousOutcome, LogSanitizer.sanitize(reason));
-        if (!isReverifiableByBatch(company)) {
-            log.warn("회사 검증 강제개방 — 자동 재차단 안전장치 없음(재검증 배치가 이 회사를 조회하지 못한다)."
-                            + " companyId={}, 개업일자 있음={}, 데모 시드={}, status={}",
-                    companyId, company.getBusinessStartDate() != null,
-                    DemoCompanyProvenance.isDemoSeeded(company), company.getStatus());
+        findReverifyBlocker(company).ifPresent(blocker ->
+                log.warn("회사 검증 강제개방 — 자동 재차단 안전장치 없음(재검증 배치가 이 회사를 조회하지"
+                                + " 못한다). 국세청이 나중에 확정 불량을 주더라도 자동으로 다시 막히지"
+                                + " 않으므로 운영이 직접 추적해야 한다. companyId={}, 사유={}",
+                        companyId, blocker));
+        // 스코프 판정은 companies.status = APPROVED 도 요구한다 — 검증 플래그만 열어서는 실제로 아무것도
+        // 열리지 않는다("열었다"는 응답을 받고 방치하게 되는 것이 위험하므로 반드시 경고로 남긴다).
+        if (company.getStatus() != CompanyStatus.APPROVED) {
+            log.warn("회사 검증 강제개방 — 회사 status 가 APPROVED 가 아니라 override 만으로는 회사 스코프가"
+                            + " 열리지 않는다(스코프 판정은 status=APPROVED 도 요구한다)."
+                            + " companyId={}, status={}",
+                    companyId, company.getStatus());
         }
         return toResponse(company);
     }
 
-    /** PENDING 복귀 경로 전용 가드 — 재검증 배치가 실제로 집을 수 있는 회사인지 대상 쿼리 조건과 대조한다. */
-    private void requireReverifiable(Company company) {
+    /**
+     * <b>재검증 배치가 이 회사를 집을 수 없게 만드는 사유</b> — 없으면 empty(#1367).
+     *
+     * <p><b>이 메서드가 유일한 판정 지점이다.</b> 같은 조건을 세 곳(복구 가드 · override 경고 · 진단 응답의
+     * {@code reverifiableByBatch})이 각자 구현하면 그 순간부터 드리프트가 시작돼, "가드는 막는데 응답은
+     * 가능하다고 표시"하는 모순이 조용히 생긴다. 조건은 {@code CompanyRepository#findNtsReverifyTargets}
+     * 의 where 절 + 스케줄러의 데모 스킵과 1:1로 대응한다.
+     */
+    private Optional<ReverifyBlocker> findReverifyBlocker(Company company) {
         if (company.getBusinessStartDate() == null) {
-            throw new BusinessException(ErrorCode.COMPANY_RESTORE_REQUIRES_BUSINESS_START_DATE);
+            return Optional.of(ReverifyBlocker.NO_BUSINESS_START_DATE);
         }
         if (company.getStatus() == CompanyStatus.REJECTED) {
-            throw new BusinessException(ErrorCode.COMPANY_RESTORE_NOT_REVERIFIABLE,
-                    "반려된 기업은 재검증 대상이 아니라 복구해도 검증이 재개되지 않습니다.");
+            return Optional.of(ReverifyBlocker.REJECTED);
         }
         if (DemoCompanyProvenance.isDemoSeeded(company)) {
-            throw new BusinessException(ErrorCode.COMPANY_RESTORE_NOT_REVERIFIABLE,
-                    "데모 기업은 재검증 배치가 건너뛰므로 복구해도 검증이 재개되지 않습니다. "
-                            + "강제개방(override)을 사용해 주세요.");
+            return Optional.of(ReverifyBlocker.DEMO_SEEDED);
         }
+        return Optional.empty();
     }
 
-    /** 재검증 배치가 이 회사를 실제로 조회·호출할 수 있는가(= override 의 자동 재차단이 동작하는가). */
-    private boolean isReverifiableByBatch(Company company) {
-        return company.getBusinessStartDate() != null
-                && company.getStatus() != CompanyStatus.REJECTED
-                && !DemoCompanyProvenance.isDemoSeeded(company);
+    /** PENDING 복귀 경로 전용 가드 — 배치가 집을 수 없는 회사를 PENDING 으로 되돌리면 영구 고착된다. */
+    private void requireReverifiable(Company company) {
+        findReverifyBlocker(company).ifPresent(blocker -> {
+            throw switch (blocker) {
+                // 개업일자는 보정하면 복구할 수 있어 별도 코드로 남긴다(관리자 행동이 다르다).
+                case NO_BUSINESS_START_DATE ->
+                        new BusinessException(ErrorCode.COMPANY_RESTORE_REQUIRES_BUSINESS_START_DATE);
+                case REJECTED -> new BusinessException(ErrorCode.COMPANY_RESTORE_NOT_REVERIFIABLE,
+                        "반려된 기업은 재검증 대상이 아니라 복구해도 검증이 재개되지 않습니다.");
+                case DEMO_SEEDED -> new BusinessException(ErrorCode.COMPANY_RESTORE_NOT_REVERIFIABLE,
+                        "데모 기업은 재검증 배치가 건너뛰므로 복구해도 검증이 재개되지 않습니다. "
+                                + "강제개방(override)을 사용해 주세요.");
+            };
+        });
     }
 
     private Company lockCompany(Long companyId) {
@@ -210,6 +241,17 @@ public class PlatformAdminCompanyService {
     private CompanyVerificationResponse toResponse(Company company) {
         long effectiveMemberCount = companyMembershipRepository
                 .countEffectiveApprovedMembers(company.getId(), Instant.now());
-        return CompanyVerificationResponse.from(company, effectiveMemberCount);
+        return CompanyVerificationResponse.from(
+                company, effectiveMemberCount, findReverifyBlocker(company).isEmpty());
+    }
+
+    /** 재검증 배치가 회사를 집지 못하게 만드는 사유 — 가드 예외 선택과 진단 응답이 공유한다. */
+    private enum ReverifyBlocker {
+        /** 대상 쿼리의 {@code business_start_date is not null} 위반. */
+        NO_BUSINESS_START_DATE,
+        /** 대상 쿼리의 {@code status <> 'REJECTED'} 위반. */
+        REJECTED,
+        /** 쿼리에는 걸리지만 스케줄러가 국세청 호출 전에 스킵한다({@code DemoCompanyProvenance}). */
+        DEMO_SEEDED
     }
 }

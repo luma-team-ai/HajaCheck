@@ -58,6 +58,14 @@ import org.hibernate.type.SqlTypes;
  *       처리 시도·경보 기록(#1367). 대기열 라운드로빈 정렬 축이자 "경보만" 정책의 유일한 영속 신호다</li>
  * </ul>
  *
+ * <p><b>⚠️ {@code ntsOutcomeBeforeRevoke} 는 감사 기록이 아니라 인가 판정 입력이다(#1367)</b> —
+ * {@link #isAdminRevokeUndoable()} 이 이 값을 읽어 {@link #restoreBusinessVerificationByAdmin} 이
+ * <b>국세청 재조회 없이 곧바로 {@code VERIFIED} 로 복원할지</b>를 결정한다(= 회사 스코프 즉시 개방).
+ * 따라서 앱 밖에서(수동 SQL · 향후 마이그레이션 · 외부 연동) 이 키에 {@code VERIFIED}/
+ * {@code LEGACY_VERIFIED} 를 심으면 <b>국세청이 확인해 준 적 없는 회사를 관리자 복구 한 번으로 열어주는
+ * 권한 상승 경로</b>가 된다. 이 키는 {@link #revokeBusinessVerificationByAdmin} 만 쓰게 두고, 다른 곳에서
+ * 값을 넣지 말 것(감사 목적이면 별도 키를 새로 만들 것).
+ *
  * <p><b>⚠️ {@code ntsOutcome} 의 값 공간은 enum 이 아니다</b> — {@code valueOf()} 로 파싱하면 터진다.
  * {@code NtsVerificationOutcome} 라벨(VERIFIED/SKIPPED/MISMATCH/…)에 더해 마이그레이션이 심는
  * {@code UNKNOWN_BACKFILL}(V38 소급 승인분 = 검증한 적 없음) · {@code LEGACY_VERIFIED}(#1324 이전에
@@ -111,8 +119,25 @@ public class Company extends BaseTimeEntity {
      */
     private static final String NTS_OUTCOME_ADMIN_OVERRIDE = "ADMIN_OVERRIDE_VERIFIED";
 
-    /** 무효화 직전 {@code ntsOutcome} 을 보존하는 키(#1367) — 덮어쓰기로 감사 기록이 사라지지 않게 한다. */
+    /**
+     * 무효화 직전 {@code ntsOutcome} 을 보존하는 키(#1367) — 덮어쓰기로 감사 기록이 사라지지 않게 한다.
+     *
+     * <p><b>⚠️ 이 키는 단순 감사 기록이 아니라 인가 판정 입력이다</b> — 클래스 javadoc 경고 참고.
+     */
     private static final String NTS_OUTCOME_BEFORE_REVOKE_FIELD = "ntsOutcomeBeforeRevoke";
+
+    /**
+     * 무효화 시점에 직전 {@code ntsOutcome} 을 알 수 없을 때 {@link #NTS_OUTCOME_BEFORE_REVOKE_FIELD} 에
+     * 넣는 sentinel(#1367 F-1). 화이트리스트({@link #NTS_VERIFIED_OUTCOMES}) 밖 값이다.
+     *
+     * <p><b>왜 "키를 안 쓰기"가 아니라 sentinel 인가</b>: {@link JsonValidator#mergeTextFields} 는 값이
+     * null 인 항목을 <b>무시</b>하므로, 그냥 두면 이전 사이클(revoke→restore→…)에서 남은 <b>옛
+     * {@code ntsOutcomeBeforeRevoke} 가 덮이지 않고 생존</b>한다. 그 stale 값이 그대로
+     * {@link #isAdminRevokeUndoable()} 의 판정 입력이 되어, 이번 무효화와 아무 관계 없는 옛 VERIFIED
+     * 때문에 restore 가 <b>즉시 VERIFIED 복원 + 배지 점등 + 재검증 집합 이탈</b>로 빠질 수 있다.
+     * 그래서 "모른다"는 사실도 <b>반드시 덮어써서</b> 기록한다.
+     */
+    private static final String NTS_OUTCOME_UNKNOWN = "UNKNOWN";
 
     /** override 직전 {@code ntsOutcome} 을 보존하는 키(#1367). */
     private static final String NTS_OUTCOME_BEFORE_OVERRIDE_FIELD = "ntsOutcomeBeforeOverride";
@@ -472,8 +497,10 @@ public class Company extends BaseTimeEntity {
      *   <li>{@code ntsOutcome = ADMIN_REVOKED} — <b>반드시 덮는다.</b> 화이트리스트 밖 값이라
      *       {@link #isNtsVerified()} 가 false 가 되어 "사업자 인증 완료" 배지가 함께 꺼진다. 이 키를 두면
      *       차단된 회사에 인증 배지가 켜진 채 남는 부정합이 생긴다.</li>
-     *   <li>{@code ntsOutcomeBeforeRevoke} — 덮기 직전 값을 보존한다(없으면 키를 쓰지 않는다).
-     *       무효화가 오판이었는지 사후에 판단하려면 원래 판정이 남아 있어야 한다.</li>
+     *   <li>{@code ntsOutcomeBeforeRevoke} — 덮기 직전 값을 보존한다. 무효화가 오판이었는지 사후에
+     *       판단하려면 원래 판정이 남아 있어야 한다. <b>직전 값이 없어도 키를 생략하지 않고</b>
+     *       {@link #NTS_OUTCOME_UNKNOWN} 을 넣어 <b>항상 덮어쓴다</b> — 생략하면 이전 사이클의 stale
+     *       값이 살아남아 {@link #restoreBusinessVerificationByAdmin} 의 인가 판정을 오염시킨다(F-1).</li>
      *   <li>{@code adminRevokedAt} · {@code adminRevokeReason} — 조치 시각과 사유.</li>
      * </ul>
      *
@@ -499,7 +526,9 @@ public class Company extends BaseTimeEntity {
         Map<String, String> provenance = new LinkedHashMap<>();
         provenance.put(NTS_OUTCOME_FIELD, NTS_OUTCOME_ADMIN_REVOKED);
         // 직전 값이 없으면(키 부재·파손 JSON) null 이며, mergeTextFields 가 null 항목을 무시한다.
-        provenance.put(NTS_OUTCOME_BEFORE_REVOKE_FIELD, ntsOutcome().orElse(null));
+        // 값이 없어도 null 로 두지 않는다 — mergeTextFields 가 null 을 무시해 옛 값이 살아남으면 그
+        // stale 값이 restore 의 즉시 VERIFIED 복원 판정 입력이 된다(F-1). 항상 덮어쓴다.
+        provenance.put(NTS_OUTCOME_BEFORE_REVOKE_FIELD, ntsOutcome().orElse(NTS_OUTCOME_UNKNOWN));
         provenance.put(ADMIN_REVOKED_AT_FIELD, Instant.now().toString());
         provenance.put(ADMIN_REVOKE_REASON_FIELD, reason);
         provenance.put(ADMIN_REVOKED_BY_FIELD, actorUserId == null ? null : actorUserId.toString());

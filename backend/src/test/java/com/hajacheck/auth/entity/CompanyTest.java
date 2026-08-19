@@ -243,14 +243,51 @@ class CompanyTest {
     }
 
     @Test
-    void revokeBusinessVerificationByAdmin_직전판정이없으면_해당키를쓰지않는다() {
+    void revokeBusinessVerificationByAdmin_직전판정이없으면_UNKNOWN으로_명시한다() {
         Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\"}");
 
         company.revokeBusinessVerificationByAdmin("사유", 77L);
 
-        // 없는 값을 "null" 문자열 등으로 지어내지 않는다.
-        assertThat(JsonValidator.readTextField(company.getBusinessRegistrationOcrRaw(),
-                "ntsOutcomeBeforeRevoke")).isEmpty();
+        // "모른다"도 명시적으로 기록한다 — 키를 비우면 아래 테스트의 stale 값 생존 문제가 생긴다.
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("UNKNOWN");
+    }
+
+    /**
+     * F-1 회귀 방지(#1367) — {@code ntsOutcomeBeforeRevoke} 는 감사 기록이 아니라 <b>인가 판정 입력</b>이다
+     * ({@link Company#isAdminRevokeUndoable()} → restore 의 즉시 VERIFIED 복원 여부).
+     *
+     * <p>{@code mergeTextFields} 는 null 항목을 무시하므로, 직전 {@code ntsOutcome} 이 없을 때 키를
+     * 생략하면 <b>이전 사이클에서 남은 옛 값이 그대로 생존</b>한다. 그러면 이번 무효화와 아무 관계 없는
+     * 옛 VERIFIED 때문에 restore 가 <b>국세청 확인 없이 스코프를 즉시 개방</b>(배지 점등 + 재검증 집합
+     * 이탈)하게 된다. sentinel 을 지우면 이 테스트가 실패해야 한다.
+     */
+    @Test
+    void revoke는_옛_ntsOutcomeBeforeRevoke를_생존시키지않는다() {
+        // 앞선 사이클의 잔재(ntsOutcomeBeforeRevoke=VERIFIED)만 남고 ntsOutcome 키는 없는 상태를 재현한다.
+        Company company = company();
+        setOcrRaw(company, "{\"ntsOutcomeBeforeRevoke\":\"VERIFIED\"}");
+
+        company.revokeBusinessVerificationByAdmin("사칭 신고 접수", 77L);
+
+        // 옛 값이 살아남지 않는다.
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("UNKNOWN");
+        // 따라서 이 무효화는 "즉시 복원 가능한 관리자 조치"로 오판되지 않는다.
+        assertThat(company.isAdminRevokeUndoable()).isFalse();
+
+        AdminRestoreMode mode = company.restoreBusinessVerificationByAdmin("복구", 88L);
+
+        // 국세청 인정 이력을 증명할 수 없으므로 PENDING 경로(재검증 재판정)로 떨어져야 한다.
+        assertThat(mode).isEqualTo(AdminRestoreMode.RESTORED_TO_PENDING);
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.PENDING);
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    @Test
+    void UNKNOWN_sentinel은_인정_화이트리스트_밖이다() {
+        // sentinel 이 화이트리스트에 들어가면 F-1 픽스가 오히려 개방 경로를 만든다.
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"UNKNOWN\"}");
+
+        assertThat(company.isNtsVerified()).isFalse();
     }
 
     @Test

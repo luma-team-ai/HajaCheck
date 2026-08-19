@@ -22,6 +22,12 @@ import com.hajacheck.auth.entity.CompanyStatus;
  *       마지막 처리 시도와 <b>자동 강등하지 않은 경보</b>(MISMATCH/SUSPENDED) 기록. 경보만 남기는 정책은
  *       사람 판단으로 통제를 옮긴 것이므로, 그 신호가 관리자 화면까지 도달해야 정책이 성립한다.
  *       이 값들이 없으면 {@code ntsOutcome} 이 옛 값 그대로라 "어제 MISMATCH 를 받았다"를 알 수 없다.</li>
+ *   <li>{@code reverifiableByBatch} — <b>자동 재차단이 걸리는가</b>. false 면 강제개방(override)해도
+ *       국세청이 나중에 미등록·폐업을 확정했을 때 재검증 배치가 <b>자동으로 다시 차단하지 못한다</b>
+ *       (개업일자 없음 · 반려 · 데모 시드 — 배치가 회사를 조회하지 못하거나 국세청 호출 전에 스킵한다).
+ *       조치 시점 경고 로그만으로는 사후에 확인할 수 없어(특히 데모 시드 여부는 응답에서 유추조차 불가)
+ *       진단 응답에 노출한다. 판정은 복구 가드와 <b>같은 함수</b>를 쓴다 — 조건이 갈라지면 "가드는 막는데
+ *       응답은 가능하다고 표시"하는 모순이 생긴다.</li>
  *   <li>{@code effectiveMemberCount} — 이 조치가 실제로 멈추는(또는 멈춘) 구성원 수. 단순 활성 사용자
  *       수가 아니라 <b>스코프 판정과 같은 조건</b>의 유효 구성원 수다
  *       ({@code CompanyMembershipRepository#countEffectiveApprovedMembers} javadoc). 개인정보를 담지 않는
@@ -41,9 +47,11 @@ public record CompanyVerificationResponse(
         String ntsLastAttemptAt,
         String ntsLastAlertOutcome,
         String ntsLastAlertAt,
+        boolean reverifiableByBatch,
         long effectiveMemberCount) {
 
-    public static CompanyVerificationResponse from(Company company, long effectiveMemberCount) {
+    public static CompanyVerificationResponse from(
+            Company company, long effectiveMemberCount, boolean reverifiableByBatch) {
         return new CompanyVerificationResponse(
                 company.getId(),
                 company.getStatus(),
@@ -55,6 +63,7 @@ public record CompanyVerificationResponse(
                 company.ntsLastAttemptAt().orElse(null),
                 company.ntsLastAlertOutcome().orElse(null),
                 company.ntsLastAlertAt().orElse(null),
+                reverifiableByBatch,
                 effectiveMemberCount);
     }
 }

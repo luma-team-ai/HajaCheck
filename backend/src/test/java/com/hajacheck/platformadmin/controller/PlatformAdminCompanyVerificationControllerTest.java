@@ -126,6 +126,21 @@ class PlatformAdminCompanyVerificationControllerTest extends PostgresTestSupport
         return companyRepository.saveAndFlush(company);
     }
 
+    /** 승인 전(PENDING_REVIEW) 회사 — 오너 멤버십까지 배선하되 회사 승인만 나지 않은 상태. */
+    private Company pendingReviewCompany() {
+        long brn = BRN_SEQ.getAndIncrement();
+        User owner = userRepository.saveAndFlush(
+                User.createCompanyOwner("pending" + brn + "@haja.test", "대표", "$2a$10$hashed"));
+        Company company = companyRepository.saveAndFlush(Company.createPendingReview(
+                owner.getId(), "(주)승인전" + brn, String.valueOf(brn), "대표",
+                "서울시", null, "http://files/brn.png", "{\"ntsOutcome\":\"SKIPPED\"}", START_DATE));
+        owner.assignToCompany(company.getId());
+        userRepository.saveAndFlush(owner);
+        companyMembershipRepository.saveAndFlush(
+                CompanyMembership.approvedOwner(company.getId(), owner.getId()));
+        return company;
+    }
+
     /** 데모 시드 회사(BRN + provenance 표식 이중 일치) + FAILED — 배치가 국세청 호출 전에 스킵한다. */
     private Company demoSeededFailedCompany() {
         User owner = userRepository.saveAndFlush(User.createCompanyOwner(
@@ -639,6 +654,88 @@ class PlatformAdminCompanyVerificationControllerTest extends PostgresTestSupport
                         .with(authentication(platformAdmin())))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.effectiveMemberCount").value(1));
+    }
+
+    /**
+     * F-2 — override 의 "자동 재차단 안전장치가 걸리는가"를 <b>사후 조회로</b> 확인할 수 있어야 한다.
+     * 조치 시점 경고 로그만으로는 나중에 알 수 없고, 데모 시드 여부는 응답에서 유추조차 불가능했다.
+     */
+    @Test
+    void 진단응답의_reverifiableByBatch가_정상회사는true다() throws Exception {
+        Company company = approvedCompany(START_DATE);
+
+        mockMvc.perform(get(VERIFICATION_URL, company.getId())
+                        .with(authentication(platformAdmin())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.reverifiableByBatch").value(true));
+    }
+
+    @Test
+    void 진단응답의_reverifiableByBatch가_개업일자없음과데모와반려에서_false다() throws Exception {
+        Company noStartDate = approvedCompany(null);
+        Company demo = demoSeededFailedCompany();
+        Company rejected = rejectedFailedCompany();
+
+        for (Company company : List.of(noStartDate, demo, rejected)) {
+            mockMvc.perform(get(VERIFICATION_URL, company.getId())
+                            .with(authentication(platformAdmin())))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.reverifiableByBatch").value(false));
+        }
+    }
+
+    /**
+     * F-2 드리프트 방지 — 진단 응답과 복구 가드는 <b>같은 판정 함수</b>를 써야 한다.
+     * "가드는 400 으로 막는데 응답은 재검증 가능하다고 표시"하는 모순이 생기면 안 된다.
+     */
+    @Test
+    void reverifiableByBatch가_false인_회사는_복구가드도_거부한다() throws Exception {
+        Company demo = demoSeededFailedCompany();
+
+        mockMvc.perform(get(VERIFICATION_URL, demo.getId())
+                        .with(authentication(platformAdmin())))
+                .andExpect(jsonPath("$.data.reverifiableByBatch").value(false));
+        mockMvc.perform(post(RESTORE_URL, demo.getId())
+                        .with(authentication(platformAdmin())).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body("복구 시도")))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * F-3 — 스코프 판정은 {@code companies.status = APPROVED} 도 요구하므로, 승인 전 회사에 override 하면
+     * {@code verificationStatus} 만 VERIFIED 가 되고 <b>스코프는 닫힌 채</b>다. 막지는 않되(관리자 조치
+     * 자유도 유지) "열었다"고 착각하지 않도록 경고 로그로 분명히 구분해 남긴다.
+     */
+    @Test
+    void override_승인전회사면_스코프가안열린다는_경고를_남긴다() throws Exception {
+        Company pendingReview = pendingReviewCompany();
+        Logger serviceLogger = (Logger) LoggerFactory.getLogger(PlatformAdminCompanyService.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        serviceLogger.addAppender(appender);
+        try {
+            mockMvc.perform(post(OVERRIDE_URL, pendingReview.getId())
+                            .with(authentication(platformAdmin())).with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body("실물 확인")))
+                    // 거부하지 않는다 — 관리자 조치 자유도는 유지한다.
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.verificationStatus").value("VERIFIED"));
+        } finally {
+            serviceLogger.detachAppender(appender);
+        }
+
+        assertThat(appender.list)
+                .extracting(ILoggingEvent::getFormattedMessage)
+                .anySatisfy(message -> assertThat(message)
+                        .contains("APPROVED 가 아니라")
+                        .contains("스코프가 열리지 않는다"));
+        // 응답은 VERIFIED 지만 실제 스코프는 여전히 닫혀 있다 — 경고가 필요한 이유 그 자체.
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(companyMembershipRepository.existsEffectiveApprovedMembership(
+                pendingReview.getId(), pendingReview.getOwnerUserId(), Instant.now())).isFalse();
     }
 
     /** P2-3 — "경보만" 정책의 신호가 진단 API 까지 도달하는지(로그에만 남으면 사람에게 닿지 않는다). */
