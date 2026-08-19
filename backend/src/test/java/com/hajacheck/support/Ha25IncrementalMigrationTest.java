@@ -563,7 +563,15 @@ class Ha25IncrementalMigrationTest {
                 .withCopyFileToContainer(
                         MountableFile.forClasspathResource(
                                 "db/migration/V48__reports_updated_at_skip_round_no_resync.sql"),
-                        CONTAINER_ROOT + "V48__reports_updated_at_skip_round_no_resync.sql");
+                        CONTAINER_ROOT + "V48__reports_updated_at_skip_round_no_resync.sql")
+                // #1597 — Flyway V49(chat_message_citations.document_id FK를 ON DELETE SET NULL로
+                // 전환)도 이어서 1회 forward-apply한다. 캐노니컬 DDL의 FK 정의(fk_chat_message_citations_
+                // document, on delete set null)에도 반영돼 있으므로 이 증분 경로에서도 적용해야
+                // assertCanonicalSchemaParity 가 통과한다.
+                .withCopyFileToContainer(
+                        MountableFile.forClasspathResource(
+                                "db/migration/V49__chat_message_citations_document_on_delete_set_null.sql"),
+                        CONTAINER_ROOT + "V49__chat_message_citations_document_on_delete_set_null.sql");
         postgres.start();
 
         runPsql(postgres, "HajaCheck_script_v0.3.sql");
@@ -753,6 +761,11 @@ class Ha25IncrementalMigrationTest {
         // 함께 고정한다.
         runPsql(postgres, "V48__reports_updated_at_skip_round_no_resync.sql");
         runPsql(postgres, "V48__reports_updated_at_skip_round_no_resync.sql");
+        // #1597 — Flyway V49(chat_message_citations.document_id FK를 ON DELETE SET NULL로 전환)도
+        // 이어서 forward-apply한다. drop not null + drop constraint if exists + 존재 가드 add
+        // constraint 조합이라 재실행해도 동일한 최종 정의로 수렴한다는 점까지 함께 고정한다.
+        runPsql(postgres, "V49__chat_message_citations_document_on_delete_set_null.sql");
+        runPsql(postgres, "V49__chat_message_citations_document_on_delete_set_null.sql");
         assertCanonicalSchemaParity(postgres);
         return postgres;
     }

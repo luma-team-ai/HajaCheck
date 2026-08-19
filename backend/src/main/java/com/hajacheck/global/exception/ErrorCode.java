@@ -378,7 +378,11 @@ public enum ErrorCode {
     // RAG 문서 관리(#22 / HAJA-35) — 플랫폼 관리자 콘솔 법규·지침 PDF 업로드 + 임베딩 파이프라인
     RAG_DOCUMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "RAG 문서를 찾을 수 없습니다."),
     // PDF가 손상되었거나(스캔 이미지만 있는 등) 텍스트 레이어가 없어 PDFBox가 본문을 추출하지 못한 경우.
-    RAG_TEXT_EXTRACTION_FAILED(HttpStatus.BAD_REQUEST, "PDF에서 텍스트를 추출할 수 없습니다.");
+    RAG_TEXT_EXTRACTION_FAILED(HttpStatus.BAD_REQUEST, "PDF에서 텍스트를 추출할 수 없습니다."),
+    // #1597 — chat_message_citations.document_id FK를 ON DELETE SET NULL로 바꿔 정상 경로에서는
+    // 더 이상 나지 않지만, DB 제약 위반 등 예기치 못한 삭제 실패를 raw 500 대신 도메인 에러로
+    // 표면화하는 방어선(RagDocumentService.delete()).
+    RAG_DOCUMENT_DELETE_FAILED(HttpStatus.CONFLICT, "RAG 문서를 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

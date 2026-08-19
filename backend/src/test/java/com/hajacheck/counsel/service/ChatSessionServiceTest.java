@@ -118,6 +118,39 @@ class ChatSessionServiceTest {
         assertThat(mapped.snippet()).isEqualTo("시설물 안전 발췌");
     }
 
+    // #1597 — 인용된 문서가 삭제되면 FK ON DELETE SET NULL로 document_id가 null이 되고, 그에 따라
+    // citation.getDocument()도 null이 된다(#1698 EntityGraph left join). 세션 이력 조회 자체가 NPE로
+    // 깨지지 않고, title/collection만 null로 응답해야 한다(locator/snippet은 citation 행 자체 보관이라
+    // 그대로 남는다) — FE(useRagChat.toChatMessage)가 이 null을 "삭제된 문서"로 표시한다.
+    @Test
+    void findMessages_인용문서가삭제됐으면_title과collection이null이고_locator_snippet은유지된다() {
+        ChatSession session = ChatSession.start(OWNER_ID, ChatSessionType.RAG);
+        ChatMessage botMessage = ChatMessage.createText(SESSION_ID, ChatSenderType.BOT, "답변");
+        Long botMessageId = 998L;
+        ReflectionTestUtils.setField(botMessage, "id", botMessageId);
+        // documentId=null·document=null — FK가 SET NULL로 끊긴 상태를 재현(실제로는 JPA join 결과).
+        ChatMessageCitation citation = ChatMessageCitation.create(
+                botMessageId, null, "12_3", "제11조 ①", "시설물 안전 발췌");
+
+        when(chatSessionRepository.findByIdAndUserId(SESSION_ID, OWNER_ID))
+                .thenReturn(Optional.of(session));
+        when(chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(session.getId()))
+                .thenReturn(List.of(botMessage));
+        when(chatMessageCitationRepository.findByMessageIdIn(any())).thenReturn(List.of(citation));
+
+        List<ChatSessionMessageResponse> messages =
+                chatSessionService.findMessages(OWNER_ID, SESSION_ID);
+
+        assertThat(messages).hasSize(1);
+        ChatSessionMessageResponse.Citation mapped = messages.get(0).citations().get(0);
+        assertThat(mapped.documentId()).isNull();
+        assertThat(mapped.title()).isNull();
+        assertThat(mapped.collection()).isNull();
+        assertThat(mapped.chunkRef()).isEqualTo("12_3");
+        assertThat(mapped.locator()).isEqualTo("제11조 ①");
+        assertThat(mapped.snippet()).isEqualTo("시설물 안전 발췌");
+    }
+
     @Test
     void findMessages_메시지없음_인용조회하지않고빈목록() {
         when(chatSessionRepository.findByIdAndUserId(SESSION_ID, OWNER_ID))

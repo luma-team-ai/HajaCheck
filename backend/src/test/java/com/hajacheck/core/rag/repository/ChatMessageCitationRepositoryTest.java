@@ -102,4 +102,40 @@ class ChatMessageCitationRepositoryTest extends PostgresTestSupport {
         // 문서 접근 이후에도 추가 SELECT가 없어야 한다(위 join fetch가 실제로 lazy 초기화를 대체했는지 재확인).
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
     }
+
+    // #1597 — document_id FK가 ON DELETE SET NULL(V49)로 바뀌면서 documentId/document가 null인 citation
+    // 행이 실제로 존재할 수 있다. @EntityGraph(attributePaths = "document")가 INNER JOIN이면 이런
+    // citation이 findByMessageIdIn 결과에서 통째로 누락돼 이력이 조용히 사라진다 — LEFT JOIN이어야
+    // document_id가 null이어도 citation 자체는 그대로 반환됨을 실 PG로 고정한다.
+    @Test
+    void findByMessageIdIn_documentId가NULL이어도_citation행자체는LEFT_JOIN으로반환된다() {
+        long unique = System.nanoTime();
+        User user = User.builder()
+                .email("citation-null-doc-" + unique + "@haja.com").name("사용자").role(Role.USER)
+                .passwordHash("$2a$10$hashed").companyId(null).status(UserStatus.ACTIVE).build();
+        em.persist(user);
+
+        ChatSession session = ChatSession.start(user.getId(), ChatSessionType.RAG);
+        em.persist(session);
+
+        ChatMessage botMessage = ChatMessage.createText(session.getId(), ChatSenderType.BOT, "답변");
+        em.persist(botMessage);
+
+        // documentId=null인 채로 직접 저장 — 문서가 이미 삭제돼 SET NULL이 적용된 상태를 재현한다.
+        ChatMessageCitation citation = ChatMessageCitation.create(
+                botMessage.getId(), null, "99_1", "제9조", "삭제된 문서 인용 발췌");
+        em.persist(citation);
+
+        em.flush();
+        em.clear();
+
+        List<ChatMessageCitation> found =
+                chatMessageCitationRepository.findByMessageIdIn(List.of(botMessage.getId()));
+
+        assertThat(found).hasSize(1);
+        assertThat(found.get(0).getDocumentId()).isNull();
+        assertThat(found.get(0).getDocument()).isNull();
+        assertThat(found.get(0).getLocator()).isEqualTo("제9조");
+        assertThat(found.get(0).getSnippet()).isEqualTo("삭제된 문서 인용 발췌");
+    }
 }

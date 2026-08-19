@@ -1499,8 +1499,9 @@ create table chat_message_citations
     message_id  bigint                                 not null
         references chat_messages
             on delete cascade,
-    document_id bigint                                 not null
-        references rag_documents,
+    document_id bigint
+        constraint fk_chat_message_citations_document references rag_documents
+            on delete set null,
     chunk_ref   varchar(100)                           not null,
     locator     text                                   not null,
     snippet     text                                   not null,
@@ -1514,7 +1515,7 @@ comment on column chat_message_citations.id is '인용 식별자';
 
 comment on column chat_message_citations.message_id is '인용을 포함한 채팅 메시지 식별자';
 
-comment on column chat_message_citations.document_id is '인용된 RAG 문서 식별자(rag_documents)';
+comment on column chat_message_citations.document_id is '인용된 RAG 문서 식별자(rag_documents) — 문서 삭제 시 NULL(ON DELETE SET NULL, #1597). 인용 이력(locator/snippet)은 문서가 사라져도 유지된다';
 
 comment on column chat_message_citations.chunk_ref is 'Chroma에 저장된 청크(벡터)의 식별자 — Postgres 외부 저장소 참조이므로 FK 불가';
 
