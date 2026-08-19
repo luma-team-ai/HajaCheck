@@ -201,8 +201,16 @@ describe('useRagChat (통합 테스트)', () => {
             content: '이전 답변',
             citations: [
               // 실제 Jackson 직렬화(Long→JSON number)를 재현 — 문자열로 목킹하면 doc_id 문자열
-              // 변환 누락(PR #1563 P2)을 테스트가 못 잡는다.
-              { documentId: 12, chunkRef: '12_1', locator: '제1조', snippet: '법령 스니펫' },
+              // 변환 누락(PR #1563 P2)을 테스트가 못 잡는다. title/collection은 #1698로 세션
+              // 이력 응답에 추가된 필드(#1700 확정 계약).
+              {
+                documentId: 12,
+                title: '시설물의 안전 및 유지관리에 관한 특별법',
+                collection: 'regulations',
+                chunkRef: '12_1',
+                locator: '제1조',
+                snippet: '법령 스니펫',
+              },
             ],
             createdAt: new Date().toISOString(),
           },
@@ -218,13 +226,48 @@ describe('useRagChat (통합 테스트)', () => {
     expect(usersOf(result.current.messages)[0].text).toBe('이전 질문');
     const assistant = assistantOf(result.current.messages);
     expect(assistant?.text).toBe('이전 답변');
+    // 회귀 방지(#1700): 칩 라벨은 title이어야 하고, snippet(청크 원문)이 title 자리에 들어가면 안 된다.
     expect(assistant?.sources?.[0]).toMatchObject({
       doc_id: '12',
+      title: '시설물의 안전 및 유지관리에 관한 특별법',
+      collection: 'regulations',
       locator: '제1조',
       chunk_ref: '12_1',
+      snippet: '법령 스니펫',
     });
+    expect(assistant?.sources?.[0].title).not.toBe('법령 스니펫');
     // 복원 경로는 이미 세션이 있으므로 새로 생성하지 않는다.
     expect(sessionCreateCount).toBe(0);
+  });
+
+  // #1700 확정 계약: title이 빈 값이면 `문서 #{documentId}`로 폴백한다(백엔드 title 필드가
+  // 비어 있는 예외 상황 방어).
+  it('세션 복원 citation의 title이 빈 값이면 문서 #{documentId}로 폴백한다', async () => {
+    setRagSessionId(8);
+    server.use(
+      http.get('/api/chat-sessions/:sessionId/messages', () => {
+        const data: ChatSessionMessageResponse[] = [
+          {
+            id: 1,
+            sessionId: 8,
+            sender: 'BOT',
+            content: '답변',
+            citations: [
+              { documentId: 34, title: '', collection: 'regulations', chunkRef: '34_2', locator: '제2조', snippet: '스니펫' },
+            ],
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        return HttpResponse.json({ success: true, data });
+      }),
+    );
+
+    const { result } = renderHook(() => useRagChat());
+
+    await waitFor(() => expect(result.current.messages).toHaveLength(1));
+
+    const assistant = assistantOf(result.current.messages);
+    expect(assistant?.sources?.[0].title).toBe('문서 #34');
   });
 
   it('세션 복원 실패(403 등)면 조용히 로컬 세션을 지우고 빈 상태로 시작한다', async () => {
