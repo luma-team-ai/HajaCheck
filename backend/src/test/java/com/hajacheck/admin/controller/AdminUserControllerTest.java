@@ -17,6 +17,7 @@ import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
@@ -25,6 +26,7 @@ import com.hajacheck.membership.entity.UserPlan;
 import com.hajacheck.membership.repository.PlanRepository;
 import com.hajacheck.membership.repository.UserPlanRepository;
 import com.hajacheck.support.PostgresTestSupport;
+import java.time.Instant;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,6 +64,8 @@ class AdminUserControllerTest extends PostgresTestSupport {
     private PlanRepository planRepository;
     @Autowired
     private UserPlanRepository userPlanRepository;
+    @Autowired
+    private CompanyMembershipRepository companyMembershipRepository;
 
     // 좌석 잔여 확인(#872 후속)이 사용자 등록 경로에도 적용되면서, FREE(1석)는 대표(owner) 1인만으로
     // 이미 가득 찬다 — 신규 등록 성공을 검증하는 테스트는 좌석이 남는 플랜을 명시적으로 부여해야 한다.
@@ -234,6 +238,42 @@ class AdminUserControllerTest extends PostgresTestSupport {
 
         User saved = userRepository.findByEmail("newbie@haja.com").orElseThrow();
         assertThat(saved.getCompanyId()).isEqualTo(company.getId());
+    }
+
+    // #1433 회귀 — 관리자 콘솔로 만든 계정이 회사 스코프 API에서 전면 403이던 결함.
+    // 단위 테스트(AdminUserServiceTest)는 리포지토리가 목이라 "쿼리 조건을 손으로 베껴 쓴" 검증이 되어,
+    // existsEffectiveApprovedMembership에 조건이 하나 늘면 계속 통과하면서 프로덕션만 다시 403이 된다.
+    // 그래서 실 PG(Testcontainers)에서 그 쿼리 자체로 "스코프가 실제로 열렸는가"를 고정한다(#1324 선례:
+    // CompanySignupScopeIntegrationTest 와 동일한 이유).
+    //
+    // 위 201 테스트에 얹지 않고 별도 메서드로 둔 이유: 이 검증에는 회사가 APPROVED+VERIFIED 여야 한다는
+    // 사전조건(쿼리의 나머지 3조건)이 필요한데, 이는 원 테스트의 의도(201 응답·company 배선)와 무관한
+    // 셋업이라 섞으면 각 테스트가 무엇을 고정하는지 흐려진다. (클래스가 @Transactional 롤백이라 회사 상태
+    // 변경이 다른 테스트로 새지는 않으므로, 분리는 오염 회피가 아니라 의도 분리 목적이다.)
+    @Test
+    void 사용자등록_회사스코프_유효멤버십이_함께_발급된다() throws Exception {
+        Company company = saveCompany();
+        // 유효 멤버십 판정은 멤버십 행 외에 회사 APPROVED·사업자 VERIFIED 도 함께 요구한다 —
+        // 승인 전 회사로는 이 쿼리가 늘 false 라 멤버십 발급 여부를 구분하지 못한다.
+        company.markBusinessVerified();
+        company.approve(company.getOwnerUserId());
+        companyRepository.saveAndFlush(company);
+        User admin = saveUser("관리자", "admin7c@haja.com", Role.ADMIN, company.getId());
+        givenStandardPlan(company.getId());
+        AdminUserCreateRequest request =
+                new AdminUserCreateRequest("scoped@haja.com", "password1", "스코프사용자", Role.INSPECTOR);
+
+        mockMvc.perform(post("/api/admin/users")
+                        .with(authentication(authOf(admin))).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isCreated());
+
+        User saved = userRepository.findByEmail("scoped@haja.com").orElseThrow();
+        // CompanyScopeGuard.requireEffectiveMembership 가 실제로 쓰는 바로 그 쿼리 — true 여야 지도·보고서·
+        // 통계 등 회사 스코프 API 가 열린다.
+        assertThat(companyMembershipRepository.existsEffectiveApprovedMembership(
+                company.getId(), saved.getId(), Instant.now())).isTrue();
     }
 
     // #872 후속 — 초대 코드 발급에만 좌석 검사를 넣고 관리자 직접 등록 경로는 그대로 두면, 좌석

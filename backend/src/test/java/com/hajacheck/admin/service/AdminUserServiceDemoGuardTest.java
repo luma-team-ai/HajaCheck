@@ -12,6 +12,7 @@ import com.hajacheck.auth.config.DemoProperties;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.service.DemoAccountGuard;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -43,7 +44,8 @@ class AdminUserServiceDemoGuardTest {
         DemoProperties demoProperties = new DemoProperties();
         demoProperties.setLoginId(DEMO_LOGIN_ID);
         service = new AdminUserService(adminUserRepository, mock(PasswordEncoder.class),
-                mock(QuotaService.class), new DemoAccountGuard(demoProperties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)));
+                mock(QuotaService.class), new DemoAccountGuard(demoProperties, org.mockito.Mockito.mock(com.hajacheck.auth.repository.UserRepository.class)),
+                mock(CompanyMembershipRepository.class));
 
         demoUser = mock(User.class);
         when(demoUser.getEmail()).thenReturn(DEMO_LOGIN_ID);

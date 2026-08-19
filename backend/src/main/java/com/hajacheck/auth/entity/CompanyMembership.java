@@ -142,9 +142,26 @@ public class CompanyMembership extends BaseTimeEntity {
      * 아니라 별도 경로({@link #revoke})의 책임이다.
      */
     public static CompanyMembership approvedMember(Long companyId, Long userId) {
+        return approvedMember(companyId, userId, null);
+    }
+
+    /**
+     * 관리자 콘솔 직접 등록(#1433) — 승인 주체를 알 수 있는 경로용 오버로드.
+     *
+     * <p>2-인자 {@link #approvedMember(Long, Long)}(초대 코드 redeem)와 달리 {@code invitedBy} 를 채운다:
+     * 관리자 콘솔의 사용자 등록은 <b>요청한 관리자 자신이 곧 승인 주체</b>라 발급자가 명확하기 때문이다
+     * (초대 코드는 Redis 에 companyId 만 담아 발급자를 알 수 없어 null 로 둔다 — 위 javadoc 참고).
+     * 감사 추적상 "누가 이 소속을 만들었는가"를 남길 수 있는 경로에서는 남긴다.
+     *
+     * <p>나머지 의미는 2-인자 버전과 동일하다: {@link #invite}(PENDING) → {@link #approve} 2단계를 거치지
+     * 않고 곧바로 APPROVED(관리자의 등록 행위 자체가 승인), {@code expiresAt} 은 null(무기한 — 좌석 회수는
+     * {@link #revoke} 의 책임).
+     */
+    public static CompanyMembership approvedMember(Long companyId, Long userId, Long invitedBy) {
         return CompanyMembership.builder()
                 .companyId(companyId)
                 .userId(userId)
+                .invitedBy(invitedBy)
                 .status(CompanyMembershipStatus.APPROVED)
                 .approvedAt(Instant.now())
                 .build();

@@ -8,9 +8,11 @@ import com.hajacheck.admin.dto.AdminUserRoleUpdateResponse;
 import com.hajacheck.admin.dto.AdminUserStatsResponse;
 import com.hajacheck.admin.dto.AdminUserStatusUpdateResponse;
 import com.hajacheck.admin.repository.AdminUserRepository;
+import com.hajacheck.auth.entity.CompanyMembership;
 import com.hajacheck.auth.entity.Role;
 import com.hajacheck.auth.entity.User;
 import com.hajacheck.auth.entity.UserStatus;
+import com.hajacheck.auth.repository.CompanyMembershipRepository;
 import com.hajacheck.auth.service.DemoAccountGuard;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -38,6 +40,7 @@ public class AdminUserService {
     private final PasswordEncoder passwordEncoder;
     private final QuotaService quotaService;
     private final DemoAccountGuard demoAccountGuard;
+    private final CompanyMembershipRepository companyMembershipRepository;
 
     // 관리자 콘솔이 프론트에 노출하는 배정 가능 역할(ROLE_CHANGE_OPTIONS: USER/INSPECTOR/ADMIN)과 동일한
     // 화이트리스트 — COUNSELOR 등 이 화면 밖의 Role은 요청을 크래프팅해도 서버가 거부한다(리뷰 P2).
@@ -67,7 +70,7 @@ public class AdminUserService {
     }
 
     @Transactional
-    public AdminUserResponse createUser(AdminUserCreateRequest request, Long companyId) {
+    public AdminUserResponse createUser(AdminUserCreateRequest request, Long companyId, Long requestingUserId) {
         requireCompanyId(companyId);
         requireAssignableRole(request.role());
         // 좌석 잔여 확인(#872 후속) — 초대 코드 발급과 동일하게, 관리자가 직접 등록하는 경로도
@@ -91,13 +94,47 @@ public class AdminUserService {
         String passwordHash = passwordEncoder.encode(request.password());
         User user = User.createByAdmin(request.email(), request.name(), request.role(), passwordHash, companyId);
 
+        User saved;
         try {
-            User saved = adminUserRepository.save(user);
-            return AdminUserResponse.from(saved);
+            saved = adminUserRepository.save(user);
         } catch (DataIntegrityViolationException e) {
             // 선검사와 저장 사이의 경합(동시 등록) — unique(email) 위반.
             throw new BusinessException(ErrorCode.AUTH_EMAIL_DUPLICATED);
         }
+
+        grantEffectiveMembership(companyId, saved.getId(), requestingUserId);
+        return AdminUserResponse.from(saved);
+    }
+
+    /**
+     * 관리자 콘솔로 직접 등록한 계정에 회사 스코프 접근에 필요한 유효 멤버십을 발급한다(#1433).
+     *
+     * <p><b>왜 필요한가</b>: {@code User.createByAdmin}이 채우는 {@code users.company_id}는 조회 편의
+     * 포인터일 뿐이고, 실제 인가 판정은 {@code CompanyScopeGuard.requireEffectiveMembership} →
+     * {@code CompanyMembershipRepository.existsEffectiveApprovedMembership}가 {@code company_memberships}
+     * 행을 기준으로 한다. 이 행이 없으면 나머지 조건(user ACTIVE · company APPROVED · verification
+     * VERIFIED)을 모두 만족해도 <b>회사 스코프 API가 전부 403</b>이 된다 — 관리자 콘솔로 만든 계정이
+     * 지도·보고서·통계를 하나도 못 쓰던 실제 장애의 원인이었다
+     * ({@code InviteCodeService.grantEffectiveMembership} #1474와 같은 유형).
+     *
+     * <p><b>같은 트랜잭션이어야 하는 이유</b>: 좌석 예약({@code reserveSeat})·User 저장과 원자적으로
+     * 묶여야 한다. 분리하면 "좌석은 소모되고 계정도 생겼는데 멤버십이 없어 403" 같은 부분 성공 상태가
+     * 남는다. 이 메서드는 {@code createUser}의 트랜잭션 안에서만 호출된다.
+     *
+     * <p><b>DataIntegrityViolation 처리 범위 밖에 두는 이유</b>: 위 try 블록은 unique(email) 위반만을
+     * AUTH_EMAIL_DUPLICATED로 번역하는 자리다. 여기서 저장하는 행의 키
+     * {@code uk_company_memberships_company_user}는 <b>방금 생성된 신규 user_id</b>를 쓰므로 중복이
+     * 구조상 불가능하다. 두 저장을 같은 catch로 묶으면 성격이 다른 제약 위반이 "이메일 중복"으로
+     * 뭉개져 원인을 감춘다.
+     *
+     * <p><b>교훈(#1368·#1474와 동일 유형)</b>: 인가 조건은 "검사하는 코드"와 "충족시키는 코드"가 쌍으로
+     * 존재해야 한다. 사용자를 만드는 경로를 추가할 때는 "누가 이 조건을 만들어 주는가"를 반드시 확인한다.
+     */
+    private void grantEffectiveMembership(Long companyId, Long userId, Long requestingUserId) {
+        // invitedBy = 요청 관리자 — 이 경로는 승인 주체가 곧 요청 관리자라 감사 추적이 가능하다
+        // (초대 코드 redeem은 발급자를 알 수 없어 null. CompanyMembership.approvedMember javadoc 참고).
+        companyMembershipRepository.save(
+                CompanyMembership.approvedMember(companyId, userId, requestingUserId));
     }
 
     @Transactional
