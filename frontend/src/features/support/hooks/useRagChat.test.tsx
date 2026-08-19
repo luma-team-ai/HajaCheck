@@ -270,6 +270,51 @@ describe('useRagChat (통합 테스트)', () => {
     expect(assistant?.sources?.[0].title).toBe('문서 #34');
   });
 
+  // #1597 확정 계약: 인용된 문서가 삭제되면 FK ON DELETE SET NULL로 documentId/title/collection이
+  // 전부 null로 응답된다 — "삭제된 문서"로 표시하되 locator/snippet(citation 행 자체 보관)은 그대로
+  // 노출한다. title==='' 폴백(#1700, `문서 #{documentId}`)과는 다른 갈래임을 함께 고정한다.
+  it('세션 복원 citation의 title이 null이면 삭제된 문서로 표시하고 locator·snippet은 유지한다', async () => {
+    setRagSessionId(9);
+    server.use(
+      http.get('/api/chat-sessions/:sessionId/messages', () => {
+        const data: ChatSessionMessageResponse[] = [
+          {
+            id: 1,
+            sessionId: 9,
+            sender: 'BOT',
+            content: '답변',
+            citations: [
+              {
+                documentId: null,
+                title: null,
+                collection: null,
+                chunkRef: '55_1',
+                locator: '제3조',
+                snippet: '삭제된 문서의 인용 발췌',
+              },
+            ],
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        return HttpResponse.json({ success: true, data });
+      }),
+    );
+
+    const { result } = renderHook(() => useRagChat());
+
+    await waitFor(() => expect(result.current.messages).toHaveLength(1));
+
+    const assistant = assistantOf(result.current.messages);
+    expect(assistant?.sources?.[0]).toMatchObject({
+      doc_id: '',
+      title: '삭제된 문서',
+      collection: null,
+      locator: '제3조',
+      chunk_ref: '55_1',
+      snippet: '삭제된 문서의 인용 발췌',
+    });
+  });
+
   it('세션 복원 실패(403 등)면 조용히 로컬 세션을 지우고 빈 상태로 시작한다', async () => {
     setRagSessionId(99);
     server.use(
