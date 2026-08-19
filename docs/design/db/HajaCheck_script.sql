@@ -861,11 +861,16 @@ comment on column inspections.performed_at is '점검 실제 수행 시각(#1667
 alter table inspections
     owner to postgres;
 
-create index idx_inspections_facility
-    on inspections (facility_id);
-
 create index idx_inspections_assigned_inspector
     on inspections (assigned_inspector_id);
+
+-- #1679/#1667 — findRecentByFacilityIds/findLatestByFacilityIds 정렬(facility_id,
+-- inspection_date desc, performed_at desc nulls last, id desc)을 뒷받침하는 복합 인덱스.
+-- PR머신 P3(2026-08-19) — 이 인덱스의 선두 컬럼(facility_id)이 옛 idx_inspections_facility(facility_id
+-- 단일)를 완전히 커버하므로(멀티컬럼 btree는 선두 컬럼만 쓰는 등치/IN 조회에도 그대로 쓰인다) 그
+-- 인덱스는 V45에서 drop했고 캐노니컬에서도 제거한다.
+create index idx_inspections_recent_order
+    on inspections (facility_id, inspection_date desc, performed_at desc nulls last, id desc);
 
 create table media
 (
