@@ -8,6 +8,9 @@ export interface SourceCitation {
   collection: 'regulations' | 'defect_kb';
   locator: string; // 렌더 완료 문구("제12조" / "제12조 ①" / "12페이지") — FE 재조립 금지(설계 §5·§7)
   chunk_ref: string; // Chroma document id({doc_id}_{chunk_index})
+  // 근거 발췌(Chroma 청크 원문) — #1700: 참고문서 칩을 펼쳤을 때 미리보기(line-clamp)로만 쓴다.
+  // title 대용으로 쓰지 않는다(과거 세션 복원 경로의 버그 원인, useRagChat.ts toChatMessage 참고).
+  snippet?: string;
 }
 
 export interface RagAnswerData {
@@ -36,6 +39,10 @@ export interface ChatSessionCitation {
   // (PR #1563 P2 픽스 — 이전엔 string으로 잘못 선언돼 있었다). SourceCitation.doc_id(문자열
   // 계약)로 변환하는 책임은 useRagChat.ts의 toChatMessage()가 진다.
   documentId: number;
+  // #1698(백엔드)로 세션 이력 응답에 추가된 필드 — 이전엔 없어서 toChatMessage()가 snippet을
+  // title 대용으로 썼다(#1700에서 제거한 버그). 빈 값일 수 있어 폴백은 호출부(toChatMessage)가 진다.
+  title: string;
+  collection: 'regulations' | 'defect_kb';
   chunkRef: string;
   locator: string;
   snippet: string;
