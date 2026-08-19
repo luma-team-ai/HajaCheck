@@ -125,6 +125,7 @@ public record ReportDetailResponse(
             Double crackWidthMm,
             Double crackLengthMm,
             Double areaRatio,
+            Double areaMm2,
             String actionContent,
             LocalDate actionDate,
             Long actionAssigneeId) {

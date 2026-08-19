@@ -160,3 +160,24 @@ describe("buildReportPdfContext — 하자 박스", () => {
     expect(context.defectImages).toEqual([]);
   });
 });
+
+describe("buildReportPdfContext — 하자 요약(areaMm2 병기, #1680)", () => {
+  it("areaMm2가 있으면 실측 면적을 요약에 병기한다", () => {
+    const spalling = { ...SPALLING, id: 30, areaMm2: 45.5 };
+    const images =
+      buildReportPdfContext(buildReport([spalling]), null, true)
+        .defectImages ?? [];
+
+    expect(images[0].summary).toContain("면적 45.5mm²");
+  });
+
+  it("areaMm2가 null이면 요약에서 생략한다(단독 null 체크, 다른 필드와 무관)", () => {
+    const crack = { ...CRACK_A, id: 31, areaMm2: null, crackWidthMm: 0.3 };
+    const images =
+      buildReportPdfContext(buildReport([crack]), null, true).defectImages ??
+      [];
+
+    expect(images[0].summary).not.toContain("면적");
+    expect(images[0].summary).toContain("균열폭 0.3mm");
+  });
+});
