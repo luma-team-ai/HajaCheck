@@ -37,7 +37,12 @@ public class PendingBusinessReverifyWriter {
     }
 
     /**
-     * 국세청이 확정 불량(미등록·불일치·휴업·폐업)을 응답한 회사를 FAILED로 강등한다.
+     * 국세청이 <b>확정 불량</b>(미등록·폐업)을 응답한 회사를 FAILED로 강등한다.
+     *
+     * <p>⚠️ <b>호출 범위가 좁혀졌다</b>(#1367): 불일치(MISMATCH)·휴업(SUSPENDED)은 대표자 변경·계절
+     * 휴업·비영리 고유번호증 같은 <b>정상 사업 변동</b>일 수 있어 스케줄러가 더 이상 이 메서드를 호출하지
+     * 않고 경보만 남긴다({@code PendingBusinessReverifyScheduler} javadoc). 이 메서드 자체는 outcome 을
+     * 판단하지 않으므로 시그니처는 그대로다 — 어떤 outcome 을 확정 불량으로 볼지는 호출부의 정책이다.
      *
      * <p><b>⚠️ 멤버십은 회수하지 않는다 — 의도적 선택이다(#1324 리뷰 결정). 다시 넣지 말 것.</b>
      * "APPROVED 로 남은 멤버십 행이 지뢰"라는 직관 때문에 회수를 넣기 쉬운데, 아래 세 근거로 되돌렸다:
@@ -63,8 +68,11 @@ public class PendingBusinessReverifyWriter {
      * REVOKED 로 잠기고 나머지 구성원은 전원 즉시 복권된다. 그렇다고 "전원 회수"로 가면 비가역성만
      * 커진다. 그래서 회수를 하지 않는 쪽으로 통일했다.
      *
-     * <p>FAILED 전이 → (필요 시) 멤버십 정리 → 소명·복구까지 <b>왕복을 완성하는 정식 설계는 후속 이슈
-     * #1367</b>로 분리했다. 그 전까지는 아래 경고 로그로 운영이 사후 판단한다.
+     * <p><b>복구 왕복은 #1367 로 완성됐다</b> — 이 강등을 사람이 되돌리는 경로는
+     * {@code POST /api/platform-admin/companies/{id}/verification/restore}
+     * ({@link com.hajacheck.auth.entity.Company#restoreBusinessVerificationByAdmin})이며, FAILED 를
+     * PENDING 으로 되돌려 <b>다음 회차 재검증 대상에 복귀</b>시킨다. 멤버십을 회수하지 않았기 때문에 그
+     * 복구 한 번으로 전 구성원의 스코프가 그대로 다시 열린다(회수했다면 복권 코드가 없어 반쪽이 된다).
      */
     @Transactional
     public void markFailed(Long companyId, NtsVerificationOutcome outcome) {
@@ -74,7 +82,7 @@ public class PendingBusinessReverifyWriter {
                     // 회수를 하지 않는 것이지 무시하는 게 아니다 — 운영이 사후 판단할 수 있게 남긴다.
                     // 개인정보(사업자번호·대표자명·이메일) 금지: 식별자와 결과 라벨만 기록한다.
                     log.warn("사업자 진위확인 확정 불량 — 회사 스코프 차단(FAILED). 멤버십은 유지한다"
-                                    + "(복구 경로 부재로 비가역 회수를 하지 않음, 후속 #1367)."
+                                    + "(비가역 회수를 하지 않음 — 복구는 플랫폼 관리자 restore API)."
                                     + " companyId={}, outcome={}",
                             companyId, outcome);
                 },
