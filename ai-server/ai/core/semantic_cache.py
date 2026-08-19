@@ -93,6 +93,13 @@ logger = logging.getLogger(__name__)
 # datetime이 아니라 int로 저장한다. 숫자여야 where 연산자($lt/$gte)로 필터·삭제할 수 있다.
 CREATED_AT_FIELD = "created_at"
 
+# 캐시 항목의 버전 태그(#1699) — 프롬프트·모델 변경으로 캐시된 답변 형식이 달라지면 호출부
+# (현재는 `rag_chat_chain.RAG_CHAT_SEMANTIC_CACHE_VERSION`)가 값을 bump한다. 이 모듈은 값 자체를
+# 알 필요가 없다 — `company_id`와 동일하게 "필터 조건 중 하나"로만 다룬다. 옛 버전 항목은 이
+# 필드가 없거나 값이 달라 필터에 매칭되지 않고(자연 소멸), TTL 정책(`enforce_retention`)이 실제
+# 삭제를 맡는다(destructive 즉시 삭제 없음).
+CACHE_VERSION_FIELD = "cache_version"
+
 # 기본값들 — 모두 위 모듈 docstring의 설계 판단 근거를 따른다.
 DEFAULT_SEMANTIC_CACHE_THRESHOLD = 0.95
 DEFAULT_TTL_SECONDS = 60 * 60 * 24  # 24시간 (설계 판단 1)
@@ -199,17 +206,24 @@ def ttl_cutoff() -> int:
     return now_epoch_seconds() - semantic_cache_ttl_seconds()
 
 
-def fresh_entry_filter(company_id: int) -> dict:
-    """조회용 where 필터 — 회사 스코프(#1584) + TTL 미경과(#1594)를 함께 강제한다.
+def fresh_entry_filter(company_id: int, cache_version: str) -> dict:
+    """조회용 where 필터 — 회사 스코프(#1584) + TTL 미경과(#1594) + 캐시 버전(#1699)을 함께 강제한다.
 
     `created_at`이 아예 없는 레거시 항목(#1594 이전 적재분)은 `$gte` 비교에 매칭되지 않아 자연히
     조회 대상에서 빠진다 — `company_id` 필드가 없던 #1584 이전 항목이 빠지는 것과 같은 fail-closed
     거동이다. 그 항목들의 실제 삭제는 `_delete_legacy_entries()`가 맡는다(같은 이유로 `where`
     삭제에도 안 걸리므로 별도 경로가 필요하다).
+
+    `cache_version`도 같은 원리다 — 옛 버전(또는 필드 자체가 없는 #1699 이전) 항목은 이 조건에
+    매칭되지 않아 조회에서 자연히 빠지고, 실제 삭제는 TTL 경과 시 `enforce_retention()`이 맡는다
+    (버전이 바뀌었다고 즉시 삭제하지 않음 — destructive 조치 금지, `rag_chat_chain.py`
+    `RAG_CHAT_CACHE_PREFIX` 주석 참고). 호출부(현재 `rag_chat_chain`)가 실제 버전 값을 정하고,
+    이 모듈은 그 값을 필터 조건으로만 다룬다(company_id와 동일 원칙 — 값의 의미를 모른다).
     """
     return {
         "$and": [
             {"company_id": company_id},
+            {CACHE_VERSION_FIELD: cache_version},
             {CREATED_AT_FIELD: {"$gte": ttl_cutoff()}},
         ]
     }
