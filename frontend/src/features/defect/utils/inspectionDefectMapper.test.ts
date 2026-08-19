@@ -19,6 +19,7 @@ const rawDefect: InspectionDefectResponse = {
   crackLengthMm: 18,
   areaRatio: 0.12,
   areaMm2: 3300.4,
+  areaMm2ReferenceGrade: 'B',
   mediaId: 901,
   imageUrl: '/api/media/901/thumbnail',
   detailUrl: '/api/media/901/detail',
@@ -35,5 +36,6 @@ describe('mapInspectionDefect', () => {
     expect(result.detailUrl).toBe('/api/media/901/detail');
     expect(result.areaRatio).toBe(0.12);
     expect(result.areaMm2).toBe(3300.4); // #1658/#1669 — areaRatio와 별개로 보존되는지 확인
+    expect(result.areaMm2ReferenceGrade).toBe('B'); // #1683/#1684 — areaMm2와 마찬가지로 보존되는지 확인
   });
 });

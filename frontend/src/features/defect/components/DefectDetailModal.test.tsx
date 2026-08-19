@@ -487,6 +487,28 @@ describe('DefectDetailModal — 실측 면적(areaMm2) 병기(#1658/#1669)', () 
     expect(screen.getByText('4200.5mm²')).not.toBeNull();
   });
 
+  it('areaMm2ReferenceGrade 값이 있으면 "실측 면적" 카드에 참고 등급 배지를 병기한다(#1683/#1684)', async () => {
+    server.use(mockActionLogsHandler({}));
+    // mockInspectionDefects id=1(철근 노출): areaMm2ReferenceGrade='C'(defect.mock.ts, 본등급 D와 다른 값)
+    renderModal(1);
+
+    await screen.findByRole('form', { name: '조치 결과 등록' });
+
+    expect(screen.getByText('참고 등급 C')).not.toBeNull();
+    expect(screen.getByText('잠정 기준(실측 재캘리브레이션 전)')).not.toBeNull();
+  });
+
+  it('areaMm2ReferenceGrade가 null이면 배지·캡션을 표시하지 않는다(#1683/#1684, 단독 null 체크)', async () => {
+    server.use(mockActionLogsHandler({}));
+    // mockInspectionDefects id=4(균열, IN_PROGRESS): areaMm2/areaMm2ReferenceGrade 모두 null.
+    renderModal(4);
+
+    await screen.findByRole('form', { name: '조치 결과 등록' });
+
+    expect(screen.queryByText(/^참고 등급 /)).toBeNull();
+    expect(screen.queryByText('잠정 기준(실측 재캘리브레이션 전)')).toBeNull();
+  });
+
   it('areaMm2가 null이면 다른 지표(균열 폭·길이)와 무관하게 "실측 면적" 카드만 독립적으로 "측정 예정"을 표시한다(#1588 교훈)', async () => {
     server.use(mockActionLogsHandler({}));
     // mockInspectionDefects id=4(균열, IN_PROGRESS): crackWidthMm/crackLengthMm는 값이 있고

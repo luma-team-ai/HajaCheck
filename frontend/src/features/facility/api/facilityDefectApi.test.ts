@@ -27,6 +27,25 @@ describe('facilityDefectApi.getDetail', () => {
     expect(res.data.bboxY).toBe(mockFacilityDefectDetailResponse.bboxY);
     expect(res.data.bboxW).toBe(mockFacilityDefectDetailResponse.bboxW);
     expect(res.data.bboxH).toBe(mockFacilityDefectDetailResponse.bboxH);
+    // 참고 등급(mm² 기반, #1683/#1684) — areaMm2와 마찬가지로 그대로 전달되는지 확인
+    // (mock은 균열 타입이라 null, areaMm2와 동일 조건).
+    expect(res.data.areaMm2ReferenceGrade).toBe(mockFacilityDefectDetailResponse.areaMm2ReferenceGrade);
+  });
+
+  it('areaMm2ReferenceGrade 값이 있으면 그대로 보존해 전달한다(#1683/#1684)', async () => {
+    server.use(
+      http.get('/api/defects/:id', () => {
+        const body: ApiResponse<FacilityDefectDetailResponse> = {
+          success: true,
+          data: { ...mockFacilityDefectDetailResponse, areaMm2: 4200.5, areaMm2ReferenceGrade: 'C' },
+        };
+        return HttpResponse.json(body);
+      }),
+    );
+
+    const res = await facilityDefectApi.getDetail('101');
+
+    expect(res.data.areaMm2ReferenceGrade).toBe('C');
   });
 });
 
