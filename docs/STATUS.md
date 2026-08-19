@@ -1,6 +1,6 @@
 # hajaCheck — STATUS
 
-> 마지막 갱신: 2026-08-19
+> 마지막 갱신: 2026-08-20
 
 ## 인프라
 
@@ -35,6 +35,14 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 > ⚠️ 지난 세션 이슈였던 JDK가 **PRD·`build.gradle`·Dockerfile·OCI 실측 네 곳 모두 17로 정합** 확인됨. (호스트 직접 `./gradlew build` 시 JDK 부재 문제는 컨테이너 빌드와 별개 — 아래 [알려진 이슈] 참조)
 
 ## 마지막 머지 PR
+
+> ✅ **2026-08-20 dev 머지 — 로컬 테스트 상시 실패 9건 해소 (PR #1718 / 이슈 #1712, 머신 자동머지).** 프론트 로컬 `npm test` 전체에서 파일 업로드 관련 **9건이 상시 실패**하던 건. CI(Node 20)는 그린이라 배포는 안 막았지만, **로컬 스위트가 늘 빨간 탓에 진짜 회귀가 그 뒤에 묻히는 것**이 실제 비용이었다(직전 PR들마다 "이 실패가 내 변경 탓인가"를 따로 증명해야 했음).
+> - **원인**: jsdom이 만든 `File`이 msw(Node 내장 undici)의 `multipartFormDataParser`에서 `webidl.is.File()` **브랜드 체크**를 통과하지 못해 요청이 크래시. Node 22+에서 undici가 이 체크를 엄격화하며 드러났다(Node 20 번들 undici는 덕타이핑이라 통과). **로컬만의 문제가 아니다 — Node 20이 이미 EOL이라 CI를 올리는 순간 CI에서도 터진다.**
+> - **해결**: 파일별 전략 분리. `facilityMediaApi.test.ts`(5건)는 **node 환경 전환**(File/FormData/fetch가 전부 Node 것이라 realm 불일치 자체가 없음, jsdom이 주던 baseURL resolve·`location`만 이 파일에서 최소 스텁). React 렌더링이 필요해 jsdom을 뗄 수 없는 3개 파일(4건)은 신규 `shared/testing/mswFileRealmCompat.ts`로 **msw `request:start`에서 multipart 요청일 때만** 전역 `File`을 Node 것으로 교체 후 `afterEach` 원복. **전역 `setupFiles` 미도입** — 파일 단위 opt-in이라 다른 브랜치 테스트에 파급 없음. **프로덕션 코드 0줄·신규 의존성 0건.**
+> - **기각한 대안(재검토 방지)**: ①msw 업그레이드 → 이미 최신(2.15.0), 원인이 버전 버그가 아님 ②`.nvmrc`로 Node 20 고정 → **EOL 런타임에 팀을 묶는 회피**, 올리면 재발 ③`File`만 `node:buffer` 것으로 교체 → **작동 안 함**(jsdom `FormData.append()`가 자기가 안 만든 File을 문자열 필드로 강등, 에러만 "네트워크 오류"→"파일이 필요합니다"로 바뀜).
+> - **⚠️ 메타 검수 P2 — "테스트 통과시키려 검증 지우기" 차단**: 초기 구현이 `ReportGeneratePage.test.tsx`의 `uploadedPdfSize > 0`을 제거하며 "바이트 검증은 `facilityMediaApi.test.ts`가 전담"이라 주석에 적었으나 **사실이 아니었다**(그 파일도 핸들러도 개수만 셀 뿐 바이트·파일명 미검증). 실측 결과 남겨둔 `uploadedPdfFileName` truthy 단언도 **무의미**했다(실제 값이 리터럴 `"blob"` — 파일명 유실). 즉 "PDF가 올바른 파일명으로 업로드되는지"를 레포 어디서도 검증하지 않는 상태가 될 뻔했다 → ①`finalizeReportFlow.test.ts`에 `uploadPdf` 인자 검증(`toHaveBeenCalledWith(10, expect.any(Blob), 'report.pdf')` + `blob.size > 0`) 추가로 공백 보강 ②같은 거짓 주장 **6곳** 사실 정정. **교훈: 환경 제약으로 검증을 포기할 때 "다른 데서 커버된다"는 근거는 그 파일을 실제로 열어 확인하고 적을 것.**
+> - 검증: `npx vitest run` **2101/2102**(9건 해소) · `npm run build` PASS · `eslint src` 0 error · CI(Node 20) frontend SUCCESS · nvm으로 Node 20.20.2 로컬 교차 확인. G1/G6 PASS. 이슈 #1712 `awaiting-promotion`. **승격 대기.**
+> - **잔여 1건 = 기존 이슈 #1676**(`FacilityCard` D-day, `toISOString(UTC)` 픽스처가 **KST 00~09시**에 실패하는 타임존 플레이크). 순정 dev에서 동일 재현 확인 — 이번 스코프 아님. CI는 UTC라 안 걸린다.
 
 > ✅ **2026-08-19 dev 머지 — 데모 계정 품질 2종 (PR #1705·#1711, 둘 다 머신 자동머지).** 사용자 리포트 2건("데모 이미지가 너무 대충 들어가 있다" + "지도뷰에 시설물이 안 보인다")에서 출발. 둘 다 `DemoSeedService` 시드 데이터 결함.
 > - **BE #1705**(이슈 #1701) — 데모 이미지 4종이 **회색 배경에 꺾은선을 그린 합성 도형**이었다(전부 960x720, 16~24KB). 합성물이라 데모에서 AI 재분석을 돌려도 하자가 검출되지 않는 부작용도 있었다. 실사진 4종으로 교체(직접 촬영 3 + 운영 DB 검증 실사진 1, EXIF 제거·장변 1280px·q85 통일). 함께 발견된 **시드 매핑 오류 2건** 정정: ①시설물 대표 사진(`tower-front`)에 "천장 누수 그림"이 들어가 있어 카드 썸네일이 건물이 아니었음 → 외벽 전경 ②사업자등록증 자리에 균열 그림 → `SAMPLE` 워터마크+"실제 사업자등록증이 아닙니다" 견본 문서(기재값은 시드 상수와 일치). **누수 하자는 삭제가 아니라 박리로 전환** — 삭제하면 `IN_PROGRESS` 상태 사례가 데모에서 사라지므로(r2Progress가 유일) 유형만 바꿔 하자 5건·상태 커버리지 4종을 유지. 보고서 초안 JSON의 누수 서술도 박락 기준으로 정합화. test 2442/2442 PASS.
