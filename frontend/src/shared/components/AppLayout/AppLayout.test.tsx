@@ -19,7 +19,7 @@ describe('AppLayout', () => {
     expect(screen.getByText('마이페이지 상세')).not.toBeNull();
     expect(screen.getByText('페이지 콘텐츠')).not.toBeNull();
     expect(screen.getByText('시설물 관리')).not.toBeNull(); // SideNavBar 기본 메뉴
-    expect(screen.getByLabelText('고객지원 챗봇 열기')).not.toBeNull();
+    expect(screen.getByLabelText('상담 챗봇 열기')).not.toBeNull();
   });
 
   // 퀵상담 FAB(BottomNavBarFab) 클릭 시 FloatingPopup이 뜨고, 링크·상담원 연결 클릭 시
@@ -33,18 +33,18 @@ describe('AppLayout', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.queryByText('HajaCheck 도우미')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '상담 챗봇' })).toBeNull();
 
-    fireEvent.click(screen.getByLabelText('고객지원 챗봇 열기'));
+    fireEvent.click(screen.getByLabelText('상담 챗봇 열기'));
 
-    expect(screen.getByText('HajaCheck 도우미')).not.toBeNull();
+    expect(screen.getByRole('dialog', { name: '상담 챗봇' })).not.toBeNull();
     expect(screen.getByText('서비스 이용 방법')).not.toBeNull();
     expect(screen.getByText('분석 결과 문의')).not.toBeNull();
     expect(screen.getByText('요금·기타')).not.toBeNull();
 
     fireEvent.click(screen.getByText('서비스 이용 방법'));
 
-    expect(screen.queryByText('HajaCheck 도우미')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '상담 챗봇' })).toBeNull();
   });
 
   // 이슈 #546(PR머신 P2): FloatingPopup은 useOutsideDismiss로 document mousedown에서 바깥 클릭을
@@ -61,14 +61,14 @@ describe('AppLayout', () => {
       </MemoryRouter>,
     );
 
-    const fab = screen.getByLabelText('고객지원 챗봇 열기');
+    const fab = screen.getByLabelText('상담 챗봇 열기');
     fireEvent.click(fab);
-    expect(screen.getByText('HajaCheck 도우미')).not.toBeNull();
+    expect(screen.getByRole('dialog', { name: '상담 챗봇' })).not.toBeNull();
 
     fireEvent.mouseDown(fab);
     fireEvent.click(fab);
 
-    expect(screen.queryByText('HajaCheck 도우미')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '상담 챗봇' })).toBeNull();
   });
 
   // PR머신 P2(위 가드의 부작용 방지) — 팝업 밖 다른 요소를 클릭해 닫은 직후 FAB를 클릭하면
@@ -82,17 +82,17 @@ describe('AppLayout', () => {
       </MemoryRouter>,
     );
 
-    const fab = screen.getByLabelText('고객지원 챗봇 열기');
+    const fab = screen.getByLabelText('상담 챗봇 열기');
     fireEvent.click(fab);
-    expect(screen.getByText('HajaCheck 도우미')).not.toBeNull();
+    expect(screen.getByRole('dialog', { name: '상담 챗봇' })).not.toBeNull();
 
     const pageContent = screen.getByText('콘텐츠');
     fireEvent.mouseDown(pageContent);
     fireEvent.click(pageContent);
-    expect(screen.queryByText('HajaCheck 도우미')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '상담 챗봇' })).toBeNull();
 
     fireEvent.click(fab);
-    expect(screen.getByText('HajaCheck 도우미')).not.toBeNull();
+    expect(screen.getByRole('dialog', { name: '상담 챗봇' })).not.toBeNull();
   });
 
   it('activeHref 미지정 시 현재 URL(useLocation) 기준으로 SideNavBar 활성 항목을 계산한다', () => {
