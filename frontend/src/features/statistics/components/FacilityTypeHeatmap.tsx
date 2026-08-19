@@ -10,6 +10,8 @@ import { getMonthsForPeriod } from '../utils/getMonthsForPeriod';
 // 카테고리(예: '기타')가 통째로 행에서 빠진다(사용자 리포트) — 열(월)은 이미 항상 고정 표기되는데
 // 행만 데이터 유무에 좌우되는 비대칭이었다. types.ts에 이미 확정된 FacilityTypeCategory 4종을
 // 그대로 고정 행 목록으로 써서, 데이터가 0건인 카테고리도 항상 0건 행으로 노출한다.
+// (#1696) 같은 논리로 전체 응답이 빈 배열(그 기간 전체 0건)이어도 그리드는 그대로 렌더한다 —
+// 행이 고정인데 전체 0건이라고 그리드째 "표시할 데이터가 없습니다"로 가리는 건 위 결정과 모순.
 const ALL_FACILITY_TYPE_CATEGORIES: FacilityTypeCategory[] = ['건물', '교량', '도로', '기타'];
 
 // Figma 시안(node 77-1454)의 히트맵은 "지하주차장/외벽/공용부/옥상"처럼 시설물 내부 세부구역을
@@ -159,12 +161,7 @@ export function FacilityTypeHeatmap({ filterParams }: FacilityTypeHeatmapProps) 
           <p className="dashboard-card-status">히트맵 데이터를 불러오지 못했습니다.</p>
         </div>
       )}
-      {!isLoading && !isError && data && data.length === 0 && (
-        <div className="my-auto flex flex-1 items-center justify-center py-8">
-          <p className="dashboard-card-status">표시할 데이터가 없습니다.</p>
-        </div>
-      )}
-      {!isLoading && !isError && data && data.length > 0 && (
+      {!isLoading && !isError && data && (
         <HeatmapGrid categories={visibleCategories} months={months} findCount={findCount} maxCount={maxCount} />
       )}
       {hasMore && (
