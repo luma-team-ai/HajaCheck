@@ -31,6 +31,10 @@ public record ChatSessionMessageResponse(
      * 신규 답변 경로({@link com.hajacheck.core.ai.dto.RagChatResponse.SourceCitation#collection()},
      * ai-server {@code vectorstore.py})와 값을 맞추기 위해 {@link RagTargetCollection} enum명을
      * 소문자로 변환한다(예: {@code REGULATIONS} → {@code "regulations"}).
+     *
+     * <p>{@code documentId}/{@code title}/{@code collection}은 문서가 삭제됐으면(ON DELETE SET NULL,
+     * #1597) 전부 null이다 — {@code locator}/{@code snippet}은 citation 행 자체에 보관돼 있어 문서가
+     * 사라져도 그대로 남는다. FE는 title이 null이면 "삭제된 문서"로 표시한다(useRagChat.ts toChatMessage).
      */
     public record Citation(
             Long documentId, String title, String collection, String chunkRef, String locator, String snippet) {
@@ -39,8 +43,8 @@ public record ChatSessionMessageResponse(
             RagDocument document = citation.getDocument();
             return new Citation(
                     citation.getDocumentId(),
-                    document.getTitle(),
-                    document.getTargetCollection().name().toLowerCase(Locale.ROOT),
+                    document == null ? null : document.getTitle(),
+                    document == null ? null : document.getTargetCollection().name().toLowerCase(Locale.ROOT),
                     citation.getChunkRef(),
                     citation.getLocator(),
                     citation.getSnippet());
