@@ -1,5 +1,6 @@
 package com.hajacheck.core.rag.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -20,6 +21,14 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.ai.dto.RagEmbedResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
+import com.hajacheck.core.rag.entity.ChatMessageCitation;
+import com.hajacheck.core.rag.repository.ChatMessageCitationRepository;
+import com.hajacheck.counsel.entity.ChatMessage;
+import com.hajacheck.counsel.entity.ChatSenderType;
+import com.hajacheck.counsel.entity.ChatSession;
+import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
+import com.hajacheck.counsel.repository.ChatSessionRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -63,6 +72,12 @@ class RagDocumentControllerTest extends PostgresTestSupport {
     private UserRepository userRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private ChatSessionRepository chatSessionRepository;
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+    @Autowired
+    private ChatMessageCitationRepository chatMessageCitationRepository;
 
     @MockBean
     private AiProxyService aiProxyService;
@@ -284,6 +299,48 @@ class RagDocumentControllerTest extends PostgresTestSupport {
         mockMvc.perform(post("/api/admin/rag-documents/{id}/re-embed", id)
                         .with(csrf()).with(authentication(authOf(platformAdminUser))))
                 .andExpect(status().isNotFound());
+    }
+
+    // #1597 — V1 baseline이 document_id FK에 ON DELETE 절을 빠뜨려 인용 이력이 있는 문서는 Chroma
+    // 청크만 지워진 채 PG FK 위반(23503)으로 삭제가 영구 실패했다(RagDocumentService.delete()). V49로
+    // ON DELETE SET NULL을 붙였으니 실 PostgreSQL에서 정상 삭제되고, citation 행은 document_id=NULL로
+    // 살아남아야 한다(locator/snippet은 citation 행 자체 보관이라 그대로 유지).
+    @Test
+    void 삭제_인용이력있어도_정상삭제되고_citation은_document_id_NULL로_남는다() throws Exception {
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(1, "batch-1")));
+
+        String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
+                        .file(pdfPart())
+                        .param("title", "인용된 문서")
+                        .param("sourceType", "LAW")
+                        .param("targetCollection", "REGULATIONS")
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long documentId = extractId(uploadResponse);
+
+        ChatSession session = chatSessionRepository.save(
+                ChatSession.start(userRepository.findByEmail("rag-user@haja.com").orElseThrow().getId(),
+                        ChatSessionType.RAG));
+        ChatMessage botMessage = chatMessageRepository.save(
+                ChatMessage.createText(session.getId(), ChatSenderType.BOT, "인용된 답변"));
+        ChatMessageCitation citation = chatMessageCitationRepository.save(ChatMessageCitation.create(
+                botMessage.getId(), documentId, "1_1", "제1조", "인용 발췌"));
+
+        mockMvc.perform(delete("/api/admin/rag-documents/{id}", documentId)
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true));
+
+        ChatMessageCitation reloaded = chatMessageCitationRepository.findById(citation.getId()).orElseThrow();
+        assertThat(reloaded.getDocumentId()).isNull();
+        assertThat(reloaded.getDocument()).isNull();
+        assertThat(reloaded.getLocator()).isEqualTo("제1조");
+        assertThat(reloaded.getSnippet()).isEqualTo("인용 발췌");
+
+        // 목록에서도 실제로 사라졌어야 한다(FK 위반으로 반쪽 삭제가 재발하지 않았는지 확인).
+        mockMvc.perform(get("/api/admin/rag-documents").with(authentication(authOf(platformAdminUser))))
+                .andExpect(jsonPath("$.data[?(@.title == '인용된 문서')]").doesNotExist());
     }
 
     @Test

@@ -257,4 +257,21 @@ class RagDocumentServiceTest {
                         .isEqualTo(ErrorCode.RAG_DOCUMENT_NOT_FOUND));
         verify(aiProxyService, never()).deleteRagDocumentChunks(any(), any());
     }
+
+    // #1597 — chat_message_citations FK가 ON DELETE SET NULL(V49)로 바뀌어 정상 경로에서는 더 이상
+    // 나지 않지만, 예기치 못한 DB 제약 위반이 나면 raw 500 대신 도메인 에러(RAG_DOCUMENT_DELETE_FAILED)로
+    // 표면화해야 한다 — 파일은 지우지 않는다(DB 삭제가 실패했으므로 아직 파일이 참조 중일 수 있다).
+    @Test
+    void delete_DB제약위반_RAG_DOCUMENT_DELETE_FAILED예외로변환하고파일은지우지않는다() {
+        when(ragDocumentWriter.delete(document.getId()))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("constraint violation"));
+
+        assertThatThrownBy(() -> ragDocumentService.delete(document.getId()))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
+                        .isEqualTo(ErrorCode.RAG_DOCUMENT_DELETE_FAILED));
+
+        verify(aiProxyService).deleteRagDocumentChunks(String.valueOf(document.getId()), "regulations");
+        verify(fileStorage, never()).delete(any());
+    }
 }
