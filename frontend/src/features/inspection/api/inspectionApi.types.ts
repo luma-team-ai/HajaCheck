@@ -1,4 +1,11 @@
 // Backend API response types — DO NOT import from ../types (that's for component state)
+
+// 점검(회차) 진행 상태 — shared/constants/inspectionStatus.ts가 단일 정의(#1693 코드리뷰 P3).
+// 이 파일이 세 번째 로컬 정의(defect/types.ts, mypage/statusClasses.ts에 이어)로 남아있던 것을
+// re-export로 정리한다 — 값은 구조적으로 동일해 동작 변화는 없다.
+import type { InspectionStatus } from '../../../shared/constants/inspectionStatus';
+export type { InspectionStatus };
+
 export type DefectType = '균열' | '박리박락' | '누수·백태' | '철근노출' | '도장 손상';
 export type DefectGrade = 'A' | 'B' | 'C' | 'D' | 'E';
 export type DefectStatus = 'DETECTED' | 'CONFIRMED' | 'IN_PROGRESS' | 'RESOLVED';
@@ -82,8 +89,6 @@ export interface MediaResponse {
   gpsLng: number | null;
   createdAt: string;
 }
-
-export type InspectionStatus = 'CREATED' | 'UPLOADING' | 'ANALYZING' | 'ANALYZED' | 'REVIEWED' | 'REPORTED';
 
 // GET /api/inspections?facilityId= 응답 항목 중 "같은 시설물에 이미 진행 중인 회차가 있는지" 확인에
 // 필요한 최소 필드만 뽑은 것 — 전체 계약(facilityName/assigneeName 등)은 defect feature의
