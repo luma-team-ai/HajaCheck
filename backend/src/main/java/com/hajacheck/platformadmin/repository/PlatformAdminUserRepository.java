@@ -72,10 +72,19 @@ public interface PlatformAdminUserRepository extends JpaRepository<User, Long> {
 
     boolean existsByEmail(String email);
 
-    // 스킬 변경(changeSkill) delete-then-insert 원자성 보호(PR머신 2차 검토 P2). 대상 상담사 행을
-    // 먼저 잠가 동일 상담사에 대한 동시 스킬 교체 요청을 직렬화한다 — 그렇지 않으면 두 요청의 DELETE가
-    // 서로의 신규 INSERT를 보지 못해(READ COMMITTED) counselor_skills에 행이 2개 남을 수 있다
-    // (CompanyRepository#findByIdForUpdate와 동일 패턴 — 값 자체는 쓰지 않고 잠금 획득 용도).
+    // 사용자 행 잠금 — 용도가 둘이다.
+    //
+    // ① 스킬 변경(changeSkill) delete-then-insert 원자성 보호(PR머신 2차 검토 P2). 대상 상담사 행을
+    //    먼저 잠가 동일 상담사에 대한 동시 스킬 교체 요청을 직렬화한다 — 그렇지 않으면 두 요청의 DELETE가
+    //    서로의 신규 INSERT를 보지 못해(READ COMMITTED) counselor_skills에 행이 2개 남을 수 있다
+    //    (CompanyRepository#findByIdForUpdate와 동일 패턴 — 값 자체는 쓰지 않고 잠금 획득 용도).
+    // ② changeRole/changeStatus 의 **로드 그 자체**(#1492 PR머신 2차 검토 P2). 이쪽은 반환 엔티티를
+    //    그대로 써야 한다 — User 에 @DynamicUpdate·@Version 이 없어 UPDATE 내용이 "로드 시점 스냅샷"이라,
+    //    ①처럼 잠금 없이 먼저 로드한 뒤 이 메서드를 부르면 L1 캐시의 stale 스냅샷이 그대로 UPDATE 되어
+    //    초대 코드 redeem 이 쓴 company_id 를 덮는다(PlatformAdminUserService#findUserForUpdate javadoc).
+    //
+    // ⚠️ 이 잠금이 걸린 경로의 잠금 순서 계약(users → companies / users → usage_counters)의 단일 소스는
+    // UserRepository#findByIdForUpdate javadoc 이다.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") Long id);

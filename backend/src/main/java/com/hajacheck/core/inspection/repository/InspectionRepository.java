@@ -42,19 +42,50 @@ public interface InspectionRepository extends JpaRepository<Inspection, Long>, I
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
 
-    // 점검 회차 생성(dev-05-02) — 시설물별 다음 회차 번호 계산.
+    // 점검 회차 생성(dev-05-02) — 시설물별 현재 최대 회차 번호. #1702부터는 "다음 회차 채번"이
+    // 아니라 (1) 시프트가 필요한지("삽입 위치 <= 현재 최댓값"이면 뒤 회차를 밀어야 한다) 판정과
+    // (2) 시프트 오프셋 안전성 가드에 쓰인다.
     @Query("select coalesce(max(i.roundNo), 0) from Inspection i where i.facilityId = :facilityId")
     int findMaxRoundNoByFacilityId(@Param("facilityId") Long facilityId);
 
-    // #1291 — roundNo는 항상 생성 순서(max+1)로 채번돼 점검일과 독립적이라, 새 회차의 점검일이
-    // 기존 최신 회차보다 앞서도 막히지 않았다(회차 간 비교·추이 차트가 전부 회차 번호 오름차순=
-    // 시간 순서로 가정해 깨짐). 생성 시 검증용 — 회차가 하나도 없으면 empty.
-    @Query("select max(i.inspectionDate) from Inspection i where i.facilityId = :facilityId")
-    Optional<LocalDate> findMaxInspectionDateByFacilityId(@Param("facilityId") Long facilityId);
+    // #1702 — 새 회차의 삽입 위치 계산. roundNo를 점검일 오름차순으로 유지하므로
+    // "새 점검일 이하인 기존 회차 수 + 1"이 곧 새 회차의 번호가 된다. 경계를 `<=`(미만이 아니라
+    // 이하)로 두어 같은 날짜의 기존 회차는 새 회차 <b>앞</b>에 남는다 = 같은 날짜는 뒤에 붙는다
+    // (InspectionRepository#findLatestByFacilityIds 주석의 "동일 날짜 여러 회차 시 최신 등록분을
+    // 최근으로 취급" 정책과 정합).
+    long countByFacilityIdAndInspectionDateLessThanEqual(Long facilityId, LocalDate inspectionDate);
 
-    // #1591 P2 — 다음 점검일 재계산의 "이 회차가 최신인가" 판정용. 위 findMaxInspectionDateByFacilityId
-    // 와 달리 반드시 status 조건이 필요하다: 그 쿼리는 회차 <b>존재</b>만으로 max가 올라가는데
-    // (createInspection은 이전 회차의 REPORTED 여부를 막지 않는다 — 날짜 하한만 검증하고 미종료
+    // #1702 — 회차 시프트 1단계. unique(facility_id, round_no)는 non-deferrable이라(V1:523)
+    // `round_no = round_no + 1` 단일 UPDATE는 PG가 행마다 즉시 제약을 검사하는 도중 아직 밀리지 않은
+    // 다음 행과 충돌할 수 있다. 그래서 밀어야 할 행 전부를 한 번에 빈 상위 구간(>= offset)으로
+    // 옮겨두고(1단계), 거기서 목표 위치로 되돌린다(2단계) — 두 단계 모두 출발 구간과 도착 구간이
+    // 겹치지 않아 중간 충돌이 구조적으로 불가능하다. 제약을 DEFERRABLE로 바꾸는 방식은 채택하지
+    // 않았다: 제약명이 바뀌면 InspectionService.ROUND_NO_UNIQUE_CONSTRAINT 상수와 캐노니컬 DDL·
+    // testcontainers init 스크립트까지 연쇄 수정이 필요해 범위가 커진다.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Inspection i set i.roundNo = i.roundNo + :offset "
+            + "where i.facilityId = :facilityId and i.roundNo >= :fromRoundNo")
+    int shiftRoundNoToStagingRange(
+            @Param("facilityId") Long facilityId,
+            @Param("fromRoundNo") int fromRoundNo,
+            @Param("offset") int offset);
+
+    // #1702 — 회차 시프트 2단계. 1단계에서 상위 구간(>= offset)으로 옮겨둔 행만 골라 원래 값 +1로
+    // 되돌린다. 밀리지 않은 행은 전부 offset 미만이므로(호출부가 max(round_no) < offset을 보장) 이
+    // WHERE는 정확히 1단계 대상만 집는다.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update Inspection i set i.roundNo = i.roundNo - :offset + 1 "
+            + "where i.facilityId = :facilityId and i.roundNo >= :offset")
+    int settleShiftedRoundNo(@Param("facilityId") Long facilityId, @Param("offset") int offset);
+
+    // #1706 — 알림센터 회차 표기를 조회 시점 파생값으로 계산하기 위한 배치 조회(N+1 방지).
+    // 회차 번호만 필요하므로 엔티티가 아니라 (id, roundNo) 프로젝션만 읽는다.
+    @Query("select i.id as id, i.roundNo as roundNo from Inspection i where i.id in :ids")
+    List<InspectionRoundNoProjection> findRoundNosByIds(@Param("ids") Collection<Long> ids);
+
+    // #1591 P2 — 다음 점검일 재계산의 "이 회차가 최신인가" 판정용. 반드시 status 조건이 필요하다:
+    // 상태를 보지 않으면 회차 <b>존재</b>만으로 max가 올라가는데
+    // (createInspection은 이전 회차의 REPORTED 여부를 막지 않는다 — 미래 날짜만 거부하고 미종료
     // 회차는 경고창일 뿐), 재계산이 비교해야 하는 건 "아직 분석 중인 회차"가 아니라 이미 확정된
     // 회차다. status 없이 비교하면 "3회차 생성됨(미확정) + 2회차 확정" 조합에서 2회차의 정당한
     // 재계산이 통째로 스킵돼 다음 점검일이 옛 값에 고착된다.

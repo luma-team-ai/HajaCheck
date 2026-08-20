@@ -5,7 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -32,6 +34,8 @@ import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.entity.InspectionType;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.inspection.repository.InspectionSearchCriteria;
+import com.hajacheck.core.report.entity.ReportStatus;
+import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -46,6 +50,7 @@ import java.util.Optional;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -75,6 +80,9 @@ class InspectionServiceTest {
     // 관심사는 그 게이트가 아니므로 "읽기 전용 아님"(기본 false)으로 두고 원래 시나리오만 검증한다.
     @Mock
     private QuotaService quotaService;
+    // #1702 — 회차 시프트 시 DRAFT 보고서 회차 스냅샷 재동기화를 위해 InspectionService가 직접 참조한다.
+    @Mock
+    private ReportRepository reportRepository;
 
     @InjectMocks
     private InspectionService service;
@@ -161,6 +169,9 @@ class InspectionServiceTest {
         InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
         when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
         when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(3);
+        // 기존 3회차가 모두 새 점검일 이전 = 삽입 위치가 맨 뒤(4)라 시프트 없이 그대로 채번된다(#1702).
+        when(inspectionRepository.countByFacilityIdAndInspectionDateLessThanEqual(1L, LocalDate.of(2026, 7, 20)))
+                .thenReturn(3L);
         when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
 
         InspectionResponse response = service.createInspection(request, 100L, 300L);
@@ -231,35 +242,104 @@ class InspectionServiceTest {
         assertThat(response.roundNo()).isEqualTo(1);
     }
 
-    // #1291 — roundNo는 항상 생성 순서(max+1)라 점검일과 독립적이다. 이 검증이 없으면 새 회차의
-    // 점검일이 기존 최신 회차보다 앞서도 그대로 저장돼, 회차 번호=시간 순서 가정이 깨진다
-    // (회차 간 비교 화면이 이 가정에 의존).
+    // #1702 — #1291이 "기존 최신 회차보다 이전 점검일"을 통째로 거부하던 걸 대체한다. 소급 회차는
+    // 이제 거부가 아니라 삽입 위치 계산 + 뒤 회차 시프트로 처리되고, roundNo 오름차순=점검일 순서
+    // 불변식은 그 재정렬로 유지된다.
     @Test
-    void createInspection_점검일이기존최신회차보다이전_예외전파되고저장안됨() {
+    void createInspection_점검일이기존최신회차보다이전_거부하지않고중간회차로삽입된다() {
+        // 기존 3회차(7/10, 7/25, 7/28)가 있는 상태에서 7/20을 소급 입력 → 7/10 뒤, 7/25 앞 = 2회차 자리.
         InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
         when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
-        when(inspectionRepository.findMaxInspectionDateByFacilityId(1L))
-                .thenReturn(Optional.of(LocalDate.of(2026, 7, 25)));
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(3);
+        when(inspectionRepository.countByFacilityIdAndInspectionDateLessThanEqual(1L, LocalDate.of(2026, 7, 20)))
+                .thenReturn(1L);
+        when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        assertThatThrownBy(() -> service.createInspection(request, 100L, 300L))
-                .satisfies(e -> assertThat(((BusinessException) e).getErrorCode())
-                        .isEqualTo(ErrorCode.INSPECTION_DATE_BEFORE_LATEST_ROUND));
-        verify(inspectionRepository, never()).saveAndFlush(any());
+        InspectionResponse response = service.createInspection(request, 100L, 300L);
+
+        assertThat(response.roundNo()).isEqualTo(2);
     }
 
-    // 같은 날짜에 여러 회차를 만드는 건 막지 않는다 — 엄격히 "이전"만 막는다.
+    // 시프트는 반드시 2단계여야 한다 — unique(facility_id, round_no)가 non-deferrable이라 단일
+    // `round_no + 1` UPDATE는 행 단위 제약 검사에서 중간 충돌한다(InspectionRepository 주석 참고).
     @Test
-    void createInspection_점검일이기존최신회차와같음_정상생성됨() {
+    void createInspection_소급회차삽입_뒤회차를2단계오프셋UPDATE로시프트한다() {
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(3);
+        when(inspectionRepository.countByFacilityIdAndInspectionDateLessThanEqual(1L, LocalDate.of(2026, 7, 20)))
+                .thenReturn(1L);
+        when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        service.createInspection(request, 100L, 300L);
+
+        InOrder inOrder = inOrder(facilityService, inspectionRepository, reportRepository);
+        // TOCTOU 방지 — 삽입 위치 계산·시프트는 전부 시설물 행 잠금 뒤에서 일어나야 한다(#1291 P1 회귀선).
+        inOrder.verify(facilityService).lockForUpdate(1L);
+        inOrder.verify(inspectionRepository).countByFacilityIdAndInspectionDateLessThanEqual(
+                1L, LocalDate.of(2026, 7, 20));
+        inOrder.verify(inspectionRepository).shiftRoundNoToStagingRange(
+                1L, 2, InspectionService.ROUND_NO_SHIFT_OFFSET);
+        inOrder.verify(inspectionRepository).settleShiftedRoundNo(
+                1L, InspectionService.ROUND_NO_SHIFT_OFFSET);
+        // 밀린 회차의 DRAFT 보고서 스냅샷도 같은 트랜잭션에서 현재 회차로 재동기화된다(FINALIZED는 동결).
+        inOrder.verify(reportRepository).syncDraftRoundNoToInspection(1L, ReportStatus.DRAFT.name());
+    }
+
+    // 같은 날짜는 기존 회차 "뒤"에 붙인다 — 삽입 위치 계산이 `<=`라 동일 날짜 기존 회차까지 세어진다
+    // (동일 날짜 여러 회차 시 최신 등록분을 최근으로 취급하는 기존 정렬 정책과 정합).
+    @Test
+    void createInspection_점검일이기존최신회차와같음_맨뒤에붙고시프트없음() {
         InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 25), 200L);
         when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
-        when(inspectionRepository.findMaxInspectionDateByFacilityId(1L))
-                .thenReturn(Optional.of(LocalDate.of(2026, 7, 25)));
         when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(3);
+        when(inspectionRepository.countByFacilityIdAndInspectionDateLessThanEqual(1L, LocalDate.of(2026, 7, 25)))
+                .thenReturn(3L);
         when(inspectionRepository.saveAndFlush(any(Inspection.class))).thenAnswer(inv -> inv.getArgument(0));
 
         InspectionResponse response = service.createInspection(request, 100L, 300L);
 
         assertThat(response.roundNo()).isEqualTo(4);
+        // 맨 뒤에 붙는 가장 흔한 경로에서는 시프트 UPDATE를 아예 실행하지 않는다.
+        verify(inspectionRepository, never()).shiftRoundNoToStagingRange(anyLong(), anyInt(), anyInt());
+        verify(inspectionRepository, never()).settleShiftedRoundNo(anyLong(), anyInt());
+        verify(reportRepository, never()).syncDraftRoundNoToInspection(anyLong(), any());
+    }
+
+    // 리뷰 P3 — 2단계 시프트의 두 UPDATE는 정확히 같은 행 집합을 대상으로 해야 한다. 영향 행 수가
+    // 다르면 상위 구간에 남은 행이 있거나 남의 행을 건드렸다는 뜻이라, 그대로 커밋하면 round_no가
+    // 통째로 어긋난 채 확정된다 → 조용히 통과시키지 않고 즉시 실패시킨다.
+    @Test
+    void createInspection_시프트2단계영향행수가불일치하면_즉시실패하고저장안됨() {
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L)).thenReturn(3);
+        when(inspectionRepository.countByFacilityIdAndInspectionDateLessThanEqual(1L, LocalDate.of(2026, 7, 20)))
+                .thenReturn(1L);
+        when(inspectionRepository.shiftRoundNoToStagingRange(
+                1L, 2, InspectionService.ROUND_NO_SHIFT_OFFSET)).thenReturn(2);
+        when(inspectionRepository.settleShiftedRoundNo(
+                1L, InspectionService.ROUND_NO_SHIFT_OFFSET)).thenReturn(1);
+
+        assertThatThrownBy(() -> service.createInspection(request, 100L, 300L))
+                .isInstanceOf(IllegalStateException.class);
+        verify(inspectionRepository, never()).saveAndFlush(any());
+        verify(reportRepository, never()).syncDraftRoundNoToInspection(anyLong(), any());
+    }
+
+    // 2단계 시프트는 "실제 회차 번호 < 오프셋"을 전제로 한다. 전제가 깨지면 조용히 데이터를 망가뜨리는
+    // 대신 즉시 실패해야 한다(실무상 도달 불가한 방어선).
+    @Test
+    void createInspection_회차번호가시프트오프셋을넘으면_즉시실패하고저장안됨() {
+        InspectionCreateRequest request = new InspectionCreateRequest(1L, LocalDate.of(2026, 7, 20), 200L);
+        when(facilityService.get(300L, 100L, 1L)).thenReturn(ownedFacility());
+        when(inspectionRepository.findMaxRoundNoByFacilityId(1L))
+                .thenReturn(InspectionService.ROUND_NO_SHIFT_OFFSET);
+
+        assertThatThrownBy(() -> service.createInspection(request, 100L, 300L))
+                .isInstanceOf(IllegalStateException.class);
+        verify(inspectionRepository, never()).saveAndFlush(any());
+        verify(inspectionRepository, never()).shiftRoundNoToStagingRange(anyLong(), anyInt(), anyInt());
     }
 
     @Test

@@ -19,6 +19,8 @@ import com.hajacheck.core.inspection.entity.Inspection;
 import com.hajacheck.core.inspection.entity.InspectionStatus;
 import com.hajacheck.core.inspection.repository.InspectionRepository;
 import com.hajacheck.core.inspection.repository.InspectionSearchCriteria;
+import com.hajacheck.core.report.entity.ReportStatus;
+import com.hajacheck.core.report.repository.ReportRepository;
 import com.hajacheck.global.common.PageResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
@@ -46,7 +48,22 @@ public class InspectionService {
     // (HajaCheck_script.sql, testcontainers-users-init.sql 양쪽 다 동일 정의).
     private static final String ROUND_NO_UNIQUE_CONSTRAINT = "inspections_facility_id_round_no_key";
 
+    /**
+     * 회차 시프트(#1702) 1단계가 기존 회차를 잠시 옮겨 둘 상위 구간의 시작점.
+     * {@code unique(facility_id, round_no)}가 non-deferrable이라 시프트를 "상위 구간으로 전부 이동 →
+     * 목표 위치로 복귀"의 2단계로 나눠야 하는데
+     * ({@link InspectionRepository#shiftRoundNoToStagingRange} 주석 참고), 그 상위 구간이 실제 회차 번호
+     * 범위와 절대 겹치지 않아야 한다. 한 시설물의 회차가 백만 건을 넘는 일은 실무상 없어 충분히 크고,
+     * {@code int} 오버플로(≈21억)와도 여유가 크다. 그럼에도 전제가 깨지면 데이터를 조용히 망가뜨리는
+     * 대신 즉시 실패하도록 {@link #reserveRoundNo}가 매번 {@code max(round_no) < OFFSET}을 확인한다.
+     */
+    static final int ROUND_NO_SHIFT_OFFSET = 1_000_000;
+
     private final InspectionRepository inspectionRepository;
+    // #1702 — 회차 시프트 시 DRAFT 보고서의 회차 스냅샷을 함께 재동기화한다. ReportService를
+    // 주입하면 ReportService → InspectionService 기존 의존과 맞물려 빈 순환이 되므로,
+    // 순환이 생기지 않는 리포지토리만 직접 참조한다(쓰기도 벌크 UPDATE 한 방뿐).
+    private final ReportRepository reportRepository;
     private final FacilityService facilityService;
     private final AuthService authService;
     private final CompanyScopeGuard companyScopeGuard;
@@ -74,20 +91,19 @@ public class InspectionService {
 
         validateInspectionDateBounds(request.inspectionDate());
 
-        // 회차 채번 동시성 경쟁 방지 — 같은 시설물에 대한 동시 생성 요청을 행 잠금으로 직렬화한 뒤 max+1 을 읽는다.
-        // code-reviewer P1(#1291) — "기존 최신 회차보다 이전 날짜 금지" 검증(validateInspectionDateNotBeforeLatestRound)도
-        // 반드시 이 잠금 뒤에서 읽어야 한다. 잠금 앞에서 읽으면 두 동시 요청이 서로 다른 날짜로 같은 "현재 최신 날짜"
-        // 스냅샷을 보고 둘 다 통과할 수 있고, 그 뒤 랜덤한 순서로 커밋되면서 roundNo 오름차순과 점검일 순서가 다시
-        // 어긋난다(이 검증 자체가 막으려던 상황이 그대로 재현됨) — nextRoundNo 계산과 동일한 이유로 잠금 뒤에 둔다.
+        // 회차 채번 동시성 경쟁 방지 — 같은 시설물에 대한 동시 생성 요청을 행 잠금으로 직렬화한 뒤에야
+        // 삽입 위치를 읽는다. code-reviewer P1(#1291) — 잠금 앞에서 읽으면 두 동시 요청이 같은 "현재
+        // 회차 분포" 스냅샷을 보고 같은 삽입 위치를 잡아, 둘 다 같은 round_no 로 밀고 들어가거나(unique
+        // 위반) 한쪽의 시프트가 다른 쪽의 계산을 무효화한다. 삽입 위치 계산·시프트·INSERT 세 단계가
+        // 전부 이 잠금 안에서 원자적으로 일어나야 한다.
         facilityService.lockForUpdate(request.facilityId());
-        validateInspectionDateNotBeforeLatestRound(request.inspectionDate(), request.facilityId());
-        int nextRoundNo = inspectionRepository.findMaxRoundNoByFacilityId(request.facilityId()) + 1;
+        int insertRoundNo = reserveRoundNo(request.facilityId(), request.inspectionDate());
 
         Inspection inspection = Inspection.builder()
                 .facilityId(request.facilityId())
                 .createdBy(creatorUserId)
                 .assignedInspectorId(request.assignedInspectorId())
-                .roundNo(nextRoundNo)
+                .roundNo(insertRoundNo)
                 .inspectionDate(request.inspectionDate())
                 .type(request.type())
                 .build();
@@ -107,6 +123,59 @@ public class InspectionService {
             }
             throw e;
         }
+    }
+
+    /**
+     * 새 회차가 들어갈 자리를 확보하고 그 회차 번호를 돌려준다(#1702).
+     *
+     * <p>#1291은 "기존 최신 회차보다 이전 점검일"을 통째로 거부해 이 문제를 피했는데, 그러면 19일 회차를
+     * 등록한 뒤 빠뜨린 18일 회차를 넣는 정상 업무 흐름이 막힌다. 근본 원인은 금지해야 할 입력이 아니라
+     * {@code roundNo}가 생성 순서(max+1)로만 채번돼 점검일과 무관했다는 것이다 — 회차 비교·추이 화면은
+     * 전부 "회차 번호 오름차순 = 시간 순서"를 가정한다. 그래서 가드를 지우는 대신 <b>roundNo 자체를
+     * 점검일 순서로 유지</b>해 그 가정을 실제로 성립시킨다.
+     *
+     * <p>알고리즘: ① 삽입 위치 = {@code count(점검일 <= 새 점검일) + 1} ② 그 위치 이상인 기존 회차를
+     * 뒤로 한 칸씩 시프트 ③ 새 회차를 그 자리에 INSERT. 시프트는 기존 회차들의 <b>상대 순서를 그대로
+     * 보존</b>하므로, 회차 간 상대 비교에 의존하는 로직(예: {@code DefectService#confirmPreviousDefect}의
+     * {@code previous.roundNo < current.roundNo})은 재정렬 후에도 그대로 성립한다.
+     *
+     * <p>새 점검일이 기존 모든 회차 이후면 삽입 위치가 {@code max + 1}이라 시프트 대상이 없다 — 가장
+     * 흔한 경로(맨 뒤에 추가)에서는 UPDATE 두 방을 아예 실행하지 않는다.
+     *
+     * <p>⚠️ 반드시 {@code facilityService.lockForUpdate} 뒤에서만 호출한다(호출부 주석의 TOCTOU 설명 참고).
+     */
+    private int reserveRoundNo(Long facilityId, LocalDate inspectionDate) {
+        int maxRoundNo = inspectionRepository.findMaxRoundNoByFacilityId(facilityId);
+        if (maxRoundNo >= ROUND_NO_SHIFT_OFFSET) {
+            // 시프트용 상위 구간이 실제 회차 번호와 겹치는 상황 — 2단계 UPDATE의 전제가 깨져 데이터가
+            // 조용히 망가진다. 실무상 도달 불가한 값이므로 통일된 도메인 에러 대신 즉시 실패시킨다.
+            throw new IllegalStateException(
+                    "회차 시프트 오프셋(%d)보다 큰 round_no가 존재한다: facilityId=%d, maxRoundNo=%d"
+                            .formatted(ROUND_NO_SHIFT_OFFSET, facilityId, maxRoundNo));
+        }
+
+        long earlierOrSameDateCount =
+                inspectionRepository.countByFacilityIdAndInspectionDateLessThanEqual(facilityId, inspectionDate);
+        int insertRoundNo = (int) earlierOrSameDateCount + 1;
+        if (insertRoundNo > maxRoundNo) {
+            return insertRoundNo;
+        }
+
+        int staged = inspectionRepository.shiftRoundNoToStagingRange(
+                facilityId, insertRoundNo, ROUND_NO_SHIFT_OFFSET);
+        int settled = inspectionRepository.settleShiftedRoundNo(facilityId, ROUND_NO_SHIFT_OFFSET);
+        // 리뷰 P3 — 두 UPDATE는 정확히 같은 행 집합을 대상으로 해야 한다(1단계가 올려둔 것을 2단계가
+        // 그대로 내린다). 다르면 상위 구간에 남은 행이 있거나 남의 행을 건드렸다는 뜻이고, 그대로 커밋하면
+        // round_no가 통째로 어긋난 채 확정된다 — 오프셋 가드와 같은 철학으로 조용한 손상 대신 즉시 실패시킨다.
+        if (staged != settled) {
+            throw new IllegalStateException(
+                    "회차 시프트 2단계의 영향 행 수가 불일치한다: facilityId=%d, insertRoundNo=%d, staged=%d, settled=%d"
+                            .formatted(facilityId, insertRoundNo, staged, settled));
+        }
+        // 회차가 밀린 시설물의 DRAFT 보고서 스냅샷을 현재 회차에 다시 맞춘다(#1702). FINALIZED는
+        // 발급 시점에 동결이라 손대지 않는다 — 이미 인쇄·제출된 PDF 표지의 "제N회차"와 영구 일치해야 한다.
+        reportRepository.syncDraftRoundNoToInspection(facilityId, ReportStatus.DRAFT.name());
+        return insertRoundNo;
     }
 
     private boolean isRoundNoUniqueViolation(DataIntegrityViolationException e) {
@@ -422,24 +491,15 @@ public class InspectionService {
     //
     // 하한(시설물 등록일 이전 거부)은 팀 피드백으로 제거했다(2026-08-01) — 시설물이 시스템에
     // "등록된" 시점과 그 시설물이 "실제로 존재하기 시작한" 시점은 다른데, 등록일을 하한으로 쓰면
-    // 최근에 등록한 시설물은 과거 점검 이력(마이그레이션·소급 입력 등)을 전혀 못 넣는다. 과거
-    // 날짜는 이제 전부 허용하고, 회차 간 시간 순서 정합성은 validateInspectionDateNotBeforeLatestRound
-    // (#1291, "기존 최신 회차보다 이전 금지")가 별도로 보장한다 — 그건 이번 변경과 무관하게 유지.
+    // 최근에 등록한 시설물은 과거 점검 이력(마이그레이션·소급 입력 등)을 전혀 못 넣는다.
+    //
+    // #1702 — "기존 최신 회차보다 이전 점검일 금지"(#1291) 가드도 제거했다. 과거 날짜 소급 입력은
+    // 정상 업무 흐름이고, 회차 번호 오름차순=시간 순서라는 불변식은 이제 거부가 아니라 재정렬
+    // ({@link #reserveRoundNo})로 유지한다. 미래 날짜 거부만 이 메서드에 남는다.
     private void validateInspectionDateBounds(LocalDate inspectionDate) {
         if (inspectionDate.isAfter(LocalDate.now())) {
             throw new BusinessException(ErrorCode.INSPECTION_DATE_INVALID);
         }
     }
 
-    // #1291 — roundNo는 항상 생성 순서(max+1)라 점검일과 독립적이다. 점검일이 기존 최신 회차보다
-    // 앞서면 허용하던 걸 막는다(회차 간 비교 화면이 회차 번호 오름차순=시간 순서로 가정해서 깨짐).
-    // 같은 날짜(하루 여러 회차)는 허용 — 엄격히 "이전"만 막는다. code-reviewer P1 — 반드시
-    // facilityService.lockForUpdate 뒤에서 호출해야 한다(호출부 주석 참고, TOCTOU 방지).
-    private void validateInspectionDateNotBeforeLatestRound(LocalDate inspectionDate, Long facilityId) {
-        inspectionRepository.findMaxInspectionDateByFacilityId(facilityId)
-                .filter(inspectionDate::isBefore)
-                .ifPresent(latest -> {
-                    throw new BusinessException(ErrorCode.INSPECTION_DATE_BEFORE_LATEST_ROUND);
-                });
-    }
 }

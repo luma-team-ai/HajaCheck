@@ -26,7 +26,7 @@ vi.mock('jspdf', () => ({
 const mockToDataURL = vi.fn().mockReturnValue('data:image/png;base64,fake');
 
 function mockHtml2Canvas(canvasWidth: number, canvasHeight: number) {
-  vi.doMock('html2canvas', () => ({
+  vi.doMock('html2canvas-pro', () => ({
     default: vi.fn().mockResolvedValue({
       width: canvasWidth,
       height: canvasHeight,
@@ -45,7 +45,7 @@ describe('exportComparisonReportAsPdf', () => {
   });
 
   afterEach(() => {
-    vi.doUnmock('html2canvas');
+    vi.doUnmock('html2canvas-pro');
   });
 
   it('캡처 이미지가 한 페이지 높이 이내면 페이지를 추가하지 않는다', async () => {
@@ -84,7 +84,7 @@ describe('exportComparisonReportAsPdf', () => {
     let selectDisplayDuringCapture: string | undefined;
     let siblingTextDuringCapture: string | null | undefined;
 
-    vi.doMock('html2canvas', () => ({
+    vi.doMock('html2canvas-pro', () => ({
       default: vi.fn().mockImplementation(async (node: HTMLElement) => {
         const select = node.querySelector('select') as HTMLSelectElement;
         selectDisplayDuringCapture = select.style.display;
@@ -108,7 +108,7 @@ describe('exportComparisonReportAsPdf', () => {
   });
 
   it('html2canvas가 실패해도 select를 원래 상태로 되돌린다', async () => {
-    vi.doMock('html2canvas', () => ({
+    vi.doMock('html2canvas-pro', () => ({
       default: vi.fn().mockRejectedValue(new Error('capture failed')),
     }));
     const { exportComparisonReportAsPdf: exportFn } = await import('./exportComparisonReportAsPdf');

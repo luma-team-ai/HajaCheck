@@ -8,6 +8,7 @@ get_redis_client만 모킹). test_defect_explain.py 패턴을 따른다.
 - LLM 예외 시 /ai/rag-chat 이 서버를 죽이지 않고 AIResponse.fail 로 응답하는지
 """
 import contextlib
+import hashlib
 import json
 import math
 from unittest.mock import MagicMock, patch
@@ -21,7 +22,10 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 
 from ai.chains.rag_chat_chain import (
+    MAX_CACHEABLE_ANSWER_LENGTH,
+    PROMPTS_DIR,
     RAG_CHAT_CACHE_PREFIX,
+    RAG_CHAT_SEMANTIC_CACHE_VERSION,
     RAG_CHAT_TOP_K,
     _build_history_block,
     _build_prompt,
@@ -38,6 +42,7 @@ from ai.core import semantic_cache
 from ai.core.llm_client import CACHE_TTL_SECONDS
 from ai.core.prompt_safety import UNTRUSTED_DATA_END, wrap_untrusted
 from ai.core.semantic_cache import (
+    CACHE_VERSION_FIELD,
     CREATED_AT_FIELD,
     now_epoch_seconds,
     semantic_cache_threshold,
@@ -287,6 +292,61 @@ def test_rag_chat_success_writes_cache_with_expected_key_ttl_and_payload(
     assert stored["sources"][0]["chunk_ref"] == "42_3"
 
 
+def test_rag_chat_exact_cache_prefix_is_versioned():
+    """#1699 — 출력 형식 규칙 추가로 캐시가 옛 형식 답변을 계속 반환하지 않도록 exact(Redis) 캐시
+    키 prefix를 bump했다(`ai:cache:rag-chat` → `ai:cache:rag-chat:v2`). 새 prefix로 계산한 키는
+    옛 prefix로 계산했을 키와 다르므로, 마이그레이션 전 저장된 옛 키는 조회에서 자연히 빠진다
+    (수동 삭제 없이 TTL로 소멸 — Redis FLUSH 같은 destructive 조치 없이도 무효화됨)."""
+    assert RAG_CHAT_CACHE_PREFIX == "ai:cache:rag-chat:v2"
+
+    question = "균열 보수 기준은?"
+    old_prefix_key = f"ai:cache:rag-chat:{hashlib.sha256(question.encode('utf-8')).hexdigest()[:16]}"
+    new_key = _cache_key(question)
+
+    assert new_key != old_prefix_key
+    assert new_key.startswith(RAG_CHAT_CACHE_PREFIX)
+
+
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+def test_rag_chat_stale_exact_cache_key_is_never_looked_up(mock_get_redis_client):
+    """옛 prefix로 저장된 키가 Redis에 남아 있어도, 새 코드는 새 prefix 키로만 조회하므로
+    그 옛 키를 절대 조회하지 않는다(=우연히도 히트하지 않는다)."""
+    question = "균열 보수 기준은?"
+    old_prefix_key = f"ai:cache:rag-chat:{hashlib.sha256(question.encode('utf-8')).hexdigest()[:16]}"
+
+    mock_redis = MagicMock()
+
+    def _get(key):
+        # 옛 prefix 키에만 값이 있는 상황(마이그레이션 전 상태 재현) — 새 코드가 이 키를 조회하면
+        # 안 된다.
+        return json.dumps({"answer": "옛 형식 답변", "sources": []}) if key == old_prefix_key else None
+
+    mock_redis.get.side_effect = _get
+    mock_get_redis_client.return_value = mock_redis
+
+    with patch("ai.chains.rag_chat_chain.get_vectorstore") as mock_get_vectorstore, patch(
+        "ai.chains.rag_chat_chain.get_llm"
+    ) as mock_get_llm, patch("ai.chains.rag_chat_chain.hybrid_search") as mock_hybrid_search:
+        mock_semantic_store = MagicMock()
+        mock_semantic_store.similarity_search_with_score.return_value = []
+        mock_get_vectorstore.return_value = mock_semantic_store
+        mock_hybrid_search.return_value = [_doc(doc_id="42", chunk_index=3, article="제12조")]
+        mock_llm = MagicMock()
+        mock_llm.with_structured_output.return_value.invoke.return_value = _RagChatAnswer(
+            answer=_ANSWER_FRESH, grounded=True
+        )
+        mock_get_llm.return_value = mock_llm
+
+        res = client.post("/ai/rag-chat", json={"question": question})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["answer"] == _ANSWER_FRESH  # 옛 캐시 답변이 아니라 새로 생성된 답변
+    mock_redis.get.assert_called_once_with(_cache_key(question))
+    mock_get_llm.assert_called_once()
+
+
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 def test_rag_chat_endpoint_llm_failure_returns_error_envelope(mock_get_redis_client):
     mock_get_redis_client.side_effect = KeyError("REDIS_URL")
@@ -350,6 +410,8 @@ def test_rag_chat_semantic_cache_hit_skips_retrieve_and_llm(
     # filter 없이 전역 조회하면 안 되고, TTL 조건이 빠지면 만료 항목이 그대로 히트한다.
     used_filter = mock_semantic_store.similarity_search_with_score.call_args.kwargs["filter"]
     assert {"company_id": 7} in used_filter["$and"]
+    # 캐시 버전(#1699)도 함께 필터링된다 — 프롬프트 변경 전 저장된 옛 버전 항목이 히트하지 않게.
+    assert {CACHE_VERSION_FIELD: RAG_CHAT_SEMANTIC_CACHE_VERSION} in used_filter["$and"]
     created_at_clause = next(
         clause for clause in used_filter["$and"] if CREATED_AT_FIELD in clause
     )
@@ -400,6 +462,8 @@ def test_rag_chat_exact_and_semantic_miss_writes_both_caches(
     assert stored["answer"] == "균열 보수는 손상 정도와 구조 안전성 평가 결과에 따라 보수 공법을 선택합니다."
     # 저장 시 회사 스코프 필드가 반드시 함께 기록된다(#1584) — 없으면 이후 조회 필터가 무의미해진다.
     assert added_docs[0].metadata["company_id"] == 7
+    # 캐시 버전 태그도 함께 기록된다(#1699) — 없으면 조회 필터가 이 항목을 영원히 못 찾는다.
+    assert added_docs[0].metadata[CACHE_VERSION_FIELD] == RAG_CHAT_SEMANTIC_CACHE_VERSION
 
 
 @patch("ai.chains.rag_chat_chain.get_vectorstore")
@@ -673,6 +737,54 @@ def test_same_company_similar_question_still_hits_semantic_cache(
 @patch("ai.chains.rag_chat_chain.get_redis_client")
 @patch("ai.chains.rag_chat_chain.get_llm")
 @patch("ai.chains.rag_chat_chain.hybrid_search")
+def test_stale_semantic_cache_entry_without_version_tag_is_not_served(
+    mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore,
+    real_semantic_store,
+):
+    """#1699 — 프롬프트 출력 형식 규칙 추가 전(캐시 버전 태그 없음)에 저장된 항목은, 같은 회사·
+    TTL 이내라도 새 요청에 재사용되지 않는다(옛 형식 답변이 새 형식인 것처럼 서빙되면 안 됨).
+
+    실제 Chroma로 검증한다 — mock 호출 인자만 보면 필터 문법이 틀려도(운영에서 옛 항목이 그대로
+    히트해도) 테스트는 통과해버린다(#1584/#1594 테스트와 동일 이유).
+    """
+    mock_redis = MagicMock()
+    mock_redis.get.return_value = None  # exact(Redis) 캐시는 항상 미스로 고정
+    mock_get_redis_client.return_value = mock_redis
+    mock_get_vectorstore.return_value = real_semantic_store
+
+    # 캐시 버전 태그 없이 저장된 옛 항목(마이그레이션 전 상태 재현) — company_id/created_at은 있다.
+    real_semantic_store.add_documents([
+        Document(
+            page_content=_QUESTION_COMPANY_A,
+            metadata={
+                "answer_json": json.dumps({"answer": _ANSWER_COMPANY_A, "sources": []}),
+                "company_id": 1,
+                CREATED_AT_FIELD: now_epoch_seconds(),
+            },
+        )
+    ])
+
+    # 대조군: 버전 필터가 없다면(=회귀) 이 유사 질문은 히트했을 유사도다.
+    global_hits = real_semantic_store.similarity_search_with_score(_QUESTION_SIMILAR, k=1)
+    assert global_hits, "대조군 전제 실패: 옛 항목이 저장되지 않았다"
+    assert global_hits[0][1] <= (1 - semantic_cache_threshold()), (
+        "대조군 전제 실패: 두 질문이 임계값 이하로 유사하지 않아 회귀를 검출할 수 없다"
+    )
+
+    res = _post_rag_chat(mock_get_llm, mock_hybrid_search, _QUESTION_SIMILAR, 1, _ANSWER_FRESH)
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["success"] is True
+    assert body["data"]["answer"] == _ANSWER_FRESH
+    assert _ANSWER_COMPANY_A not in body["data"]["answer"]
+    mock_get_llm.assert_called_once()  # 옛 버전 항목이 히트했다면 LLM을 타지 않았을 것
+
+
+@patch("ai.chains.rag_chat_chain.get_vectorstore")
+@patch("ai.chains.rag_chat_chain.get_redis_client")
+@patch("ai.chains.rag_chat_chain.get_llm")
+@patch("ai.chains.rag_chat_chain.hybrid_search")
 def test_null_company_skips_semantic_cache_read_and_write(
     mock_hybrid_search, mock_get_llm, mock_get_redis_client, mock_get_vectorstore
 ):
@@ -826,6 +938,36 @@ def test_build_prompt_without_history_matches_original_output():
     """history를 안 주면(1턴째) 기존 프롬프트와 100% 동일해야 한다(회귀 없음)."""
     assert _build_prompt("질문", "컨텍스트") == _build_prompt("질문", "컨텍스트", None)
     assert _build_prompt("질문", "컨텍스트") == _build_prompt("질문", "컨텍스트", [])
+
+
+def test_build_prompt_retains_grounding_rules_and_adds_format_rules():
+    """#1699 — 출력 형식 규칙을 추가하면서 기존 근거·환각 방지 규칙("관련 근거를 찾지 못했습니다"
+    분기, `grounded` 지시)이 유지되는지, 새 형식 규칙(결론 우선·불릿·헤딩/표 금지·600자 목표)이
+    함께 실리는지 확인한다."""
+    prompt = _build_prompt("질문", "컨텍스트")
+
+    # 기존 근거·환각 방지 규칙(그대로 유지돼야 함)
+    assert "관련 근거를 찾지 못했습니다" in prompt
+    assert "grounded" in prompt
+    assert "창작하지 마세요" in prompt
+
+    # 신규 출력 형식 규칙(#1699)
+    assert "결론" in prompt
+    assert "불릿" in prompt
+    assert "헤딩" in prompt
+    assert "표는 쓰지 않습니다" in prompt
+    assert "600자" in prompt
+
+
+def test_system_base_prompt_does_not_conflict_with_output_format_rules():
+    """#1699 완료 기준 — 형식 규칙이 `_system_base.md`의 공통 규칙과 충돌하지 않는지 확인한다.
+    공통 프롬프트는 마크다운 형식(헤딩·표)이나 답변 길이에 대해 아무 지시도 하지 않으므로,
+    rag_chat.md의 새 규칙과 모순될 여지가 없다."""
+    system_base = (PROMPTS_DIR / "_system_base.md").read_text(encoding="utf-8")
+    assert "헤딩" not in system_base
+    assert "600자" not in system_base
+    assert "불릿" not in system_base
+    assert "표는" not in system_base and "표를" not in system_base
 
 
 @patch("ai.chains.rag_chat_chain.get_vectorstore")
@@ -1086,6 +1228,14 @@ def test_degenerate_short_answer_is_not_cached(
     assert res.status_code == 200
     mock_redis.setex.assert_not_called()
     mock_semantic_store.add_documents.assert_not_called()
+
+
+def test_cacheable_answer_length_upper_bound_accommodates_output_format_target():
+    """#1699 완료 기준 3번 — `prompts/rag_chat.md`의 새 출력 형식 목표 길이(공백 포함 약 600자)가
+    `_is_cacheable`의 답변 길이 상한과 충돌하지 않는지 확인한다. 상한이 목표보다 작으면 정상
+    답변이 캐시에서 빠지므로, 목표에 여유 마진을 둔 값보다 상한이 커야 한다."""
+    prompt_length_target = 600
+    assert MAX_CACHEABLE_ANSWER_LENGTH > prompt_length_target * 2
 
 
 @patch("ai.chains.rag_chat_chain.get_vectorstore")

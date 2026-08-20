@@ -76,7 +76,9 @@ public class AdminUserController {
     public ResponseEntity<ApiResponse<AdminUserResponse>> create(
             @AuthenticationPrincipal LoginUser loginUser,
             @Valid @RequestBody AdminUserCreateRequest request) {
-        AdminUserResponse response = adminUserService.createUser(request, loginUser.getCompanyId());
+        // 요청 관리자 id는 생성된 계정의 company_memberships.invited_by(감사 추적)로 남는다(#1433).
+        AdminUserResponse response =
+                adminUserService.createUser(request, loginUser.getCompanyId(), loginUser.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok(response));
     }
 

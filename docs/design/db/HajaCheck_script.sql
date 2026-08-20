@@ -1135,6 +1135,7 @@ create table reports
     inspection_id          bigint                                                       not null
         references inspections,
     version                integer                  default 1                           not null,
+    round_no               integer                                                      not null,
     content_json           jsonb                                                        not null,
     grounding_check_passed boolean,
     grounding_warnings     jsonb,
@@ -1160,6 +1161,8 @@ comment on column reports.lock_version is '보고서 업무 버전과 별개인 
 comment on column reports.inspection_id is '보고서 대상 점검 식별자';
 
 comment on column reports.version is '동일 점검 내 보고서 버전';
+
+comment on column reports.round_no is '보고서 발급 시점의 점검 회차 스냅샷(#1702). 점검일 소급 입력으로 inspections.round_no가 재정렬돼도 FINALIZED 보고서는 이 값이 동결되어 이미 발급된 PDF 표지와 영구 일치한다. DRAFT만 재정렬을 따라 재동기화된다.';
 
 comment on column reports.content_json is '보고서 본문 및 구조화된 콘텐츠 JSON';
 
@@ -1496,8 +1499,9 @@ create table chat_message_citations
     message_id  bigint                                 not null
         references chat_messages
             on delete cascade,
-    document_id bigint                                 not null
-        references rag_documents,
+    document_id bigint
+        constraint fk_chat_message_citations_document references rag_documents
+            on delete set null,
     chunk_ref   varchar(100)                           not null,
     locator     text                                   not null,
     snippet     text                                   not null,
@@ -1511,7 +1515,7 @@ comment on column chat_message_citations.id is '인용 식별자';
 
 comment on column chat_message_citations.message_id is '인용을 포함한 채팅 메시지 식별자';
 
-comment on column chat_message_citations.document_id is '인용된 RAG 문서 식별자(rag_documents)';
+comment on column chat_message_citations.document_id is '인용된 RAG 문서 식별자(rag_documents) — 문서 삭제 시 NULL(ON DELETE SET NULL, #1597). 인용 이력(locator/snippet)은 문서가 사라져도 유지된다';
 
 comment on column chat_message_citations.chunk_ref is 'Chroma에 저장된 청크(벡터)의 식별자 — Postgres 외부 저장소 참조이므로 FK 불가';
 
@@ -1908,13 +1912,19 @@ execute procedure set_updated_at();
 
 comment on trigger trg_facilities_set_updated_at on facilities is 'facilities 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
 
+-- #1702 V48 — round_no만 바뀌는 UPDATE(ReportRepository.syncDraftRoundNoToInspection의 시스템 재번호
+-- 재동기화)는 WHEN절로 건너뛴다. Report.roundNo(Report.java)가 updatable=false라 이 벌크 UPDATE가
+-- round_no 변경의 유일한 경로이며, 시스템 재번호는 사용자의 편집이 아니므로 updated_at을 "최근 수정"
+-- 처럼 보이게 하면 안 된다. content/status 등 다른 컬럼만 바뀌는 일반 UPDATE는 round_no가 그대로라
+-- WHEN절이 참이 되어 이전과 동일하게 트리거가 정상 발동한다.
 create trigger trg_reports_set_updated_at
     before update
     on reports
     for each row
+    when (new.round_no is not distinct from old.round_no)
 execute procedure set_updated_at();
 
-comment on trigger trg_reports_set_updated_at on reports is 'reports 행 수정 시 updated_at을 현재 시각으로 갱신한다.';
+comment on trigger trg_reports_set_updated_at on reports is 'reports 행 수정 시 updated_at을 현재 시각으로 갱신한다. 단, round_no만 바뀌는 UPDATE(#1702 syncDraftRoundNoToInspection의 시스템 재번호 재동기화)는 WHEN절로 제외한다 — round_no는 Report.java에서 updatable=false라 이 벌크 UPDATE가 round_no 변경의 유일한 경로이며, 시스템 재번호는 사용자의 편집이 아니므로 updated_at을 "최근 수정"처럼 보이게 하면 안 된다.';
 
 create trigger trg_bot_scenarios_set_updated_at
     before update

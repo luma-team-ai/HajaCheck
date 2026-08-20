@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -187,6 +188,12 @@ public class RagDocumentService {
      *
      * <p>②는 RagDocumentWriter.delete()가 DB 로우 삭제를 원자 트랜잭션으로 커밋한 뒤, 그 트랜잭션이
      * 성공했을 때만 파일을 지운다(파일 삭제 자체는 FileStorageService 계약대로 best-effort).
+     *
+     * <p>#1597 — {@code chat_message_citations.document_id} FK가 ON DELETE SET NULL(V49)이라 인용
+     * 이력이 있어도 더 이상 FK 위반으로 삭제가 막히지 않는다. 그래도 예기치 못한
+     * {@link DataIntegrityViolationException}(다른 제약·동시 변경 등)이 나면 raw 500 대신 도메인
+     * 에러로 표면화한다 — Chroma 청크는 이미 지워진 뒤이므로 운영자가 원인을 파악하고 재시도할 수
+     * 있게 안내한다(이 시점 이후 재시도해도 ①은 idempotent라 안전, 클래스 상단 javadoc 참고).
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void delete(Long id) {
@@ -195,7 +202,13 @@ public class RagDocumentService {
 
         aiProxyService.deleteRagDocumentChunks(String.valueOf(id), targetCollection);
 
-        String storageKey = ragDocumentWriter.delete(id);
+        String storageKey;
+        try {
+            storageKey = ragDocumentWriter.delete(id);
+        } catch (DataIntegrityViolationException e) {
+            log.warn("RAG 문서 삭제 실패(DB 제약 위반) documentId={}", id, e);
+            throw new BusinessException(ErrorCode.RAG_DOCUMENT_DELETE_FAILED);
+        }
         fileStorage.delete(storageKey);
     }
 

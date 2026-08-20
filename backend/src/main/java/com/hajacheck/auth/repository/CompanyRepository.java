@@ -48,10 +48,23 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
      * 생겼을 때 "조용히 재검증 대상에서 빠지는" fail-open 이 아니라 "일단 다시 확인하는" fail-safe 로
      * 기울인다. ({@code ntsOutcome} 값 공간은 enum 이 아니다 — {@code Company} 클래스 javadoc 참고.)
      *
-     * <p>jsonb 연산자({@code ->>})가 필요해 네이티브 쿼리다. 정렬은 SQL 의 {@code order by c.id asc} 로
-     * 고정하므로 <b>{@code Pageable} 에 {@code Sort} 를 넣지 말 것</b>(네이티브 쿼리 동적 정렬은
-     * Spring Data 가 보장하지 않는다). 회차당 처리 상한만 {@code Pageable} 로 건다 — 총 건수 카운트가
-     * 불필요해 {@code Page} 가 아닌 {@code List} 를 반환한다({@code countQuery} 도 불필요).
+     * <p><b>정렬 = 라운드로빈</b>({@code ntsLastAttemptAt} 오름차순, 동률은 {@code id} — #1367 P1-C).
+     * 예전에는 {@code id asc} 였는데, MISMATCH·SUSPENDED 를 자동 강등하지 않기로 하면서(#1367) 그 회사들이
+     * <b>상태가 변하지 않아 집합을 떠나지 않는 "영구 거주자"</b>가 됐다. 데모 회사도 {@code ntsOutcome}
+     * 키가 없어 두 번째 갈래에 영구 매칭된다. {@code id asc + LIMIT n} 은 <b>id 가 작은 앞 n 건만</b>
+     * 반복 처리하므로, 영구 거주자가 상한(기본 20)에 도달하면 <b>id 가 큰 신규 가입 회사는 영원히
+     * 재검증되지 않는다</b> — 이 배치는 FAILED 를 찍는 유일한 런타임 경로라, 미등록·폐업 업체가 가입해도
+     * 아무도 강등하지 않는 상태가 <b>조회조차 안 돼 로그도 남지 않은 채</b> 성립한다(무증상 fail-open).
+     * 마지막 시도 시각 오름차순(미시도 = 빈 문자열이 가장 먼저)으로 정렬하면 모든 대상이 순환한다.
+     *
+     * <p>스탬프({@code Company#stampNtsReverifyAttempt})는 {@code ntsOutcome} 을 건드리지 않으므로
+     * <b>대상 집합(where 절)은 이 변경으로 달라지지 않는다</b> — 바뀐 것은 "같은 집합을 어떤 순서로
+     * 소비하는가"뿐이다.
+     *
+     * <p>jsonb 연산자({@code ->>})가 필요해 네이티브 쿼리다. 정렬은 <b>SQL 에 고정</b>하므로
+     * <b>{@code Pageable} 에 {@code Sort} 를 넣지 말 것</b>(네이티브 쿼리 동적 정렬은 Spring Data 가
+     * 보장하지 않는다). 회차당 처리 상한만 {@code Pageable} 로 건다 — 총 건수 카운트가 불필요해
+     * {@code Page} 가 아닌 {@code List} 를 반환한다({@code countQuery} 도 불필요).
      */
     @Query(value = """
             select c.*
@@ -62,7 +75,7 @@ public interface CompanyRepository extends JpaRepository<Company, Long> {
                    or (c.verification_status = 'VERIFIED'
                        and coalesce(c.business_registration_ocr_raw ->> 'ntsOutcome', '')
                            not in ('VERIFIED', 'LEGACY_VERIFIED')))
-            order by c.id asc
+            order by coalesce(c.business_registration_ocr_raw ->> 'ntsLastAttemptAt', '') asc, c.id asc
             """, nativeQuery = true)
     List<Company> findNtsReverifyTargets(Pageable pageable);
 

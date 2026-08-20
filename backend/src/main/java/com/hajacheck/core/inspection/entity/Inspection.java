@@ -81,7 +81,22 @@ public class Inspection {
     @Column(name = "assigned_inspector_id", nullable = false)
     private Long assignedInspectorId;
 
-    @Column(name = "round_no", nullable = false)
+    /**
+     * 시설물 내 회차 번호 — 점검일 오름차순으로 유지된다(#1702).
+     *
+     * <p>{@code updatable = false}인 이유(리뷰 P1, 데드락 회귀 테스트가 실측으로 잡아냄): 이 값은 INSERT
+     * 시점에 찍히고, 이후 변경은 오직 회차 재정렬의 벌크 UPDATE
+     * ({@link com.hajacheck.core.inspection.repository.InspectionRepository#shiftRoundNoToStagingRange}
+     * /{@code settleShiftedRoundNo})로만 일어난다. 이 설정이 없으면, 다른 트랜잭션이 회차를 시프트하는
+     * 동안 이미 이 엔티티를 읽어 둔 트랜잭션(예: {@code ReportService.finalizeReport}가 상태를
+     * REPORTED로 전이시키는 경로)이 <b>옛 round_no를 통째로 다시 써넣는다</b> — Hibernate의 더티 체킹은
+     * 기본적으로 전 컬럼을 UPDATE 문에 싣기 때문이다. 그 결과는 {@code unique(facility_id, round_no)}
+     * 위반(운 좋은 경우)이거나, 더 나쁘게는 방금 끝난 재정렬을 조용히 되돌리는 lost update다.
+     *
+     * <p>{@link #performedAt}(#1667)이 setter 없이 원자적 UPDATE 경로만 갖는 것과 같은 원칙이며,
+     * {@code Report.roundNo}(V47) 역시 동일한 이유로 {@code updatable = false}다.
+     */
+    @Column(name = "round_no", nullable = false, updatable = false)
     private Integer roundNo;
 
     @Column(name = "inspection_date", nullable = false)

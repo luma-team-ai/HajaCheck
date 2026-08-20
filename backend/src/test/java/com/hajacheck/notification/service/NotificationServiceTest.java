@@ -5,9 +5,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.hajacheck.core.inspection.repository.InspectionRepository;
+import com.hajacheck.core.inspection.repository.InspectionRoundNoProjection;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.DomainValidationException;
 import com.hajacheck.notification.dto.NotificationResponse;
@@ -15,6 +18,7 @@ import com.hajacheck.notification.entity.Notification;
 import com.hajacheck.notification.entity.NotificationType;
 import com.hajacheck.notification.repository.NotificationRepository;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -29,6 +33,9 @@ class NotificationServiceTest {
 
     @Mock
     private NotificationRepository notificationRepository;
+    // #1706 — 회차 표기를 조회 시점에 다시 계산하기 위한 배치 조회 의존성.
+    @Mock
+    private InspectionRepository inspectionRepository;
 
     @InjectMocks
     private NotificationService notificationService;
@@ -85,6 +92,7 @@ class NotificationServiceTest {
         read.markAsRead();
         when(notificationRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), any(Pageable.class)))
                 .thenReturn(List.of(unread, read));
+        when(inspectionRepository.findRoundNosByIds(Set.of(1L))).thenReturn(List.of());
 
         List<NotificationResponse> result = notificationService.getNotifications(20L);
 
@@ -95,6 +103,71 @@ class NotificationServiceTest {
         assertThat(result.get(1).type()).isEqualTo("REVIEW_PENDING");
         assertThat(result.get(1).payload()).isNull();
         assertThat(result.get(1).read()).isTrue();
+    }
+
+    /**
+     * #1706 — 저장된 payload의 "{roundNo}회차"는 #1702 재정렬로 stale해질 수 있어, 목록 조회 시점에
+     * 현재 회차로 다시 계산해 덮어쓴다. 목록 경로라 알림 건별 단건 조회(N+1)가 아니라 대상 점검을
+     * 한 번에 모아 배치 조회하는지도 함께 고정한다.
+     */
+    @Test
+    void getNotifications_회차표기는_현재회차로재계산되고_배치조회는1회다() {
+        Notification analysisDone = Notification.create(20L, NotificationType.ANALYSIS_DONE,
+                "{\"inspectionId\":7,\"description\":\"2회차\"}");
+        Notification reviewPending = Notification.create(20L, NotificationType.REVIEW_PENDING,
+                "{\"inspectionId\":8,\"description\":\"5회차\"}");
+        when(notificationRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), any(Pageable.class)))
+                .thenReturn(List.of(analysisDone, reviewPending));
+        when(inspectionRepository.findRoundNosByIds(Set.of(7L, 8L)))
+                .thenReturn(List.of(roundNoProjection(7L, 3), roundNoProjection(8L, 6)));
+
+        List<NotificationResponse> result = notificationService.getNotifications(20L);
+
+        assertThat(result.get(0).payload().get("description").asText()).isEqualTo("3회차");
+        assertThat(result.get(1).payload().get("description").asText()).isEqualTo("6회차");
+        // 알림 2건이지만 점검 조회는 단 한 번(IN 절 배치) — N+1 회귀선.
+        verify(inspectionRepository, times(1)).findRoundNosByIds(any());
+    }
+
+    @Test
+    void getNotifications_대상점검이사라졌으면_저장된회차표기를유지한다() {
+        Notification orphan = Notification.create(20L, NotificationType.ANALYSIS_DONE,
+                "{\"inspectionId\":99,\"description\":\"4회차\"}");
+        when(notificationRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), any(Pageable.class)))
+                .thenReturn(List.of(orphan));
+        when(inspectionRepository.findRoundNosByIds(Set.of(99L))).thenReturn(List.of());
+
+        List<NotificationResponse> result = notificationService.getNotifications(20L);
+
+        assertThat(result.get(0).payload().get("description").asText()).isEqualTo("4회차");
+    }
+
+    @Test
+    void getNotifications_회차없는알림유형은_점검조회도_payload변경도없다() {
+        Notification due = Notification.create(20L, NotificationType.INSPECTION_DUE,
+                "{\"facilityId\":3,\"description\":\"점검 예정일이 다가왔습니다\"}");
+        when(notificationRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(eq(20L), any(Pageable.class)))
+                .thenReturn(List.of(due));
+
+        List<NotificationResponse> result = notificationService.getNotifications(20L);
+
+        assertThat(result.get(0).payload().get("description").asText())
+                .isEqualTo("점검 예정일이 다가왔습니다");
+        verify(inspectionRepository, never()).findRoundNosByIds(any());
+    }
+
+    private static InspectionRoundNoProjection roundNoProjection(Long id, Integer roundNo) {
+        return new InspectionRoundNoProjection() {
+            @Override
+            public Long getId() {
+                return id;
+            }
+
+            @Override
+            public Integer getRoundNo() {
+                return roundNo;
+            }
+        };
     }
 
     @Test

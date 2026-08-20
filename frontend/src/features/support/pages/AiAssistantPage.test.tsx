@@ -62,6 +62,22 @@ describe('AiAssistantPage (통합 테스트)', () => {
     ).toBeTruthy();
   });
 
+  // #1700 완료 기준 ③: 칩 펼침 시 근거 발췌(snippet) 미리보기가 노출된다. 접힌 상태에선 안 보인다.
+  it('참고문서 칩 펼침 시 snippet 미리보기가 노출된다', async () => {
+    render(<AiAssistantPage />);
+
+    fireEvent.click(screen.getByText('안전점검의 종류에는 어떤 것들이 있나요?'));
+    await screen.findByText(mockRagAnswer.answer);
+
+    const snippet = mockRagAnswer.sources[0].snippet as string;
+    const toggle = screen.getByText(`참고문서 ${mockRagAnswer.sources.length}건`);
+    expect(screen.queryByText(snippet)).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByText(snippet)).toBeTruthy();
+  });
+
   // HAJA-668(#1548): "새 대화 시작" 버튼 — 대화가 없으면 비활성, 대화 후 클릭하면 초기화된다.
   it('새 대화 시작 버튼: 대화가 없으면 비활성이고, 대화 후 클릭하면 메시지가 비워지고 예시 질문이 다시 보인다', async () => {
     render(<AiAssistantPage />);

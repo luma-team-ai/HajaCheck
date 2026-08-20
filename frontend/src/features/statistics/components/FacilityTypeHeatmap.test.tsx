@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiResponse } from '../../../shared/api/types';
 import type { FacilityTypeMonthlyHeatmapCell } from '../types';
 import { FacilityTypeHeatmap } from './FacilityTypeHeatmap';
@@ -11,9 +11,14 @@ import { FacilityTypeHeatmap } from './FacilityTypeHeatmap';
 const server = setupServer();
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(new Date('2026-08-15T00:00:00'));
+});
 afterEach(() => {
   server.resetHandlers();
   cleanup();
+  vi.useRealTimers();
 });
 afterAll(() => server.close());
 
@@ -52,7 +57,11 @@ describe('FacilityTypeHeatmap', () => {
     expect(screen.getByLabelText('기타 · 6월 · 0건')).not.toBeNull();
   });
 
-  it('데이터가 전혀 없으면(월도 0건) 빈 상태 메시지를 보여준다', async () => {
+  // 회귀 테스트(#1696): 그 기간 전체가 0건(빈 배열 응답)이어도 그리드는 사라지지 않고 행 4종 +
+  // 현재 월(오늘=2026-08) 열이 그대로 노출돼야 한다. 이전에는 data.length===0 분기가 그리드
+  // 전체를 "표시할 데이터가 없습니다"로 가렸는데, 이는 "0건 카테고리도 항상 행으로 노출한다"는
+  // 위 결정과 모순이었다.
+  it('데이터가 전혀 없어도(빈 배열 응답) 그리드가 렌더되고 행 4종과 현재 월 열이 노출된다', async () => {
     server.use(
       http.get('/api/statistics/facility-type-heatmap', () =>
         HttpResponse.json({ success: true, data: [] } satisfies ApiResponse<FacilityTypeMonthlyHeatmapCell[]>),
@@ -61,7 +70,13 @@ describe('FacilityTypeHeatmap', () => {
 
     renderHeatmap();
 
-    expect(await screen.findByText('표시할 데이터가 없습니다.')).not.toBeNull();
-    expect(screen.queryByText('기타')).toBeNull();
+    expect(await screen.findByText('건물')).not.toBeNull();
+    expect(screen.getByText('교량')).not.toBeNull();
+    expect(screen.getByText('도로')).not.toBeNull();
+    expect(screen.getByText('기타')).not.toBeNull();
+    // 현재 월(2026-08) 열이 노출되고, 모든 셀이 0건으로 렌더된다
+    expect(screen.getByText('8월')).not.toBeNull();
+    expect(screen.getByLabelText('건물 · 8월 · 0건')).not.toBeNull();
+    expect(screen.queryByText('표시할 데이터가 없습니다.')).toBeNull();
   });
 });

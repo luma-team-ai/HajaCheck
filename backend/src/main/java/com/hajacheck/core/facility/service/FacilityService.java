@@ -512,9 +512,10 @@ public class FacilityService {
      * 확정 회차가 존재하는지) 판정한다(#1591 P2).
      *
      * <p><b>비교 대상을 REPORTED 로 좁힌 이유(#1591 리뷰 P2)</b> — 처음엔 상태 조건이 없는
-     * {@link InspectionRepository#findMaxInspectionDateByFacilityId}(#1291 회차 생성 검증용)를 재사용했는데,
+     * {@code InspectionRepository.findMaxInspectionDateByFacilityId}(#1291 회차 생성 검증용, #1702에서
+     * 회차 재정렬로 대체되며 제거됨)를 재사용했는데,
      * 그 쿼리는 <b>회차 존재만으로</b> max 가 올라간다. createInspection 은 이전 회차의 REPORTED 여부를
-     * 막지 않으므로(날짜 하한만 검증, 미종료 회차는 경고창일 뿐) "3회차가 생성돼 아직 분석 중인데
+     * 막지 않으므로(미래 날짜만 거부, 미종료 회차는 경고창일 뿐) "3회차가 생성돼 아직 분석 중인데
      * 2회차 보고서를 확정" 하는 조합이 정상 경로로 발생한다. 그때 미확정 3회차가 max 를 끌어올려
      * 2회차의 <b>정당한</b> 재계산까지 통째로 스킵돼, 다음 점검일이 1회차 산출값(대개 이미 지난 날짜)에
      * 고착됐다 — 이 가드가 만든 새 회귀였다. 재계산이 비교해야 하는 것은 "존재하는 회차"가 아니라

@@ -392,6 +392,14 @@ export const defectHandlers = [
     return HttpResponse.json(body);
   }),
 
+  // GET /api/inspections/:id — 점검 상세 헤더의 점검 상태 배지(#1693, useInspection)가 쓰는
+  // 엔드포인트다. 여기 defect feature에는 등록하지 않는다 — inspectionApi.handlers.ts가 이미 같은
+  // 경로+메서드를 등록하고 있어(mocks/handlers.ts에서 inspectionHandlers가 defectHandlers보다 먼저
+  // 스프레드됨), 여기 추가하면 전역 체인에서는 절대 도달하지 않는 죽은 핸들러가 된다(코드리뷰
+  // P2 — #1693). 단일 소스는 mocks/fixtures/inspectionSummary.mock.ts(양쪽 feature가 참조),
+  // inspectionApi.handlers.ts 참고. InspectionDefectsPage.test.tsx의 격리 서버는 이 파일의
+  // defectHandlers뿐 아니라 inspectionHandlers도 함께 등록해 전역 체인과 동일하게 검증한다.
+
   // GET /api/facilities — 점검 목록 필터의 시설물 select 옵션(defect feature 자체 목, feature 간
   // 직접 import 금지 컨벤션에 따라 inspection/facility feature의 동일 핸들러와 별개로 등록).
   http.get('/api/facilities', () => {

@@ -3,11 +3,14 @@
 // ⚠️ 재정의 금지 — 설계 §2의 SourceCitation/RagAnswerData를 그대로 미러. 필드는 wire(snake_case) 그대로 둔다.
 
 export interface SourceCitation {
-  doc_id: string; // 양의 정수 문자열(^[1-9][0-9]*$)
-  title: string; // Chroma metadata `source` → API 경계에서 title
-  collection: 'regulations' | 'defect_kb';
+  doc_id: string; // 양의 정수 문자열(^[1-9][0-9]*$) — 세션 이력 복원에서 문서가 삭제됐으면 빈 문자열(#1597)
+  title: string | null; // Chroma metadata `source` → API 경계에서 title. null이면 "삭제된 문서"(#1597)
+  collection: 'regulations' | 'defect_kb' | null; // 삭제된 문서를 인용한 세션 이력 복원에서는 null(#1597)
   locator: string; // 렌더 완료 문구("제12조" / "제12조 ①" / "12페이지") — FE 재조립 금지(설계 §5·§7)
   chunk_ref: string; // Chroma document id({doc_id}_{chunk_index})
+  // 근거 발췌(Chroma 청크 원문) — #1700: 참고문서 칩을 펼쳤을 때 미리보기(line-clamp)로만 쓴다.
+  // title 대용으로 쓰지 않는다(과거 세션 복원 경로의 버그 원인, useRagChat.ts toChatMessage 참고).
+  snippet?: string;
 }
 
 export interface RagAnswerData {
@@ -35,7 +38,13 @@ export interface ChatSessionCitation {
   // 백엔드 ChatMessageCitation.documentId는 Long이라 Jackson이 JSON number로 직렬화한다
   // (PR #1563 P2 픽스 — 이전엔 string으로 잘못 선언돼 있었다). SourceCitation.doc_id(문자열
   // 계약)로 변환하는 책임은 useRagChat.ts의 toChatMessage()가 진다.
-  documentId: number;
+  // #1597: 인용된 문서가 삭제되면 FK가 ON DELETE SET NULL로 이 필드를 null로 만든다.
+  documentId: number | null;
+  // #1698(백엔드)로 세션 이력 응답에 추가된 필드 — 이전엔 없어서 toChatMessage()가 snippet을
+  // title 대용으로 썼다(#1700에서 제거한 버그). 빈 값일 수 있어 폴백은 호출부(toChatMessage)가 진다.
+  // #1597: 문서가 삭제되면 null — toChatMessage()가 "삭제된 문서"로 표시한다.
+  title: string | null;
+  collection: 'regulations' | 'defect_kb' | null;
   chunkRef: string;
   locator: string;
   snippet: string;

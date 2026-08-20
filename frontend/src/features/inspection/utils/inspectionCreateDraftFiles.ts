@@ -1,5 +1,5 @@
 // 점검(회차) 생성 폼의 첨부 파일 임시저장 — File(Blob)은 JSON 직렬화가 안 되고 실제 사진 용량도
-// sessionStorage 할당량(수 MB)을 훌쩍 넘기 쉬워(이미지 1장당 최대 20MB — constants.ts, 개수 제한 없음)
+// localStorage 할당량(수 MB)을 훌쩍 넘기 쉬워(이미지 1장당 최대 20MB — constants.ts, 개수 제한 없음)
 // inspectionCreateDraft.ts(텍스트 필드)와 달리 IndexedDB에 Blob 그대로 저장한다.
 // 접근 실패(프라이빗 모드 등)는 조용히 무시 — 첨부 파일 복원만 안 될 뿐 폼 작성 자체엔 영향 없음.
 const DB_NAME = 'hajacheckInspectionCreateDraft';

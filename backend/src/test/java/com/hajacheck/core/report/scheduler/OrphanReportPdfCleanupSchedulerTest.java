@@ -53,7 +53,7 @@ class OrphanReportPdfCleanupSchedulerTest {
     }
 
     private Report finalizedReport(Long id, String pdfUrl) {
-        Report report = Report.draft(1L, 1, "{}", 100L);
+        Report report = Report.draft(1L, 1, 1, "{}", 100L);
         ReflectionTestUtils.setField(report, "id", id);
         ReflectionTestUtils.setField(report, "status", ReportStatus.FINALIZED);
         ReflectionTestUtils.setField(report, "pdfUrl", pdfUrl);
@@ -74,7 +74,7 @@ class OrphanReportPdfCleanupSchedulerTest {
 
     @Test
     void cleanupOrphanPdfs_DRAFT로방치된보고서는전부삭제후보로넘긴다() {
-        Report draft = Report.draft(1L, 1, "{}", 100L);
+        Report draft = Report.draft(1L, 1, 1, "{}", 100L);
         ReflectionTestUtils.setField(draft, "id", 11L);
         when(reportPdfStorage.listReportIdsWithStoredFiles()).thenReturn(List.of(11L));
         when(reportRepository.findById(11L)).thenReturn(Optional.of(draft));

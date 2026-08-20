@@ -1,23 +1,17 @@
 /**
- * 기간 필터('3m' | '6m' | '1y')와 서버 수신 월 목록에 맞춰 N개월의 연속 월 리스트('yyyy-MM')를 생성한다.
- * 데이터에 포함되지 않은 전월이더라도 필터 기간(3개월/6개월/12개월)에 맞춰 N개월치 열을 모두 표시한다.
+ * 기간 필터('3m' | '6m' | '1y')에 맞춰 오늘(현재 연·월)을 끝점으로 하는 N개월의 연속 월
+ * 리스트('yyyy-MM')를 생성한다. 필터에 시작·종료일 지정 UI가 없는 상대 기간(최근 N개월)이므로
+ * 축의 끝은 항상 오늘이다 — 그 달 점검이 0건이라 서버 응답(dataMonths)에 없어도 열이 빠지면 안
+ * 된다(#1696: 이전에는 dataMonths의 마지막 월을 끝점으로 삼아 당월 점검이 0건일 때 당월 열 자체가
+ * 사라지는 회귀가 있었다).
+ * dataMonths는 끝점 결정에 관여하지 않고, 기간(N개월) 밖의 과거 월을 포괄하는 용도로만 쓰인다.
  */
 export function getMonthsForPeriod(period?: string, dataMonths: string[] = []): string[] {
   const targetCount = period === '3m' ? 3 : period === '1y' ? 12 : 6;
 
-  let endYear: number;
-  let endMonth: number;
-
-  if (dataMonths.length > 0) {
-    const lastMonthStr = [...dataMonths].sort().pop()!;
-    const [y, m] = lastMonthStr.split('-').map(Number);
-    endYear = y || new Date().getFullYear();
-    endMonth = m || new Date().getMonth() + 1;
-  } else {
-    const now = new Date();
-    endYear = now.getFullYear();
-    endMonth = now.getMonth() + 1;
-  }
+  const now = new Date();
+  const endYear = now.getFullYear();
+  const endMonth = now.getMonth() + 1;
 
   const result: string[] = [];
   for (let i = targetCount - 1; i >= 0; i--) {

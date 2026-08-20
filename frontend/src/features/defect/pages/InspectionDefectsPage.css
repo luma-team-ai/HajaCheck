@@ -77,7 +77,41 @@
   margin-top: 20px;
 }
 
+/* --- 점검 상태 배지 (#1693 — 헤더의 점검 회차 상태, 하자 조치 현황 KPI와는 다른 축) --- */
+
+.inspection-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-default);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.inspection-status-badge__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
 /* --- KPI 4종 (인라인 통계, Figma 정렬 #937 — 박스형 카드 대신 라벨/숫자를 한 줄에 배치) --- */
+
+/* KPI 그룹 라벨(#1693) — "하자 조치 현황" 텍스트 + dl을 한 묶음으로 보여준다. */
+.inspection-kpi-summary__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+
+.inspection-kpi-summary__group-label {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .inspection-kpi-summary {
   display: flex;
@@ -977,6 +1011,12 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+  }
+
+  .inspection-kpi-summary__group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
   }
 
   .inspection-kpi-summary__card {

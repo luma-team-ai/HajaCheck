@@ -63,7 +63,7 @@ export function ChatBotPage() {
         <div className="flex items-center gap-3 border-b border-border px-6 py-4">
           <BotAvatar />
           <div>
-            <h1 className="m-0 text-base font-semibold text-primary">자동 응답 봇</h1>
+            <h1 className="m-0 text-base font-semibold text-primary">상담 챗봇</h1>
             <p className="m-0 flex items-center gap-1.5 text-xs text-text-muted">
               <span className="size-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
               세션 진행중

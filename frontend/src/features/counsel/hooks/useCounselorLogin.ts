@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { authApi } from '../../auth/api/authApi';
 import { useAuthStore } from '../../auth/store/authStore';
 import type { LoginRequest, UserResponse } from '../../auth/types';
-import { useInspectionStore } from '../../inspection/store/inspectionStore';
-import { clearRagSessionId } from '../../support/utils/ragSessionId';
 import type { ApiError } from '../../../shared/api/types';
 import { COUNSELOR_QUEUE_ROUTE } from '../../../shared/constants/routes';
+import { clearPreviousUserLocalState } from '../../../shared/utils/clearPreviousUserLocalState';
 
 // 상담원 전용 로그인 — POST /api/auth/counselor/login(#1513, BE PR #1533), usePlatformAdminLogin과
 // 동일 패턴.
@@ -22,13 +21,11 @@ export function useCounselorLogin() {
   const mutation = useMutation<UserResponse, ApiError, LoginRequest>({
     mutationFn: (body) => authApi.counselorLogin(body).then((res) => res.data),
     onSuccess: (user) => {
-      // 로그인 진입점 3곳이 같은 계약을 지킨다(#1194 — useLogin·usePlatformAdminLogin과 동일).
-      // localStorage 영속 스토어라 공용 PC에서 계정이 바뀌면 이전 사용자의 회차 id가 남는다.
-      const { clearActiveInspectionId, clearActiveReportId } = useInspectionStore.getState();
-      clearActiveInspectionId();
-      clearActiveReportId();
-      // RAG 챗봇 세션(localStorage 영속)도 같은 이유로 정리한다(#1590) — 진입점 3곳이 동일 계약.
-      clearRagSessionId();
+      // 로그인 3진입점(useLogin·usePlatformAdminLogin·이 훅)·useLogout·401 강제 리다이렉트
+      // 총 6곳이 같은 "이전 사용자 잔여 로컬 상태 정리" 계약을 지킨다(#1194·#1590·#1703 —
+      // activeInspectionId/activeReportId·RAG 세션·점검 생성 폼 임시저장 모두 localStorage/
+      // IndexedDB 영속이라 공용 PC에서 계정이 바뀌어도 지우지 않으면 남는다).
+      clearPreviousUserLocalState();
 
       setUser(user);
       navigate(COUNSELOR_QUEUE_ROUTE);

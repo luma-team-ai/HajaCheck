@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: hajaCheck API
-  version: "0.46.0-draft"
+  version: "0.47.0-draft"
   description: >
     Contract-First 초안 (PRD §6, §8). 실제 소스 오브 트루스는 이 파일.
 
@@ -9109,7 +9109,10 @@ components:
         inspectionId: { type: integer, format: int64 }
         facilityId: { type: integer, format: int64 }
         facilityName: { type: string }
-        roundNo: { type: integer, minimum: 1 }
+        roundNo:
+          type: integer
+          minimum: 1
+          description: 발급 시점 점검 회차 스냅샷(#1702). 점검일 소급 입력으로 점검의 회차 번호가 재정렬돼도 FINALIZED 보고서는 이 값이 동결되어 이미 발급된 PDF 표지와 영구 일치한다. DRAFT만 재정렬을 따라 재동기화된다. 따라서 점검 상세의 roundNo와 값이 다를 수 있다.
         gradeDistribution:
           type: object
           additionalProperties: { type: integer, format: int64, minimum: 0 }
@@ -10711,7 +10714,11 @@ components:
         id: { type: integer, format: int64 }
         inspectionId: { type: integer, format: int64 }
         facilityName: { type: string }
-        roundNo: { type: integer, nullable: true, minimum: 1 }
+        roundNo:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: 발급 시점 점검 회차 스냅샷(#1702). 점검일 소급 입력으로 점검의 회차 번호가 재정렬돼도 FINALIZED 보고서는 이 값이 동결되어 이미 발급된 PDF 표지와 영구 일치한다. DRAFT만 재정렬을 따라 재동기화된다. 따라서 점검 상세의 roundNo와 값이 다를 수 있다.
         issuedAt: { type: string, format: date-time }
         fileSizeBytes: { type: integer, format: int64, nullable: true }
         gradeDots:

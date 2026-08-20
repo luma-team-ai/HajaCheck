@@ -6449,6 +6449,7 @@
                     "actionAssigneeId",
                     "actionContent",
                     "actionDate",
+                    "areaMm2",
                     "areaRatio",
                     "bboxH",
                     "bboxW",
@@ -6539,6 +6540,10 @@
                         "format": "double"
                     },
                     "areaRatio": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "areaMm2": {
                         "type": "number",
                         "format": "double"
                     },
@@ -7768,6 +7773,7 @@
             "DefectDetailItem": {
                 "required": [
                     "areaMm2",
+                    "areaMm2ReferenceGrade",
                     "areaRatio",
                     "bboxH",
                     "bboxW",
@@ -7865,6 +7871,9 @@
                     "areaMm2": {
                         "type": "number",
                         "format": "double"
+                    },
+                    "areaMm2ReferenceGrade": {
+                        "type": "string"
                     },
                     "mediaId": {
                         "type": "integer",
@@ -9573,6 +9582,7 @@
                     "actionDate",
                     "actionPhotoUrl",
                     "areaMm2",
+                    "areaMm2ReferenceGrade",
                     "assigneeName",
                     "bboxH",
                     "bboxW",
@@ -9696,6 +9706,9 @@
                     "areaMm2": {
                         "type": "number",
                         "format": "double"
+                    },
+                    "areaMm2ReferenceGrade": {
+                        "type": "string"
                     },
                     "imageUrl": {
                         "type": "string"

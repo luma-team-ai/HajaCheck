@@ -58,6 +58,24 @@ public class Report extends BaseTimeEntity {
     @Column(nullable = false)
     private int version;
 
+    /**
+     * 보고서 생성 시점의 점검 회차 스냅샷(V47, #1702).
+     *
+     * <p>이전에는 표시·필터 모두 {@code inspection.roundNo}를 실시간으로 읽었는데, #1702가 점검일
+     * 소급 입력 시 회차 번호를 재정렬하면서 <b>이미 발급된 PDF 표지의 "제N회차"와 시스템 표기가
+     * 어긋나는</b> 문제가 생긴다. 그래서 회차를 보고서 자신의 값으로 스냅샷해 둔다.
+     *
+     * <p>{@code updatable = false}인 이유: 이 값은 INSERT 시점에 한 번 찍히고, 이후 변경은 오직
+     * {@link com.hajacheck.core.report.repository.ReportRepository#syncDraftRoundNoToInspection}
+     * (DRAFT 한정 벌크 UPDATE)로만 일어나야 한다. 엔티티 dirty checking이 이 컬럼을 함께 쓰면,
+     * 벌크 재동기화와 동시에 진행 중이던 본문 편집이 스냅샷을 옛 값으로 되돌려 놓는다(lost update).
+     * {@code Inspection.performedAt}(#1667)이 setter 없이 원자적 UPDATE 경로만 갖는 것과 같은 이유다.
+     *
+     * <p>FINALIZED는 재동기화 대상이 아니다 — 발급 시점 동결이 이 컬럼의 존재 이유다.
+     */
+    @Column(name = "round_no", nullable = false, updatable = false)
+    private int roundNo;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "content_json", columnDefinition = "jsonb", nullable = false)
     private String contentJson;
@@ -86,10 +104,11 @@ public class Report extends BaseTimeEntity {
     private LocalDateTime deletedAt;
 
     @Builder(access = AccessLevel.PRIVATE)
-    private Report(Long inspectionId, int version, String contentJson,
+    private Report(Long inspectionId, int roundNo, int version, String contentJson,
                    Boolean groundingCheckPassed, String groundingWarnings,
                    String pdfUrl, Long editedBy, ReportStatus status, Long createdBy) {
         this.inspectionId = inspectionId;
+        this.roundNo = roundNo;
         this.version = version;
         this.contentJson = contentJson;
         this.groundingCheckPassed = groundingCheckPassed;
@@ -100,13 +119,22 @@ public class Report extends BaseTimeEntity {
         this.createdBy = createdBy;
     }
 
-    public static Report draft(Long inspectionId, int version, String contentJson, Long createdBy) {
+    /**
+     * @param roundNo 생성 시점의 점검 회차 스냅샷(#1702) — {@link #roundNo} 참고. 호출부는 항상 대상
+     *                점검의 <b>현재</b> 회차를 넘긴다(원본 보고서를 복제할 때도 마찬가지 — 복제본은
+     *                새로 발급하는 초안이므로 복제 시점의 회차를 따른다).
+     */
+    public static Report draft(Long inspectionId, int roundNo, int version, String contentJson, Long createdBy) {
         if (version < 1) {
             throw new DomainValidationException("보고서 버전은 1 이상이어야 한다");
+        }
+        if (roundNo < 1) {
+            throw new DomainValidationException("보고서 회차는 1 이상이어야 한다");
         }
         requireContent(contentJson);
         return Report.builder()
                 .inspectionId(inspectionId)
+                .roundNo(roundNo)
                 .version(version)
                 .contentJson(contentJson)
                 .status(ReportStatus.DRAFT)
@@ -196,6 +224,35 @@ public class Report extends BaseTimeEntity {
             throw new DomainValidationException("보고서 버전은 1 이상이어야 한다");
         }
         this.version = version;
+    }
+
+    /**
+     * 버전 채번 경합 재시도 전용(#1702 리뷰 P1) — {@link #reassignVersionOnConflictRetry}와 짝이며, 재시도
+     * 직전에 다시 읽은 <b>현재</b> 점검 회차로 스냅샷을 갱신한다. 첫 시도 실패로 시간이 더 흐른 뒤라
+     * 처음 찍어 둔 회차가 낡았을 수 있기 때문이다.
+     *
+     * <p>{@link #roundNo}가 {@code updatable = false}인데도 이 경로가 성립하는 이유: 재시도 대상은 INSERT
+     * 자체가 실패해 아직 <b>영속되지 않은</b> 인스턴스다({@code updatable = false}는 UPDATE 문에서 컬럼을
+     * 빼는 설정일 뿐 INSERT에는 관여하지 않는다). 이미 저장된 보고서의 회차를 바꾸는 용도로 쓰면 안 된다 —
+     * 확정 후 회차 동결이 그 컬럼의 존재 이유이며, DRAFT 재동기화는
+     * {@link com.hajacheck.core.report.repository.ReportRepository#syncDraftRoundNoToInspection} 하나뿐이다.
+     *
+     * <p>그래서 그 전제를 주석이 아니라 <b>런타임 가드</b>로 강제한다(리뷰 P3): 이미 식별자가 배정된
+     * (= 영속된) 인스턴스에 호출하면 {@code updatable = false} 탓에 DB에는 반영되지 않고 메모리와 응답에만
+     * 새 회차가 실리는 <b>조용한 불일치</b>가 된다 — 예외조차 나지 않아 발견이 늦다. public 메서드라 미래
+     * 호출자가 생길 수 있으므로 오용을 시끄럽게 실패시킨다.
+     */
+    public void resnapshotRoundNoOnConflictRetry(int roundNo) {
+        requireDraft("resnapshotRoundNoOnConflictRetry");
+        if (this.id != null) {
+            throw new DomainStateTransitionException(
+                    "resnapshotRoundNoOnConflictRetry 불가: 이미 저장된 보고서의 회차 스냅샷은 바꿀 수 없다"
+                            + "(round_no는 updatable=false라 DB에 반영되지 않는다)");
+        }
+        if (roundNo < 1) {
+            throw new DomainValidationException("보고서 회차는 1 이상이어야 한다");
+        }
+        this.roundNo = roundNo;
     }
 
     public void markDeleted(Long editedBy) {

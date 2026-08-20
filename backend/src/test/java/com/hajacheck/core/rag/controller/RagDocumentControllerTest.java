@@ -1,5 +1,6 @@
 package com.hajacheck.core.rag.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
@@ -20,12 +21,21 @@ import com.hajacheck.auth.repository.UserRepository;
 import com.hajacheck.auth.security.LoginUser;
 import com.hajacheck.core.ai.dto.RagEmbedResponse;
 import com.hajacheck.core.ai.service.AiProxyService;
+import com.hajacheck.core.rag.entity.ChatMessageCitation;
+import com.hajacheck.core.rag.repository.ChatMessageCitationRepository;
+import com.hajacheck.counsel.entity.ChatMessage;
+import com.hajacheck.counsel.entity.ChatSenderType;
+import com.hajacheck.counsel.entity.ChatSession;
+import com.hajacheck.counsel.entity.ChatSessionType;
+import com.hajacheck.counsel.repository.ChatMessageRepository;
+import com.hajacheck.counsel.repository.ChatSessionRepository;
 import com.hajacheck.global.common.ApiResponse;
 import com.hajacheck.global.exception.BusinessException;
 import com.hajacheck.global.exception.ErrorCode;
 import com.hajacheck.support.PostgresTestSupport;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -33,6 +43,7 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -41,6 +52,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.transaction.TestTransaction;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,6 +75,12 @@ class RagDocumentControllerTest extends PostgresTestSupport {
     private UserRepository userRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private ChatSessionRepository chatSessionRepository;
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
+    @Autowired
+    private ChatMessageCitationRepository chatMessageCitationRepository;
 
     @MockBean
     private AiProxyService aiProxyService;
@@ -284,6 +302,80 @@ class RagDocumentControllerTest extends PostgresTestSupport {
         mockMvc.perform(post("/api/admin/rag-documents/{id}/re-embed", id)
                         .with(csrf()).with(authentication(authOf(platformAdminUser))))
                 .andExpect(status().isNotFound());
+    }
+
+    // #1597 — V1 baseline이 document_id FK에 ON DELETE 절을 빠뜨려 인용 이력이 있는 문서는 Chroma
+    // 청크만 지워진 채 PG FK 위반(23503)으로 삭제가 영구 실패했다(RagDocumentService.delete()). V49로
+    // ON DELETE SET NULL을 붙였으니 실 PostgreSQL에서 정상 삭제되고, citation 행은 document_id=NULL로
+    // 살아남아야 한다(locator/snippet은 citation 행 자체 보관이라 그대로 유지).
+    //
+    // ⚠️ 이 테스트만 클래스 레벨 @Transactional(롤백 격리)을 따르지 않고 커밋 후 수동 정리한다(메타
+    // 실측 확정, 2026-08-20). 이유: 클래스 레벨 @Transactional 하에서는 위 citation INSERT가 이
+    // 테스트 스레드의 (아직 커밋 안 된) 트랜잭션 안에서 일어나 rag_documents 부모 행에 FOR KEY SHARE
+    // 락을 미커밋 상태로 쥔다. RagDocumentService.delete()는(propagation=NOT_SUPPORTED — 의도된 설계,
+    // 파일 IO·외부 HTTP 호출을 readOnly 트랜잭션 밖에서 수행하기 위함) 별도 커넥션에서 그 부모 행을
+    // DELETE하려 드는데, 상대 트랜잭션이 "대기 중"이 아니라 "idle in transaction"이라 PG 교착 탐지기가
+    // 잡지 못해 영원히 대기한다(jstack+pg_stat_activity 실측: 세션A=idle in transaction/citation
+    // INSERT, 세션B=active·Lock 대기/rag_documents DELETE). 그대로 두면 CI가 타임아웃까지 매달린다.
+    // 픽스: delete 호출 전에 TestTransaction으로 실제 커밋해 락을 풀어준다. 그 대신 이 테스트가 만든
+    // 행(citation은 message 삭제로 cascade, 세션·3개 유저)은 finally에서 직접 정리해 다음 테스트로
+    // 새지 않게 한다.
+    @Test
+    @Timeout(value = 60, unit = TimeUnit.SECONDS) // 실 PG(Testcontainers) 통합테스트라 넉넉히 —
+            // 이 값이 아니라도 같은 결함이 재발하면 "무한 대기"가 아니라 "타임아웃 실패"로 드러나야
+            // 한다는 게 목적(#1597 픽스 리뷰, 2026-08-20). 로컬/CI 모두 정상 경로는 수 초 내 완료.
+    void 삭제_인용이력있어도_정상삭제되고_citation은_document_id_NULL로_남는다() throws Exception {
+        when(aiProxyService.embedRagDocument(any())).thenReturn(ApiResponse.ok(new RagEmbedResponse(1, "batch-1")));
+
+        String uploadResponse = mockMvc.perform(multipart("/api/admin/rag-documents")
+                        .file(pdfPart())
+                        .param("title", "인용된 문서")
+                        .param("sourceType", "LAW")
+                        .param("targetCollection", "REGULATIONS")
+                        .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        Long documentId = extractId(uploadResponse);
+
+        ChatSession session = chatSessionRepository.save(
+                ChatSession.start(userRepository.findByEmail("rag-user@haja.com").orElseThrow().getId(),
+                        ChatSessionType.RAG));
+        ChatMessage botMessage = chatMessageRepository.save(
+                ChatMessage.createText(session.getId(), ChatSenderType.BOT, "인용된 답변"));
+        ChatMessageCitation citation = chatMessageCitationRepository.save(ChatMessageCitation.create(
+                botMessage.getId(), documentId, "1_1", "제1조", "인용 발췌"));
+
+        // 위 setUp()·업로드·citation INSERT를 실제로 커밋해 rag_documents 부모 행 락을 풀어준다(위
+        // 클래스 주석 참고). 이 시점부터 이 테스트는 더 이상 자동 롤백되지 않으므로 finally에서
+        // 직접 정리한다.
+        TestTransaction.flagForCommit();
+        TestTransaction.end();
+
+        try {
+            mockMvc.perform(delete("/api/admin/rag-documents/{id}", documentId)
+                            .with(csrf()).with(authentication(authOf(platformAdminUser))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.success").value(true));
+
+            ChatMessageCitation reloaded = chatMessageCitationRepository.findById(citation.getId()).orElseThrow();
+            assertThat(reloaded.getDocumentId()).isNull();
+            assertThat(reloaded.getDocument()).isNull();
+            assertThat(reloaded.getLocator()).isEqualTo("제1조");
+            assertThat(reloaded.getSnippet()).isEqualTo("인용 발췌");
+
+            // 목록에서도 실제로 사라졌어야 한다(FK 위반으로 반쪽 삭제가 재발하지 않았는지 확인).
+            mockMvc.perform(get("/api/admin/rag-documents").with(authentication(authOf(platformAdminUser))))
+                    .andExpect(jsonPath("$.data[?(@.title == '인용된 문서')]").doesNotExist());
+        } finally {
+            // 커밋된 행 정리 — message 삭제가 citation을 ON DELETE CASCADE로 함께 지운다(V1 baseline,
+            // document_id와 달리 message_id는 원래부터 cascade). rag_documents 행 자체는 위 delete
+            // 호출로 이미 제거됐다.
+            chatMessageRepository.deleteById(botMessage.getId());
+            chatSessionRepository.deleteById(session.getId());
+            userRepository.deleteById(normalUser.getUserId());
+            userRepository.deleteById(adminUser.getUserId());
+            userRepository.deleteById(platformAdminUser.getUserId());
+        }
     }
 
     @Test

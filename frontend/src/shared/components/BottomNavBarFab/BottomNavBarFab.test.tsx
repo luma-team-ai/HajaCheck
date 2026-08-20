@@ -10,7 +10,7 @@ describe('BottomNavBarFab', () => {
     const handleClick = vi.fn();
     render(<BottomNavBarFab onClick={handleClick} />);
 
-    fireEvent.click(screen.getByLabelText('고객지원 챗봇 열기'));
+    fireEvent.click(screen.getByLabelText('상담 챗봇 열기'));
 
     expect(handleClick).toHaveBeenCalledTimes(1);
   });

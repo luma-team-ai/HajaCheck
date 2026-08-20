@@ -44,10 +44,14 @@ public class ChatMessageCitation {
     @Column(name = "message_id", nullable = false)
     private Long messageId;
 
-    @Column(name = "document_id", nullable = false)
+    // 문서가 삭제되면 FK가 ON DELETE SET NULL로 이 컬럼을 null로 만든다(#1597, V49) — 인용 이력은
+    // 남기고 문서 참조만 끊는 결정. 이제 null일 수 있으므로 nullable=false를 걷어냈다.
+    @Column(name = "document_id")
     private Long documentId;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    // document가 삭제된 인용은 이 필드도 null이다 — 소비부(ChatSessionMessageResponse.Citation.from()
+    // 등)는 null 문서를 "삭제된 문서"로 표시하고 locator/snippet은 그대로 노출해야 한다(#1597).
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
     @JoinColumn(name = "document_id", insertable = false, updatable = false)
     private RagDocument document;
 

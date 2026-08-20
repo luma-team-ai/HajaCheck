@@ -245,9 +245,6 @@ public enum ErrorCode {
     INSPECTION_ROUND_CONFLICT(HttpStatus.CONFLICT, "다른 요청과 충돌하여 점검 회차를 생성하지 못했습니다. 다시 시도해 주세요."),
     // 점검일 도메인 검증 — 시설물 등록일 이전이거나 지나치게 먼 미래는 비정상 입력으로 간주.
     INSPECTION_DATE_INVALID(HttpStatus.BAD_REQUEST, "점검일이 올바르지 않습니다."),
-    // #1291 — roundNo는 항상 생성 순서(max+1)라 점검일과 독립적이다. 새 회차의 점검일이 같은
-    // 시설물의 기존 최신 회차보다 앞서면 회차 번호=시간 순서 가정이 깨진다(회차 간 비교 화면 등).
-    INSPECTION_DATE_BEFORE_LATEST_ROUND(HttpStatus.BAD_REQUEST, "점검일은 최근 회차의 점검일 이후여야 합니다."),
     // 회차 간 비교(#1157) — before/after 미지정 시 최근 2개 회차로 자동 대체하는데, 점검 이력이
     // 2회 미만이면 비교 자체가 성립하지 않는다.
     INSPECTION_COMPARISON_INSUFFICIENT_ROUNDS(HttpStatus.BAD_REQUEST, "비교할 점검 회차가 2회 미만입니다."),
@@ -312,6 +309,29 @@ public enum ErrorCode {
 
     // 플랫폼 관리자 콘솔 — 사용자 관리(#576). 사용자 등록 시 지정한 companyId가 존재하지 않는 경우.
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "기업을 찾을 수 없습니다."),
+
+    // 플랫폼 관리자 콘솔 — 회사 검증 무효화 킬스위치(#1367).
+    // 이미 무효화(FAILED)된 회사의 재무효화는 멱등 no-op 으로 통과시키지 않는다 — 최초 사유와
+    // ntsOutcomeBeforeRevoke 가 덮여 "왜·무엇을 되돌리는 조치였는지"가 사라지기 때문이다.
+    // ADMIN_PROTECTED_ACCOUNT 와 같은 409 계열(재시도로 풀리지 않는 상태 충돌).
+    COMPANY_VERIFICATION_ALREADY_REVOKED(HttpStatus.CONFLICT, "이미 검증이 무효화된 기업입니다."),
+    // 복구 대상이 FAILED 가 아님 — 정상(VERIFIED/PENDING) 회사를 복구한다며 PENDING 으로 되돌리면
+    // 오히려 인가 플래그를 낮춰 스코프를 닫는 역효과가 난다.
+    COMPANY_VERIFICATION_NOT_REVOKED(HttpStatus.CONFLICT, "검증이 무효화된 기업만 복구할 수 있습니다."),
+    // 강제개방(override) 대상이 이미 VERIFIED — 회사 스코프가 이미 열려 있어 할 일이 없다. 멱등 통과로
+    // 두지 않는 이유는 revoke 와 같다: 사유·직전 provenance 를 덮어 감사 기록을 흐린다.
+    COMPANY_VERIFICATION_ALREADY_VERIFIED(HttpStatus.CONFLICT, "이미 검증된 기업입니다."),
+    // 개업일자 없는 회사의 복구 차단(#1329 에서 prod 2건 실측). 재검증 대상 조회
+    // (CompanyRepository#findNtsReverifyTargets)가 business_start_date IS NOT NULL 을 요구하므로,
+    // 개업일자 없이 PENDING 으로 되돌리면 배치가 영원히 잡지 못해 회사 스코프가 영구 폐쇄된다
+    // (되돌린 줄 알고 방치하게 되므로 FAILED 로 두는 것보다 나쁘다).
+    COMPANY_RESTORE_REQUIRES_BUSINESS_START_DATE(HttpStatus.BAD_REQUEST,
+            "개업일자가 없는 기업은 복구할 수 없습니다. 개업일자를 먼저 보정해 주세요."),
+    // 개업일자 외의 "재검증 대상이 될 수 없는" 사유(데모 시드 회사 · 반려 기업). 위 코드와 분리해 두면
+    // 관리자가 "개업일자 보정"과 "애초에 배치가 볼 수 없는 회사"를 구분할 수 있다(구체 사유는 커스텀
+    // 메시지로 내려간다 — GlobalExceptionHandler 가 e.getMessage() 를 그대로 싣는다).
+    COMPANY_RESTORE_NOT_REVERIFIABLE(HttpStatus.BAD_REQUEST,
+            "재검증 대상이 될 수 없는 기업은 복구할 수 없습니다."),
 
     // 데모 계정 자기보호(#1626) — 데모 계정을 대상으로 한 role/status/비밀번호 변경을 통일 차단.
     // 비밀번호가 바뀌면 원클릭 데모 로그인 자체가 깨지고, 강등/정지되면 데모 세션이 전 기능을 잃는다.
@@ -381,7 +401,11 @@ public enum ErrorCode {
     // RAG 문서 관리(#22 / HAJA-35) — 플랫폼 관리자 콘솔 법규·지침 PDF 업로드 + 임베딩 파이프라인
     RAG_DOCUMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "RAG 문서를 찾을 수 없습니다."),
     // PDF가 손상되었거나(스캔 이미지만 있는 등) 텍스트 레이어가 없어 PDFBox가 본문을 추출하지 못한 경우.
-    RAG_TEXT_EXTRACTION_FAILED(HttpStatus.BAD_REQUEST, "PDF에서 텍스트를 추출할 수 없습니다.");
+    RAG_TEXT_EXTRACTION_FAILED(HttpStatus.BAD_REQUEST, "PDF에서 텍스트를 추출할 수 없습니다."),
+    // #1597 — chat_message_citations.document_id FK를 ON DELETE SET NULL로 바꿔 정상 경로에서는
+    // 더 이상 나지 않지만, DB 제약 위반 등 예기치 못한 삭제 실패를 raw 500 대신 도메인 에러로
+    // 표면화하는 방어선(RagDocumentService.delete()).
+    RAG_DOCUMENT_DELETE_FAILED(HttpStatus.CONFLICT, "RAG 문서를 삭제할 수 없습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

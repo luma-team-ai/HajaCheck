@@ -20,6 +20,7 @@ from chromadb.api.shared_system_client import SharedSystemClient
 from ai.core import rag_ingest, semantic_cache
 from ai.core.llm_client import CACHE_TTL_SECONDS
 from ai.core.semantic_cache import (
+    CACHE_VERSION_FIELD,
     CREATED_AT_FIELD,
     DEFAULT_MAX_ENTRIES,
     DEFAULT_SEMANTIC_CACHE_THRESHOLD,
@@ -143,12 +144,13 @@ def _restore_module_state():
 # ---------------------------------------------------------------------------
 
 
-def test_fresh_entry_filter_enforces_both_company_scope_and_ttl(monkeypatch):
+def test_fresh_entry_filter_enforces_company_scope_version_and_ttl(monkeypatch):
     monkeypatch.setenv("SEMANTIC_CACHE_TTL_SECONDS", "100")
     with patch.object(semantic_cache, "now_epoch_seconds", return_value=1_000_000):
-        assert fresh_entry_filter(7) == {
+        assert fresh_entry_filter(7, "v2") == {
             "$and": [
                 {"company_id": 7},
+                {CACHE_VERSION_FIELD: "v2"},
                 {CREATED_AT_FIELD: {"$gte": 999_900}},
             ]
         }

@@ -14,7 +14,7 @@ public record CompanyReportListItemResponse(
     public static CompanyReportListItemResponse from(Report report, Map<String, Long> gradeDistribution) {
         return new CompanyReportListItemResponse(report.getId(), report.getInspectionId(),
                 report.getInspection().getFacilityId(), report.getInspection().getFacility().getName(),
-                report.getInspection().getRoundNo(), gradeDistribution, report.getStatus(),
+                report.getRoundNo(), gradeDistribution, report.getStatus(),
                 report.getVersion(), report.getUpdatedAt(), report.getPdfUrl());
     }
 }
