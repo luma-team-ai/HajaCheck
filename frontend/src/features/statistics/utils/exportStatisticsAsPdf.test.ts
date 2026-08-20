@@ -4,45 +4,74 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mockAddImage = vi.fn();
 const mockAddPage = vi.fn();
 const mockSave = vi.fn();
-// A4 가로(landscape) 기준 — exportStatisticsAsPdf가 orientation:'landscape'로 문서를 만든다.
-const PAGE_WIDTH = 297;
-const PAGE_HEIGHT = 210;
-// 여백(10mm) 제외 콘텐츠 영역 — exportStatisticsAsPdf.ts의 MARGIN_MM=10과 동기화된 상수.
+// A4 두 변의 mm 길이 — exportStatisticsAsPdf.ts의 A4_SHORT_SIDE_MM/A4_LONG_SIDE_MM과 동기화된 상수.
+const A4_SHORT_SIDE_MM = 210;
+const A4_LONG_SIDE_MM = 297;
+// 여백(10mm) — exportStatisticsAsPdf.ts의 MARGIN_MM=10과 동기화된 상수.
 const MARGIN_MM = 10;
-const CONTENT_WIDTH_MM = PAGE_WIDTH - MARGIN_MM * 2; // 277
-const CONTENT_HEIGHT_MM = PAGE_HEIGHT - MARGIN_MM * 2; // 190
+
+// jsPDF 생성자에 넘어온 orientation을 기억해뒀다가 그 방향에 맞는 페이지 크기를 반환하는 목.
+// #1732부터는 캡처 비율에 따라 orientation을 landscape/portrait 중 골라 문서를 만들므로,
+// 예전처럼 페이지 크기를 landscape로 하드코딩하면 portrait 케이스를 검증할 수 없다.
+let lastConstructedOrientation: 'landscape' | 'portrait' | undefined;
 
 class MockJsPDF {
-  internal = {
-    pageSize: {
-      getWidth: () => PAGE_WIDTH,
-      getHeight: () => PAGE_HEIGHT,
-    },
-  };
   addImage = mockAddImage;
   addPage = mockAddPage;
   save = mockSave;
+  internal: { pageSize: { getWidth: () => number; getHeight: () => number } };
+
+  constructor(options: { orientation: 'landscape' | 'portrait' }) {
+    lastConstructedOrientation = options.orientation;
+    const pageWidth = options.orientation === 'landscape' ? A4_LONG_SIDE_MM : A4_SHORT_SIDE_MM;
+    const pageHeight = options.orientation === 'landscape' ? A4_SHORT_SIDE_MM : A4_LONG_SIDE_MM;
+    this.internal = {
+      pageSize: {
+        getWidth: () => pageWidth,
+        getHeight: () => pageHeight,
+      },
+    };
+  }
 }
 
 vi.mock('jspdf', () => ({
   default: MockJsPDF,
 }));
 
-// html2canvas-pro가 반환하는 캡처 캔버스 자체를 흉내내는 목 — 이 함수 안에서 진짜로 필요한 건
-// width/height뿐이다(내부에서 source.width만 읽고, drawImage 호출은 아래 mockDrawImage로 대체된다).
+// html2canvas-pro가 반환하는 캡처 캔버스 자체를 흉내내는 목 — width/height와 toDataURL만
+// 있으면 된다(#1732부터는 페이지를 자르지 않으므로 drawImage/2D 컨텍스트 목이 더 이상 필요 없다).
 const mockHtml2CanvasCall = vi.fn();
 vi.mock('html2canvas-pro', () => ({
   default: (...args: unknown[]) => mockHtml2CanvasCall(...args),
 }));
 
+const mockToDataURL = vi.fn().mockReturnValue('data:image/png;base64,capture');
+
 function mockHtml2Canvas(canvasWidth: number, canvasHeight: number) {
-  mockHtml2CanvasCall.mockResolvedValue({ width: canvasWidth, height: canvasHeight });
+  mockHtml2CanvasCall.mockResolvedValue({
+    width: canvasWidth,
+    height: canvasHeight,
+    toDataURL: mockToDataURL,
+  });
 }
 
-// 페이지 단위로 캔버스를 잘라 임시 <canvas>에 그리는 sliceCanvasToDataUrl은 jsdom에 없는
-// 2D 캔버스 컨텍스트가 필요하므로, HTMLCanvasElement.prototype 레벨에서 통째로 목한다.
-const mockDrawImage = vi.fn();
-const mockSliceToDataURL = vi.fn().mockReturnValue('data:image/png;base64,slice');
+// exportStatisticsAsPdf.ts의 pickOrientation/scale 계산과 같은 공식으로 기대값을 구한다 —
+// 좌표를 하드코딩하는 대신 공식으로 재계산해, 여백/A4 상수가 바뀌어도 테스트가 같이 맞는다.
+function expectedPlacement(canvasWidth: number, canvasHeight: number, orientation: 'landscape' | 'portrait') {
+  const pageWidth = orientation === 'landscape' ? A4_LONG_SIDE_MM : A4_SHORT_SIDE_MM;
+  const pageHeight = orientation === 'landscape' ? A4_SHORT_SIDE_MM : A4_LONG_SIDE_MM;
+  const scale = Math.min((pageWidth - MARGIN_MM * 2) / canvasWidth, (pageHeight - MARGIN_MM * 2) / canvasHeight);
+  const width = canvasWidth * scale;
+  const height = canvasHeight * scale;
+  return {
+    pageWidth,
+    pageHeight,
+    width,
+    height,
+    x: (pageWidth - width) / 2,
+    y: (pageHeight - height) / 2,
+  };
+}
 
 describe('exportStatisticsAsPdf', () => {
   beforeEach(() => {
@@ -50,79 +79,76 @@ describe('exportStatisticsAsPdf', () => {
     mockAddPage.mockClear();
     mockSave.mockClear();
     mockHtml2CanvasCall.mockReset();
-    mockDrawImage.mockClear();
-    mockSliceToDataURL.mockClear();
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
-      drawImage: mockDrawImage,
-    } as unknown as CanvasRenderingContext2D);
-    vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockImplementation(mockSliceToDataURL);
+    mockToDataURL.mockClear();
+    lastConstructedOrientation = undefined;
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('캡처 이미지가 한 페이지 콘텐츠 영역 높이 이내면 페이지를 추가하지 않고, 10mm 여백 좌표로 그린다', async () => {
-    // 캔버스 폭을 콘텐츠 폭(277mm)과 같게 잡아 pxPerMm=1로 계산을 단순화한다.
-    // 높이(150px)가 콘텐츠 높이(190mm)보다 작아 한 페이지에 다 들어간다.
-    mockHtml2Canvas(CONTENT_WIDTH_MM, 150);
+  it('세로로 긴 캡처(1195x1216)는 portrait 문서로 한 페이지에 가운데 정렬돼 그려진다', async () => {
+    mockHtml2Canvas(1195, 1216);
+    const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
+
+    await exportFn(document.createElement('div'));
+
+    expect(lastConstructedOrientation).toBe('portrait');
+    expect(mockAddPage).not.toHaveBeenCalled();
+    expect(mockAddImage).toHaveBeenCalledTimes(1);
+
+    const expected = expectedPlacement(1195, 1216, 'portrait');
+    const [dataUrl, format, x, y, width, height] = mockAddImage.mock.calls[0];
+    expect(dataUrl).toBe('data:image/png;base64,capture');
+    expect(format).toBe('PNG');
+    expect(x).toBeCloseTo(expected.x, 5);
+    expect(y).toBeCloseTo(expected.y, 5);
+    expect(width).toBeCloseTo(expected.width, 5);
+    expect(height).toBeCloseTo(expected.height, 5);
+    // 콘텐츠 영역(190x277) 안에 들어가고, 캡처 원본 비율(가로/세로)이 유지된다.
+    expect(width).toBeLessThanOrEqual(expected.pageWidth - MARGIN_MM * 2 + 1e-6);
+    expect(height).toBeLessThanOrEqual(expected.pageHeight - MARGIN_MM * 2 + 1e-6);
+    expect(width / height).toBeCloseTo(1195 / 1216, 5);
+
+    expect(mockSave).toHaveBeenCalledTimes(1);
+    expect(mockSave.mock.calls[0][0]).toMatch(/^통계리포트_\d{8}\.pdf$/);
+  });
+
+  it('가로로 긴 캡처(1973x1216)는 landscape 문서로 한 페이지에 가운데 정렬돼 그려진다', async () => {
+    mockHtml2Canvas(1973, 1216);
+    const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
+
+    await exportFn(document.createElement('div'));
+
+    expect(lastConstructedOrientation).toBe('landscape');
+    expect(mockAddPage).not.toHaveBeenCalled();
+    expect(mockAddImage).toHaveBeenCalledTimes(1);
+
+    const expected = expectedPlacement(1973, 1216, 'landscape');
+    const [, , x, y, width, height] = mockAddImage.mock.calls[0];
+    expect(x).toBeCloseTo(expected.x, 5);
+    expect(y).toBeCloseTo(expected.y, 5);
+    expect(width).toBeCloseTo(expected.width, 5);
+    expect(height).toBeCloseTo(expected.height, 5);
+    expect(width / height).toBeCloseTo(1973 / 1216, 5);
+  });
+
+  it('아주 긴 캡처(1000x5000)여도 항상 1페이지로 그려지고 콘텐츠 높이 이내로 축소된다', async () => {
+    mockHtml2Canvas(1000, 5000);
     const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
 
     await exportFn(document.createElement('div'));
 
     expect(mockAddPage).not.toHaveBeenCalled();
     expect(mockAddImage).toHaveBeenCalledTimes(1);
-    expect(mockAddImage).toHaveBeenCalledWith(
-      'data:image/png;base64,slice',
-      'PNG',
-      MARGIN_MM,
-      MARGIN_MM,
-      CONTENT_WIDTH_MM,
-      150,
-    );
-    expect(mockSave).toHaveBeenCalledTimes(1);
-    expect(mockSave.mock.calls[0][0]).toMatch(/^통계리포트_\d{8}\.pdf$/);
-  });
 
-  it('콘텐츠가 한 페이지보다 길면 콘텐츠 영역 높이만큼 캔버스를 잘라 페이지를 나누고, 마지막 조각은 남은 높이만큼만 그린다', async () => {
-    // pxPerMm=1이 되도록 폭을 277로 고정 — 콘텐츠 높이(190)+150 = 340px:
-    // 1페이지는 190px(콘텐츠 영역 가득), 2페이지는 남은 150px만(늘려 그리지 않음).
-    mockHtml2Canvas(CONTENT_WIDTH_MM, CONTENT_HEIGHT_MM + 150);
-    const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
-
-    await exportFn(document.createElement('div'));
-
-    expect(mockAddPage).toHaveBeenCalledTimes(1);
-    expect(mockAddImage).toHaveBeenCalledTimes(2);
-    expect(mockAddImage).toHaveBeenNthCalledWith(
-      1,
-      'data:image/png;base64,slice',
-      'PNG',
-      MARGIN_MM,
-      MARGIN_MM,
-      CONTENT_WIDTH_MM,
-      CONTENT_HEIGHT_MM,
-    );
-    expect(mockAddImage).toHaveBeenNthCalledWith(
-      2,
-      'data:image/png;base64,slice',
-      'PNG',
-      MARGIN_MM,
-      MARGIN_MM,
-      CONTENT_WIDTH_MM,
-      150,
-    );
-
-    // drawImage로 캔버스를 자르는 소스 y 오프셋도 겹치거나 비지 않고 이어져야 한다.
-    expect(mockDrawImage).toHaveBeenCalledTimes(2);
-    // drawImage(source, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight) — 캡처 원본에서
-    // 잘라올 세로 구간은 sy(인덱스 2)·sHeight(인덱스 4)에 실린다.
-    const [, , firstSourceY, , firstSliceHeightPx] = mockDrawImage.mock.calls[0];
-    const [, , secondSourceY, , secondSliceHeightPx] = mockDrawImage.mock.calls[1];
-    expect(firstSourceY).toBe(0);
-    expect(firstSliceHeightPx).toBe(CONTENT_HEIGHT_MM);
-    expect(secondSourceY).toBe(CONTENT_HEIGHT_MM);
-    expect(secondSliceHeightPx).toBe(150);
+    const orientation = lastConstructedOrientation as 'landscape' | 'portrait';
+    const expected = expectedPlacement(1000, 5000, orientation);
+    const [, , , , width, height] = mockAddImage.mock.calls[0];
+    expect(width).toBeCloseTo(expected.width, 5);
+    expect(height).toBeCloseTo(expected.height, 5);
+    expect(height).toBeLessThanOrEqual(expected.pageHeight - MARGIN_MM * 2 + 1e-6);
+    expect(width).toBeLessThanOrEqual(expected.pageWidth - MARGIN_MM * 2 + 1e-6);
   });
 
   it('html2canvas-pro가 실패하면 에러를 그대로 전파한다', async () => {
@@ -133,8 +159,31 @@ describe('exportStatisticsAsPdf', () => {
     expect(mockSave).not.toHaveBeenCalled();
   });
 
+  it('캡처 캔버스 폭이 0이면 즉시 reject되고 PDF를 만들지 않는다', async () => {
+    mockHtml2Canvas(0, 100);
+    const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
+
+    await expect(exportFn(document.createElement('div'))).rejects.toThrow(
+      '화면 캡처 결과가 비어 있어 PDF를 만들 수 없습니다.',
+    );
+    expect(mockAddImage).not.toHaveBeenCalled();
+    expect(mockAddPage).not.toHaveBeenCalled();
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+
+  it('캡처 캔버스 높이가 0이면 즉시 reject되고 PDF를 만들지 않는다', async () => {
+    mockHtml2Canvas(100, 0);
+    const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
+
+    await expect(exportFn(document.createElement('div'))).rejects.toThrow(
+      '화면 캡처 결과가 비어 있어 PDF를 만들 수 없습니다.',
+    );
+    expect(mockAddImage).not.toHaveBeenCalled();
+    expect(mockSave).not.toHaveBeenCalled();
+  });
+
   it('data-export-ignore="true"가 붙은 요소를 onclone에서 visibility:hidden 처리하는 콜백을 html2canvas-pro에 넘긴다', async () => {
-    mockHtml2Canvas(CONTENT_WIDTH_MM, 100);
+    mockHtml2Canvas(1195, 1216);
     const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
     const node = document.createElement('div');
 
@@ -165,37 +214,20 @@ describe('exportStatisticsAsPdf', () => {
     expect(filterDropdown.style.visibility).not.toBe('hidden');
   });
 
-  // PR머신 P1 픽스 — canvas.width===0이면 pxPerMm=0 → pageSliceHeightPx=0이 되어, while 루프의
-  // sliceHeightPx가 항상 Math.min(0, 남은높이)=0으로 고정돼 sourceY가 영영 늘지 않는다(canvas.height>0인
-  // 한 무한루프 → 브라우저 탭 멈춤). 회귀 시 이 테스트도 함께 멈추지 않도록 짧은 timeout을 건다.
-  it(
-    '캡처 캔버스 폭이 0이면 무한루프 없이 즉시 reject된다(폭 0 캡처 결과 방어)',
-    async () => {
-      mockHtml2Canvas(0, 100);
-      const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
+  it('onclone이 클론 head에 letter-spacing:normal 무력화 스타일을 주입한다 (#1732 — 숫자+한글 혼합 텍스트 baseline 어긋남 방지)', async () => {
+    mockHtml2Canvas(1195, 1216);
+    const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
 
-      await expect(exportFn(document.createElement('div'))).rejects.toThrow(
-        '화면 캡처 결과가 비어 있어 PDF를 만들 수 없습니다.',
-      );
-      expect(mockAddImage).not.toHaveBeenCalled();
-      expect(mockAddPage).not.toHaveBeenCalled();
-      expect(mockSave).not.toHaveBeenCalled();
-    },
-    1000,
-  );
+    await exportFn(document.createElement('div'));
 
-  it(
-    '캡처 캔버스 높이가 0이면 무한루프 없이 즉시 reject된다',
-    async () => {
-      mockHtml2Canvas(CONTENT_WIDTH_MM, 0);
-      const { exportStatisticsAsPdf: exportFn } = await import('./exportStatisticsAsPdf');
+    const [, options] = mockHtml2CanvasCall.mock.calls[0] as [HTMLElement, { onclone: (doc: Document) => void }];
+    const clonedDoc = document.implementation.createHTMLDocument();
 
-      await expect(exportFn(document.createElement('div'))).rejects.toThrow(
-        '화면 캡처 결과가 비어 있어 PDF를 만들 수 없습니다.',
-      );
-      expect(mockAddImage).not.toHaveBeenCalled();
-      expect(mockSave).not.toHaveBeenCalled();
-    },
-    1000,
-  );
+    options.onclone(clonedDoc);
+
+    const injectedStyle = clonedDoc.head.querySelector('style');
+    expect(injectedStyle).not.toBeNull();
+    expect(injectedStyle?.textContent).toContain('letter-spacing: normal');
+    expect(injectedStyle?.textContent).toContain('!important');
+  });
 });
