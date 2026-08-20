@@ -210,6 +210,304 @@ class CompanyTest {
         assertThat(company.isNtsVerified()).isFalse();
     }
 
+    // ── 플랫폼 관리자 무효화/복구 왕복(#1367) ──────────────────────────────────────────────────
+
+    @Test
+    void revokeBusinessVerificationByAdmin_FAILED로전이하고_배지도함께꺼진다() {
+        // 자동승인(#1324)으로 스코프가 열린 회사 — 국세청이 실제로 확인해 준 상태(배지 켜짐)를 가정한다.
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"VERIFIED\"}");
+        company.markBusinessVerified();
+        assertThat(company.isNtsVerified()).isTrue();
+
+        company.revokeBusinessVerificationByAdmin("사칭 신고 접수", 77L);
+
+        // 이 한 줄이 스코프 판정·DB 트리거의 VERIFIED 조건을 깨 전 구성원의 회사 스코프를 닫는다.
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.FAILED);
+        // 차단된 회사에 "사업자 인증 완료" 배지가 켜진 채 남으면 부정합 — ntsOutcome 을 반드시 덮는다.
+        assertThat(company.isNtsVerified()).isFalse();
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("ADMIN_REVOKED");
+    }
+
+    @Test
+    void revokeBusinessVerificationByAdmin_직전판정과_사유와시각을_병합보존한다() {
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"SKIPPED\"}");
+
+        company.revokeBusinessVerificationByAdmin("오등록 확인", 77L);
+
+        // 덮기 직전 판정을 남겨야 무효화가 오판이었는지 사후에 판단할 수 있다(감사 기록 소실 방지).
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("SKIPPED");
+        assertThat(ocrField(company, "adminRevokeReason")).isEqualTo("오등록 확인");
+        assertThat(ocrField(company, "adminRevokedAt")).isNotBlank();
+        // 통째 교체 금지(클래스 javadoc) — 다른 주체가 써넣은 기존 감사 키는 그대로 남아야 한다.
+        assertThat(ocrField(company, "source")).isEqualTo("MANUAL_INPUT");
+    }
+
+    @Test
+    void revokeBusinessVerificationByAdmin_직전판정이없으면_UNKNOWN으로_명시한다() {
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\"}");
+
+        company.revokeBusinessVerificationByAdmin("사유", 77L);
+
+        // "모른다"도 명시적으로 기록한다 — 키를 비우면 아래 테스트의 stale 값 생존 문제가 생긴다.
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("UNKNOWN");
+    }
+
+    /**
+     * F-1 회귀 방지(#1367) — {@code ntsOutcomeBeforeRevoke} 는 감사 기록이 아니라 <b>인가 판정 입력</b>이다
+     * ({@link Company#isAdminRevokeUndoable()} → restore 의 즉시 VERIFIED 복원 여부).
+     *
+     * <p>{@code mergeTextFields} 는 null 항목을 무시하므로, 직전 {@code ntsOutcome} 이 없을 때 키를
+     * 생략하면 <b>이전 사이클에서 남은 옛 값이 그대로 생존</b>한다. 그러면 이번 무효화와 아무 관계 없는
+     * 옛 VERIFIED 때문에 restore 가 <b>국세청 확인 없이 스코프를 즉시 개방</b>(배지 점등 + 재검증 집합
+     * 이탈)하게 된다. sentinel 을 지우면 이 테스트가 실패해야 한다.
+     */
+    @Test
+    void revoke는_옛_ntsOutcomeBeforeRevoke를_생존시키지않는다() {
+        // 앞선 사이클의 잔재(ntsOutcomeBeforeRevoke=VERIFIED)만 남고 ntsOutcome 키는 없는 상태를 재현한다.
+        Company company = company();
+        setOcrRaw(company, "{\"ntsOutcomeBeforeRevoke\":\"VERIFIED\"}");
+
+        company.revokeBusinessVerificationByAdmin("사칭 신고 접수", 77L);
+
+        // 옛 값이 살아남지 않는다.
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("UNKNOWN");
+        // 따라서 이 무효화는 "즉시 복원 가능한 관리자 조치"로 오판되지 않는다.
+        assertThat(company.isAdminRevokeUndoable()).isFalse();
+
+        AdminRestoreMode mode = company.restoreBusinessVerificationByAdmin("복구", 88L);
+
+        // 국세청 인정 이력을 증명할 수 없으므로 PENDING 경로(재검증 재판정)로 떨어져야 한다.
+        assertThat(mode).isEqualTo(AdminRestoreMode.RESTORED_TO_PENDING);
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.PENDING);
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    @Test
+    void UNKNOWN_sentinel은_인정_화이트리스트_밖이다() {
+        // sentinel 이 화이트리스트에 들어가면 F-1 픽스가 오히려 개방 경로를 만든다.
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"UNKNOWN\"}");
+
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    @Test
+    void revokeBusinessVerificationByAdmin_이미FAILED면_예외이고_멱등no_op이아니다() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.revokeBusinessVerificationByAdmin("최초 사유", 77L);
+
+        // 두 번째 호출을 조용히 통과시키면 최초 사유·ntsOutcomeBeforeRevoke 가 덮여 감사 기록이 흐려진다.
+        assertThatThrownBy(() -> company.revokeBusinessVerificationByAdmin("나중 사유", 77L))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(ocrField(company, "adminRevokeReason")).isEqualTo("최초 사유");
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("VERIFIED");
+    }
+
+    /**
+     * A-2 분기 ① — 관리자 자기 조치의 <b>순수 취소</b>는 직전 검증 상태로 즉시 복원한다.
+     * PENDING 을 거치면 다음 배치 회차(하루 1회)까지 정상 회사가 멈춰 있어, 오조작 revoke 한 건이
+     * 최대 하루 가까운 서비스 중단이 된다.
+     */
+    @Test
+    void restore_관리자무효화의취소는_직전VERIFIED로_즉시복원한다() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.markBusinessVerified();
+        company.revokeBusinessVerificationByAdmin("오조작", 77L);
+
+        AdminRestoreMode mode = company.restoreBusinessVerificationByAdmin("오조작 취소", 88L);
+
+        assertThat(mode).isEqualTo(AdminRestoreMode.RESTORED_TO_VERIFIED);
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        // ntsOutcome 도 무효화 직전 값으로 원복된다 — 되무르는 것이지 새 판정을 만드는 게 아니다.
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("VERIFIED");
+        // 국세청이 실제로 확인해 준 상태로 돌아왔으므로 배지도 원래대로 켜진다.
+        assertThat(company.isNtsVerified()).isTrue();
+        assertThat(ocrField(company, "adminRestoreReason")).isEqualTo("오조작 취소");
+        assertThat(ocrField(company, "adminRestoredBy")).isEqualTo("88");
+    }
+
+    @Test
+    void restore_LEGACY_VERIFIED였던_무효화도_즉시복원대상이다() {
+        // 화이트리스트(VERIFIED/LEGACY_VERIFIED)와 같은 집합으로 판정한다 — #1324 이전 진짜 검증분.
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"LEGACY_VERIFIED\"}");
+        company.markBusinessVerified();
+        company.revokeBusinessVerificationByAdmin("오조작", 77L);
+
+        assertThat(company.restoreBusinessVerificationByAdmin("취소", 88L))
+                .isEqualTo(AdminRestoreMode.RESTORED_TO_VERIFIED);
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("LEGACY_VERIFIED");
+    }
+
+    /**
+     * A-2 분기 ② — 국세청 인정 이력을 <b>증명할 수 없는</b> 무효화(직전이 SKIPPED 등)는 VERIFIED 로
+     * 되돌리지 않는다. 관리자가 국세청 판정을 대신하는 경로가 되면 안 되기 때문이다.
+     */
+    @Test
+    void restore_직전판정이_증명불가면_PENDING으로만_되돌린다() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"SKIPPED\"}");
+        company.markBusinessVerified();
+        company.revokeBusinessVerificationByAdmin("사칭 신고 접수", 77L);
+
+        AdminRestoreMode mode = company.restoreBusinessVerificationByAdmin("오탐 확인", 88L);
+
+        assertThat(mode).isEqualTo(AdminRestoreMode.RESTORED_TO_PENDING);
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.PENDING);
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("ADMIN_RESTORED");
+        assertThat(ocrField(company, "adminRestoreReason")).isEqualTo("오탐 확인");
+        assertThat(ocrField(company, "adminRestoredAt")).isNotBlank();
+        // 증명 불가 라벨이라 배지는 꺼진 채 유지된다 — 국세청이 확인해 주면 배치가 켠다.
+        assertThat(company.isNtsVerified()).isFalse();
+        // 무효화 감사 기록은 복구 후에도 남는다(병합).
+        assertThat(ocrField(company, "adminRevokeReason")).isEqualTo("사칭 신고 접수");
+        assertThat(ocrField(company, "ntsOutcomeBeforeRevoke")).isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void restoreBusinessVerificationByAdmin_FAILED가아니면_예외() {
+        Company verified = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        verified.markBusinessVerified();
+
+        assertThatThrownBy(() -> verified.restoreBusinessVerificationByAdmin("사유", 88L))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(verified.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+    }
+
+    @Test
+    void 배치강등FAILED는_관리자복구로_PENDING까지만_되돌아간다() {
+        // 실사고 재현 — 배치(markBusinessVerificationFailed)가 만든 FAILED 는 재검증 대상에서 영구
+        // 제외돼 자가치유가 없었다. 복구 경로가 그 FAILED 도 받아야 왕복이 완성된다.
+        // 다만 관리자 조치가 아니므로(ntsOutcome != ADMIN_REVOKED) 즉시 복원 분기는 타지 않는다.
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.markBusinessVerificationFailed();
+
+        AdminRestoreMode mode = company.restoreBusinessVerificationByAdmin("MISMATCH 오탐 소명 완료", 88L);
+
+        assertThat(mode).isEqualTo(AdminRestoreMode.RESTORED_TO_PENDING);
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.PENDING);
+    }
+
+    // ── 강제개방 override(#1367 P1-A) ────────────────────────────────────────────────────────
+
+    @Test
+    void override_VERIFIED로열되_배지는꺼진채유지되고_재검증표식이남는다() {
+        // 대표자 변경으로 국세청이 계속 MISMATCH 를 주는 회사 — restore(PENDING)로는 영영 열리지 않는다.
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"SKIPPED\"}");
+
+        company.overrideBusinessVerificationByAdmin("등기부·현장 실물 확인 완료", 55L);
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("ADMIN_OVERRIDE_VERIFIED");
+        // ⚠️ 화이트리스트 밖이어야 한다 — 배지가 켜지면 "국세청이 확인해 줬다"는 허위 표시가 된다.
+        assertThat(company.isNtsVerified()).isFalse();
+        assertThat(company.isAdminOverridden()).isTrue();
+        assertThat(ocrField(company, "ntsOutcomeBeforeOverride")).isEqualTo("SKIPPED");
+        assertThat(ocrField(company, "adminOverrideReason")).isEqualTo("등기부·현장 실물 확인 완료");
+        assertThat(ocrField(company, "adminOverriddenBy")).isEqualTo("55");
+        assertThat(ocrField(company, "adminOverriddenAt")).isNotBlank();
+        assertThat(ocrField(company, "source")).isEqualTo("MANUAL_INPUT");
+        // verifiedAt 은 국세청 검증 성공 시각이므로 override 로 찍지 않는다.
+        assertThat(company.getVerifiedAt()).isNull();
+    }
+
+    /**
+     * M-3 회귀 방지(#1367) — {@code ntsOutcomeBeforeOverride} 도 revoke 의 {@code ntsOutcomeBeforeRevoke}
+     * 와 <b>같은 규칙</b>(sentinel 로 항상 덮어쓰기)을 따라야 한다. 지금은 이 키를 인가 판정으로 읽는 곳이
+     * 없어 무해하지만, 두 키의 처리 규칙이 갈라져 있으면 누군가 revoke 패턴을 모방해 이 키를 인가 입력으로
+     * 승격하는 순간 F-1(stale 값 생존) 결함이 그대로 재발한다.
+     */
+    @Test
+    void override는_옛_ntsOutcomeBeforeOverride를_생존시키지않는다() {
+        // 앞선 사이클의 잔재만 남고 ntsOutcome 키는 없는 상태를 재현한다.
+        Company company = company();
+        setOcrRaw(company, "{\"ntsOutcomeBeforeOverride\":\"VERIFIED\"}");
+
+        company.overrideBusinessVerificationByAdmin("실물 확인", 55L);
+
+        assertThat(ocrField(company, "ntsOutcomeBeforeOverride")).isEqualTo("UNKNOWN");
+        // 두 before 키가 같은 규칙을 쓰는지 나란히 고정한다(비대칭이 곧 회귀 표면이다).
+        Company revoked = company();
+        setOcrRaw(revoked, "{\"ntsOutcomeBeforeRevoke\":\"VERIFIED\"}");
+        revoked.revokeBusinessVerificationByAdmin("사유", 77L);
+        assertThat(ocrField(revoked, "ntsOutcomeBeforeRevoke")).isEqualTo("UNKNOWN");
+    }
+
+    @Test
+    void override_이미VERIFIED면_예외() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.markBusinessVerified();
+
+        assertThatThrownBy(() -> company.overrideBusinessVerificationByAdmin("사유", 55L))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void override_무효화된회사도_열수있다() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.revokeBusinessVerificationByAdmin("사칭 의심", 77L);
+
+        company.overrideBusinessVerificationByAdmin("소명 완료", 55L);
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        assertThat(company.isAdminRevoked()).isFalse();
+    }
+
+    // ── 재검증 스탬프(#1367 P1-C / P2-3) ─────────────────────────────────────────────────────
+
+    @Test
+    void 시도스탬프는_ntsOutcome을_건드리지않는다() {
+        // ntsOutcome 은 재검증 대상 집합(where 절)을 결정한다 — 스탬프가 그것을 바꾸면 통제가 깨진다.
+        Company company = companyWithOcrRaw("{\"source\":\"MANUAL_INPUT\",\"ntsOutcome\":\"SKIPPED\"}");
+
+        company.stampNtsReverifyAttempt();
+
+        assertThat(company.ntsLastAttemptAt()).isPresent();
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("SKIPPED");
+        assertThat(ocrField(company, "source")).isEqualTo("MANUAL_INPUT");
+    }
+
+    @Test
+    void 경보스탬프는_판정라벨과시각을_남기되_ntsOutcome은유지한다() {
+        // 자동 강등하지 않기로 한 판정을 인가 근거 키(ntsOutcome)에 쓰면 대상 집합이 흔들린다.
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"SKIPPED\"}");
+
+        company.stampNtsReverifyAlert("MISMATCH");
+
+        assertThat(company.ntsLastAlertOutcome()).contains("MISMATCH");
+        assertThat(company.ntsLastAlertAt()).isPresent();
+        // 경보도 시도이므로 라운드로빈 스탬프가 함께 찍힌다.
+        assertThat(company.ntsLastAttemptAt()).isPresent();
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void 무효화와복구_모두_verifiedAt을_건드리지않는다() {
+        Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");
+        company.markBusinessVerified();
+        java.time.Instant verifiedAt = company.getVerifiedAt();
+
+        company.revokeBusinessVerificationByAdmin("사유", 77L);
+        assertThat(company.getVerifiedAt()).isEqualTo(verifiedAt);
+
+        company.restoreBusinessVerificationByAdmin("사유", 88L);
+        // verifiedAt 은 "검증 성공 시각"으로 좁게 쓰인다 — 실패·복구 시각을 여기 재사용하면 의미가 오염된다
+        // (markBusinessVerificationFailed javadoc 방침).
+        assertThat(company.getVerifiedAt()).isEqualTo(verifiedAt);
+    }
+
+    @Test
+    void 무효화는_ocrRaw가null이어도_provenance를_남긴다() {
+        Company company = companyWithOcrRaw(null);
+
+        company.revokeBusinessVerificationByAdmin("사유", 77L);
+
+        assertThat(ocrField(company, "ntsOutcome")).isEqualTo("ADMIN_REVOKED");
+        assertThat(company.isNtsVerified()).isFalse();
+    }
+
+    private static String ocrField(Company company, String field) {
+        return JsonValidator.readTextField(company.getBusinessRegistrationOcrRaw(), field).orElse(null);
+    }
+
     private Company companyWithOcrRaw(String ocrRaw) {
         return Company.createPendingReview(
                 1L, "HajaCheck", "123-45-67890", "Owner", "Seoul", null,

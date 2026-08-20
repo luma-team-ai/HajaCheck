@@ -11,6 +11,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.bizverify.config.PendingBusinessReverifyProperties;
@@ -22,6 +28,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Pageable;
 
 /**
@@ -72,6 +79,23 @@ class PendingBusinessReverifySchedulerTest {
         when(companyRepository.findNtsReverifyTargets(any(Pageable.class))).thenReturn(targets);
     }
 
+    /** 회차 요약 로그 1건을 잡아 돌려준다 — 요약이 이 배치의 유일한 사후 재구성 수단이라 내용까지 고정한다. */
+    private ILoggingEvent runAndCaptureSummary() {
+        Logger schedulerLogger = (Logger) LoggerFactory.getLogger(PendingBusinessReverifyScheduler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        schedulerLogger.addAppender(appender);
+        try {
+            scheduler.reverifyPendingCompanies();
+        } finally {
+            schedulerLogger.detachAppender(appender);
+        }
+        return appender.list.stream()
+                .filter(event -> event.getFormattedMessage().startsWith("사업자 재검증 배치 완료"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("회차 요약 로그가 없다"));
+    }
+
     @Test
     @DisplayName("enabled=false면 대상 조회·국세청 호출 없이 즉시 반환한다")
     void 킬스위치_꺼져있으면_호출없음() {
@@ -90,6 +114,7 @@ class PendingBusinessReverifySchedulerTest {
         stubTargets(List.of(company));
         when(ntsBusinessVerifyClient.verifyRealtime(anyString(), anyString(), any()))
                 .thenReturn(NtsVerificationOutcome.VERIFIED);
+        when(writer.markVerified(1L)).thenReturn(true);
 
         scheduler.reverifyPendingCompanies();
 
@@ -97,18 +122,63 @@ class PendingBusinessReverifySchedulerTest {
         verify(writer, never()).markFailed(anyLong(), any());
     }
 
+    /**
+     * M-2 회귀 방지(#1367) — 관리자 무효화 우선 가드에 걸려 <b>반영되지 않은</b> 건이 회차 요약의 VERIFIED
+     * 카운트에 섞이면, 이 배치가 내세운 "요약 로그만으로 회차를 사후 재구성한다"는 목표가 정면으로 깨진다
+     * (실제 전이가 없었는데 있었다고 보고). 반환값 기반 카운트를 되돌리면 이 테스트가 실패한다.
+     */
     @Test
-    @DisplayName("불일치/휴업/폐업/미등록 결과는 판정 outcome과 함께 writer.markFailed로 FAILED 전이된다")
-    void 불일치_휴업_폐업_미등록_FAILED_반영() {
-        Company mismatch = pendingCompany(1L, "1111111111", "A");
-        Company suspended = pendingCompany(2L, "2222222222", "B");
+    @DisplayName("#1367 M-2 관리자 무효화로 건너뛴 건은 VERIFIED 카운트가 아니라 별도 카운터로 잡힌다")
+    void 관리자무효화로_건너뛴건은_VERIFIED카운트에_섞이지않는다() {
+        Company revoked = pendingCompany(1L, "1111111111", "A");
+        Company normal = pendingCompany(2L, "2222222222", "B");
+        stubTargets(List.of(revoked, normal));
+        when(ntsBusinessVerifyClient.verifyRealtime(anyString(), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+        // 1L 은 회차 시작 후 관리자가 revoke 해 writer 가 반영을 건너뛴다(P1-B 가드).
+        when(writer.markVerified(1L)).thenReturn(false);
+        when(writer.markVerified(2L)).thenReturn(true);
+
+        ILoggingEvent summary = runAndCaptureSummary();
+
+        assertThat(summary.getFormattedMessage())
+                .contains("VERIFIED 1건")
+                .contains("관리자무효화우선 스킵 1건(companyIds=[1])");
+        // 사람이 봐야 하는 사건이므로 요약 자체가 warn 으로 올라간다.
+        assertThat(summary.getLevel()).isEqualTo(Level.WARN);
+    }
+
+    @Test
+    @DisplayName("#1367 M-2 반영·경보가 전혀 없는 평온한 회차는 요약이 info 로 남는다")
+    void 평온한회차는_요약이_info다() {
+        Company company = pendingCompany(1L, "1234567890", "김민수");
+        stubTargets(List.of(company));
+        when(ntsBusinessVerifyClient.verifyRealtime(anyString(), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+        when(writer.markVerified(1L)).thenReturn(true);
+
+        ILoggingEvent summary = runAndCaptureSummary();
+
+        assertThat(summary.getLevel()).isEqualTo(Level.INFO);
+        assertThat(summary.getFormattedMessage()).contains("관리자무효화우선 스킵 0건");
+    }
+
+    /**
+     * #1367 정책 분리 — 이 테스트는 원래 4종(MISMATCH·SUSPENDED·CLOSED·NOT_REGISTERED)을 모두
+     * {@code markFailed} 로 단언했으나, MISMATCH·SUSPENDED 단언을 "강등되지 않음"으로 뒤집었다.
+     *
+     * <p><b>왜 바뀌었나</b>: 대표자 변경·계절 휴업·비영리 고유번호증은 사기가 아니라 정상 사업 변동인데
+     * 옛 정책은 그것을 무통보 서비스 중단으로 처리했다. 실제로 학회 회사 1건이 MISMATCH 로 자동 강등돼
+     * 6일간 전 API 가 차단됐고, FAILED 는 재검증 대상에서 영구 제외돼 자가치유도 되지 않아 수동 SQL 로
+     * 복구해야 했다. 자동 강등은 <b>확정 불량</b>(실재하지 않음·폐업)으로 좁히고, 사칭 대응은 사람 판단
+     * (플랫폼 관리자 revoke API)이 담당한다.
+     */
+    @Test
+    @DisplayName("#1367 폐업/미등록(확정 불량)만 판정 outcome과 함께 writer.markFailed로 FAILED 전이된다")
+    void 폐업_미등록만_FAILED_반영() {
         Company closed = pendingCompany(3L, "3333333333", "C");
         Company notRegistered = pendingCompany(4L, "4444444444", "D");
-        stubTargets(List.of(mismatch, suspended, closed, notRegistered));
-        when(ntsBusinessVerifyClient.verifyRealtime(eq("1111111111"), anyString(), any()))
-                .thenReturn(NtsVerificationOutcome.MISMATCH);
-        when(ntsBusinessVerifyClient.verifyRealtime(eq("2222222222"), anyString(), any()))
-                .thenReturn(NtsVerificationOutcome.SUSPENDED);
+        stubTargets(List.of(closed, notRegistered));
         when(ntsBusinessVerifyClient.verifyRealtime(eq("3333333333"), anyString(), any()))
                 .thenReturn(NtsVerificationOutcome.CLOSED);
         when(ntsBusinessVerifyClient.verifyRealtime(eq("4444444444"), anyString(), any()))
@@ -116,11 +186,74 @@ class PendingBusinessReverifySchedulerTest {
 
         scheduler.reverifyPendingCompanies();
 
-        verify(writer).markFailed(1L, NtsVerificationOutcome.MISMATCH);
-        verify(writer).markFailed(2L, NtsVerificationOutcome.SUSPENDED);
         verify(writer).markFailed(3L, NtsVerificationOutcome.CLOSED);
         verify(writer).markFailed(4L, NtsVerificationOutcome.NOT_REGISTERED);
         verify(writer, never()).markVerified(anyLong());
+    }
+
+    @Test
+    @DisplayName("#1367 불일치/휴업은 자동 강등하지 않는다 — writer를 전혀 호출하지 않고 상태를 그대로 둔다")
+    void 불일치_휴업은_강등되지않는다() {
+        Company mismatch = pendingCompany(1L, "1111111111", "A");
+        Company suspended = pendingCompany(2L, "2222222222", "B");
+        stubTargets(List.of(mismatch, suspended));
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("1111111111"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.MISMATCH);
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("2222222222"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.SUSPENDED);
+
+        scheduler.reverifyPendingCompanies();
+
+        // 강등도 승격도 없다 = 회사 상태 무변경(다음 회차에 다시 잡혀 경보가 반복된다 — 의도된 동작).
+        verify(writer, never()).markFailed(anyLong(), any());
+        verify(writer, never()).markVerified(anyLong());
+        // 엔티티 상태를 직접 바꾸는 경로가 없다는 것도 함께 고정한다(스케줄러는 writer 를 통해서만 쓴다).
+        verify(mismatch, never()).markBusinessVerificationFailed();
+        verify(suspended, never()).markBusinessVerificationFailed();
+        // 판정 자체는 DB 에 남는다(P2-3) — 로그에만 두면 진단 API 로 도달하지 못한다.
+        verify(writer).stampAlert(1L, NtsVerificationOutcome.MISMATCH);
+        verify(writer).stampAlert(2L, NtsVerificationOutcome.SUSPENDED);
+    }
+
+    /**
+     * P1-C 회귀 방지(#1367) — 상태를 바꾸지 않는 경로는 대상 집합을 떠나지 않는다. 시도 스탬프를 남기지
+     * 않으면 그 회사가 대기열 앞자리를 고정 점유해(정렬 축이 곧 스탬프다) 뒤쪽 신규 가입 회사가 영원히
+     * 재검증되지 않는다.
+     */
+    @Test
+    @DisplayName("#1367 P1-C 데모 스킵·SKIPPED·처리 예외 모두 시도 스탬프를 남긴다")
+    void 상태무변경경로도_시도스탬프를남긴다() {
+        Company demo = demoCompany(1L);
+        Company skipped = pendingCompany(2L, "2222222222", "B");
+        Company failing = pendingCompany(3L, "3333333333", "C");
+        stubTargets(List.of(demo, skipped, failing));
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("2222222222"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.SKIPPED);
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("3333333333"), anyString(), any()))
+                .thenThrow(new RuntimeException("네트워크 오류"));
+
+        scheduler.reverifyPendingCompanies();
+
+        verify(writer).stampAttempt(1L);
+        verify(writer).stampAttempt(2L);
+        verify(writer).stampAttempt(3L);
+    }
+
+    @Test
+    @DisplayName("#1367 P1-C 스탬프가 실패해도 회차 처리는 계속된다(스탬프는 정렬 축일 뿐 통제가 아니다)")
+    void 스탬프실패해도_회차는계속된다() {
+        Company skipped = pendingCompany(1L, "1111111111", "A");
+        Company verified = pendingCompany(2L, "2222222222", "B");
+        stubTargets(List.of(skipped, verified));
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("1111111111"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.SKIPPED);
+        when(ntsBusinessVerifyClient.verifyRealtime(eq("2222222222"), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+        org.mockito.Mockito.doThrow(new RuntimeException("DB 오류")).when(writer).stampAttempt(1L);
+
+        scheduler.reverifyPendingCompanies();
+
+        verify(writer).markVerified(2L);
     }
 
     @Test

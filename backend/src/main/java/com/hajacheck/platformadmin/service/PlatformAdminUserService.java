@@ -292,11 +292,18 @@ public class PlatformAdminUserService {
      * 가 된다({@link #requireNotLastCompanyAdmin} 이 {@code CompanyRepository#findByIdForUpdate} 를
      * 잡는다). 순환이 없는 근거는 <b>companies → users 방향으로 잠그는 경로가 레포에 없다</b>는 것이다:
      * <ul>
-     *   <li>{@code CompanyRepository#findByIdForUpdate} 의 유일한 호출부가 바로 그
-     *       {@link #requireNotLastCompanyAdmin} 이고(레포 전체 실측), 그 안에서 users 는 잠금 없는
+     *   <li>{@code CompanyRepository#findByIdForUpdate} 의 호출부는 <b>세 곳</b>이고(레포 전체 실측,
+     *       #1367 반영) <b>셋 다 companies 를 잠근 뒤 users 락을 요청하지 않는다</b>. 첫째가 바로 그
+     *       {@link #requireNotLastCompanyAdmin} 이며, 그 안에서 users 는 잠금 없는
      *       {@code countByCompanyIdAndRoleAndStatus} 평문 count 다.</li>
-     *   <li>{@code PlatformAdminCompanyService}(#1367)는 행 잠금을 전혀 쓰지 않는다 — 회사·멤버십·사용자
-     *       모두 평문 SELECT.</li>
+     *   <li>{@code PlatformAdminCompanyService}(#1367 회사 검증 무효화·복구·강제개방)는 쓰기 경로에서
+     *       {@code CompanyRepository#findByIdForUpdate} 로 <b>companies 행을 잠근다</b>. 그럼에도
+     *       {@code companies → users} 변을 만들지 않는 이유는 <b>users 락을 요청하는 경로가 아예
+     *       없기</b> 때문이다 — 멤버십·사용자는 잠금 없는 평문 count
+     *       ({@code CompanyMembershipRepository#countEffectiveApprovedMembers})로만 읽는다.</li>
+     *   <li>{@code PendingBusinessReverifyWriter}(#1367 재검증 배치)도 같은 이유로 안전하다 — 회사 1건당
+     *       짧은 트랜잭션에서 companies 행만 잠그고(관리자 무효화를 덮어쓰지 않기 위한 잠금) users 는
+     *       건드리지 않는다.</li>
      *   <li>{@code InviteCodeService#redeem} 은 users → usage_counters 라 <b>첫 락이 users 로 같아</b>
      *       이 경로와 직렬화될 뿐 순환을 만들지 않는다.</li>
      * </ul>

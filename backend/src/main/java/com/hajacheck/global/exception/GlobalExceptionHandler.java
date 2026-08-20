@@ -1,6 +1,7 @@
 package com.hajacheck.global.exception;
 
 import com.hajacheck.global.common.ApiResponse;
+import com.hajacheck.global.util.LogSanitizer;
 import jakarta.validation.ConstraintViolationException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
@@ -26,12 +27,7 @@ import org.springframework.validation.BindException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
-    /**
-     * 로그 위조 방지용(#330) — CR/LF 및 기타 ASCII 제어문자.
-     * \p{Cntrl} 는 기본 모드에서 ASCII(0x00-0x1F, 0x7F)만 잡으므로, 일부 로그 뷰어가 개행으로
-     * 렌더링하는 유니코드 줄바꿈(U+2028/U+2029/U+0085)을 함께 포함한다.
-     */
-    private static final Pattern CONTROL_CHARS = Pattern.compile("[\\p{Cntrl}\\u0085\\u2028\\u2029]");
+    // 로그 위조 방지 패턴(#330)은 LogSanitizer 로 옮겼다 — 아래 sanitizeForLog 참고.
     private static final Pattern POSTGRES_QUOTED_CONSTRAINT =
             Pattern.compile("(?i)\\bconstraint\\s+\"([^\"]+)\"");
     private static final Map<String, ErrorCode> EXPECTED_INTEGRITY_CONFLICTS = Map.of(
@@ -180,13 +176,13 @@ public class GlobalExceptionHandler {
     /**
      * 로그 위조(CWE-117) 방지 — 사용자 입력 경로는 URL 디코딩된 값이라 %0d%0a 로 CR/LF 를 실어 보낼 수 있고,
      * Logback 은 파라미터의 제어문자를 이스케이프하지 않아 가짜 로그 라인이 주입될 수 있다.
-     * 직접 단위 테스트하기 위해 package-private.
+     *
+     * <p>구현은 {@link LogSanitizer} 로 옮겼다 — 같은 방어가 필요한 다른 패키지(플랫폼 관리자 감사 로그
+     * #1367)에서 package-private 메서드를 쓸 수 없었기 때문이다. 이 메서드는 기존 호출부·단위 테스트를
+     * 유지하기 위한 얇은 위임이다(살균 규칙의 진실 소스는 유틸 한 곳뿐이어야 한다).
      */
     static String sanitizeForLog(String value) {
-        if (value == null) {
-            return null;
-        }
-        return CONTROL_CHARS.matcher(value).replaceAll("_");
+        return LogSanitizer.sanitize(value);
     }
 
     /**

@@ -150,6 +150,74 @@ class CompanyRepositoryTest extends PostgresTestSupport {
         assertThat(reverifyTargetIds()).isEmpty();
     }
 
+    // ── 대기열 라운드로빈 정렬(#1367 P1-C) ──────────────────────────────────────────────────
+
+    /**
+     * MISMATCH/SUSPENDED 를 자동 강등하지 않기로 하면서(#1367) 그 회사들이 <b>집합을 떠나지 않는 영구
+     * 거주자</b>가 됐다. 옛 정렬({@code id asc}) + {@code LIMIT n} 은 id 가 작은 앞 n 건만 반복 처리하므로,
+     * 영구 거주자가 상한을 채우면 id 가 큰 신규 가입 회사가 <b>영원히 재검증되지 않는다</b>(이 배치는
+     * FAILED 를 찍는 유일한 런타임 경로라 미등록·폐업 업체가 무경보로 방치된다).
+     */
+    @Test
+    void 시도스탬프가_오래된회사부터_먼저조회된다() {
+        // id 는 작지만 최근에 처리한 회사(= 매 회차 앞자리를 점유하던 영구 거주자).
+        Long recentlyAttempted = seedCompany(BusinessVerificationStatus.PENDING, START_DATE,
+                "{\"ntsLastAttemptAt\":\"2026-08-20T05:30:00Z\"}", false);
+        // id 는 크지만 오래 전에 처리한 회사.
+        Long staleAttempted = seedCompany(BusinessVerificationStatus.PENDING, START_DATE,
+                "{\"ntsLastAttemptAt\":\"2026-01-01T05:30:00Z\"}", false);
+        // id 가 가장 크지만 한 번도 처리되지 않은 회사(신규 가입) — 가장 먼저 나와야 한다.
+        Long neverAttempted = seedCompany(BusinessVerificationStatus.PENDING, START_DATE);
+
+        assertThat(reverifyTargetIds())
+                .containsExactly(neverAttempted, staleAttempted, recentlyAttempted);
+    }
+
+    @Test
+    void 상한이작아도_미시도회사가_밀려나지않는다() {
+        // 영구 거주자가 상한(=1)을 채우던 회귀 시나리오 — 정렬이 id asc 면 신규 가입 회사가 영영 안 잡힌다.
+        seedCompany(BusinessVerificationStatus.PENDING, START_DATE,
+                "{\"ntsLastAttemptAt\":\"2026-08-20T05:30:00Z\"}", false);
+        Long neverAttempted = seedCompany(BusinessVerificationStatus.PENDING, START_DATE);
+        em.clear();
+
+        List<Long> firstPage = companyRepository.findNtsReverifyTargets(PageRequest.of(0, 1))
+                .stream().map(Company::getId).toList();
+
+        assertThat(firstPage).containsExactly(neverAttempted);
+    }
+
+    @Test
+    void 스탬프는_대상집합을_바꾸지않는다() {
+        // ntsLastAttemptAt 은 정렬 축일 뿐이다 — where 절은 ntsOutcome 만 본다.
+        Long target = seedCompany(BusinessVerificationStatus.VERIFIED, START_DATE,
+                "{\"ntsOutcome\":\"SKIPPED\"}", false);
+        Long excluded = seedCompany(BusinessVerificationStatus.VERIFIED, START_DATE,
+                "{\"ntsOutcome\":\"VERIFIED\"}", false);
+        assertThat(reverifyTargetIds()).containsExactly(target);
+
+        companyRepository.findById(target).orElseThrow().stampNtsReverifyAttempt();
+        companyRepository.findById(excluded).orElseThrow().stampNtsReverifyAttempt();
+        em.flush();
+
+        // 스탬프 후에도 대상 집합은 그대로다(제외된 회사가 들어오지도, 대상이 빠지지도 않는다).
+        assertThat(reverifyTargetIds()).containsExactly(target);
+    }
+
+    @Test
+    void 관리자override회사는_재검증대상에_계속남는다() {
+        // #1367 P1-A — override 의 안전장치. 화이트리스트 밖 라벨이라 두 번째 갈래에 계속 잡혀,
+        // 국세청이 나중에 확정 불량을 주면 배치가 자동으로 다시 차단할 수 있다.
+        Long overridden = seedCompany(BusinessVerificationStatus.PENDING, START_DATE,
+                "{\"ntsOutcome\":\"MISMATCH_ALERTED\"}", false);
+        Company company = companyRepository.findById(overridden).orElseThrow();
+        company.overrideBusinessVerificationByAdmin("실물 확인 완료", 55L);
+        em.flush();
+
+        assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
+        assertThat(reverifyTargetIds()).contains(overridden);
+    }
+
     @Test
     void Pageable로_회차당최대처리건수를제한한다() {
         seedCompany(BusinessVerificationStatus.PENDING, START_DATE);

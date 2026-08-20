@@ -15,7 +15,9 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -45,7 +47,24 @@ import org.hibernate.type.SqlTypes;
  *   <li>{@code ntsOutcome} — 국세청 진위확인 provenance. {@link #isNtsVerified()} 의 판정 근거</li>
  *   <li>{@code ntsCheckedAt}(신규 가입) / {@code ntsBackfilledAt}(V38 소급) — 기록 시각.
  *       <b>두 키는 출처가 달라 이름이 갈린다</b>(실제 조회 시각 vs 소급 스탬프 시각)</li>
+ *   <li>{@code ntsOutcomeBeforeRevoke}/{@code ntsOutcomeBeforeOverride} · {@code adminRevokedAt}/
+ *       {@code adminRevokeReason}/{@code adminRevokedBy} · {@code adminRestoredAt}/
+ *       {@code adminRestoreReason}/{@code adminRestoredBy} · {@code adminOverriddenAt}/
+ *       {@code adminOverrideReason}/{@code adminOverriddenBy} — 플랫폼 관리자 무효화/복구/강제개방
+ *       감사(#1367). {@link #revokeBusinessVerificationByAdmin} /
+ *       {@link #restoreBusinessVerificationByAdmin} / {@link #overrideBusinessVerificationByAdmin} 참고.
+ *       actor 는 <b>id 만</b> 담는다(이메일·이름 금지)</li>
+ *   <li>{@code ntsLastAttemptAt} · {@code ntsLastAlertOutcome} · {@code ntsLastAlertAt} — 재검증 배치의
+ *       처리 시도·경보 기록(#1367). 대기열 라운드로빈 정렬 축이자 "경보만" 정책의 유일한 영속 신호다</li>
  * </ul>
+ *
+ * <p><b>⚠️ {@code ntsOutcomeBeforeRevoke} 는 감사 기록이 아니라 인가 판정 입력이다(#1367)</b> —
+ * {@link #isAdminRevokeUndoable()} 이 이 값을 읽어 {@link #restoreBusinessVerificationByAdmin} 이
+ * <b>국세청 재조회 없이 곧바로 {@code VERIFIED} 로 복원할지</b>를 결정한다(= 회사 스코프 즉시 개방).
+ * 따라서 앱 밖에서(수동 SQL · 향후 마이그레이션 · 외부 연동) 이 키에 {@code VERIFIED}/
+ * {@code LEGACY_VERIFIED} 를 심으면 <b>국세청이 확인해 준 적 없는 회사를 관리자 복구 한 번으로 열어주는
+ * 권한 상승 경로</b>가 된다. 이 키는 {@link #revokeBusinessVerificationByAdmin} 만 쓰게 두고, 다른 곳에서
+ * 값을 넣지 말 것(감사 목적이면 별도 키를 새로 만들 것).
  *
  * <p><b>⚠️ {@code ntsOutcome} 의 값 공간은 enum 이 아니다</b> — {@code valueOf()} 로 파싱하면 터진다.
  * {@code NtsVerificationOutcome} 라벨(VERIFIED/SKIPPED/MISMATCH/…)에 더해 마이그레이션이 심는
@@ -70,6 +89,104 @@ public class Company extends BaseTimeEntity {
 
     /** 국세청이 진위를 확인해 준 경우의 {@code ntsOutcome} 값({@code NtsVerificationOutcome.VERIFIED} 라벨). */
     private static final String NTS_OUTCOME_VERIFIED = "VERIFIED";
+
+    /**
+     * 플랫폼 관리자가 사람 판단으로 검증을 무효화했음을 뜻하는 {@code ntsOutcome} 값(#1367).
+     * 화이트리스트({@link #NTS_VERIFIED_OUTCOMES}) 밖이라 {@link #isNtsVerified()} 가 false 가 된다.
+     */
+    private static final String NTS_OUTCOME_ADMIN_REVOKED = "ADMIN_REVOKED";
+
+    /**
+     * 플랫폼 관리자가 무효화를 되돌려 <b>재검증 대상으로 복귀</b>시켰음을 뜻하는 {@code ntsOutcome} 값
+     * (#1367, {@link AdminRestoreMode#RESTORED_TO_PENDING} 경로 전용). 이것 역시 화이트리스트 밖이다 —
+     * 관리자는 "차단을 푼다"고 말할 수 있을 뿐 "국세청이 확인해 줬다"고 말할 수 없다. 배지는 꺼진 채
+     * 유지되고, 재검증 배치가 국세청 확인에 성공하면 {@link #markBusinessVerifiedByNts()} 가 켠다.
+     *
+     * <p>관리자 자기 조치의 순수 취소({@link AdminRestoreMode#RESTORED_TO_VERIFIED})는 이 값을 쓰지 않고
+     * <b>무효화 직전 값을 그대로 원복</b>한다 — 되무르는 것이지 새 판정을 만드는 것이 아니다.
+     */
+    private static final String NTS_OUTCOME_ADMIN_RESTORED = "ADMIN_RESTORED";
+
+    /**
+     * 관리자가 국세청 판정과 무관하게 회사 스코프를 연 상태를 뜻하는 {@code ntsOutcome} 값(#1367).
+     *
+     * <p><b>화이트리스트({@link #NTS_VERIFIED_OUTCOMES}) 밖이어야 한다 — 절대 넣지 말 것.</b> 두 성질이
+     * 동시에 필요하기 때문이다: ①{@link #isNtsVerified()} 가 false → 국세청이 확인해 준 게 아니므로
+     * "사업자 인증 완료" 배지를 켜지 않는다 ②{@code CompanyRepository#findNtsReverifyTargets} 의 두 번째
+     * 갈래(VERIFIED ∧ 화이트리스트 밖)에 <b>계속 잡힌다</b> → 국세청이 나중에 미등록·폐업을 확정하면
+     * 배치가 <b>자동으로 다시 차단</b>한다. 이 자동 재차단이 override 의 유일한 안전장치이며, 화이트리스트에
+     * 넣는 순간 사라진다.
+     */
+    private static final String NTS_OUTCOME_ADMIN_OVERRIDE = "ADMIN_OVERRIDE_VERIFIED";
+
+    /**
+     * 무효화 직전 {@code ntsOutcome} 을 보존하는 키(#1367) — 덮어쓰기로 감사 기록이 사라지지 않게 한다.
+     *
+     * <p><b>⚠️ 이 키는 단순 감사 기록이 아니라 인가 판정 입력이다</b> — 클래스 javadoc 경고 참고.
+     */
+    private static final String NTS_OUTCOME_BEFORE_REVOKE_FIELD = "ntsOutcomeBeforeRevoke";
+
+    /**
+     * 무효화 시점에 직전 {@code ntsOutcome} 을 알 수 없을 때 {@link #NTS_OUTCOME_BEFORE_REVOKE_FIELD} 에
+     * 넣는 sentinel(#1367 F-1). 화이트리스트({@link #NTS_VERIFIED_OUTCOMES}) 밖 값이다.
+     *
+     * <p><b>왜 "키를 안 쓰기"가 아니라 sentinel 인가</b>: {@link JsonValidator#mergeTextFields} 는 값이
+     * null 인 항목을 <b>무시</b>하므로, 그냥 두면 이전 사이클(revoke→restore→…)에서 남은 <b>옛
+     * {@code ntsOutcomeBeforeRevoke} 가 덮이지 않고 생존</b>한다. 그 stale 값이 그대로
+     * {@link #isAdminRevokeUndoable()} 의 판정 입력이 되어, 이번 무효화와 아무 관계 없는 옛 VERIFIED
+     * 때문에 restore 가 <b>즉시 VERIFIED 복원 + 배지 점등 + 재검증 집합 이탈</b>로 빠질 수 있다.
+     * 그래서 "모른다"는 사실도 <b>반드시 덮어써서</b> 기록한다.
+     */
+    private static final String NTS_OUTCOME_UNKNOWN = "UNKNOWN";
+
+    /**
+     * override 직전 {@code ntsOutcome} 을 보존하는 키(#1367). {@link #NTS_OUTCOME_BEFORE_REVOKE_FIELD} 와
+     * <b>같은 규칙</b>으로 다룬다 — 직전 값이 없어도 {@link #NTS_OUTCOME_UNKNOWN} 으로 <b>항상 덮어쓴다</b>.
+     * 지금 이 키를 인가 판정으로 읽는 곳은 없지만, 두 키의 처리 규칙이 갈라지면 revoke 쪽 패턴을 모방해
+     * 이 키를 인가 입력으로 승격하는 순간 stale 생존 결함이 그대로 재발한다(M-3).
+     */
+    private static final String NTS_OUTCOME_BEFORE_OVERRIDE_FIELD = "ntsOutcomeBeforeOverride";
+
+    /**
+     * 관리자 무효화 시각·사유·actor 키(#1367). actor 를 <b>DB 에도</b> 남긴다 — 로그에만 두면 prod 로그
+     * 보존 한계(이 배치의 실사고에서 이미 겪었다)로 "누가 막았는가"를 사후에 재구성할 수 없다.
+     * <b>식별자만</b> 넣는다(이메일·이름 금지).
+     */
+    private static final String ADMIN_REVOKED_AT_FIELD = "adminRevokedAt";
+    private static final String ADMIN_REVOKE_REASON_FIELD = "adminRevokeReason";
+    private static final String ADMIN_REVOKED_BY_FIELD = "adminRevokedBy";
+
+    /** 관리자 복구 시각·사유·actor 키(#1367). */
+    private static final String ADMIN_RESTORED_AT_FIELD = "adminRestoredAt";
+    private static final String ADMIN_RESTORE_REASON_FIELD = "adminRestoreReason";
+    private static final String ADMIN_RESTORED_BY_FIELD = "adminRestoredBy";
+
+    /** 관리자 override 시각·사유·actor 키(#1367). */
+    private static final String ADMIN_OVERRIDDEN_AT_FIELD = "adminOverriddenAt";
+    private static final String ADMIN_OVERRIDE_REASON_FIELD = "adminOverrideReason";
+    private static final String ADMIN_OVERRIDDEN_BY_FIELD = "adminOverriddenBy";
+
+    /**
+     * 재검증 배치가 이 회사를 <b>마지막으로 처리 시도한</b> 시각 키(#1367 P1-C, ISO-8601).
+     *
+     * <p>대기열 라운드로빈의 정렬 축이다 — {@code findNtsReverifyTargets} 가 이 값 오름차순(미시도=빈
+     * 문자열이 먼저)으로 정렬하므로, 상태가 변하지 않아 집합에 영구 거주하는 회사(MISMATCH/SUSPENDED ·
+     * 데모)가 매 회차 큐 앞자리를 고정 점유해 신규 가입 회사를 밀어내는 것을 막는다.
+     *
+     * <p>⚠️ 스탬프는 {@code ntsOutcome} 을 <b>절대</b> 건드리지 않는다 — 그 키는 대상 집합(where 절)을
+     * 결정하므로, 스탬프가 집합을 바꾸면 정렬 개선이 아니라 통제 파괴가 된다.
+     */
+    private static final String NTS_LAST_ATTEMPT_AT_FIELD = "ntsLastAttemptAt";
+
+    /**
+     * 자동 강등하지 않는 경보 판정(MISMATCH/SUSPENDED)의 마지막 값·시각 키(#1367 P2-3).
+     *
+     * <p>"경보만 남기고 상태는 두는" 정책은 사람 판단으로 통제를 옮긴 것인데, 경보가 DB 에 하나도
+     * 남지 않으면 <b>사람에게 도달하는 신호가 없다</b>(진단 API 로도 "어제 MISMATCH 를 받았다"를 알 수
+     * 없다 — {@code ntsOutcome} 은 옛 값 그대로다). 그래서 판정 자체는 이 별도 키에 기록한다.
+     */
+    private static final String NTS_LAST_ALERT_OUTCOME_FIELD = "ntsLastAlertOutcome";
+    private static final String NTS_LAST_ALERT_AT_FIELD = "ntsLastAlertAt";
 
     /**
      * "국세청 검증을 증명할 수 있다"로 인정하는 {@code ntsOutcome} 값 화이트리스트({@link #isNtsVerified}).
@@ -292,9 +409,7 @@ public class Company extends BaseTimeEntity {
      * 둘을 뒤바꾸면 자동승인 기능 자체가 되돌아간다.
      */
     public boolean isNtsVerified() {
-        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_OUTCOME_FIELD)
-                .filter(NTS_VERIFIED_OUTCOMES::contains)
-                .isPresent();
+        return ntsOutcome().filter(NTS_VERIFIED_OUTCOMES::contains).isPresent();
     }
 
     /**
@@ -362,11 +477,252 @@ public class Company extends BaseTimeEntity {
      * ({@code check_inspection_assigned_inspector_company})가 <b>둘 다</b>
      * {@code verificationStatus=VERIFIED} 를 요구하므로, FAILED 전이만으로 오너를 포함한 <b>전 구성원</b>의
      * 점검 생성·담당자 배정이 막힌다. 따라서 호출부가 {@link CompanyMembership} 을 추가로 회수할 필요는
-     * <b>없다</b> — 회수는 차단에 아무것도 더하지 않으면서 되돌릴 수 없는 상태만 만든다(근거·후속 #1367 은
+     * <b>없다</b> — 회수는 차단에 아무것도 더하지 않으면서 되돌릴 수 없는 상태만 만든다(근거는
      * {@code PendingBusinessReverifyWriter#markFailed} javadoc 참고).
+     *
+     * <p>이 배치 강등을 사람이 되돌리는 경로는 {@link #restoreBusinessVerificationByAdmin(String)} 이다
+     * (#1367). 사람 판단으로 <b>거는</b> 킬스위치는 {@link #revokeBusinessVerificationByAdmin(String)} 이며,
+     * 이 메서드와 달리 provenance 를 함께 남긴다 — 이 메서드는 배치 전용이라 provenance 를 건드리지 않고
+     * 사유는 호출부(writer)의 경고 로그가 담당한다.
      */
     public void markBusinessVerificationFailed() {
         this.verificationStatus = BusinessVerificationStatus.FAILED;
+    }
+
+    /**
+     * <b>플랫폼 관리자 킬스위치</b>(#1367) — 사람 판단으로 회사 검증을 무효화해 회사 스코프를 즉시 닫는다.
+     *
+     * <p><b>왜 필요한가</b>: #1324 자동승인은 진위확인 결과와 무관하게 회사 스코프를 연다. 사칭·오등록이
+     * 발견돼도 그것을 되돌리는 앱 경로가 {@link #markBusinessVerificationFailed()}(재검증 배치 전용)뿐이라
+     * 운영은 수동 SQL 말고는 손쓸 방법이 없었다. 이 메서드가 그 수동 SQL 을 앱 경로로 대체한다.
+     *
+     * <p><b>provenance 처리</b>(모두 {@link JsonValidator#mergeTextFields} 병합 — 통째 교체는 감사 기록
+     * 소실이다, 클래스 javadoc 경고):
+     * <ul>
+     *   <li>{@code ntsOutcome = ADMIN_REVOKED} — <b>반드시 덮는다.</b> 화이트리스트 밖 값이라
+     *       {@link #isNtsVerified()} 가 false 가 되어 "사업자 인증 완료" 배지가 함께 꺼진다. 이 키를 두면
+     *       차단된 회사에 인증 배지가 켜진 채 남는 부정합이 생긴다.</li>
+     *   <li>{@code ntsOutcomeBeforeRevoke} — 덮기 직전 값을 보존한다. 무효화가 오판이었는지 사후에
+     *       판단하려면 원래 판정이 남아 있어야 한다. <b>직전 값이 없어도 키를 생략하지 않고</b>
+     *       {@link #NTS_OUTCOME_UNKNOWN} 을 넣어 <b>항상 덮어쓴다</b> — 생략하면 이전 사이클의 stale
+     *       값이 살아남아 {@link #restoreBusinessVerificationByAdmin} 의 인가 판정을 오염시킨다(F-1).</li>
+     *   <li>{@code adminRevokedAt} · {@code adminRevokeReason} — 조치 시각과 사유.</li>
+     * </ul>
+     *
+     * <p><b>멤버십은 회수하지 않는다</b> — {@code verificationStatus ≠ VERIFIED} 한 줄로 스코프 판정
+     * ({@code CompanyMembershipRepository.existsEffectiveApprovedMembership})과 DB 트리거
+     * ({@code check_inspection_assigned_inspector_company})가 둘 다 닫히므로 회수는 차단에 아무것도 더하지
+     * 않으면서 되돌릴 수 없는 상태만 만든다({@code PendingBusinessReverifyWriter#markFailed} javadoc 의
+     * 3근거). 넣으면 {@link #restoreBusinessVerificationByAdmin(String)} 이 반쪽이 된다.
+     *
+     * <p>{@code verifiedAt} 은 건드리지 않는다({@link #markBusinessVerificationFailed()} 방침 유지).
+     *
+     * <p><b>멱등 no-op 이 아니다</b>: 이미 {@code FAILED} 면 예외를 던진다. 두 번째 호출을 조용히 통과시키면
+     * 최초 사유·{@code ntsOutcomeBeforeRevoke} 가 덮여 감사 기록이 흐려진다.
+     *
+     * @param reason       무효화 사유(감사 기록의 유일한 근거 — 호출부가 필수값으로 검증한다)
+     * @param actorUserId  조치한 플랫폼 관리자 식별자(provenance 에 <b>id 만</b> 남긴다 — 이메일·이름 금지)
+     */
+    public void revokeBusinessVerificationByAdmin(String reason, Long actorUserId) {
+        if (this.verificationStatus == BusinessVerificationStatus.FAILED) {
+            throw new DomainStateTransitionException(
+                    "검증 무효화 불가: 이미 무효화된 회사다(현재 verificationStatus=FAILED)");
+        }
+        Map<String, String> provenance = new LinkedHashMap<>();
+        provenance.put(NTS_OUTCOME_FIELD, NTS_OUTCOME_ADMIN_REVOKED);
+        // 직전 값이 없으면(키 부재·파손 JSON) null 이며, mergeTextFields 가 null 항목을 무시한다.
+        // 값이 없어도 null 로 두지 않는다 — mergeTextFields 가 null 을 무시해 옛 값이 살아남으면 그
+        // stale 값이 restore 의 즉시 VERIFIED 복원 판정 입력이 된다(F-1). 항상 덮어쓴다.
+        provenance.put(NTS_OUTCOME_BEFORE_REVOKE_FIELD, ntsOutcome().orElse(NTS_OUTCOME_UNKNOWN));
+        provenance.put(ADMIN_REVOKED_AT_FIELD, Instant.now().toString());
+        provenance.put(ADMIN_REVOKE_REASON_FIELD, reason);
+        provenance.put(ADMIN_REVOKED_BY_FIELD, actorUserId == null ? null : actorUserId.toString());
+        this.businessRegistrationOcrRaw =
+                JsonValidator.mergeTextFields(this.businessRegistrationOcrRaw, provenance);
+        this.verificationStatus = BusinessVerificationStatus.FAILED;
+    }
+
+    /**
+     * <b>플랫폼 관리자 override</b>(#1367 P1-A) — 국세청 판정과 무관하게 회사 스코프를 여는 명시적 조치다.
+     *
+     * <p><b>왜 필요한가</b>: 대표자 변경으로 {@code MISMATCH} 가 나는 회사는 국세청이 계속 MISMATCH 를
+     * 응답하고(엔티티에 대표자명 수정 경로가 없다), 새 정책상 MISMATCH 는 자동 강등도 자동 승격도 하지
+     * 않는다. 그런 회사를 {@link #restoreBusinessVerificationByAdmin} 로 PENDING 에 돌려놓으면 <b>PENDING 에
+     * 영구 고착</b>돼 스코프가 영영 열리지 않는다 — 이 PR 이 없애려던 수동 SQL 로 되돌아간다. 그 경우
+     * 사람이 실물 확인 후 여는 경로가 이 메서드다.
+     *
+     * <p><b>안전장치 = 자동 재차단</b>: {@code ntsOutcome = ADMIN_OVERRIDE_VERIFIED} 는 인정 화이트리스트
+     * <b>밖</b>이라 ①"사업자 인증 완료" 배지는 <b>꺼진 채 유지</b>되고(국세청이 확인해 준 게 아니다)
+     * ②재검증 대상에 <b>계속 남는다</b> → 국세청이 나중에 미등록·폐업을 확정하면 배치가 자동으로 다시
+     * 차단한다. {@link #NTS_OUTCOME_ADMIN_OVERRIDE} javadoc 참고.
+     *
+     * <p>⚠️ <b>안전장치가 없는 경우</b>: 개업일자가 없거나 데모 시드 회사면 재검증 대상 조회에 잡히지
+     * 않거나(개업일자) 국세청 호출 전에 스킵되므로(데모) <b>자동 재차단이 동작하지 않는다</b>. override 는
+     * 그래도 허용하되(배치에 의존하는 조치가 아니다) 호출부가 그 사실을 경고 로그로 남긴다.
+     *
+     * <p>{@code verifiedAt} 은 건드리지 않는다 — 국세청 검증 성공 시각이 아니기 때문이다.
+     *
+     * @param reason      개방 사유(감사 기록)
+     * @param actorUserId 조치한 플랫폼 관리자 식별자
+     */
+    public void overrideBusinessVerificationByAdmin(String reason, Long actorUserId) {
+        if (this.verificationStatus == BusinessVerificationStatus.VERIFIED) {
+            throw new DomainStateTransitionException(
+                    "검증 강제 개방 불가: 이미 회사 스코프가 열려 있다(현재 verificationStatus=VERIFIED)");
+        }
+        Map<String, String> provenance = new LinkedHashMap<>();
+        provenance.put(NTS_OUTCOME_FIELD, NTS_OUTCOME_ADMIN_OVERRIDE);
+        // revoke 와 동일 규칙 — 직전 값이 없어도 sentinel 로 항상 덮어쓴다(F-1 / M-3). 지금 이 키를 인가
+        // 판정으로 읽는 곳은 없지만, 두 before 키의 처리 규칙이 갈라져 있으면 누군가 revoke 패턴을
+        // 모방해 이 키를 인가 입력으로 승격하는 순간 stale 생존 결함이 그대로 재발한다.
+        provenance.put(NTS_OUTCOME_BEFORE_OVERRIDE_FIELD, ntsOutcome().orElse(NTS_OUTCOME_UNKNOWN));
+        provenance.put(ADMIN_OVERRIDDEN_AT_FIELD, Instant.now().toString());
+        provenance.put(ADMIN_OVERRIDE_REASON_FIELD, reason);
+        provenance.put(ADMIN_OVERRIDDEN_BY_FIELD, actorUserId == null ? null : actorUserId.toString());
+        this.businessRegistrationOcrRaw =
+                JsonValidator.mergeTextFields(this.businessRegistrationOcrRaw, provenance);
+        this.verificationStatus = BusinessVerificationStatus.VERIFIED;
+    }
+
+    /**
+     * <b>플랫폼 관리자 복구</b>(#1367) — 무효화(또는 배치 강등)된 회사를 되돌린다. <b>두 경로로 갈린다</b>
+     * ({@link AdminRestoreMode}):
+     *
+     * <ol>
+     *   <li><b>{@link AdminRestoreMode#RESTORED_TO_VERIFIED}</b> — 이 무효화가 <b>관리자 자신의 조치</b>
+     *       ({@code ntsOutcome = ADMIN_REVOKED})이고 그 <b>직전 상태가 국세청 인정</b>
+     *       ({@code ntsOutcomeBeforeRevoke ∈ VERIFIED/LEGACY_VERIFIED})이었다면, 그 상태로 되돌린다
+     *       ({@code ntsOutcome} 도 직전 값으로 원복). <b>국세청 판정을 덮는 게 아니라 관리자 자기 조치의
+     *       순수 취소</b>이므로 "관리자는 국세청 판정을 대신하지 않는다"는 원칙과 충돌하지 않는다.
+     *       <p>PENDING 을 거치면 다음 배치 회차(하루 1회)까지 스코프가 닫힌 채라, 오조작 revoke 한 건이
+     *       정상 회사를 최대 하루 가까이 서비스 중단시킨다 — 그것을 막는 것이 이 분기의 존재 이유다.</li>
+     *   <li><b>{@link AdminRestoreMode#RESTORED_TO_PENDING}</b> — 그 밖(배치가 강등한 FAILED,
+     *       무효화 직전이 SKIPPED·UNKNOWN_BACKFILL 이던 회사 등)은 {@code PENDING} 으로만 되돌린다.
+     *       스코프는 아직 닫힌 채이고, PENDING 은 {@code CompanyRepository#findNtsReverifyTargets} 의 첫
+     *       갈래라 <b>다음 배치가 국세청에 다시 물어 재판정</b>한다.
+     *       <p>⚠️ 이 경로는 배치에 의존하므로 호출부가 <b>"배치가 실제로 집을 수 있는 회사인가"</b>를
+     *       먼저 확인해야 한다(개업일자 존재 · 데모 시드 아님 · 반려 아님). 그러지 않으면 PENDING 에
+     *       영구 고착돼 <b>"복구했다"고 착각한 채 스코프가 영구 폐쇄</b>된다.</li>
+     * </ol>
+     *
+     * <p>{@code verifiedAt} 은 두 경로 모두 건드리지 않는다(무효화와 동일 방침).
+     *
+     * @param reason      복구 사유(감사 기록)
+     * @param actorUserId 조치한 플랫폼 관리자 식별자
+     * @return 어느 경로로 복원했는지 — 호출부가 로그·응답에 구분해 남긴다
+     */
+    public AdminRestoreMode restoreBusinessVerificationByAdmin(String reason, Long actorUserId) {
+        if (this.verificationStatus != BusinessVerificationStatus.FAILED) {
+            throw new DomainStateTransitionException(
+                    "검증 복구 불가: 무효화(FAILED) 상태의 회사만 복구할 수 있다(현재 verificationStatus=%s)"
+                            .formatted(this.verificationStatus));
+        }
+        boolean undoAdminRevoke = isAdminRevokeUndoable();
+
+        Map<String, String> provenance = new LinkedHashMap<>();
+        provenance.put(NTS_OUTCOME_FIELD, undoAdminRevoke
+                ? outcomeBeforeRevoke().orElseThrow()   // isAdminRevokeUndoable 이 존재를 이미 보장한다
+                : NTS_OUTCOME_ADMIN_RESTORED);
+        provenance.put(ADMIN_RESTORED_AT_FIELD, Instant.now().toString());
+        provenance.put(ADMIN_RESTORE_REASON_FIELD, reason);
+        provenance.put(ADMIN_RESTORED_BY_FIELD, actorUserId == null ? null : actorUserId.toString());
+        this.businessRegistrationOcrRaw =
+                JsonValidator.mergeTextFields(this.businessRegistrationOcrRaw, provenance);
+
+        this.verificationStatus = undoAdminRevoke
+                ? BusinessVerificationStatus.VERIFIED
+                : BusinessVerificationStatus.PENDING;
+        return undoAdminRevoke ? AdminRestoreMode.RESTORED_TO_VERIFIED : AdminRestoreMode.RESTORED_TO_PENDING;
+    }
+
+    /**
+     * 이 회사의 복구가 <b>관리자 자기 조치의 순수 취소</b>(→ VERIFIED 즉시 복원)에 해당하는지 —
+     * 호출부가 <b>전이 전에</b> 어느 분기가 될지 알아야 PENDING 경로 전용 가드(개업일자·데모·반려)를
+     * 적용할지 판단할 수 있어 공개한다.
+     */
+    public boolean isAdminRevokeUndoable() {
+        return this.verificationStatus == BusinessVerificationStatus.FAILED
+                && isAdminRevoked()
+                && outcomeBeforeRevoke().filter(NTS_VERIFIED_OUTCOMES::contains).isPresent();
+    }
+
+    /** 관리자 킬스위치로 무효화된 상태인가({@code FAILED} ∧ {@code ntsOutcome = ADMIN_REVOKED}). */
+    public boolean isAdminRevoked() {
+        return this.verificationStatus == BusinessVerificationStatus.FAILED
+                && ntsOutcome().filter(NTS_OUTCOME_ADMIN_REVOKED::equals).isPresent();
+    }
+
+    /** 관리자 override 로 열린 상태인가({@code ntsOutcome = ADMIN_OVERRIDE_VERIFIED}). */
+    public boolean isAdminOverridden() {
+        return ntsOutcome().filter(NTS_OUTCOME_ADMIN_OVERRIDE::equals).isPresent();
+    }
+
+    private Optional<String> outcomeBeforeRevoke() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_OUTCOME_BEFORE_REVOKE_FIELD);
+    }
+
+    /**
+     * 재검증 배치가 이 회사를 처리 시도했음을 스탬프한다(#1367 P1-C) — 대기열 라운드로빈의 정렬 축.
+     *
+     * <p>⚠️ {@code ntsOutcome} 은 <b>건드리지 않는다</b>. 그 키는 재검증 <b>대상 집합</b>(where 절)을
+     * 결정하므로, 스탬프가 그것을 바꾸면 "정렬 개선"이 아니라 자동 통제 자체를 파괴한다.
+     */
+    public void stampNtsReverifyAttempt() {
+        this.businessRegistrationOcrRaw = JsonValidator.mergeTextFields(
+                this.businessRegistrationOcrRaw,
+                Map.of(NTS_LAST_ATTEMPT_AT_FIELD, Instant.now().toString()));
+    }
+
+    /**
+     * 자동 강등하지 않는 경보 판정(MISMATCH/SUSPENDED)을 기록한다(#1367 P2-3) — 시도 스탬프도 함께 찍는다.
+     *
+     * <p>{@code ntsOutcome} 은 건드리지 않는다(위와 동일 이유 + 강등하지 않기로 한 판정을 인가 근거 키에
+     * 쓰면 안 된다). 이 값이 있어야 진단 API 가 "어제 어떤 경보를 받았는지"를 관리자에게 보여줄 수 있다.
+     *
+     * @param outcomeLabel 국세청 판정 라벨(문자열 — 값 공간이 enum 이 아니고, 엔티티가 bizverify 패키지를
+     *                     역참조하지 않기 위해 라벨로 받는다)
+     */
+    public void stampNtsReverifyAlert(String outcomeLabel) {
+        String now = Instant.now().toString();
+        Map<String, String> provenance = new LinkedHashMap<>();
+        provenance.put(NTS_LAST_ATTEMPT_AT_FIELD, now);
+        provenance.put(NTS_LAST_ALERT_OUTCOME_FIELD, outcomeLabel);
+        provenance.put(NTS_LAST_ALERT_AT_FIELD, now);
+        this.businessRegistrationOcrRaw =
+                JsonValidator.mergeTextFields(this.businessRegistrationOcrRaw, provenance);
+    }
+
+    /** 재검증 배치의 마지막 처리 시도 시각({@code ocr_raw.ntsLastAttemptAt}) — 없으면 empty. */
+    public Optional<String> ntsLastAttemptAt() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_LAST_ATTEMPT_AT_FIELD);
+    }
+
+    /** 마지막 경보 판정 라벨({@code ocr_raw.ntsLastAlertOutcome}) — 없으면 empty. */
+    public Optional<String> ntsLastAlertOutcome() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_LAST_ALERT_OUTCOME_FIELD);
+    }
+
+    /** 마지막 경보 시각({@code ocr_raw.ntsLastAlertAt}) — 없으면 empty. */
+    public Optional<String> ntsLastAlertAt() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_LAST_ALERT_AT_FIELD);
+    }
+
+    /**
+     * 국세청 진위확인 provenance 라벨({@code ocr_raw.ntsOutcome}) — 값이 없거나 JSON 이 깨졌으면 empty.
+     *
+     * <p>키 이름을 이 클래스 밖으로 흘리지 않기 위한 읽기 전용 접근자다(플랫폼 관리자 진단 응답 ·
+     * 무효화 직전 값 보존이 쓴다). ⚠️ 값 공간은 enum 이 아니다 — 클래스 javadoc 참고.
+     */
+    public Optional<String> ntsOutcome() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_OUTCOME_FIELD);
+    }
+
+    /**
+     * 실제 국세청 조회 시각({@code ocr_raw.ntsCheckedAt}) — 없으면 empty.
+     * V38 소급 스탬프({@code ntsBackfilledAt})는 출처가 달라 <b>이 키에 담기지 않는다</b>(클래스 javadoc).
+     */
+    public Optional<String> ntsCheckedAt() {
+        return JsonValidator.readTextField(this.businessRegistrationOcrRaw, NTS_CHECKED_AT_FIELD);
     }
 
     private void requirePendingReview(String action) {
