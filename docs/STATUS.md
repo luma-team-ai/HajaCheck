@@ -36,6 +36,12 @@ PRD v0.42 §7(L330·L371) "이미지 버전 = 레포 추종(단일 진실)" 원�
 
 ## 마지막 머지 PR
 
+> 🚀 **2026-08-20 dev → main 7차 승격 (PR #1735, 2커밋 / 이슈 1건, CD run 32340113807 success).** 범위: #1732(통계 리포트 PDF 정렬·한 페이지) + 6차 승격 STATUS 문서. **DB 마이그레이션·환경변수·nginx 변경 0건**(프론트 단일 파일).
+> - 배포 검증: prod 번들 `assets/StatisticsPage-2C15Pn9a.js` 실측 — `letter-spacing: normal` 픽스 포함, 구버전 페이지분할(`addPage`) 잔재 0건.
+> - 이슈 #1732 native 자동 종료 + `awaiting-promotion` 라벨 제거 완료.
+
+> ✅ **2026-08-20 dev 머지 — 통계 리포트 PDF: 한글 단위 글자 어긋남 픽스 + 항상 한 페이지 (PR #1733 / 이슈 #1732, PR머신 자동 머지 `ai:merged-by-machine`, merge `2203b533`).** 사용자 제보 PDF 실측으로 두 원인 확정: ① html2canvas-pro가 `letter-spacing` 걸린 텍스트를 글자 단위로 쪼개 그려, 숫자(라틴)+한글이 섞인 KPI 값 `4.2일`의 '일'만 baseline/크기가 어긋남(`tracking-tight` -0.025em이 트리거 — 라틴만인 `1,842`·`76%`·`38`은 정상) ② 폭 기준 스케일 + 넘치는 높이 페이지 분할이라 1512px 뷰포트 캡처(1195x1216)가 A4 가로에서 2페이지로 절단. 해결: onclone에서 **캡처 클론 head에만** `* { letter-spacing: normal !important; }` 주입(화면 스타일 불변) + 페이지 분할 제거 → `pickOrientation`으로 A4 방향 자동 선택 후 여백 10mm 안에 축소·가운데 정렬 `addImage` 1회(**항상 1페이지**). 빈 캡처 도메인 에러 가드는 유지. 검증: 넓은 창→가로 1페이지 / 1512px→세로 1페이지 실제 PDF 확인, `npm test` 2122/2122 · build PASS · lint 0 errors(메타 재실행) · G1/G6 PASS.
+
 > 🚀 **2026-08-20 dev → main 6차 승격 (PR #1731, 31커밋 / 이슈 18건, merge `5a649d60`).** 범위: #1367(킬스위치·복구 왕복) · #1492(좌석 이중 계상 방어) · #1597(RAG citation FK, V49) · #1702/#1706(회차 재정렬·보고서 스냅샷, V47/V48) · #1433 · #1729(하자 현황 탭 재배선) 외 UI·데모 품질 11건. **Flyway V47~V49 prod 최초 적용.**
 > - 검수: 승격 전 통합 검수(backend 2554/2554 · frontend 2120/2120+build · ai-server 77/77 · 시크릿 0 · 운영 config 0) → PR머신 1·2차 검증 **P1 0**(가드=destructive 마이그레이션, `ai:needs-human`) → 사람 머지. **V47 프리플라이트(운영 DB 실측)**: `reports ⋈ inspections` `round_no is null` **0건** — SET NOT NULL 안전.
 > - 머신 2차 발견 P3 1건(재검증 배치 회차 요약이 '배치 도중 소멸 회사'를 '관리자 무효화 스킵'으로 오분류 — 로그 한정, 상태 변이 0) → 실코드 검증 후 **#1724 umbrella 등재**(`Scheduler` VERIFIED 분기 false 사유 미구분).
