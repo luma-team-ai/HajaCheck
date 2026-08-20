@@ -93,13 +93,12 @@ export function FacilityDetailPage() {
         history={overview?.history ?? []}
         onEdit={handleOpenEditModal}
         onNewInspection={() => navigate(`/inspections/create?facilityId=${facilityId}`)}
-        // "하자 현황" 탭 클릭 → 대표 하자 오버레이로 드릴다운. 대표 하자가 없으면 갈 곳이 없으므로
-        // 프롭을 넘기지 않아 패널이 기존처럼 로컬 탭 전환("준비 중인 화면입니다")으로 폴백한다.
-        onDefectsTabClick={
-          facility.latestDefectId != null
-            ? () => navigate(`/facilities/${facilityId}/defects/${facility.latestDefectId}`)
-            : undefined
-        }
+        // "하자 현황" 탭 클릭 → 시설물 스코프 하자 관리 목록(/defects/list?facilityId=...)으로 이동한다
+        // (#1729). 종전엔 facility.latestDefectId(검수 때 "누락 추가"로 생성된 가장 최근 하자 1건)
+        // 단건 드릴다운이라 검수 확정 하자 전체가 아니라 최신 하자 하나만 보이는 문제가 있었다 —
+        // 사용자 결정(A안)으로 목록 화면 재배선. 대표 하자 유무와 무관하게 항상 이동하며(하자 0건이면
+        // 빈 목록), 로컬 탭 폴백("준비 중인 화면입니다")은 더 이상 쓰지 않는다.
+        onDefectsTabClick={() => navigate(`/defects/list?facilityId=${facilityId}`)}
         // "+N"(추가 사진) 클릭 → 분석 결과 뷰어(#1549, mypage/MyInspectionsTable "결과 보기"와 동일 경로).
         onViewInspectionPhotos={(inspectionId) => navigate(`/inspections/${inspectionId}/viewer`)}
         // "결과 보기"/"보고서"(#1359 후속) — 같은 시설물·같은 회차로 좁힌 하자 관리/보고서 목록으로 이동한다.

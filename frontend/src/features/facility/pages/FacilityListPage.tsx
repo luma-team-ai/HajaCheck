@@ -84,7 +84,8 @@ export function FacilityListPage() {
   };
 
   // 시설물 이름 클릭 → 시설물 상세 화면(/facilities/:id)으로 이동한다. 하자 오버레이(구 HAJA-434
-  // 갭1 직행 동작)는 상세 화면의 "하자 현황" 탭에서 대표 하자가 있을 때만 진입하도록 이동됐다.
+  // 갭1 직행 동작)는 상세 화면의 "하자 현황" 탭에서 진입하도록 이동됐다 — 이 탭은 대표 하자
+  // 오버레이 단건 드릴다운이 아니라 시설물 스코프 하자 관리 목록으로 이동한다(#1729).
   const handleSelectFacility = (id: number) => {
     navigate(`/facilities/${id}`);
   };
