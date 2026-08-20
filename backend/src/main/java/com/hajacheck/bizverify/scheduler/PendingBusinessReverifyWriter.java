@@ -38,22 +38,31 @@ public class PendingBusinessReverifyWriter {
      * 재검증 대상에서 영구 이탈하고 인증 배지까지 켜지며 다음 회차 경보도 없다.
      * <p>그래서 ①{@code findByIdForUpdate} 로 <b>잠근 뒤 최신 상태를 읽고</b> ②관리자 무효화 상태면
      * 덮지 않고 건너뛴다. <b>사람 판단이 배치 판단보다 우선한다</b>는 규칙을 코드로 고정한 것이다.
+     *
+     * <p><b>반환값이 곧 "실제로 반영했는가"</b>다 — 호출부가 이걸 보고 회차 요약의 VERIFIED 건수를 센다.
+     * 무조건 세면 <b>건너뛴 회사가 "VERIFIED n건"에 포함</b>돼, 이 배치가 내세운 "요약 로그만으로 회차를
+     * 사후 재구성한다"는 목표가 정면으로 깨진다(실제 전이가 없었는데 있었다고 보고하는 셈).
+     *
+     * @return 실제로 VERIFIED 전이를 반영했으면 true. 관리자 무효화 우선으로 건너뛰었거나 대상 회사가
+     *         소멸했으면 false
      */
     @Transactional
-    public void markVerified(Long companyId) {
-        companyRepository.findByIdForUpdate(companyId).ifPresentOrElse(
-                company -> {
-                    if (company.isAdminRevoked()) {
-                        // 스탬프는 남긴다 — 건너뛴 회사가 대기열 앞자리를 고정 점유하지 않게 한다(#1367 P1-C).
-                        company.stampNtsReverifyAttempt();
-                        log.warn("사업자 재검증 VERIFIED 반영 건너뜀 — 관리자 무효화가 우선한다"
-                                        + "(배치 판단으로 사람 조치를 덮지 않는다). companyId={}", companyId);
-                        return;
-                    }
-                    company.markBusinessVerifiedByNts();
-                    company.stampNtsReverifyAttempt();
-                },
-                () -> log.warn("사업자 재검증 VERIFIED 반영 대상 회사 소멸 — companyId={}", companyId));
+    public boolean markVerified(Long companyId) {
+        Company company = companyRepository.findByIdForUpdate(companyId).orElse(null);
+        if (company == null) {
+            log.warn("사업자 재검증 VERIFIED 반영 대상 회사 소멸 — companyId={}", companyId);
+            return false;
+        }
+        if (company.isAdminRevoked()) {
+            // 스탬프는 남긴다 — 건너뛴 회사가 대기열 앞자리를 고정 점유하지 않게 한다(#1367 P1-C).
+            company.stampNtsReverifyAttempt();
+            log.warn("사업자 재검증 VERIFIED 반영 건너뜀 — 관리자 무효화가 우선한다"
+                            + "(배치 판단으로 사람 조치를 덮지 않는다). companyId={}", companyId);
+            return false;
+        }
+        company.markBusinessVerifiedByNts();
+        company.stampNtsReverifyAttempt();
+        return true;
     }
 
     /**

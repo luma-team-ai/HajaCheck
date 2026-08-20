@@ -63,8 +63,9 @@ class PendingBusinessReverifyWriterTest {
         Company company = pendingCompany();
         stubCompany(company);
 
-        writer.markVerified(COMPANY_ID);
+        boolean applied = writer.markVerified(COMPANY_ID);
 
+        assertThat(applied).isTrue();
         assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.VERIFIED);
     }
 
@@ -140,8 +141,10 @@ class PendingBusinessReverifyWriterTest {
         company.revokeBusinessVerificationByAdmin("사칭 신고 접수", 99L);
         stubCompany(company);
 
-        writer.markVerified(COMPANY_ID);
+        boolean applied = writer.markVerified(COMPANY_ID);
 
+        // 반환값이 "실제로 반영했는가"다 — 호출부(스케줄러)가 이걸로 VERIFIED 건수를 센다(M-2).
+        assertThat(applied).isFalse();
         // 무효화가 그대로 유지된다(= 회사 스코프가 계속 닫혀 있다).
         assertThat(company.getVerificationStatus()).isEqualTo(BusinessVerificationStatus.FAILED);
         assertThat(ntsOutcomeOf(company)).isEqualTo("ADMIN_REVOKED");
@@ -196,7 +199,8 @@ class PendingBusinessReverifyWriterTest {
     void 회사소멸_예외없이무시() {
         when(companyRepository.findByIdForUpdate(999L)).thenReturn(Optional.empty());
 
-        writer.markVerified(999L);
+        // 소멸한 회사는 "반영하지 않았다"(false)로 보고해야 VERIFIED 건수가 부풀지 않는다(M-2).
+        assertThat(writer.markVerified(999L)).isFalse();
         writer.markFailed(999L, NtsVerificationOutcome.SUSPENDED);
         // 예외 없이 통과하면 성공 — 별도 assertion 불필요(방어 동작 자체가 검증 대상).
     }

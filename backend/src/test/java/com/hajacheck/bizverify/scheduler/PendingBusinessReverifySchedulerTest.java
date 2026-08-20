@@ -11,6 +11,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.hajacheck.auth.entity.Company;
 import com.hajacheck.auth.repository.CompanyRepository;
 import com.hajacheck.bizverify.config.PendingBusinessReverifyProperties;
@@ -22,6 +28,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Pageable;
 
 /**
@@ -72,6 +79,23 @@ class PendingBusinessReverifySchedulerTest {
         when(companyRepository.findNtsReverifyTargets(any(Pageable.class))).thenReturn(targets);
     }
 
+    /** 회차 요약 로그 1건을 잡아 돌려준다 — 요약이 이 배치의 유일한 사후 재구성 수단이라 내용까지 고정한다. */
+    private ILoggingEvent runAndCaptureSummary() {
+        Logger schedulerLogger = (Logger) LoggerFactory.getLogger(PendingBusinessReverifyScheduler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        schedulerLogger.addAppender(appender);
+        try {
+            scheduler.reverifyPendingCompanies();
+        } finally {
+            schedulerLogger.detachAppender(appender);
+        }
+        return appender.list.stream()
+                .filter(event -> event.getFormattedMessage().startsWith("사업자 재검증 배치 완료"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("회차 요약 로그가 없다"));
+    }
+
     @Test
     @DisplayName("enabled=false면 대상 조회·국세청 호출 없이 즉시 반환한다")
     void 킬스위치_꺼져있으면_호출없음() {
@@ -90,11 +114,53 @@ class PendingBusinessReverifySchedulerTest {
         stubTargets(List.of(company));
         when(ntsBusinessVerifyClient.verifyRealtime(anyString(), anyString(), any()))
                 .thenReturn(NtsVerificationOutcome.VERIFIED);
+        when(writer.markVerified(1L)).thenReturn(true);
 
         scheduler.reverifyPendingCompanies();
 
         verify(writer).markVerified(1L);
         verify(writer, never()).markFailed(anyLong(), any());
+    }
+
+    /**
+     * M-2 회귀 방지(#1367) — 관리자 무효화 우선 가드에 걸려 <b>반영되지 않은</b> 건이 회차 요약의 VERIFIED
+     * 카운트에 섞이면, 이 배치가 내세운 "요약 로그만으로 회차를 사후 재구성한다"는 목표가 정면으로 깨진다
+     * (실제 전이가 없었는데 있었다고 보고). 반환값 기반 카운트를 되돌리면 이 테스트가 실패한다.
+     */
+    @Test
+    @DisplayName("#1367 M-2 관리자 무효화로 건너뛴 건은 VERIFIED 카운트가 아니라 별도 카운터로 잡힌다")
+    void 관리자무효화로_건너뛴건은_VERIFIED카운트에_섞이지않는다() {
+        Company revoked = pendingCompany(1L, "1111111111", "A");
+        Company normal = pendingCompany(2L, "2222222222", "B");
+        stubTargets(List.of(revoked, normal));
+        when(ntsBusinessVerifyClient.verifyRealtime(anyString(), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+        // 1L 은 회차 시작 후 관리자가 revoke 해 writer 가 반영을 건너뛴다(P1-B 가드).
+        when(writer.markVerified(1L)).thenReturn(false);
+        when(writer.markVerified(2L)).thenReturn(true);
+
+        ILoggingEvent summary = runAndCaptureSummary();
+
+        assertThat(summary.getFormattedMessage())
+                .contains("VERIFIED 1건")
+                .contains("관리자무효화우선 스킵 1건(companyIds=[1])");
+        // 사람이 봐야 하는 사건이므로 요약 자체가 warn 으로 올라간다.
+        assertThat(summary.getLevel()).isEqualTo(Level.WARN);
+    }
+
+    @Test
+    @DisplayName("#1367 M-2 반영·경보가 전혀 없는 평온한 회차는 요약이 info 로 남는다")
+    void 평온한회차는_요약이_info다() {
+        Company company = pendingCompany(1L, "1234567890", "김민수");
+        stubTargets(List.of(company));
+        when(ntsBusinessVerifyClient.verifyRealtime(anyString(), anyString(), any()))
+                .thenReturn(NtsVerificationOutcome.VERIFIED);
+        when(writer.markVerified(1L)).thenReturn(true);
+
+        ILoggingEvent summary = runAndCaptureSummary();
+
+        assertThat(summary.getLevel()).isEqualTo(Level.INFO);
+        assertThat(summary.getFormattedMessage()).contains("관리자무효화우선 스킵 0건");
     }
 
     /**

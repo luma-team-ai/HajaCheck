@@ -409,6 +409,28 @@ class CompanyTest {
         assertThat(company.getVerifiedAt()).isNull();
     }
 
+    /**
+     * M-3 회귀 방지(#1367) — {@code ntsOutcomeBeforeOverride} 도 revoke 의 {@code ntsOutcomeBeforeRevoke}
+     * 와 <b>같은 규칙</b>(sentinel 로 항상 덮어쓰기)을 따라야 한다. 지금은 이 키를 인가 판정으로 읽는 곳이
+     * 없어 무해하지만, 두 키의 처리 규칙이 갈라져 있으면 누군가 revoke 패턴을 모방해 이 키를 인가 입력으로
+     * 승격하는 순간 F-1(stale 값 생존) 결함이 그대로 재발한다.
+     */
+    @Test
+    void override는_옛_ntsOutcomeBeforeOverride를_생존시키지않는다() {
+        // 앞선 사이클의 잔재만 남고 ntsOutcome 키는 없는 상태를 재현한다.
+        Company company = company();
+        setOcrRaw(company, "{\"ntsOutcomeBeforeOverride\":\"VERIFIED\"}");
+
+        company.overrideBusinessVerificationByAdmin("실물 확인", 55L);
+
+        assertThat(ocrField(company, "ntsOutcomeBeforeOverride")).isEqualTo("UNKNOWN");
+        // 두 before 키가 같은 규칙을 쓰는지 나란히 고정한다(비대칭이 곧 회귀 표면이다).
+        Company revoked = company();
+        setOcrRaw(revoked, "{\"ntsOutcomeBeforeRevoke\":\"VERIFIED\"}");
+        revoked.revokeBusinessVerificationByAdmin("사유", 77L);
+        assertThat(ocrField(revoked, "ntsOutcomeBeforeRevoke")).isEqualTo("UNKNOWN");
+    }
+
     @Test
     void override_이미VERIFIED면_예외() {
         Company company = companyWithOcrRaw("{\"ntsOutcome\":\"VERIFIED\"}");

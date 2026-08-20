@@ -87,7 +87,8 @@ import org.springframework.stereotype.Component;
  * (대상 N건 / VERIFIED n / FAILED n / 경보 n / 스킵 n / 오류 n)과 결과 코드, 그리고 <b>companyId 목록</b>
  * (식별자는 개인정보가 아니다)만 기록한다({@code InspectionDueNotificationScheduler} 완료 로그 형식 참고).
  *
- * <p><b>경보 축</b>(#1367): 강등·경보가 1건이라도 있으면 회차 요약을 {@code info} 가 아니라 {@code warn}
+ * <p><b>경보 축</b>(#1367): 강등·경보·<b>관리자 무효화 우선 스킵</b>이 1건이라도 있으면 회차 요약을
+ * {@code info} 가 아니라 {@code warn}
  * 으로 남기고 해당 {@code companyId} 목록을 함께 적는다. 이전에는 요약이 건수만 담은 {@code info} 라
  * <b>어떤 회사가 강등됐는지 사후에 알아낼 방법이 전혀 없었다</b>(prod 로그 보존 한계와 겹쳐 실사고
  * 원인 규명이 불가능했다).
@@ -126,6 +127,9 @@ public class PendingBusinessReverifyScheduler {
         // 강등·경보 대상은 건수뿐 아니라 companyId 까지 남긴다 — 요약 로그만으로 사후 추적이 되게 한다.
         List<Long> failedCompanyIds = new ArrayList<>();
         List<Long> alertedCompanyIds = new ArrayList<>();
+        // 국세청은 VERIFIED 를 줬지만 관리자 무효화가 우선해 반영하지 않은 건(#1367 M-2). VERIFIED 카운트에
+        // 섞으면 안 되고, "사람 조치와 배치 판단이 어긋났다"는 사건이라 별도로 보여야 한다.
+        List<Long> adminRevokeSkippedCompanyIds = new ArrayList<>();
         for (Company company : targets) {
             if (DemoCompanyProvenance.isDemoSeeded(company)) {
                 // 데모 회사는 국세청에 실재하지 않는 BRN 이라 호출하면 항상 확정 불량(FAILED)으로
@@ -144,8 +148,13 @@ public class PendingBusinessReverifyScheduler {
                         company.getBusinessStartDate());
                 switch (outcome) {
                     case VERIFIED -> {
-                        writer.markVerified(company.getId());
-                        verified++;
+                        // 반영 여부를 반환값으로 받는다 — 관리자 무효화 우선 가드에 걸려 건너뛴 건을
+                        // VERIFIED 로 세면 회차 요약이 "있지도 않은 전이"를 보고하게 된다(#1367 M-2).
+                        if (writer.markVerified(company.getId())) {
+                            verified++;
+                        } else {
+                            adminRevokeSkippedCompanyIds.add(company.getId());
+                        }
                     }
                     case NOT_REGISTERED, CLOSED -> {
                         // 확정 불량(실재하지 않음·폐업)만 자동 강등한다(#1367 정책 분리).
@@ -185,12 +194,15 @@ public class PendingBusinessReverifyScheduler {
         // 강등·경보가 있으면 warn 으로 올리고 companyId 목록을 함께 남긴다(#1367) — 건수만 남은 info
         // 로그로는 "어떤 회사가 왜 막혔는지"를 사후에 재구성할 수 없다.
         String summary = "사업자 재검증 배치 완료 — 대상 {}건, VERIFIED {}건, FAILED {}건(companyIds={}), "
-                + "경보 {}건(companyIds={}), 스킵 {}건, 데모스킵 {}건, 오류 {}건";
+                + "경보 {}건(companyIds={}), 관리자무효화우선 스킵 {}건(companyIds={}), "
+                + "스킵 {}건, 데모스킵 {}건, 오류 {}건";
         Object[] args = {targets.size(), verified,
                 failedCompanyIds.size(), failedCompanyIds,
                 alertedCompanyIds.size(), alertedCompanyIds,
+                adminRevokeSkippedCompanyIds.size(), adminRevokeSkippedCompanyIds,
                 skipped, demoSkipped, errored};
-        if (!failedCompanyIds.isEmpty() || !alertedCompanyIds.isEmpty()) {
+        if (!failedCompanyIds.isEmpty() || !alertedCompanyIds.isEmpty()
+                || !adminRevokeSkippedCompanyIds.isEmpty()) {
             log.warn(summary, args);
         } else {
             log.info(summary, args);

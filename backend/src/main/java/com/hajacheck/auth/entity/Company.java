@@ -139,7 +139,12 @@ public class Company extends BaseTimeEntity {
      */
     private static final String NTS_OUTCOME_UNKNOWN = "UNKNOWN";
 
-    /** override 직전 {@code ntsOutcome} 을 보존하는 키(#1367). */
+    /**
+     * override 직전 {@code ntsOutcome} 을 보존하는 키(#1367). {@link #NTS_OUTCOME_BEFORE_REVOKE_FIELD} 와
+     * <b>같은 규칙</b>으로 다룬다 — 직전 값이 없어도 {@link #NTS_OUTCOME_UNKNOWN} 으로 <b>항상 덮어쓴다</b>.
+     * 지금 이 키를 인가 판정으로 읽는 곳은 없지만, 두 키의 처리 규칙이 갈라지면 revoke 쪽 패턴을 모방해
+     * 이 키를 인가 입력으로 승격하는 순간 stale 생존 결함이 그대로 재발한다(M-3).
+     */
     private static final String NTS_OUTCOME_BEFORE_OVERRIDE_FIELD = "ntsOutcomeBeforeOverride";
 
     /**
@@ -567,7 +572,10 @@ public class Company extends BaseTimeEntity {
         }
         Map<String, String> provenance = new LinkedHashMap<>();
         provenance.put(NTS_OUTCOME_FIELD, NTS_OUTCOME_ADMIN_OVERRIDE);
-        provenance.put(NTS_OUTCOME_BEFORE_OVERRIDE_FIELD, ntsOutcome().orElse(null));
+        // revoke 와 동일 규칙 — 직전 값이 없어도 sentinel 로 항상 덮어쓴다(F-1 / M-3). 지금 이 키를 인가
+        // 판정으로 읽는 곳은 없지만, 두 before 키의 처리 규칙이 갈라져 있으면 누군가 revoke 패턴을
+        // 모방해 이 키를 인가 입력으로 승격하는 순간 stale 생존 결함이 그대로 재발한다.
+        provenance.put(NTS_OUTCOME_BEFORE_OVERRIDE_FIELD, ntsOutcome().orElse(NTS_OUTCOME_UNKNOWN));
         provenance.put(ADMIN_OVERRIDDEN_AT_FIELD, Instant.now().toString());
         provenance.put(ADMIN_OVERRIDE_REASON_FIELD, reason);
         provenance.put(ADMIN_OVERRIDDEN_BY_FIELD, actorUserId == null ? null : actorUserId.toString());
