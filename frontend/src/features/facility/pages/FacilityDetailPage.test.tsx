@@ -78,16 +78,31 @@ describe('FacilityDetailPage (통합 테스트)', () => {
     expect(screen.queryByRole('button', { name: '문서' })).toBeNull();
   });
 
-  it('대표 하자가 없으면 "하자 현황" 탭 클릭 시 로컬 탭 전환(준비 중 안내)만 된다', async () => {
-    renderPage();
+  // #1729 — 종전엔 facility.latestDefectId(검수 때 "누락 추가"로 생성된 최신 하자 1건) 단건
+  // 드릴다운(/facilities/{id}/defects/{defectId})이라 검수 확정 하자 전체가 아니라 최신 하자
+  // 하나만 보였다. 사용자 결정(A안)으로 시설물 스코프 하자 관리 목록(/defects/list?facilityId=...)
+  // 재배선 — 대표 하자 유무와 무관하게 항상 같은 목록으로 이동한다(로컬 탭 "준비 중" 폴백 폐기).
+  it('대표 하자가 없어도 "하자 현황" 탭 클릭 시 시설물 스코프 하자 관리 목록으로 이동한다(#1729)', async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/facilities/1']}>
+          <Routes>
+            <Route path="/facilities/:id" element={<FacilityDetailPage />} />
+            <Route path="/defects/list" element={<div>하자 관리 목록</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
     await screen.findByRole('heading', { name: '강남 오피스타워 A동' });
+    expect(mockFacilities[0].latestDefectId).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: '하자 현황' }));
 
-    expect(screen.getByText('준비 중인 화면입니다.')).not.toBeNull();
+    expect(await screen.findByText('하자 관리 목록')).not.toBeNull();
   });
 
-  it('대표 하자가 있으면 "하자 현황" 탭 클릭 시 하자 상세 오버레이로 이동한다', async () => {
+  it('대표 하자가 있어도 "하자 현황" 탭 클릭 시 동일하게 시설물 스코프 하자 관리 목록으로 이동한다(#1729)', async () => {
     const facilityWithDefect: Facility = { ...mockFacilities[0], latestDefectId: 42 };
     server.use(
       http.get('/api/facilities/:id', () => {
@@ -102,7 +117,7 @@ describe('FacilityDetailPage (통합 테스트)', () => {
         <MemoryRouter initialEntries={['/facilities/1']}>
           <Routes>
             <Route path="/facilities/:id" element={<FacilityDetailPage />} />
-            <Route path="/facilities/:id/defects/:defectId" element={<div>하자 상세 오버레이</div>} />
+            <Route path="/defects/list" element={<div>하자 관리 목록</div>} />
           </Routes>
         </MemoryRouter>
       </QueryClientProvider>,
@@ -111,7 +126,7 @@ describe('FacilityDetailPage (통합 테스트)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '하자 현황' }));
 
-    expect(await screen.findByText('하자 상세 오버레이')).not.toBeNull();
+    expect(await screen.findByText('하자 관리 목록')).not.toBeNull();
   });
 
   it('"결과 보기" 클릭 시 같은 시설물·같은 회차로 좁힌 하자 관리 목록으로 이동한다(#1359 후속)', async () => {
