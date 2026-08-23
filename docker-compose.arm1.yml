@@ -280,14 +280,10 @@ services:
       # ⚠️ 이 조인이 없으면 컨테이너 recreate 마다 hajacheck.luma200ok.com 이 502 가 된다(#1737).
       #    수동 `docker network connect` 는 recreate 시 사라지므로 정의에 있어야 한다.
       # 서비스 키(hajacheck-frontend)가 그대로 별칭으로 게시되므로 별도 지정이 필요 없다.
-      # 아래는 **터널 호환 별칭**이다 — 터널 인그레스가 아직 프로젝트명 파생 컨테이너명
-      # `hajacheck-home-frontend-1` 을 가리키는데, 서비스 키를 바꾸면 그 컨테이너명도
-      # `hajacheck-home-hajacheck-frontend-1` 로 바뀌어 대시보드를 손대기 전까지 502 가 난다.
-      # 인그레스를 http://hajacheck-frontend:80 으로 옮긴 뒤 이 줄을 지운다
-      # (luma200ok/home-infra#17).
+      # 터널 인그레스도 http://hajacheck-frontend:80 을 가리킨다(2026-08-23 전환 완료).
+      # ⚠️ 여기에 `frontend` 같은 일반명을 다시 게시하지 말 것 — 같은 공유망의 smartfarm nginx 가
+      #    `frontend` 를 요청마다 재조회해 하자첵으로 붙는 사고가 있었다(#1739).
       shared-net:
-        aliases:
-          - hajacheck-home-frontend-1
     # 메모리 상한(luma200ok/home-infra#9) — 실측 5MiB. 정적 자산 서빙
     # OOM killer 는 원인 제공자가 아니라 점수가 가장 높은 프로세스를 죽이므로,
     # 상한이 없으면 이 컨테이너의 폭주가 무관한 서비스를 죽인다.
