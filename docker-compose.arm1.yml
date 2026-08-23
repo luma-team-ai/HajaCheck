@@ -71,6 +71,16 @@ services:
         limits:
           memory: 1G
 
+    # 디스크 상한(luma200ok/home-infra#16) — 호스트에 /etc/docker/daemon.json 이 없어
+    # json-file 이 **무제한**으로 쌓이는 상태다(2026-08-23 실측, 이 스택 5개 컨테이너 전부).
+    # restart: unless-stopped 와 겹치면 크래시 루프가 루트 파티션을 채우고, 그때는 메모리
+    # 상한과 똑같이 무관한 스택까지 동반 장애가 난다.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   redis:
     image: redis:7
     restart: unless-stopped
@@ -97,6 +107,13 @@ services:
       resources:
         limits:
           memory: 512M
+
+    # 디스크 상한(luma200ok/home-infra#16) — 근거는 postgres 서비스 주석 참고.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   spring:
     build:
@@ -182,6 +199,13 @@ services:
         limits:
           memory: 3G
 
+    # 디스크 상한(luma200ok/home-infra#16) — 근거는 postgres 서비스 주석 참고.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   fastapi:
     build:
       context: ./ai-server
@@ -237,6 +261,13 @@ services:
         limits:
           memory: 4G
 
+    # 디스크 상한(luma200ok/home-infra#16) — 근거는 postgres 서비스 주석 참고.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ⚠️ 서비스 키가 `frontend` 가 아니라 `hajacheck-frontend` 인 이유 (#1739)
   #    compose 는 서비스가 조인하는 **모든** 네트워크에 서비스 키를 별칭으로 게시한다.
   #    `frontend` 로 두면 공유망 shared-net 에 그 일반명이 뜨고, 같은 망에 있는 smartfarm 의
@@ -291,3 +322,10 @@ services:
       resources:
         limits:
           memory: 256M
+
+    # 디스크 상한(luma200ok/home-infra#16) — 근거는 postgres 서비스 주석 참고.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
