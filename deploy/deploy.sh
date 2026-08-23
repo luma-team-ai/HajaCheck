@@ -34,7 +34,7 @@ export IMAGE_TAG
 
 if [ "$DEPLOY_TARGET" = "arm1" ]; then
   COMPOSE=(docker compose -f docker-compose.arm1.yml)
-  SERVICES=(spring fastapi frontend)
+  SERVICES=(spring fastapi hajacheck-frontend)
 else
   COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.prod.yml)
   SERVICES=(postgres redis spring fastapi nginx)
