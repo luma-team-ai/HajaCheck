@@ -15,11 +15,20 @@
 # 사용: docker compose -f docker-compose.arm1.yml build && docker compose -f docker-compose.arm1.yml up -d
 # 절대 금지: 80/443 바인딩(TLS는 host nginx 담당), 공유 host postgres(5432) 참조.
 
-name: hajacheck-arm1
+# 프로젝트명 고정 — 홈서버(hmoeserver)에서 실제로 떠 있는 스택의 이름이다(컨테이너 hajacheck-home-*,
+# 볼륨 hajacheck-home_pgdata 등). 이전 값 `hajacheck-arm1` 은 실행 중 스택과 달라서, `-p` 없이 도는
+# deploy/deploy.sh 가 같은 호스트에 **빈 볼륨의 두 번째 스택**을 띄우고 8100/5433/6380 을 두고 충돌하는
+# 상태였다(#1737). oci-arm1 은 2026-08-21 전 서비스 이전으로 정지 — 이 파일의 유일한 실행 호스트는 홈서버다.
+name: hajacheck-home
 
 networks:
   hajacheck-net:
     driver: bridge
+  # Cloudflare Tunnel 공개 경로(홈서버) — 터널 컨테이너가 이 네트워크로만 각 스택에 도달한다(#1737).
+  # 호스트에 이미 존재하는 외부 네트워크라 이 compose 가 만들지 않는다(`docker network create shared-net`).
+  # oci-arm1 등 shared-net 이 없는 호스트에서는 이 파일이 기동되지 않는다 — 홈서버 전용 정의다.
+  shared-net:
+    external: true
 
 volumes:
   pgdata:
@@ -259,7 +268,16 @@ services:
       timeout: 5s
       retries: 6
       start_period: 10s
-    networks: [hajacheck-net]
+    networks:
+      hajacheck-net:
+      # 터널이 도달하는 유일한 진입점이라 frontend 만 조인한다(spring·fastapi·postgres·redis 는 내부 전용).
+      # ⚠️ 이 조인이 없으면 컨테이너 recreate 마다 hajacheck.luma200ok.com 이 502 가 된다(#1737).
+      #    수동 `docker network connect` 는 recreate 시 사라지므로 정의에 있어야 한다.
+      # 별칭은 프로젝트명에 종속되지 않는 고정 이름 — 컨테이너명(hajacheck-home-frontend-1)은
+      # `-p` 로 주는 프로젝트명이 바뀌면 함께 바뀌므로 터널 인그레스의 대상으로 삼기에 불안정하다.
+      shared-net:
+        aliases:
+          - hajacheck-frontend
     # 메모리 상한(luma200ok/home-infra#9) — 실측 5MiB. 정적 자산 서빙
     # OOM killer 는 원인 제공자가 아니라 점수가 가장 높은 프로세스를 죽이므로,
     # 상한이 없으면 이 컨테이너의 폭주가 무관한 서비스를 죽인다.

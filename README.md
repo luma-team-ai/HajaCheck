@@ -158,6 +158,7 @@ cd frontend && npm install && npm run dev
 ```
 
 > ⚠️ `docker-compose.arm1.yml`은 **운영 서버(공유 호스트) 전용** — 로컬에서 실행 금지.
+> 이 파일은 외부 네트워크 `shared-net`(Cloudflare Tunnel 공개 경로)을 전제한다 — 없는 호스트에서는 기동되지 않는다(#1737).
 > ⚠️ `docker compose up`(오버레이 미지정)은 **빈 로컬 postgres**에 붙어 스키마가 없어 실패한다 — 반드시 ①처럼 `-f docker-compose.oci-db.yml`을 포함할 것.
 
 </details>
