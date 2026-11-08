@@ -113,6 +113,7 @@ services:
     environment:
       REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD가 .env에 설정되어야 합니다}@redis:6379/0
       LLM_MODEL: ${LLM_MODEL:-meta-llama/Llama-3.1-8B-Instruct}
+      LLM_JSON_MODE: ${LLM_JSON_MODE:-1}
       HF_API_TOKEN: ${HF_API_TOKEN:-}
       # 모델 가중치 revision 고정(#1645) — 미설정 시 코드 기본값(main HEAD 폴백)과 동일하게 동작.
       YOLO_REVISION: ${YOLO_REVISION:-}
