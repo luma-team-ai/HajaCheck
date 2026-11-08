@@ -46,6 +46,12 @@ def _bad_request():
     return BadRequestError("400 bad request", response=MagicMock(status_code=400))
 
 
+def _http_error(status):
+    from huggingface_hub.errors import HfHubHTTPError
+
+    return HfHubHTTPError(f"{status} error", response=MagicMock(status_code=status))
+
+
 @pytest.fixture(autouse=True)
 def _reset_json_mode(monkeypatch):
     monkeypatch.setattr(lc, "_json_mode_rejected", False)
@@ -141,3 +147,56 @@ def test_cache_hit_path_applies_extraction(mock_redis_factory):
     fake.setex(llm._cache_key(full_prompt), 100, '```json\n{"field1": "cached"}\n```')
     assert llm.invoke("q").field1 == "cached"
     chat.invoke.assert_not_called()
+
+
+def test_fallback_failure_keeps_flag_false_and_propagates_to_retry():
+    chat = MagicMock()
+    chat.invoke.side_effect = [_bad_request(), _bad_request(), _resp('{"field1": "ok"}')]
+    assert _llm(chat).invoke("q").field1 == "ok"
+    # 1차 attempt: JSON 모드 400 + fallback 400 -> 플래그 미설정, 2차 attempt는 다시 JSON 모드 시도
+    assert chat.invoke.call_args_list[2].kwargs == {"response_format": {"type": "json_object"}}
+    assert lc._json_mode_rejected is False
+
+
+def test_fallback_failure_flag_stays_false_when_all_fail():
+    chat = MagicMock()
+    chat.invoke.side_effect = _bad_request()
+    with pytest.raises(Exception):
+        _llm(chat).invoke("q")
+    assert lc._json_mode_rejected is False
+
+
+@pytest.mark.parametrize("status", [400, 422])
+def test_hf_http_error_rejection_statuses_disable_json_mode(status):
+    chat = MagicMock()
+    chat.invoke.side_effect = [_http_error(status), _resp('{"field1": "ok"}')]
+    assert _llm(chat).invoke("q").field1 == "ok"
+    assert lc._json_mode_rejected is True
+
+
+def test_hf_http_error_503_does_not_disable_json_mode():
+    chat = MagicMock()
+    chat.invoke.side_effect = [_http_error(503), _resp('{"field1": "ok"}')]
+    assert _llm(chat).invoke("q").field1 == "ok"
+    assert lc._json_mode_rejected is False
+    assert chat.invoke.call_args_list[1].kwargs == {"response_format": {"type": "json_object"}}
+
+
+def test_extract_json_skips_fake_braces_in_preamble():
+    text = '응답 형식은 {answer, grounded} 입니다.\n{"answer":"x","grounded":true}'
+    assert _extract_json(text) == '{"answer":"x","grounded":true}'
+
+
+def test_hf_chat_model_passes_response_format_to_chat_completion():
+    from types import SimpleNamespace
+
+    from ai.core.hf_chat_model import HFInferenceChatModel
+
+    resp = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content='{"a": 1}'))],
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+    model = HFInferenceChatModel(model="m", hf_api_token="dummy", max_tokens=10)
+    with patch("huggingface_hub.InferenceClient.chat_completion", return_value=resp) as cc:
+        model.invoke("hi", **lc._JSON_MODE_KWARGS)
+    assert cc.call_args.kwargs["response_format"] == {"type": "json_object"}

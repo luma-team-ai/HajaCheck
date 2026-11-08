@@ -51,53 +51,15 @@ def _is_bad_request(error: Exception) -> bool:
     if isinstance(error, BadRequestError):
         return True
     if isinstance(error, HfHubHTTPError):
-        return getattr(getattr(error, "response", None), "status_code", None) == 400
+        return getattr(getattr(error, "response", None), "status_code", None) in (400, 422)
     return False
 
 
-def _strip_code_fence(text: str) -> str:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        first_nl = stripped.find("\n")
-        if first_nl != -1:
-            body = stripped[first_nl + 1:]
-            end = body.rfind("```")
-            return (body[:end] if end != -1 else body).strip()
-    return text
-
-
-def _extract_balanced_object(text: str) -> str | None:
-    """첫 `{`부터 문자열 리터럴을 고려한 중괄호 균형이 맞는 `}`까지 잘라낸다."""
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    in_str = False
-    escaped = False
-    for i in range(start, len(text)):
-        ch = text[i]
-        if in_str:
-            if escaped:
-                escaped = False
-            elif ch == "\\":
-                escaped = True
-            elif ch == '"':
-                in_str = False
-            continue
-        if ch == '"':
-            in_str = True
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start:i + 1]
-    return None
-
-
 def _extract_json(text: str) -> str:
-    """LLM 응답에서 JSON 본문만 관대하게 추출한다(코드펜스·앞뒤 설명문 제거).
-    순수 JSON이면 원문 그대로, 추출 실패 시에도 원문을 돌려줘 기존 parser 예외 흐름을 유지한다."""
+    """LLM 응답에서 JSON 객체 본문만 관대하게 추출한다(코드펜스·앞뒤 설명문 제거).
+    순수 JSON이면 원문 그대로. 모든 `{` 위치에서 raw_decode를 시도해 처음 dict로 디코드되는
+    블록을 반환(앞 설명문의 가짜 중괄호 `{answer}` 등은 건너뜀). 실패 시 원문을 돌려줘 기존
+    parser 예외 흐름을 유지한다."""
     if not isinstance(text, str):
         return text
     try:
@@ -105,19 +67,16 @@ def _extract_json(text: str) -> str:
         return text
     except ValueError:
         pass
-    unfenced = _strip_code_fence(text)
-    try:
-        json.loads(unfenced.strip())
-        return unfenced.strip()
-    except ValueError:
-        pass
-    extracted = _extract_balanced_object(unfenced)
-    if extracted is not None:
+    decoder = json.JSONDecoder()
+    idx = text.find("{")
+    while idx != -1:
         try:
-            json.loads(extracted)
-            return extracted
+            obj, end = decoder.raw_decode(text, idx)
+            if isinstance(obj, dict):
+                return text[idx:end]
         except ValueError:
             pass
+        idx = text.find("{", idx + 1)
     return text
 
 
@@ -306,9 +265,11 @@ class _StructuredLLM:
         except Exception as e:  # noqa: BLE001
             if not _is_bad_request(e):
                 raise
+            logger.warning("LLM 업체가 response_format(json_object)을 거부 — 옵션 없이 재호출 (%s)", type(e).__name__)
+            response = self._chat.invoke(full_prompt)  # 실패 시 예외 전파 → 플래그 미설정, 기존 재시도 흐름
+            # bool 단일 대입은 원자적 — 동시 요청이 겹쳐도 최악이 중복 경고 정도(락 불필요)
             _json_mode_rejected = True
-            logger.warning("LLM 업체가 response_format(json_object)을 거부 — JSON 모드 비활성화 후 재호출 (%s)", type(e).__name__)
-            return self._chat.invoke(full_prompt)
+            return response
 
     @staticmethod
     def _get_cached(cache_key: str) -> str | None:
