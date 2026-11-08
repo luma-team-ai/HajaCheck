@@ -34,7 +34,7 @@ def test_get_llm_hf_provider(mock_chat_model_cls):
     assert isinstance(llm, CachedLLM)
     mock_chat_model_cls.assert_called_once()
     call_args = mock_chat_model_cls.call_args
-    assert call_args.kwargs["model"] == "Qwen/Qwen3-8B"
+    assert call_args.kwargs["model"] == "meta-llama/Llama-3.1-8B-Instruct"
     assert call_args.kwargs["hf_api_token"] == _FAKE
     assert call_args.kwargs["temperature"] == 0.7
     assert call_args.kwargs["timeout"] == 120  # HF_TIMEOUT 기본(#448 P2: max_tokens와 함께 상향)
@@ -117,13 +117,13 @@ def test_cache_namespace_differs_by_model_and_temperature(mock_chat_model_cls):
     # 기본 모델·온도로 캐시 네임스페이스 생성
     llm_default = get_llm(temperature=0.1, cache=True)
     default_namespace = llm_default._cache_namespace
-    # 형식: "hf:Qwen/Qwen3-8B:0.1"
-    assert default_namespace == "hf:Qwen/Qwen3-8B:0.1"
+    # 형식: "hf:meta-llama/Llama-3.1-8B-Instruct:0.1"
+    assert default_namespace == "hf:meta-llama/Llama-3.1-8B-Instruct:0.1"
 
     # 온도가 다르면 네임스페이스도 달라야 함
     llm_diff_temp = get_llm(temperature=0.7, cache=True)
     diff_temp_namespace = llm_diff_temp._cache_namespace
-    assert diff_temp_namespace == "hf:Qwen/Qwen3-8B:0.7"
+    assert diff_temp_namespace == "hf:meta-llama/Llama-3.1-8B-Instruct:0.7"
     assert default_namespace != diff_temp_namespace
 
     # 모델명이 다르면 네임스페이스도 달라야 함

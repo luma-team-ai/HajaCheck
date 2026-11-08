@@ -102,7 +102,7 @@ LLM(LangChain + RAG)이 점검 보고서 초안과 법규 질의응답까지 지
 |------|----------|
 | **백엔드** | Java 17 · Spring Boot 3.3.5 (Security · Data JPA · WebSocket) · QueryDSL · Flyway |
 | **AI 서버** | Python 3.11 · FastAPI · LangChain/LangGraph 0.3/0.6 · PyTorch(CPU) · segmentation-models-pytorch · ultralytics |
-| **AI 모델** | 생성 Qwen3-8B(HF Serverless) · 임베딩 BAAI/bge-m3 · 비전 U-Net(resnet34)+YOLOv8n-seg · OCR RapidOCR PP-OCRv5 |
+| **AI 모델** | 생성 Llama-3.1-8B-Instruct(HF Inference Providers · novita, JSON 모드) · 임베딩 BAAI/bge-m3 · 비전 U-Net(resnet34)+YOLOv8n-seg · OCR RapidOCR PP-OCRv5 |
 | **데이터** | PostgreSQL 16 · Redis 7 · Chroma(임베디드 벡터 DB) |
 | **프론트** | React 18.3 · Vite 6 · TypeScript 5.7 · Tailwind 4 · TanStack Query · MSW |
 | **관측** | MLflow(비전 실험 추적) · LangSmith(LLM 체인 트레이스 — OCR 등 개인정보 경로는 전송 차단) |
