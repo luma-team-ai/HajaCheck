@@ -2,9 +2,10 @@
 
 모델명·엔드포인트·타임아웃·재시도·토큰 사용량 로깅을 한 곳에서 관리.
 체인에서는 get_llm()만 호출한다. LLM 클라이언트 직접 생성 금지.
-HF Serverless Inference API(Qwen3-8B) 전용.
+HF Inference Providers(기본 Llama-3.1-8B-Instruct) 전용.
 """
 import hashlib
+import json
 import logging
 import os
 from datetime import date
@@ -15,9 +16,14 @@ from langchain_core.output_parsers import PydanticOutputParser
 
 from ai.core.hf_chat_model import HFInferenceChatModel
 
+try:
+    from huggingface_hub.errors import BadRequestError, HfHubHTTPError
+except ImportError:  # pragma: no cover — 구버전 huggingface_hub 대비
+    from huggingface_hub.utils import BadRequestError, HfHubHTTPError
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen3-8B")
+DEFAULT_MODEL = os.getenv("LLM_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
 MAX_RETRIES = 2
 CACHE_TTL_SECONDS = 60 * 60 * 24  # 1일 — 개발 중 반복 질의 크레딧 절약용
 # 개인정보/회사정보성 프롬프트(구조화 출력)의 캐시 잔존 기간을 줄이기 위한 공용 짧은 TTL(#623 P2 픽스).
@@ -25,6 +31,94 @@ CACHE_TTL_SECONDS = 60 * 60 * 24  # 1일 — 개발 중 반복 질의 크레딧 
 # `with_structured_output(schema, ttl=SHORT_CACHE_TTL_SECONDS)` 호출부가 함께 사용한다 — 기본
 # CACHE_TTL_SECONDS(24h)보다 짧게 둬 공유 Redis(OCI dev/arm1 prod) 잔존 기간을 줄인다.
 SHORT_CACHE_TTL_SECONDS = 60 * 60  # 1시간
+
+
+# --- JSON 모드(#1745) ---------------------------------------------------------------
+# Llama 등 non-reasoning 모델은 스키마 지시만으로는 평문으로 답하는 경우가 있어 업체의
+# response_format={"type":"json_object"}를 함께 보낸다. 업체가 거부(HTTP 400)하면 그 프로세스에선
+# 이후 끈다(모듈 수준 플래그). LLM_JSON_MODE=0/false/off로 수동 비활성화.
+_json_mode_rejected = False
+_JSON_MODE_KWARGS = {"response_format": {"type": "json_object"}}
+
+
+def _json_mode_enabled() -> bool:
+    if _json_mode_rejected:
+        return False
+    return os.getenv("LLM_JSON_MODE", "1").strip().lower() not in ("0", "false", "off")
+
+
+def _is_bad_request(error: Exception) -> bool:
+    if isinstance(error, BadRequestError):
+        return True
+    if isinstance(error, HfHubHTTPError):
+        return getattr(getattr(error, "response", None), "status_code", None) == 400
+    return False
+
+
+def _strip_code_fence(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        first_nl = stripped.find("\n")
+        if first_nl != -1:
+            body = stripped[first_nl + 1:]
+            end = body.rfind("```")
+            return (body[:end] if end != -1 else body).strip()
+    return text
+
+
+def _extract_balanced_object(text: str) -> str | None:
+    """첫 `{`부터 문자열 리터럴을 고려한 중괄호 균형이 맞는 `}`까지 잘라낸다."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _extract_json(text: str) -> str:
+    """LLM 응답에서 JSON 본문만 관대하게 추출한다(코드펜스·앞뒤 설명문 제거).
+    순수 JSON이면 원문 그대로, 추출 실패 시에도 원문을 돌려줘 기존 parser 예외 흐름을 유지한다."""
+    if not isinstance(text, str):
+        return text
+    try:
+        json.loads(text.strip())
+        return text
+    except ValueError:
+        pass
+    unfenced = _strip_code_fence(text)
+    try:
+        json.loads(unfenced.strip())
+        return unfenced.strip()
+    except ValueError:
+        pass
+    extracted = _extract_balanced_object(unfenced)
+    if extracted is not None:
+        try:
+            json.loads(extracted)
+            return extracted
+        except ValueError:
+            pass
+    return text
 
 
 @lru_cache
@@ -168,7 +262,7 @@ class _StructuredLLM:
                 cached = None  # 캐시 조회 실패는 미스로 취급 — 응답 자체를 막지 않음
             if cached is not None:
                 try:
-                    return self._parser.parse(cached)
+                    return self._parser.parse(_extract_json(cached))
                 except Exception:  # noqa: BLE001 — stale 캐시(스키마 변경 등)로 파싱 실패 시
                     # 캐시 미스와 동일하게 아래 재호출 경로로 폴백한다(#623 P2 픽스 — 스키마
                     # 변경 배포 후 옛 스키마로 저장된 캐시값이 500 크래시를 내던 문제).
@@ -183,8 +277,8 @@ class _StructuredLLM:
             try:
                 # invoke를 try 안에 둬 LLM 호출 실패(빈 응답 RuntimeError·타임아웃 등)도 파싱 실패와
                 # 동일하게 재시도 대상에 포함(#448 P2: 일시적 truncation을 구조화 출력 경로에서도 흡수).
-                response = self._chat.invoke(full_prompt)
-                parsed = self._parser.parse(response.content)
+                response = self._invoke_chat(full_prompt)
+                parsed = self._parser.parse(_extract_json(response.content))
             except Exception as e:  # noqa: BLE001 — LLM 호출·파싱 실패 모두 재시도
                 last_error = e
                 _log_retry_failure("구조화", attempt, e)
@@ -200,6 +294,21 @@ class _StructuredLLM:
                     pass  # 캐시 저장 실패가 응답을 막으면 안 됨
             return parsed
         raise last_error
+
+    def _invoke_chat(self, full_prompt: str):
+        """JSON 모드로 호출하되, 업체가 response_format을 거부(400)하면 옵션 없이 즉시 1회 재호출하고
+        이후 이 프로세스에선 JSON 모드를 끈다. 400 외 오류는 그대로 올려 기존 재시도 흐름을 탄다."""
+        global _json_mode_rejected
+        if not _json_mode_enabled():
+            return self._chat.invoke(full_prompt)
+        try:
+            return self._chat.invoke(full_prompt, **_JSON_MODE_KWARGS)
+        except Exception as e:  # noqa: BLE001
+            if not _is_bad_request(e):
+                raise
+            _json_mode_rejected = True
+            logger.warning("LLM 업체가 response_format(json_object)을 거부 — JSON 모드 비활성화 후 재호출 (%s)", type(e).__name__)
+            return self._chat.invoke(full_prompt)
 
     @staticmethod
     def _get_cached(cache_key: str) -> str | None:
@@ -221,7 +330,7 @@ def get_llm(temperature: float = 0.1, cache: bool = True) -> CachedLLM:
     # 호출 시점에 LLM_MODEL을 읽어 운영 중 조정 가능하게 한다 (#448 P2)
     model_name = os.getenv("LLM_MODEL", DEFAULT_MODEL)
     # HF Inference 튜닝 env도 호출 시점에 읽어, 프로세스 재시작 없이 반영되게 한다(운영 중 조정 가능).
-    #   HF_MAX_TOKENS: 응답 토큰 상한 — Qwen3-8B는 reasoning 이후 최종답을 내므로 작으면 content가
+    #   HF_MAX_TOKENS: 응답 토큰 상한 — reasoning 모델(Qwen3 등)은 reasoning 이후 최종답을 내므로 작으면 content가
     #     None으로 잘림(#438, 컨테이너 실측) → 기본값 크게(4096).
     #   HF_TIMEOUT: 응답 대기 상한(초, 기본 120). max_tokens를 키우면 함께 상향하되, Spring
     #     ai.server.read-timeout-ms(150000)보다 작게 유지할 것(#448 P1 — 역전 시 Spring이 먼저 끊음).
